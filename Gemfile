@@ -7,4 +7,6 @@ gem "sorbet-runtime"
 group :development do
   gem "debug"
   gem "rspec"
+  gem "sorbet"
+  gem "tapioca", require: false
 end
