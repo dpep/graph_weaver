@@ -62,12 +62,33 @@ Gotchas found:
   (`T.nilable(Date)`, `T::Array[StructTypes::Pet]`) and runtime type
   enforcement on bad wire data
 
+## Codegen: srb tc sees query result types (answered: yes)
+
+`lib/struct_codegen.rb` goes one step further than the runtime swap: it
+emits plain `# typed: strict` Ruby source from a query + schema — nested
+`T::Struct` classes, fully generated `from_h` casting code (no runtime
+reflection), and a sig'd `execute`.
+
+- source of truth: `queries/*.graphql`; regenerate with `bin/generate`
+  into `lib/generated/`; a spec asserts the checked-in output is current
+- queries are validated against the schema at generation time
+- `srb tc` statically checks result access end to end:
+  `result.person&.nmae` → `Method nmae does not exist on
+  PersonQuery::Result::Person`
+- custom scalar deserialization is inlined by the generator
+  (`Date.iso8601(...)`) via a scalar registry; nullability and list
+  casting come from the NON_NULL/LIST walk
+- note: generated `execute` runs against the schema directly, replacing
+  graphql-client at runtime entirely — the client's remaining value here
+  would be its HTTP adapter, which the generated code could target instead
+
 ## Open questions
 
-- fragments and interfaces/unions: the spike only handles plain field
+- fragments and interfaces/unions: both spikes only handle plain field
   selections; fragment spreads gather via `WithDefinition` spreads and unions
   dispatch on `__typename` — both need design for a struct emitter
-- static typing of query results: the structs exist only at runtime; getting
-  `srb tc` to see them per query needs codegen (tapioca-style DSL compiler
-  that parses `.graphql` files / Client.parse calls and writes rbi or
-  concrete struct definitions to disk)
+- codegen over HTTP: point the generated `execute` at a
+  `GraphQL::Client::HTTP` adapter (or plain Net::HTTP) instead of a local
+  schema, and drive generation from an introspection dump
+- name collisions: the generator disambiguates one level (field-name
+  prefix) and raises otherwise; a real gem needs a stable naming scheme
