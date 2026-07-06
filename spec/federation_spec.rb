@@ -1,5 +1,6 @@
 # typed: ignore — UserQuery is eval'd at runtime, invisible to srb
 require_relative "../lib/struct_codegen"
+require_relative "../lib/directive_defaults_patch"
 
 # Apollo Federation: a router exposes a supergraph whose SDL is annotated
 # with join__/link directives. From a client's perspective those are
@@ -16,10 +17,10 @@ describe "federation / supergraph" do
 
     directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
     directive @join__graph(name: String!, url: String!) on ENUM_VALUE
-    # note: graphql-ruby's SDL builder does not apply directive-argument
-    # defaults, so the non-null defaulted args from the real join v0.3
-    # spec (extension: Boolean! = false, ...) are omitted here
-    directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+    # the real join v0.3 directive shape, defaulted non-null args and all —
+    # loading it requires directive_defaults_patch (graphql-ruby drops
+    # directive-argument defaults when building from SDL)
+    directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
     directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
 
     scalar join__FieldSet
@@ -51,7 +52,7 @@ describe "federation / supergraph" do
   let(:source) do
     StructCodegen.new(
       schema:,
-      schema_const: "FederatedSchema",
+      executor_const: "FederatedSchema",
       query: "query($id: ID!) { user(id: $id) { id name petNames } }",
       module_name: "UserQuery",
     ).generate

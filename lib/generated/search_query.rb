@@ -10,8 +10,10 @@ module SearchQuery
     query($term: String!) {
       search(term: $term) {
         __typename
-        ... on Person {
+        ... on Named {
           name
+        }
+        ... on Person {
           birthday
         }
         ... on Pet {
@@ -21,7 +23,7 @@ module SearchQuery
     }
 
     fragment PetFields on Pet {
-      name
+      species
     }
   GRAPHQL
 
@@ -51,14 +53,23 @@ module SearchQuery
       class Pet < T::Struct
         extend T::Sig
 
+        class Species < T::Enum
+          enums do
+            Cat = new("CAT")
+            Dog = new("DOG")
+          end
+        end
+
         const :__typename, String
         const :name, String
+        const :species, Species
 
         sig { params(data: T::Hash[String, T.untyped]).returns(Pet) }
         def self.from_h(data)
           new(
             __typename: data.fetch("__typename"),
             name: data.fetch("name"),
+            species: Species.deserialize(data.fetch("species")),
           )
         end
       end
@@ -85,9 +96,9 @@ module SearchQuery
     end
   end
 
-  sig { params(variables: T::Hash[String, T.untyped]).returns(Result) }
-  def self.execute(variables = {})
-    result = Demo::Schema.execute(QUERY, variables: variables).to_h
+  sig { params(variables: T::Hash[String, T.untyped], executor: T.untyped).returns(Result) }
+  def self.execute(variables = {}, executor: Demo::Schema)
+    result = executor.execute(QUERY, variables: variables).to_h
     if (errors = result["errors"])
       raise "query failed: #{errors.inspect}"
     end

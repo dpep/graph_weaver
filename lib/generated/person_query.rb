@@ -64,9 +64,9 @@ module PersonQuery
     end
   end
 
-  sig { params(variables: T::Hash[String, T.untyped]).returns(Result) }
-  def self.execute(variables = {})
-    result = Demo::Schema.execute(QUERY, variables: variables).to_h
+  sig { params(variables: T::Hash[String, T.untyped], executor: T.untyped).returns(Result) }
+  def self.execute(variables = {}, executor: Demo::Schema)
+    result = executor.execute(QUERY, variables: variables).to_h
     if (errors = result["errors"])
       raise "query failed: #{errors.inspect}"
     end

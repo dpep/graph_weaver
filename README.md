@@ -125,13 +125,40 @@ design:
   apollo-federation) is a separate exploration — potentially relevant to
   autographql
 
+## Round 2: enums, interface conditions, loaders, dynamic mode, HTTP
+
+- **enums** generate `T::Enum` classes (`Species::Dog`), deserialized via
+  `Species.deserialize(...)` in `from_h`; values sorted so output is
+  deterministic across schema sources
+- **interface fragment conditions** (`... on Named { name }`) apply via
+  `schema.possible_types`, not just exact type-name match. Interface-typed
+  *fields* (a field returning `Named`) are still open — they'd emit like
+  unions with `__typename` dispatch
+- **SchemaLoader** accepts both formats a remote service can hand you:
+  introspection dump (`.json`) or SDL (`.graphql`/`.gql`); both generate
+  byte-identically to the live schema class
+- **dynamic mode**: `StructCodegen.load(...)` generates + evals in one
+  step — no build artifact, same runtime semantics, right for development
+  or one-off scripts. Tradeoff: the module is invisible to `srb tc`, so
+  static checking of result access needs the build step
+- **HTTP transport**: generated `execute` takes `executor:` — anything
+  with `execute(query, variables:)` returning `{"data" => ...}`.
+  `HttpExecutor` (Net::HTTP POST) runs the same generated structs against
+  a live server (`spec/http_spec.rb` proves it against a local WEBrick
+  serving Demo::Schema)
+- **directive defaults gap**: root cause found —
+  `BuildFromDefinition#prepare_directives` passes only usage-site args
+  while `Directive#initialize` validates all defined args without
+  applying `default_value`. `lib/directive_defaults_patch.rb` prepends
+  the fix; the federation spec now loads the *real* join v0.3 SDL.
+  Present in graphql 2.6.3 (latest) — worth an upstream issue/PR
+
 ## Open questions
 
-- interfaces: fragment conditions on interfaces need `possible_types`
-  awareness in `applies?` (currently exact-name match only)
-- enums: unsupported in codegen — natural mapping is generated `T::Enum`s
-- codegen over HTTP: point the generated `execute` at a
-  `GraphQL::Client::HTTP` adapter (or plain Net::HTTP) instead of a local
-  schema
+- interface-typed fields (vs fragment conditions, which work)
 - name collisions: the generator disambiguates one level (field-name
-  prefix) and raises otherwise; a real gem needs a stable naming scheme
+  prefix) and raises otherwise. A real gem needs a *stable* naming scheme:
+  names shouldn't shift when unrelated selections are added (generated
+  code is checked in and referenced by app code), which argues for
+  path-based or explicitly-aliased names over first-come-first-served
+- mutations/subscriptions (only query operations generate)

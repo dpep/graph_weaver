@@ -9,4 +9,5 @@ group :development do
   gem "rspec"
   gem "sorbet"
   gem "tapioca", require: false
+  gem "webrick"
 end

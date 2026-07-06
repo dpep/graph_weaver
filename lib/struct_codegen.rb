@@ -11,8 +11,9 @@ require "sorbet-runtime"
 # only at runtime), the output is source on disk — srb tc sees the exact
 # result type of each query.
 #
-# Supports plain fields, inline fragments, named fragment spreads, and
-# unions (dispatch on __typename). Interfaces and enums are still open.
+# Supports plain fields, inline fragments, named fragment spreads
+# (including interface type conditions), unions (dispatch on __typename),
+# and enums (generated T::Enum). Interface-typed *fields* are still open.
 class StructCodegen
   # sorbet types for scalars
   SCALARS = {
@@ -122,6 +123,29 @@ class StructCodegen
     def nested = self
   end
 
+  class EnumNode
+    attr_reader :class_name, :values
+
+    def initialize(class_name, values)
+      @class_name = class_name
+      @values = values
+    end
+
+    def bare_type = class_name
+
+    def prop_type
+      "T.nilable(#{bare_type})"
+    end
+
+    def cast(expr, _depth)
+      "#{class_name}.deserialize(#{expr})"
+    end
+
+    def identity? = false
+    def non_null? = false
+    def nested = self
+  end
+
   class UnionNode
     attr_reader :class_name, :members # graphql type name => ObjectNode
 
@@ -145,11 +169,25 @@ class StructCodegen
     def nested = self
   end
 
-  def initialize(schema:, schema_const:, query:, module_name:)
+  # executor_const names anything responding to
+  # `execute(query, variables:)` whose result `to_h`s into
+  # {"data" => ..., "errors" => ...} — a Schema class for in-process
+  # execution, or an HttpExecutor for a remote endpoint. The generated
+  # execute also accepts an executor: override at runtime.
+  def initialize(schema:, executor_const:, query:, module_name:)
     @schema = schema
-    @schema_const = schema_const
+    @executor_const = executor_const
     @query = query.strip
     @module_name = module_name
+  end
+
+  # Development convenience: generate + eval in one step, no build
+  # artifact or checked-in file. Same runtime semantics as the generated
+  # file, but invisible to srb tc — use the build step for static typing.
+  def self.load(schema:, executor_const:, query:, module_name:)
+    source = new(schema:, executor_const:, query:, module_name:).generate
+    Object.class_eval(source, "(struct_codegen)", 1)
+    Object.const_get(module_name)
   end
 
   def generate
@@ -185,9 +223,9 @@ class StructCodegen
     out << ""
     emit_nested(root, out, 1)
     out << ""
-    out << "  sig { params(variables: T::Hash[String, T.untyped]).returns(Result) }"
-    out << "  def self.execute(variables = {})"
-    out << "    result = #{@schema_const}.execute(QUERY, variables: variables).to_h"
+    out << "  sig { params(variables: T::Hash[String, T.untyped], executor: T.untyped).returns(Result) }"
+    out << "  def self.execute(variables = {}, executor: #{@executor_const})"
+    out << "    result = executor.execute(QUERY, variables: variables).to_h"
     out << "    if (errors = result[\"errors\"])"
     out << "      raise \"query failed: \#{errors.inspect}\""
     out << "    end"
@@ -225,8 +263,17 @@ class StructCodegen
     out
   end
 
+  # A fragment's type condition applies when it names this type exactly,
+  # or an interface/union this type belongs to (`... on Named { ... }`).
   def applies?(condition, type)
-    condition.nil? || condition == type.graphql_name
+    return true if condition.nil? || condition == type.graphql_name
+
+    condition_type = @schema.get_type(condition)
+    return false unless condition_type
+
+    kind = condition_type.kind.name
+    (kind == "INTERFACE" || kind == "UNION") &&
+      @schema.possible_types(condition_type).include?(type)
   end
 
   def object_node(type, selections, class_name)
@@ -250,6 +297,11 @@ class StructCodegen
         when "UNION"
           name = pick_name(core.graphql_name, key, taken)
           type_ref(field_type) { union_node(core, sub_selections, name) }
+        when "ENUM"
+          name = pick_name(core.graphql_name, key, taken)
+          # sorted so output is deterministic across schema sources
+          # (SDL round-trips reorder values alphabetically)
+          type_ref(field_type) { EnumNode.new(name, core.values.keys.sort) }
         when "SCALAR"
           type_ref(field_type) { Scalar.new(core.graphql_name) }
         else
@@ -304,7 +356,23 @@ class StructCodegen
   end
 
   def emit_nested(node, out, indent)
-    node.is_a?(UnionNode) ? emit_union(node, out, indent) : emit_object(node, out, indent)
+    case node
+    when UnionNode then emit_union(node, out, indent)
+    when EnumNode then emit_enum(node, out, indent)
+    else emit_object(node, out, indent)
+    end
+  end
+
+  def emit_enum(node, out, indent)
+    pad = "  " * indent
+
+    out << "#{pad}class #{node.class_name} < T::Enum"
+    out << "#{pad}  enums do"
+    node.values.each do |value|
+      out << "#{pad}    #{ActiveSupport::Inflector.camelize(value.downcase)} = new(#{value.inspect})"
+    end
+    out << "#{pad}  end"
+    out << "#{pad}end"
   end
 
   def emit_object(node, out, indent)

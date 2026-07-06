@@ -4,12 +4,12 @@ require "graphql"
 # A small in-process schema to query against, including a custom scalar
 # (Date) to explore how graphql-client handles deserialization.
 module Demo
-  Pet = Struct.new(:id, :name, keyword_init: true)
+  Pet = Struct.new(:id, :name, :species, keyword_init: true)
   Person = Struct.new(:id, :name, :birthday, :pets, keyword_init: true)
 
   PETS = [
-    Pet.new(id: "1", name: "Shelby"),
-    Pet.new(id: "2", name: "Brownie"),
+    Pet.new(id: "1", name: "Shelby", species: "DOG"),
+    Pet.new(id: "2", name: "Brownie", species: "CAT"),
   ]
 
   PEOPLE = [
@@ -28,15 +28,32 @@ module Demo
     end
   end
 
+  class SpeciesType < GraphQL::Schema::Enum
+    graphql_name "Species"
+
+    value "DOG"
+    value "CAT"
+  end
+
+  module NamedType
+    include GraphQL::Schema::Interface
+    graphql_name "Named"
+
+    field :name, String, null: false
+  end
+
   class PetType < GraphQL::Schema::Object
     graphql_name "Pet"
+    implements NamedType
 
     field :id, ID, null: false
     field :name, String, null: false
+    field :species, SpeciesType, null: false
   end
 
   class PersonType < GraphQL::Schema::Object
     graphql_name "Person"
+    implements NamedType
 
     field :id, ID, null: false
     field :name, String, null: false

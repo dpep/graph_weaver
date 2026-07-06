@@ -45,7 +45,7 @@ describe "introspection" do
     %w[person search].each do |base|
       source = StructCodegen.new(
         schema: rebuilt,
-        schema_const: "Demo::Schema",
+        executor_const: "Demo::Schema",
         query: File.read(File.expand_path("../queries/#{base}.graphql", __dir__)),
         module_name: "#{base.capitalize}Query",
       ).generate

@@ -9,7 +9,7 @@ describe StructCodegen do
     %w[person search].each do |base|
       source = described_class.new(
         schema: Demo::Schema,
-        schema_const: "Demo::Schema",
+        executor_const: "Demo::Schema",
         query: File.read(File.join(root, "queries/#{base}.graphql")),
         module_name: "#{base.capitalize}Query",
       ).generate
@@ -21,7 +21,7 @@ describe StructCodegen do
   it "rejects queries that do not validate against the schema" do
     codegen = described_class.new(
       schema: Demo::Schema,
-      schema_const: "Demo::Schema",
+      executor_const: "Demo::Schema",
       query: "{ nope }",
       module_name: "Bad",
     )
@@ -57,23 +57,45 @@ describe StructCodegen do
       expect(results.map(&:__typename)).to eq %w[Person Pet]
     end
 
-    it "casts member fields, including fragment-spread selections" do
+    it "casts member fields, including interface-condition and fragment-spread selections" do
       person, pet = results
 
-      expect(person.name).to eq "Daniel"
+      expect(person.name).to eq "Daniel" # selected via `... on Named`
       expect(person.birthday).to eq Date.new(1990, 6, 15)
-      expect(pet.name).to eq "Shelby" # selected via the PetFields fragment
+      expect(pet.name).to eq "Shelby"
+      expect(pet.species).to eq SearchQuery::Result::SearchResult::Pet::Species::Dog
+    end
+
+    it "deserializes enums into generated T::Enums" do
+      species = SearchQuery::Result::SearchResult::Pet::Species
+
+      expect(species.values).to eq [species::Cat, species::Dog]
+      expect(species::Dog.serialize).to eq "DOG"
     end
 
     it "requires __typename on union selections" do
       codegen = described_class.new(
         schema: Demo::Schema,
-        schema_const: "Demo::Schema",
+        executor_const: "Demo::Schema",
         query: 'query { search(term: "x") { ... on Pet { name } } }',
         module_name: "Bad",
       )
 
       expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
+    end
+  end
+
+  describe ".load (dynamic mode)" do
+    it "generates and evals a module on the fly, no build artifact" do
+      mod = described_class.load(
+        schema: Demo::Schema,
+        executor_const: "Demo::Schema",
+        query: "query { people { name } }",
+        module_name: "DynamicPeopleQuery",
+      )
+
+      result = mod.execute
+      expect(result.people.map(&:name)).to eq ["Daniel"]
     end
   end
 end
