@@ -10,6 +10,9 @@ require "sorbet-runtime"
 # method. Unlike StructTypes (which builds classes at parse time, visible
 # only at runtime), the output is source on disk — srb tc sees the exact
 # result type of each query.
+#
+# Supports plain fields, inline fragments, named fragment spreads, and
+# unions (dispatch on __typename). Interfaces and enums are still open.
 class StructCodegen
   # sorbet types for scalars
   SCALARS = {
@@ -49,7 +52,7 @@ class StructCodegen
     end
 
     def non_null? = false
-    def object = nil
+    def nested = nil
   end
 
   class NonNull
@@ -62,7 +65,7 @@ class StructCodegen
     def cast(expr, depth) = @of.cast(expr, depth)
     def identity? = @of.identity?
     def non_null? = true
-    def object = @of.object
+    def nested = @of.nested
   end
 
   class List
@@ -91,7 +94,7 @@ class StructCodegen
 
     def identity? = @of.identity?
     def non_null? = false
-    def object = @of.object
+    def nested = @of.nested
   end
 
   class ObjectNode
@@ -110,13 +113,36 @@ class StructCodegen
       "T.nilable(#{bare_type})"
     end
 
-    def cast(expr, depth)
+    def cast(expr, _depth)
       "#{class_name}.from_h(#{expr})"
     end
 
     def identity? = false
     def non_null? = false
-    def object = self
+    def nested = self
+  end
+
+  class UnionNode
+    attr_reader :class_name, :members # graphql type name => ObjectNode
+
+    def initialize(class_name, members)
+      @class_name = class_name
+      @members = members
+    end
+
+    def bare_type = "#{class_name}::Type"
+
+    def prop_type
+      "T.nilable(#{bare_type})"
+    end
+
+    def cast(expr, _depth)
+      "#{class_name}.from_h(#{expr})"
+    end
+
+    def identity? = false
+    def non_null? = false
+    def nested = self
   end
 
   def initialize(schema:, schema_const:, query:, module_name:)
@@ -133,6 +159,10 @@ class StructCodegen
     end
 
     doc = GraphQL.parse(@query)
+    @fragments = doc.definitions
+      .grep(GraphQL::Language::Nodes::FragmentDefinition)
+      .to_h { |fragment| [fragment.name, fragment] }
+
     operation = doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
     unless operation&.operation_type == "query"
       raise ArgumentError, "expected a query operation"
@@ -153,7 +183,7 @@ class StructCodegen
     @query.each_line { |line| out << "    #{line}".rstrip }
     out << "  GRAPHQL"
     out << ""
-    emit_object(root, out, 1)
+    emit_nested(root, out, 1)
     out << ""
     out << "  sig { params(variables: T::Hash[String, T.untyped]).returns(Result) }"
     out << "  def self.execute(variables = {})"
@@ -171,38 +201,80 @@ class StructCodegen
 
   private
 
-  def object_node(type, selections, class_name)
-    node = ObjectNode.new(class_name)
-    child_names = [class_name]
-
-    # gather Field selections by result name (alias-aware), skipping the
-    # __typename fields; fragments are out of scope for this spike
-    gathered = {}
+  # Flatten a selection set as seen by `type`: plain fields collect
+  # directly; inline fragments and named spreads recurse when their type
+  # condition matches (exact name match — interface conditions are out of
+  # scope for this spike).
+  def gather(type, selections, out = {})
     selections.each do |selection|
-      unless selection.is_a?(GraphQL::Language::Nodes::Field)
-        raise NotImplementedError, "only plain field selections are supported: #{selection.class}"
+      case selection
+      when GraphQL::Language::Nodes::Field
+        (out[selection.alias || selection.name] ||= []) << selection
+      when GraphQL::Language::Nodes::InlineFragment
+        gather(type, selection.selections, out) if applies?(selection.type&.name, type)
+      when GraphQL::Language::Nodes::FragmentSpread
+        fragment = @fragments.fetch(selection.name) do
+          raise ArgumentError, "unknown fragment: #{selection.name}"
+        end
+        gather(type, fragment.selections, out) if applies?(fragment.type.name, type)
+      else
+        raise NotImplementedError, "unsupported selection: #{selection.class}"
       end
-      next if selection.name.start_with?("__")
-
-      (gathered[selection.alias || selection.name] ||= []) << selection
     end
 
-    gathered.each do |key, nodes|
-      field_type = @schema.get_field(type.graphql_name, nodes.first.name).type
-      sub_selections = nodes.flat_map(&:selections)
+    out
+  end
 
-      child = if (core = unwrap(field_type)).kind.name == "OBJECT"
-        name = pick_name(core.graphql_name, key, child_names)
-        type_ref(field_type) { object_node(core, sub_selections, name) }
+  def applies?(condition, type)
+    condition.nil? || condition == type.graphql_name
+  end
+
+  def object_node(type, selections, class_name)
+    node = ObjectNode.new(class_name)
+    taken = [class_name]
+
+    gather(type, selections).each do |key, field_nodes|
+      field_name = field_nodes.first.name
+      prop = ActiveSupport::Inflector.underscore(key)
+
+      child = if field_name == "__typename"
+        NonNull.new(Scalar.new("String"))
       else
-        type_ref(field_type) { Scalar.new(core.graphql_name) }
+        field_type = @schema.get_field(type.graphql_name, field_name).type
+        sub_selections = field_nodes.flat_map(&:selections)
+
+        case (core = unwrap(field_type)).kind.name
+        when "OBJECT"
+          name = pick_name(core.graphql_name, key, taken)
+          type_ref(field_type) { object_node(core, sub_selections, name) }
+        when "UNION"
+          name = pick_name(core.graphql_name, key, taken)
+          type_ref(field_type) { union_node(core, sub_selections, name) }
+        when "SCALAR"
+          type_ref(field_type) { Scalar.new(core.graphql_name) }
+        else
+          raise NotImplementedError, "unsupported kind: #{core.kind.name}"
+        end
       end
 
-      prop = ActiveSupport::Inflector.underscore(key)
       node.fields << ObjectNode::Field.new(prop, key, child)
     end
 
     node
+  end
+
+  # One member struct per possible type; wire dispatch reads __typename,
+  # so the query must select it on the union.
+  def union_node(type, selections, class_name)
+    unless gather(type, selections).key?("__typename")
+      raise ArgumentError, "select __typename on #{type.graphql_name} so #{class_name} can dispatch"
+    end
+
+    members = @schema.possible_types(type).to_h do |possible|
+      [possible.graphql_name, object_node(possible, selections, possible.graphql_name)]
+    end
+
+    UnionNode.new(class_name, members)
   end
 
   # rebuild the NON_NULL/LIST wrappers around the core node
@@ -212,10 +284,8 @@ class StructCodegen
       NonNull.new(type_ref(type.of_type, &core))
     when "LIST"
       List.new(type_ref(type.of_type, &core))
-    when "OBJECT", "SCALAR"
-      core.call
     else
-      raise NotImplementedError, "unsupported kind: #{type.kind.name}"
+      core.call
     end
   end
 
@@ -233,6 +303,10 @@ class StructCodegen
     candidate
   end
 
+  def emit_nested(node, out, indent)
+    node.is_a?(UnionNode) ? emit_union(node, out, indent) : emit_object(node, out, indent)
+  end
+
   def emit_object(node, out, indent)
     pad = "  " * indent
 
@@ -240,8 +314,8 @@ class StructCodegen
     out << "#{pad}  extend T::Sig"
     out << ""
 
-    node.fields.filter_map { |field| field.node.object }.each do |child|
-      emit_object(child, out, indent + 1)
+    node.fields.filter_map { |field| field.node.nested }.each do |child|
+      emit_nested(child, out, indent + 1)
       out << ""
     end
 
@@ -257,6 +331,34 @@ class StructCodegen
       out << "#{pad}      #{field.prop}: #{field_cast(field)},"
     end
     out << "#{pad}    )"
+    out << "#{pad}  end"
+    out << "#{pad}end"
+  end
+
+  def emit_union(node, out, indent)
+    pad = "  " * indent
+
+    out << "#{pad}module #{node.class_name}"
+    out << "#{pad}  extend T::Sig"
+    out << ""
+
+    node.members.each_value do |member|
+      emit_object(member, out, indent + 1)
+      out << ""
+    end
+
+    member_names = node.members.values.map(&:class_name)
+    type_alias = member_names.size == 1 ? member_names.first : "T.any(#{member_names.join(", ")})"
+    out << "#{pad}  Type = T.type_alias { #{type_alias} }"
+    out << ""
+    out << "#{pad}  sig { params(data: T::Hash[String, T.untyped]).returns(Type) }"
+    out << "#{pad}  def self.from_h(data)"
+    out << "#{pad}    case (typename = data.fetch(\"__typename\"))"
+    node.members.each do |graphql_name, member|
+      out << "#{pad}    when #{graphql_name.inspect} then #{member.class_name}.from_h(data)"
+    end
+    out << "#{pad}    else raise \"unexpected __typename: \#{typename}\""
+    out << "#{pad}    end"
     out << "#{pad}  end"
     out << "#{pad}end"
   end

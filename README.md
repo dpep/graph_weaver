@@ -82,13 +82,56 @@ reflection), and a sig'd `execute`.
   graphql-client at runtime entirely — the client's remaining value here
   would be its HTTP adapter, which the generated code could target instead
 
+## Fragments & unions (answered for codegen)
+
+`queries/search.graphql` + `lib/generated/search_query.rb` exercise the
+design:
+
+- inline fragments and named fragment spreads are flattened into their
+  matching member's selection (exact type-name condition match; interface
+  conditions still open)
+- unions emit a module per selection site: one `T::Struct` per possible
+  type, a `Type = T.type_alias { T.any(...) }`, and a `from_h` that
+  dispatches on `__typename` — codegen refuses union selections that
+  don't select `__typename`
+- every possible type gets a member struct even without a fragment (it
+  still carries `__typename`), so dispatch is total
+
+## Introspection / __type metadata
+
+- `__type` / `__schema` queries work against the demo schema as expected
+  (see `spec/introspection_spec.rb` for the shapes)
+- the key result: `GraphQL::Schema.from_introspection(Demo::Schema.as_json)`
+  produces a schema that codegen runs against **byte-identically** — so
+  generation works for remote APIs known only via an introspection dump.
+  Custom scalar handling survives because the codegen scalar registry is
+  keyed by type *name*, unlike runtime `coerce_input` which needs the live
+  schema class (the caveat that broke graphql-client's scalar casting)
+
+## Federation / supergraph
+
+- join__/link-annotated supergraph SDL parses via
+  `GraphQL::Schema.from_definition`, and codegen runs against it
+  unchanged — the directives are transparent to result typing
+  (`spec/federation_spec.rb` generates from a mini supergraph and casts a
+  response with no live subgraphs)
+- gotcha: graphql-ruby's SDL builder does not apply directive-argument
+  defaults, so real Apollo `join v0.3` SDL (non-null defaulted args like
+  `extension: Boolean! = false`) fails to load unless those args are
+  provided or the directive defs are trimmed — a compatibility issue a
+  real tool would need to patch around
+- client-side, federation needs nothing more: you query the router like
+  any schema. The *server-side* angle (emitting `@key`/`@external` via
+  apollo-federation) is a separate exploration — potentially relevant to
+  autographql
+
 ## Open questions
 
-- fragments and interfaces/unions: both spikes only handle plain field
-  selections; fragment spreads gather via `WithDefinition` spreads and unions
-  dispatch on `__typename` — both need design for a struct emitter
+- interfaces: fragment conditions on interfaces need `possible_types`
+  awareness in `applies?` (currently exact-name match only)
+- enums: unsupported in codegen — natural mapping is generated `T::Enum`s
 - codegen over HTTP: point the generated `execute` at a
   `GraphQL::Client::HTTP` adapter (or plain Net::HTTP) instead of a local
-  schema, and drive generation from an introspection dump
+  schema
 - name collisions: the generator disambiguates one level (field-name
   prefix) and raises otherwise; a real gem needs a stable naming scheme

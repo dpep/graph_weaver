@@ -44,6 +44,15 @@ module Demo
     field :pets, [PetType], null: false
   end
 
+  class SearchResultType < GraphQL::Schema::Union
+    graphql_name "SearchResult"
+    possible_types PersonType, PetType
+
+    def self.resolve_type(object, _ctx)
+      object.is_a?(Person) ? PersonType : PetType
+    end
+  end
+
   class QueryType < GraphQL::Schema::Object
     graphql_name "Query"
 
@@ -59,6 +68,14 @@ module Demo
 
     def people
       PEOPLE
+    end
+
+    field :search, [SearchResultType], null: false do
+      argument :term, String, required: true
+    end
+
+    def search(term:)
+      (PEOPLE + PETS).select { |record| record.name.downcase.include?(term.downcase) }
     end
   end
 

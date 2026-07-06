@@ -1,0 +1,16 @@
+query($term: String!) {
+  search(term: $term) {
+    __typename
+    ... on Person {
+      name
+      birthday
+    }
+    ... on Pet {
+      ...PetFields
+    }
+  }
+}
+
+fragment PetFields on Pet {
+  name
+}

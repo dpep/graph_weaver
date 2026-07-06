@@ -1,20 +1,25 @@
 #!/usr/bin/env ruby
 # regenerate lib/generated/ from queries/
 
+require "fileutils"
 require_relative "../lib/schema"
 require_relative "../lib/struct_codegen"
 
 root = File.expand_path("..", __dir__)
-query = File.read(File.join(root, "queries/person.graphql"))
+FileUtils.mkdir_p(File.join(root, "lib/generated"))
 
-source = StructCodegen.new(
-  schema: Demo::Schema,
-  schema_const: "Demo::Schema",
-  query:,
-  module_name: "PersonQuery",
-).generate
+Dir[File.join(root, "queries/*.graphql")].sort.each do |query_path|
+  base = File.basename(query_path, ".graphql")
+  module_name = "#{base.capitalize}Query"
 
-path = File.join(root, "lib/generated/person_query.rb")
-Dir.mkdir(File.dirname(path)) unless Dir.exist?(File.dirname(path))
-File.write(path, source)
-puts "wrote #{path}"
+  source = StructCodegen.new(
+    schema: Demo::Schema,
+    schema_const: "Demo::Schema",
+    query: File.read(query_path),
+    module_name:,
+  ).generate
+
+  path = File.join(root, "lib/generated/#{base}_query.rb")
+  File.write(path, source)
+  puts "wrote #{path}"
+end
