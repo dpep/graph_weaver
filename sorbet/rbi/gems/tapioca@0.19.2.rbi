@@ -3250,6 +3250,7 @@ Tapioca::Runtime::SourceLocation::EVAL_SOURCE_FILE_PATTERN = T.let(T.unsafe(nil)
 # pkg:gem/tapioca#lib/tapioca/runtime/trackers/autoload.rb:6
 module Tapioca::Runtime::Trackers
   class << self
+    # pkg:gem/tapioca#lib/tapioca/runtime/trackers.rb:26
     def disable_all!; end
 
     # pkg:gem/tapioca#lib/tapioca/runtime/trackers.rb:31

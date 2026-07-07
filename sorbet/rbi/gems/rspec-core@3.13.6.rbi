@@ -257,93 +257,6 @@ class RSpec::Core::BacktraceFormatter
   def matches?(patterns, line); end
 end
 
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:3
-module RSpec::Core::Bisect; end
-
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:8
-class RSpec::Core::Bisect::BisectFailedError < ::StandardError
-  class << self
-    # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:9
-    def for_failed_spec_run(spec_output); end
-  end
-end
-
-# Wraps a pipe to support sending objects between a child and
-# parent process. Where supported, encoding is explicitly
-# set to ensure binary data is able to pass from child to
-# parent.
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:36
-class RSpec::Core::Bisect::Channel
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:41
-  def initialize; end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:62
-  def close; end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:56
-  def receive; end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:50
-  def send(message); end
-end
-
-# pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:38
-RSpec::Core::Bisect::Channel::MARSHAL_DUMP_ENCODING = T.let(T.unsafe(nil), Encoding)
-
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-class RSpec::Core::Bisect::ExampleSetDescriptor < ::Struct
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-  def all_example_ids; end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-  def all_example_ids=(_); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-  def failed_example_ids; end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-  def failed_example_ids=(_); end
-
-  class << self
-    # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-    def [](*_arg0); end
-
-    # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-    def inspect; end
-
-    # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-    def keyword_init?; end
-
-    # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-    def members; end
-
-    # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:5
-    def new(*_arg0); end
-  end
-end
-
-# Wraps a `formatter` providing a simple means to notify it in place
-# of an `RSpec::Core::Reporter`, without involving configuration in
-# any way.
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:19
-class RSpec::Core::Bisect::Notifier
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:20
-  def initialize(formatter); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/bisect/utilities.rb:24
-  def publish(event, *args); end
-end
-
 # Stores runtime configuration information.
 #
 # Configuration options are loaded from multiple files and joined together
@@ -4092,33 +4005,6 @@ module RSpec::Core::Formatters
   end
 end
 
-# Contains common logic for formatters used by `--bisect` to communicate results
-# back to the bisect runner.
-#
-# Subclasses must define a `notify_results(all_example_ids, failed_example_ids)`
-# method.
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/formatters/base_bisect_formatter.rb:12
-class RSpec::Core::Formatters::BaseBisectFormatter
-  # pkg:gem/rspec-core#lib/rspec/core/formatters/base_bisect_formatter.rb:17
-  def initialize(expected_failures); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/formatters/base_bisect_formatter.rb:23
-  def example_failed(notification); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/formatters/base_bisect_formatter.rb:27
-  def example_finished(notification); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/formatters/base_bisect_formatter.rb:37
-  def start_dump(_notification); end
-
-  class << self
-    # pkg:gem/rspec-core#lib/rspec/core/formatters/base_bisect_formatter.rb:13
-    def inherited(formatter); end
-  end
-end
-
 # RSpec's built-in formatters are all subclasses of
 # RSpec::Core::Formatters::BaseFormatter.
 #
@@ -4239,24 +4125,6 @@ class RSpec::Core::Formatters::BaseTextFormatter < ::RSpec::Core::Formatters::Ba
   #
   # pkg:gem/rspec-core#lib/rspec/core/formatters/base_text_formatter.rb:53
   def seed(notification); end
-end
-
-# Used by `--bisect`. When it shells out and runs a portion of the suite, it uses
-# this formatter as a means to have the status reported back to it, via DRb.
-#
-# Note that since DRb calls carry considerable overhead compared to normal
-# method calls, we try to minimize the number of DRb calls for perf reasons,
-# opting to communicate only at the start and the end of the run, rather than
-# after each example.
-# @private
-#
-# pkg:gem/rspec-core#lib/rspec/core/formatters/bisect_drb_formatter.rb:15
-class RSpec::Core::Formatters::BisectDRbFormatter < ::RSpec::Core::Formatters::BaseBisectFormatter
-  # pkg:gem/rspec-core#lib/rspec/core/formatters/bisect_drb_formatter.rb:16
-  def initialize(_output); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/formatters/bisect_drb_formatter.rb:23
-  def notify_results(results); end
 end
 
 # ConsoleCodes provides helpers for formatting console output
@@ -5408,15 +5276,6 @@ module RSpec::Core::HashImitatable
   def deconstruct_keys(*args, &block); end
 
   # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
-  def deep_merge(*args, &block); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
-  def deep_merge!(*args, &block); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
-  def deep_merge?(*args, &block); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
   def default(*args, &block); end
 
   # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
@@ -5481,12 +5340,6 @@ module RSpec::Core::HashImitatable
 
   # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
   def except(*args, &block); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
-  def except!(*args, &block); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
-  def extract!(*args, &block); end
 
   # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
   def fetch(*args, &block); end
@@ -5637,9 +5490,6 @@ module RSpec::Core::HashImitatable
 
   # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
   def slice(*args, &block); end
-
-  # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
-  def slice!(*args, &block); end
 
   # pkg:gem/rspec-core#lib/rspec/core/metadata.rb:367
   def slice_after(*args, &block); end

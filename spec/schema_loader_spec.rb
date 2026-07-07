@@ -1,10 +1,10 @@
 require "tmpdir"
-require_relative "../lib/schema_loader"
-require_relative "../lib/struct_codegen"
+
+
 
 # Both formats a remote service can hand you — introspection JSON or SDL —
 # load into schemas that generate byte-identical output to the live class.
-describe SchemaLoader do
+describe GraphWeaver::SchemaLoader do
   around do |example|
     Dir.mktmpdir { |dir| @dir = dir; example.run }
   end
@@ -13,14 +13,14 @@ describe SchemaLoader do
     root = File.expand_path("..", __dir__)
 
     %w[add_pet named person search].each do |base|
-      source = StructCodegen.new(
+      source = GraphWeaver::Codegen.new(
         schema:,
         executor_const: "Demo::Schema",
-        query: File.read(File.join(root, "queries/#{base}.graphql")),
-        module_name: "#{ActiveSupport::Inflector.camelize(base)}Query",
+        query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
+        module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
 
-      expect(source).to eq File.read(File.join(root, "lib/generated/#{base}_query.rb"))
+      expect(source).to eq File.read(File.join(root, "spec/generated/#{base}_query.rb"))
     end
   end
 

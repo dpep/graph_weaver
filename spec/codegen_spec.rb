@@ -1,10 +1,10 @@
-require_relative "../lib/struct_codegen"
-require_relative "../lib/generated/add_pet_query"
-require_relative "../lib/generated/named_query"
-require_relative "../lib/generated/person_query"
-require_relative "../lib/generated/search_query"
 
-describe StructCodegen do
+require_relative "generated/add_pet_query"
+require_relative "generated/named_query"
+require_relative "generated/person_query"
+require_relative "generated/search_query"
+
+describe GraphWeaver::Codegen do
   it "keeps the checked-in generated files up to date" do
     root = File.expand_path("..", __dir__)
 
@@ -12,11 +12,11 @@ describe StructCodegen do
       source = described_class.new(
         schema: Demo::Schema,
         executor_const: "Demo::Schema",
-        query: File.read(File.join(root, "queries/#{base}.graphql")),
-        module_name: "#{ActiveSupport::Inflector.camelize(base)}Query",
+        query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
+        module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
 
-      expect(File.read(File.join(root, "lib/generated/#{base}_query.rb"))).to eq source
+      expect(File.read(File.join(root, "spec/generated/#{base}_query.rb"))).to eq source
     end
   end
 

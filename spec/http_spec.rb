@@ -1,10 +1,10 @@
 require "webrick"
-require_relative "../lib/http_executor"
-require_relative "../lib/generated/person_query"
+
+require_relative "generated/person_query"
 
 # Generated modules run against a remote server by swapping the executor:
 # same structs, same casting, HTTP transport.
-describe HttpExecutor do
+describe GraphWeaver::HttpExecutor do
   before(:all) do
     @server = WEBrick::HTTPServer.new(
       Port: 0,

@@ -52,7 +52,7 @@ directive_defaults_patch until upstream fix ships).
    on abstract selections), fragment reuse across queries, directives on
    selections (@skip/@include make non-null fields nullable).
 7. Tapioca DSL compiler over dynamic mode (idea from graphql-client
-   PR #7): RBI the StructCodegen.load-eval'd modules so development mode
+   PR #7): RBI the GraphWeaver::Codegen.load-eval'd modules so development mode
    gets static types without the bin/generate build step — tapioca is
    already in every Sorbet shop's workflow. Upstream's
    Tapioca::Dsl::Helpers::GraphqlTypeHelper is prior art for type mapping.
@@ -62,7 +62,7 @@ directive_defaults_patch until upstream fix ships).
 - rmosolgo/graphql-ruby#5659 (directive-argument defaults fix; our branch
   `directive-argument-defaults` in ~/code/lib/ruby/graphql, pushed to the
   dpep fork, PR in draft). When it ships in a release: bump graphql,
-  delete lib/directive_defaults_patch.rb + its requires (TODO in file).
+  delete lib/graph_weaver/directive_defaults_patch.rb + its requires (TODO in file).
 
 ## Gotchas worth remembering
 

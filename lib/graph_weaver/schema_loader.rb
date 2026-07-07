@@ -6,7 +6,7 @@ require "json"
 
 # Load a schema for codegen from either format a remote service can hand
 # you: an introspection dump (.json) or SDL (.graphql/.gql).
-module SchemaLoader
+module GraphWeaver::SchemaLoader
   def self.load(path)
     case File.extname(path)
     when ".json"

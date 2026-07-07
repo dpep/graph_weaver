@@ -1,6 +1,6 @@
 # typed: ignore — UserQuery is eval'd at runtime, invisible to srb
-require_relative "../lib/struct_codegen"
-require_relative "../lib/directive_defaults_patch"
+
+require "graph_weaver/directive_defaults_patch"
 
 # Apollo Federation: a router exposes a supergraph whose SDL is annotated
 # with join__/link directives. From a client's perspective those are
@@ -50,7 +50,7 @@ describe "federation / supergraph" do
   let(:schema) { GraphQL::Schema.from_definition(SUPERGRAPH_SDL) }
 
   let(:source) do
-    StructCodegen.new(
+    GraphWeaver::Codegen.new(
       schema:,
       executor_const: "FederatedSchema",
       query: "query($id: ID!) { user(id: $id) { id name petNames } }",

@@ -1,25 +1,25 @@
 #!/usr/bin/env ruby
-# regenerate lib/generated/ from queries/
+# regenerate spec/generated/ from spec/queries/
 
 require "fileutils"
-require_relative "../lib/schema"
-require_relative "../lib/struct_codegen"
+require_relative "../lib/graph_weaver"
+require_relative "../spec/support/schema"
 
 root = File.expand_path("..", __dir__)
-FileUtils.mkdir_p(File.join(root, "lib/generated"))
+FileUtils.mkdir_p(File.join(root, "spec/generated"))
 
-Dir[File.join(root, "queries/*.graphql")].sort.each do |query_path|
+Dir[File.join(root, "spec/queries/*.graphql")].sort.each do |query_path|
   base = File.basename(query_path, ".graphql")
-  module_name = "#{ActiveSupport::Inflector.camelize(base)}Query"
+  module_name = "#{base.split("_").map(&:capitalize).join}Query"
 
-  source = StructCodegen.new(
+  source = GraphWeaver::Codegen.new(
     schema: Demo::Schema,
     executor_const: "Demo::Schema",
     query: File.read(query_path),
     module_name:,
   ).generate
 
-  path = File.join(root, "lib/generated/#{base}_query.rb")
+  path = File.join(root, "spec/generated/#{base}_query.rb")
   File.write(path, source)
   puts "wrote #{path}"
 end

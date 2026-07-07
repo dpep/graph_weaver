@@ -1,4 +1,4 @@
-require_relative "../lib/struct_codegen"
+
 
 # What __type / __schema metadata is available, and can codegen run
 # against a schema rebuilt purely from an introspection dump (i.e. a
@@ -43,14 +43,14 @@ describe "introspection" do
     rebuilt = GraphQL::Schema.from_introspection(dump)
 
     %w[add_pet named person search].each do |base|
-      source = StructCodegen.new(
+      source = GraphWeaver::Codegen.new(
         schema: rebuilt,
         executor_const: "Demo::Schema",
-        query: File.read(File.expand_path("../queries/#{base}.graphql", __dir__)),
-        module_name: "#{ActiveSupport::Inflector.camelize(base)}Query",
+        query: File.read(File.expand_path("queries/#{base}.graphql", __dir__)),
+        module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
 
-      checked_in = File.read(File.expand_path("../lib/generated/#{base}_query.rb", __dir__))
+      checked_in = File.read(File.expand_path("generated/#{base}_query.rb", __dir__))
       expect(source).to eq checked_in
     end
   end

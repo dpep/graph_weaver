@@ -8,7 +8,7 @@ require "uri"
 
 # Minimal HTTP transport satisfying the generated modules' executor
 # interface: execute(query, variables:) => {"data" => ..., "errors" => ...}
-class HttpExecutor
+class GraphWeaver::HttpExecutor
   def initialize(url, headers: {})
     @uri = URI(url)
     @headers = headers
