@@ -32,7 +32,11 @@ directive_defaults_patch until upstream fix ships).
 
 1. Prior-art check before naming: has anyone shipped Ruby+Sorbet GraphQL
    codegen recently (Shopify orbit especially)? Decides gem-for-world vs
-   personal tool.
+   personal tool. Partial answer: graphql-client PR #7 (tapioca compiler
+   RBI-ing the schema-wide dynamic classes) has been stalled since
+   Jan 2024 with users asking for it — and its schema-wide approach
+   can't catch unfetched-field bugs or type unions/interfaces, both of
+   which per-query generation handles. The niche looks open.
 2. Stable class naming design — names come from GraphQL type names per
    selection site; must not shift when unrelated selections are added
    (generated code is app-code API). Current: one-level field-name
@@ -47,6 +51,11 @@ directive_defaults_patch until upstream fix ships).
 6. Nice-to-haves: __typename auto-injection (currently required manually
    on abstract selections), fragment reuse across queries, directives on
    selections (@skip/@include make non-null fields nullable).
+7. Tapioca DSL compiler over dynamic mode (idea from graphql-client
+   PR #7): RBI the StructCodegen.load-eval'd modules so development mode
+   gets static types without the bin/generate build step — tapioca is
+   already in every Sorbet shop's workflow. Upstream's
+   Tapioca::Dsl::Helpers::GraphqlTypeHelper is prior art for type mapping.
 
 ## External dependencies
 

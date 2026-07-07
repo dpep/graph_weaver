@@ -1,9 +1,27 @@
-graphql-client exploration
+graphql-client exploration → a standalone typed GraphQL client
 ======
 
-Scratch repo exploring how [graphql-client](https://github.com/github-community-projects/graphql-client)
-deserializes responses, and how to hydrate results into custom Ruby classes
-(including Sorbet `T::Struct`s).
+**What this is now:** a working prototype of a standalone, Sorbet-typed
+GraphQL client for Ruby — "graphql-codegen for Ruby". `.graphql` queries +
+a schema (live class, introspection JSON, or SDL) generate `# typed: strict`
+Ruby: nested `T::Struct`s, casting code, and a typed `execute`, so `srb tc`
+sees the exact shape of every query result. It is **not** a graphql-client
+extension: generated code depends only on `graphql` (generation time) and
+`sorbet-runtime` (runtime); transport is a pluggable `executor:` (in-process
+schema or the bundled `HttpExecutor`).
+
+Start with `PLAN.md` for current state and next steps. Key files:
+`lib/struct_codegen.rb` (the generator), `queries/` → `bin/generate` →
+`lib/generated/` (the build loop), `StructCodegen.load` (build-free dynamic
+mode for development).
+
+**How it got here:** the repo began as an exploration of
+[graphql-client](https://github.com/github-community-projects/graphql-client)
+internals — could its class-generation layer be swapped to emit custom
+classes? (Yes: the `StructTypes` spike below.) The per-query codegen
+approach then outgrew graphql-client entirely, and everything below the
+next heading is preserved as the lab notebook: findings in chronological
+order, each backed by a spec.
 
 The specs are the documentation — each one asserts an observed behavior:
 
@@ -11,7 +29,7 @@ The specs are the documentation — each one asserts an observed behavior:
 bundle exec rspec
 ```
 
-## Findings so far
+## Findings, in exploration order
 
 - The client runs fine against an in-process schema: `GraphQL::Client.new(schema: Schema, execute: Schema)` — no HTTP involved.
 - Each query selection gets its own dynamically generated wrapper class (subclass of `GraphQL::Client::Schema::ObjectClass`); fields are snake_case readers, and unselected fields raise instead of returning nil.
