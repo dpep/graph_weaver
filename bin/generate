@@ -10,7 +10,7 @@ FileUtils.mkdir_p(File.join(root, "lib/generated"))
 
 Dir[File.join(root, "queries/*.graphql")].sort.each do |query_path|
   base = File.basename(query_path, ".graphql")
-  module_name = "#{base.capitalize}Query"
+  module_name = "#{ActiveSupport::Inflector.camelize(base)}Query"
 
   source = StructCodegen.new(
     schema: Demo::Schema,

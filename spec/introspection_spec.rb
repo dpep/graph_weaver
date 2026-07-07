@@ -42,12 +42,12 @@ describe "introspection" do
     dump = Demo::Schema.as_json
     rebuilt = GraphQL::Schema.from_introspection(dump)
 
-    %w[person search].each do |base|
+    %w[add_pet named person search].each do |base|
       source = StructCodegen.new(
         schema: rebuilt,
         executor_const: "Demo::Schema",
         query: File.read(File.expand_path("../queries/#{base}.graphql", __dir__)),
-        module_name: "#{base.capitalize}Query",
+        module_name: "#{ActiveSupport::Inflector.camelize(base)}Query",
       ).generate
 
       checked_in = File.read(File.expand_path("../lib/generated/#{base}_query.rb", __dir__))

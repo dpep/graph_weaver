@@ -29,7 +29,7 @@ describe HttpExecutor do
   let(:executor) { described_class.new("http://127.0.0.1:#{@port}/graphql") }
 
   it "runs generated queries over HTTP" do
-    result = PersonQuery.execute({ "id" => "1" }, executor:)
+    result = PersonQuery.execute(id: "1", executor:)
     person = result.person
 
     expect(person&.name).to eq "Daniel"
@@ -40,6 +40,6 @@ describe HttpExecutor do
   it "surfaces transport errors" do
     bad = described_class.new("http://127.0.0.1:#{@port}/nope")
 
-    expect { PersonQuery.execute({ "id" => "1" }, executor: bad) }.to raise_error(/HTTP 404/)
+    expect { PersonQuery.execute(id: "1", executor: bad) }.to raise_error(/HTTP 404/)
   end
 end

@@ -13,6 +13,10 @@ require "graphql"
 #
 # Fill in the declared defaults before validation. This is what upstream
 # should do; present in graphql 2.6.3 (latest at time of writing).
+#
+# TODO: delete this file (and its requires) once
+# https://github.com/rmosolgo/graphql-ruby/pull/5659 lands in a released
+# graphql version and the Gemfile picks it up.
 module DirectiveDefaultsPatch
   def initialize(owner, **arguments)
     self.class.all_argument_definitions.each do |arg_defn|

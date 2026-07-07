@@ -12,12 +12,12 @@ describe SchemaLoader do
   def codegen_parity(schema)
     root = File.expand_path("..", __dir__)
 
-    %w[person search].each do |base|
+    %w[add_pet named person search].each do |base|
       source = StructCodegen.new(
         schema:,
         executor_const: "Demo::Schema",
         query: File.read(File.join(root, "queries/#{base}.graphql")),
-        module_name: "#{base.capitalize}Query",
+        module_name: "#{ActiveSupport::Inflector.camelize(base)}Query",
       ).generate
 
       expect(source).to eq File.read(File.join(root, "lib/generated/#{base}_query.rb"))

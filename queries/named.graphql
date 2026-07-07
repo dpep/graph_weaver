@@ -1,0 +1,9 @@
+query($name: String!) {
+  named(name: $name) {
+    __typename
+    name
+    ... on Pet {
+      species
+    }
+  }
+}

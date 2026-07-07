@@ -94,9 +94,36 @@ module Demo
     def search(term:)
       (PEOPLE + PETS).select { |record| record.name.downcase.include?(term.downcase) }
     end
+
+    field :named, NamedType do
+      argument :name, String, required: true
+    end
+
+    def named(name:)
+      (PEOPLE + PETS).find { |record| record.name == name }
+    end
+  end
+
+  class MutationType < GraphQL::Schema::Object
+    graphql_name "Mutation"
+
+    field :add_pet, PetType, null: false do
+      argument :name, String, required: true
+      argument :species, SpeciesType, required: true
+    end
+
+    # returns without persisting, so specs stay isolated
+    def add_pet(name:, species:)
+      Pet.new(id: "99", name:, species:)
+    end
   end
 
   class Schema < GraphQL::Schema
     query QueryType
+    mutation MutationType
+
+    def self.resolve_type(_abstract_type, object, _ctx)
+      object.is_a?(Person) ? PersonType : PetType
+    end
   end
 end

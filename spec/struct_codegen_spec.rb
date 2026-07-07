@@ -1,4 +1,6 @@
 require_relative "../lib/struct_codegen"
+require_relative "../lib/generated/add_pet_query"
+require_relative "../lib/generated/named_query"
 require_relative "../lib/generated/person_query"
 require_relative "../lib/generated/search_query"
 
@@ -6,12 +8,12 @@ describe StructCodegen do
   it "keeps the checked-in generated files up to date" do
     root = File.expand_path("..", __dir__)
 
-    %w[person search].each do |base|
+    %w[add_pet named person search].each do |base|
       source = described_class.new(
         schema: Demo::Schema,
         executor_const: "Demo::Schema",
         query: File.read(File.join(root, "queries/#{base}.graphql")),
-        module_name: "#{base.capitalize}Query",
+        module_name: "#{ActiveSupport::Inflector.camelize(base)}Query",
       ).generate
 
       expect(File.read(File.join(root, "lib/generated/#{base}_query.rb"))).to eq source
@@ -30,7 +32,7 @@ describe StructCodegen do
   end
 
   describe "the generated module" do
-    let(:result) { PersonQuery.execute({ "id" => "1" }) }
+    let(:result) { PersonQuery.execute(id: "1") }
     let(:person) { result.person }
 
     it "executes and casts into the generated structs" do
@@ -42,12 +44,18 @@ describe StructCodegen do
     end
 
     it "raises on failed queries" do
-      expect { PersonQuery.execute }.to raise_error(/query failed/)
+      failing = Class.new do
+        def execute(_query, variables:)
+          { "errors" => [{ "message" => "boom" }] }
+        end
+      end
+
+      expect { PersonQuery.execute(id: "1", executor: failing.new) }.to raise_error(/query failed/)
     end
   end
 
   describe "unions and fragments" do
-    let(:results) { SearchQuery.execute({ "term" => "el" }).search }
+    let(:results) { SearchQuery.execute(term: "el").search }
 
     it "dispatches each result to its member struct via __typename" do
       expect(results.map(&:class)).to eq [
@@ -82,6 +90,49 @@ describe StructCodegen do
       )
 
       expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
+    end
+  end
+
+  describe "interface-typed fields" do
+    it "dispatches to member structs like unions" do
+      pet = NamedQuery.execute(name: "Shelby").named
+      person = NamedQuery.execute(name: "Daniel").named
+
+      expect(pet).to be_a NamedQuery::Result::Named::Pet
+      expect(pet.name).to eq "Shelby" # interface field, gathered into every member
+      expect(pet.species).to eq NamedQuery::Result::Named::Pet::Species::Dog
+      expect(person).to be_a NamedQuery::Result::Named::Person
+      expect(person.name).to eq "Daniel"
+    end
+  end
+
+  describe "mutations and typed variables" do
+    it "executes mutations with typed kwargs, serializing enum variables" do
+      result = AddPetQuery.execute(name: "Rex", species: AddPetQuery::Species::Dog)
+
+      expect(result.add_pet.name).to eq "Rex"
+      expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
+    end
+
+    it "omits optional variables from the wire when nil" do
+      mod = described_class.load(
+        schema: Demo::Schema,
+        executor_const: "Demo::Schema",
+        query: <<~GRAPHQL,
+          query($term: String = "el") {
+            search(term: $term) {
+              __typename
+              ... on Named {
+                name
+              }
+            }
+          }
+        GRAPHQL
+        module_name: "DynamicDefaultedSearch",
+      )
+
+      names = mod.execute.search.map(&:name)
+      expect(names).to eq %w[Daniel Shelby] # server applied the "el" default
     end
   end
 
