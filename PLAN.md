@@ -30,24 +30,24 @@ directive_defaults_patch until upstream fix ships).
 
 ## Next steps (in rough order)
 
-1. Prior-art check before naming: has anyone shipped Ruby+Sorbet GraphQL
-   codegen recently (Shopify orbit especially)? Decides gem-for-world vs
-   personal tool. Partial answer: graphql-client PR #7 (tapioca compiler
-   RBI-ing the schema-wide dynamic classes) has been stalled since
-   Jan 2024 with users asking for it — and its schema-wide approach
-   can't catch unfetched-field bugs or type unions/interfaces, both of
-   which per-query generation handles. The niche looks open.
-2. Stable class naming design — names come from GraphQL type names per
+~~Extraction~~ DONE 2026-07-07: this repo IS the gem now — GraphWeaver,
+github.com/dpep/graph_weaver, rspec-uuid conventions throughout. The
+graphql-client spikes live in git history (tag: `exploration`) and
+NOTES.md. Prior-art check partially answered: graphql-client PR #7
+(tapioca compiler over schema-wide dynamic classes) stalled since
+Jan 2024 with users asking; schema-wide typing can't catch
+unfetched-field bugs or type unions/interfaces — the niche looks open.
+
+1. Stable class naming design — names come from GraphQL type names per
    selection site; must not shift when unrelated selections are added
    (generated code is app-code API). Current: one-level field-name
    disambiguation, then raise.
-3. Input objects as variables (raise NotImplementedError today) — likely
+2. Input objects as variables (raise NotImplementedError today) — likely
    generated T::Structs with serialize.
-4. Extraction: new gem repo (rspec-uuid conventions: gemspec + version.rb,
-   CI matrix 3.3/3.4/4, codecov, CHANGELOG), demo schema becomes test
-   fixture, CLI entrypoint (generate --schema X --queries dir). Leave this
-   repo as the lab notebook.
-5. Subscriptions (unsupported; raise).
+3. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
+   bin/generate is spec-fixture tooling, not shipped.
+4. Subscriptions (unsupported; raise).
+5. First release: 0.1.0 to rubygems once naming design settles.
 6. Nice-to-haves: __typename auto-injection (currently required manually
    on abstract selections), fragment reuse across queries, directives on
    selections (@skip/@include make non-null fields nullable).
