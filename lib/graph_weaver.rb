@@ -45,10 +45,12 @@ module GraphWeaver
     #
     #   GraphWeaver.execute(schema:, query:, variables: { id: "1" })
     #
-    # Runs in-process against schema unless executor: is given. Variable
-    # keys may be graphql-cased strings or ruby symbols.
+    # Transport precedence: executor: param, then GraphWeaver.executor,
+    # then in-process execution against schema. Variable keys may be
+    # graphql-cased strings or ruby symbols.
     def execute(schema:, query:, variables: {}, executor: nil)
-      mod = parse(schema:, query:, name: "OneShot", executor: executor || schema)
+      executor ||= @executor || schema
+      mod = parse(schema:, query:, name: "OneShot", executor:)
       kwargs = variables.to_h { |key, value| [Inflect.underscore(key.to_s).to_sym, value] }
       mod.execute(**kwargs)
     end

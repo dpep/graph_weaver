@@ -219,5 +219,52 @@ describe GraphWeaver::Codegen do
 
       expect(result.search.map(&:name)).to eq %w[Daniel Shelby]
     end
+
+    it "prefers GraphWeaver.executor over in-process execution" do
+      recorded = []
+      recorder = Class.new do
+        define_method(:initialize) { |log| @log = log }
+        define_method(:execute) do |query, variables:|
+          @log << variables
+          Demo::Schema.execute(query, variables:)
+        end
+      end
+
+      begin
+        GraphWeaver.executor = recorder.new(recorded)
+        result = GraphWeaver.execute(
+          schema: Demo::Schema,
+          query: "query($id: ID!) { person(id: $id) { name } }",
+          variables: { id: "1" },
+        )
+
+        expect(result.person&.name).to eq "Daniel"
+        expect(recorded).to eq [{ "id" => "1" }]
+      ensure
+        GraphWeaver.executor = nil
+      end
+    end
+
+    it "prefers an explicit executor over the default" do
+      failing = Class.new do
+        def execute(_query, variables:)
+          { "errors" => [{ "message" => "wrong executor" }] }
+        end
+      end
+
+      begin
+        GraphWeaver.executor = failing.new
+        result = GraphWeaver.execute(
+          schema: Demo::Schema,
+          query: "query($id: ID!) { person(id: $id) { name } }",
+          variables: { id: "1" },
+          executor: Demo::Schema,
+        )
+
+        expect(result.person&.name).to eq "Daniel"
+      ensure
+        GraphWeaver.executor = nil
+      end
+    end
   end
 end
