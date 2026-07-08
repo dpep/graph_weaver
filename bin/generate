@@ -10,14 +10,13 @@ FileUtils.mkdir_p(File.join(root, "spec/generated"))
 
 Dir[File.join(root, "spec/queries/*.graphql")].sort.each do |query_path|
   base = File.basename(query_path, ".graphql")
-  module_name = "#{base.split("_").map(&:capitalize).join}Query"
 
-  source = GraphWeaver::Codegen.new(
+  source = GraphWeaver::Codegen.generate(
     schema: Demo::Schema,
-    executor_const: "Demo::Schema",
+    executor: Demo::Schema,
     query: File.read(query_path),
-    module_name:,
-  ).generate
+    module_name: "#{GraphWeaver::Inflect.camelize(base)}Query",
+  )
 
   path = File.join(root, "spec/generated/#{base}_query.rb")
   File.write(path, source)

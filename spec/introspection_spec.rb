@@ -45,7 +45,7 @@ describe "introspection" do
     %w[add_pet named person search].each do |base|
       source = GraphWeaver::Codegen.new(
         schema: rebuilt,
-        executor_const: "Demo::Schema",
+        executor: "Demo::Schema",
         query: File.read(File.expand_path("queries/#{base}.graphql", __dir__)),
         module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate

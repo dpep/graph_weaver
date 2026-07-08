@@ -11,7 +11,7 @@ describe GraphWeaver::Codegen do
     %w[add_pet named person search].each do |base|
       source = described_class.new(
         schema: Demo::Schema,
-        executor_const: "Demo::Schema",
+        executor: Demo::Schema,
         query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
         module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
@@ -23,7 +23,7 @@ describe GraphWeaver::Codegen do
   it "rejects queries that do not validate against the schema" do
     codegen = described_class.new(
       schema: Demo::Schema,
-      executor_const: "Demo::Schema",
+      executor: Demo::Schema,
       query: "{ nope }",
       module_name: "Bad",
     )
@@ -84,7 +84,7 @@ describe GraphWeaver::Codegen do
     it "requires __typename on union selections" do
       codegen = described_class.new(
         schema: Demo::Schema,
-        executor_const: "Demo::Schema",
+        executor: Demo::Schema,
         query: 'query { search(term: "x") { ... on Pet { name } } }',
         module_name: "Bad",
       )
@@ -115,9 +115,10 @@ describe GraphWeaver::Codegen do
     end
 
     it "omits optional variables from the wire when nil" do
-      mod = described_class.load(
+      mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor_const: "Demo::Schema",
+        executor: Demo::Schema,
+        name: "DefaultedSearch",
         query: <<~GRAPHQL,
           query($term: String = "el") {
             search(term: $term) {
@@ -128,7 +129,6 @@ describe GraphWeaver::Codegen do
             }
           }
         GRAPHQL
-        module_name: "DynamicDefaultedSearch",
       )
 
       names = mod.execute.search.map(&:name)
@@ -136,17 +136,88 @@ describe GraphWeaver::Codegen do
     end
   end
 
-  describe ".load (dynamic mode)" do
-    it "generates and evals a module on the fly, no build artifact" do
-      mod = described_class.load(
+  describe "GraphWeaver.parse (dynamic mode)" do
+    it "evals a module on the fly, deriving the name from the operation" do
+      mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor_const: "Demo::Schema",
-        query: "query { people { name } }",
-        module_name: "DynamicPeopleQuery",
+        executor: Demo::Schema,
+        query: "query People { people { name } }",
       )
 
-      result = mod.execute
-      expect(result.people.map(&:name)).to eq ["Daniel"]
+      expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+    end
+
+    it "derives the module name from a .graphql file" do
+      # person.graphql's operation is anonymous, so this only works if
+      # the name comes from the file name
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: File.expand_path("queries/person.graphql", __dir__),
+      )
+
+      expect(mod.execute(id: "1").person&.name).to eq "Daniel"
+    end
+
+    it "requires a name for anonymous inline operations" do
+      expect {
+        GraphWeaver.parse(schema: Demo::Schema, query: "query { people { name } }")
+      }.to raise_error(ArgumentError, /module_name/)
+    end
+
+    it "does not leak global constants" do
+      GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: "query Leaky { people { name } }",
+      )
+
+      expect(defined?(::Leaky)).to be_nil
+    end
+  end
+
+  describe "executors" do
+    let(:mod) do
+      GraphWeaver.parse(schema: Demo::Schema, query: "query People { people { name } }")
+    end
+
+    it "falls back to GraphWeaver.executor, raising when unconfigured" do
+      expect { mod.execute }.to raise_error(GraphWeaver::Error, /no executor configured/)
+
+      begin
+        GraphWeaver.executor = Demo::Schema
+        expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+      ensure
+        GraphWeaver.executor = nil
+      end
+    end
+
+    it "supports per-module override" do
+      mod.executor = Demo::Schema
+
+      expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+    end
+  end
+
+  describe "GraphWeaver.execute (one-shot)" do
+    it "runs a query in-process with variables" do
+      result = GraphWeaver.execute(
+        schema: Demo::Schema,
+        query: "query($id: ID!) { person(id: $id) { name } }",
+        variables: { id: "1" },
+      )
+
+      expect(result.person&.name).to eq "Daniel"
+    end
+
+    it "accepts graphql-cased variable keys" do
+      result = GraphWeaver.execute(
+        schema: Demo::Schema,
+        query: 'query($term: String!) { search(term: $term) { __typename ... on Named { name } } }',
+        variables: { "term" => "el" },
+      )
+
+      expect(result.search.map(&:name)).to eq %w[Daniel Shelby]
     end
   end
 end

@@ -60,8 +60,23 @@ module AddPetQuery
     end
   end
 
+  @executor = T.let(nil, T.untyped)
+
+  class << self
+    extend T::Sig
+
+    sig { params(executor: T.untyped).void }
+    attr_writer :executor
+
+    # default transport for execute
+    sig { returns(T.untyped) }
+    def executor
+      @executor || Demo::Schema
+    end
+  end
+
   sig { params(name: String, species: Species, executor: T.untyped).returns(Result) }
-  def self.execute(name:, species:, executor: Demo::Schema)
+  def self.execute(name:, species:, executor: self.executor)
     variables = {
       "name" => name,
       "species" => species.serialize,

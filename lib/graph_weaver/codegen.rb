@@ -15,7 +15,10 @@ require "sorbet-runtime"
 # interface-typed fields (dispatch on __typename), enums (generated
 # T::Enum), and typed variables (kwargs on execute). Input objects and
 # subscriptions are still open.
+require_relative "inflect"
+
 class GraphWeaver::Codegen
+  include GraphWeaver::Inflect
   # sorbet types for scalars
   SCALARS = {
     "ID" => "String",
@@ -204,25 +207,53 @@ class GraphWeaver::Codegen
     def nested = self
   end
 
-  # executor_const names anything responding to
-  # `execute(query, variables:)` whose result `to_h`s into
-  # {"data" => ..., "errors" => ...} — a Schema class for in-process
-  # execution, or an HttpExecutor for a remote endpoint. The generated
-  # execute also accepts an executor: override at runtime.
-  def initialize(schema:, executor_const:, query:, module_name:)
+  attr_reader :module_name
+
+  # An executor is anything responding to `execute(query, variables:)`
+  # whose result `to_h`s into {"data" => ..., "errors" => ...} — a Schema
+  # class for in-process execution, or an Http/FaradayExecutor for a
+  # remote endpoint.
+  #
+  # executor: (a constant, or its name as a string) becomes the generated
+  # module's default transport; when omitted, generated code falls back
+  # to GraphWeaver.executor. Either way the module exposes .executor= and
+  # execute accepts a per-call executor: override.
+  #
+  # module_name: defaults to the operation's name (`query GetPerson` →
+  # GetPerson); required for anonymous operations.
+  def initialize(schema:, query:, module_name: nil, executor: nil)
     @schema = schema
-    @executor_const = executor_const
     @query = query.strip
     @module_name = module_name
+    @executor_const = executor.is_a?(Module) ? executor.name : executor
+  end
+
+  # one-step shorthand
+  def self.generate(schema:, query:, module_name: nil, executor: nil)
+    new(schema:, query:, module_name:, executor:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
   # artifact or checked-in file. Same runtime semantics as the generated
   # file, but invisible to srb tc — use the build step for static typing.
-  def self.load(schema:, executor_const:, query:, module_name:)
-    source = new(schema:, executor_const:, query:, module_name:).generate
-    Object.class_eval(source, "(struct_codegen)", 1)
-    Object.const_get(module_name)
+  # Evaluates into an anonymous container, so no global constants leak;
+  # executor: additionally accepts a live object (set via .executor=).
+  def self.parse(schema:, query:, module_name: nil, executor: nil)
+    executor_const = case executor
+    when String then executor
+    when Module then executor.name # nil for anonymous modules
+    end
+
+    codegen = new(schema:, query:, module_name:, executor: executor_const)
+    source = codegen.generate
+
+    container = Module.new
+    container.module_eval(source, "(graph_weaver)", 1)
+    mod = container.const_get(codegen.module_name)
+    # live objects (or anonymous modules) can't be referenced from
+    # generated source — set them via the module's writer instead
+    mod.executor = executor if executor && executor_const.nil?
+    mod
   end
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
@@ -244,6 +275,11 @@ class GraphWeaver::Codegen
     when "query", nil then @schema.query
     when "mutation" then @schema.mutation
     else raise NotImplementedError, "unsupported operation: #{operation.operation_type}"
+    end
+
+    @module_name ||= operation.name
+    unless @module_name
+      raise ArgumentError, "module_name: required for anonymous operations"
     end
 
     variables = operation.variables.map do |var|
@@ -282,16 +318,6 @@ class GraphWeaver::Codegen
   end
 
   private
-
-  # GraphQL names are plain camelCase/SCREAMING_SNAKE — no acronym edge
-  # cases, so minimal inflection beats an activesupport dependency
-  def underscore(name)
-    name.gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
-  end
-
-  def camelize(name)
-    name.split("_").map { |part| "#{part[0].upcase}#{part[1..]}" }.join
-  end
 
   # Flatten a selection set as seen by `type`: plain fields collect
   # directly; inline fragments and named spreads recurse when their type
@@ -513,6 +539,22 @@ class GraphWeaver::Codegen
   end
 
   def emit_execute(out, variables)
+    out << "  @executor = T.let(nil, T.untyped)"
+    out << ""
+    out << "  class << self"
+    out << "    extend T::Sig"
+    out << ""
+    out << "    sig { params(executor: T.untyped).void }"
+    out << "    attr_writer :executor"
+    out << ""
+    out << "    # default transport for execute"
+    out << "    sig { returns(T.untyped) }"
+    out << "    def executor"
+    out << "      @executor || #{@executor_const || "GraphWeaver.executor"}"
+    out << "    end"
+    out << "  end"
+    out << ""
+
     sig_params = variables.map do |var|
       kwarg_type = var.required ? var.node.prop_type : "T.nilable(#{var.node.bare_type})"
       "#{var.kwarg}: #{kwarg_type}"
@@ -520,7 +562,7 @@ class GraphWeaver::Codegen
     sig_params << "executor: T.untyped"
 
     kwargs = variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
-    kwargs << "executor: #{@executor_const}"
+    kwargs << "executor: self.executor"
 
     out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
     out << "  def self.execute(#{kwargs.join(", ")})"

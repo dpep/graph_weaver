@@ -1,5 +1,9 @@
 ###  v0.0.2  (unreleased)
 - FaradayExecutor: url, Faraday connection, or middleware block
+- GraphWeaver.executor default transport; per-module executor= override
+- GraphWeaver.parse and GraphWeaver.execute (dynamic queries)
+- Codegen.generate shorthand; executor: takes a constant; module_name
+  derived from operation or file name
 
 ###  v0.0.1  (2026-07-07)
 - voila: typed codegen (T::Structs, T::Enums, typed variable kwargs)

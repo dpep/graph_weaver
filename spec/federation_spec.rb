@@ -52,7 +52,7 @@ describe "federation / supergraph" do
   let(:source) do
     GraphWeaver::Codegen.new(
       schema:,
-      executor_const: "FederatedSchema",
+      executor: "FederatedSchema",
       query: "query($id: ID!) { user(id: $id) { id name petNames } }",
       module_name: "UserQuery",
     ).generate

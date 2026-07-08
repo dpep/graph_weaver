@@ -39,22 +39,28 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 ```ruby
 require "graph_weaver"
 
+# configure the default transport once (override per module or per call)
+GraphWeaver.executor = GraphWeaver::HttpExecutor.new("https://api.example.com/graphql")
+
 # generate from any schema source
 schema = GraphWeaver::SchemaLoader.load("schema.json")   # or .graphql SDL, or a live class
 
-source = GraphWeaver::Codegen.new(
+source = GraphWeaver::Codegen.generate(
   schema:,
-  executor_const: "MyApi::Executor",
   query: File.read("queries/person.graphql"),
   module_name: "PersonQuery",
-).generate
-
+)
 File.write("app/queries/person_query.rb", source)
 
 # at runtime
-executor = GraphWeaver::HttpExecutor.new("https://api.example.com/graphql")
-PersonQuery.execute(id: "1", executor:)
+PersonQuery.execute(id: "1")                        # uses GraphWeaver.executor
+PersonQuery.execute(id: "1", executor: other)       # or per call
 ```
+
+Module names derive from the operation name (`query GetPerson` →
+`GetPerson`) or, for `GraphWeaver.parse` on a `.graphql` file, from the
+file name; pass `module_name:`/`name:` to override. Pass `executor:` (a
+constant) to bake a default transport into the generated module.
 
 Prefer Faraday? It's opt-in (`gem "faraday"` in your Gemfile):
 
@@ -71,10 +77,15 @@ end
 executor = GraphWeaver::FaradayExecutor.new(MyApp.faraday_connection)
 ```
 
-In development, skip the build step:
+In development, skip the build step entirely:
 
 ```ruby
-PersonQuery = GraphWeaver::Codegen.load(schema:, executor_const: "...", query:, module_name: "PersonQuery")
+# parse a query into a typed module on the fly (name from file / operation)
+PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
+PersonQuery.execute(id: "1")
+
+# or one-shot, no module at all
+GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
 ```
 
 ----

@@ -15,7 +15,7 @@ describe GraphWeaver::SchemaLoader do
     %w[add_pet named person search].each do |base|
       source = GraphWeaver::Codegen.new(
         schema:,
-        executor_const: "Demo::Schema",
+        executor: "Demo::Schema",
         query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
         module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
