@@ -31,7 +31,7 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 - **Queries and mutations** with typed variable kwargs — required vs optional falls out of nullability and defaults
 - **Fragments** (inline, named, interface conditions), **unions and interfaces** (member structs, `__typename` dispatch), **enums** (`T::Enum`), **custom scalars** (pluggable registry)
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL
-- **Any transport**: in-process schema execution (perfect for tests) or HTTP via the bundled executor — swap per call with `executor:`
+- **Any transport**: in-process schema execution (perfect for tests), the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
 - **Dynamic mode** for development: `GraphWeaver::Codegen.load(...)` generates and evals on the fly, no build step
 
 ####  Usage
@@ -54,6 +54,21 @@ File.write("app/queries/person_query.rb", source)
 # at runtime
 executor = GraphWeaver::HttpExecutor.new("https://api.example.com/graphql")
 PersonQuery.execute(id: "1", executor:)
+```
+
+Prefer Faraday? It's opt-in (`gem "faraday"` in your Gemfile):
+
+```ruby
+require "graph_weaver/faraday_executor"
+
+# from a url, with optional middleware customization
+executor = GraphWeaver::FaradayExecutor.new("https://api.example.com/graphql") do |conn|
+  conn.request :authorization, "Bearer", -> { Tokens.fetch }
+  conn.response :logger
+end
+
+# or bring a fully configured Faraday connection
+executor = GraphWeaver::FaradayExecutor.new(MyApp.faraday_connection)
 ```
 
 In development, skip the build step:

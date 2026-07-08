@@ -1,3 +1,6 @@
+###  v0.0.2  (unreleased)
+- FaradayExecutor: url, Faraday connection, or middleware block
+
 ###  v0.0.1  (2026-07-07)
 - voila: typed codegen (T::Structs, T::Enums, typed variable kwargs)
 - queries + mutations; fragments, unions, interfaces, enums, custom scalars

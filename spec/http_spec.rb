@@ -1,32 +1,11 @@
-require "webrick"
-
 require_relative "generated/person_query"
 
 # Generated modules run against a remote server by swapping the executor:
 # same structs, same casting, HTTP transport.
 describe GraphWeaver::HttpExecutor do
-  before(:all) do
-    @server = WEBrick::HTTPServer.new(
-      Port: 0,
-      Logger: WEBrick::Log.new(File::NULL),
-      AccessLog: [],
-    )
-    @server.mount_proc("/graphql") do |request, response|
-      payload = JSON.parse(request.body)
-      result = Demo::Schema.execute(payload["query"], variables: payload["variables"] || {})
-      response["Content-Type"] = "application/json"
-      response.body = JSON.generate(result.to_h)
-    end
-    @thread = Thread.new { @server.start }
-    @port = @server.listeners.first.addr[1]
-  end
+  include_context "graphql http server"
 
-  after(:all) do
-    @server.shutdown
-    @thread.join
-  end
-
-  let(:executor) { described_class.new("http://127.0.0.1:#{@port}/graphql") }
+  let(:executor) { described_class.new(url) }
 
   it "runs generated queries over HTTP" do
     result = PersonQuery.execute(id: "1", executor:)
