@@ -100,17 +100,22 @@ module NamedQuery
     end
   end
 
-  sig { params(name: String, executor: T.untyped).returns(Result) }
+  sig { params(name: String, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.execute(name:, executor: self.executor)
     variables = {
       "name" => name,
     }
 
-    result = executor.execute(QUERY, variables: variables).to_h
-    if (errors = result["errors"])
-      raise "query failed: #{errors.inspect}"
-    end
+    raw = executor.execute(QUERY, variables: variables).to_h
+    GraphWeaver::Response[Result].new(
+      data: (Result.from_h(raw["data"]) if raw["data"]),
+      errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
+      extensions: raw["extensions"] || {},
+    )
+  end
 
-    Result.from_h(result.fetch("data"))
+  sig { params(name: String, executor: T.untyped).returns(Result) }
+  def self.execute!(name:, executor: self.executor)
+    execute(name: name, executor: executor).data!
   end
 end

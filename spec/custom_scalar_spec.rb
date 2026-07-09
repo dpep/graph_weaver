@@ -155,7 +155,7 @@ describe "custom scalar deserialization" do
       query:,
     )
 
-    product = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("2500.50")).product
+    product = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("2500.50")).data!.product
 
     expect(product.price).to be_a MoneyDemo::Money
     expect(product.price.amount).to eq BigDecimal("2500.50")
@@ -250,8 +250,8 @@ describe "custom scalar deserialization" do
         query:,
       )
 
-      from_string = mod.execute(name: "Widget", budget: "12.00").product
-      from_value = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("12.00")).product
+      from_string = mod.execute(name: "Widget", budget: "12.00").data!.product
+      from_value = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("12.00")).data!.product
 
       expect(from_string.price.amount).to eq BigDecimal("12.00")
       expect(from_value.price.amount).to eq BigDecimal("12.00")

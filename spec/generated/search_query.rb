@@ -113,17 +113,22 @@ module SearchQuery
     end
   end
 
-  sig { params(term: String, executor: T.untyped).returns(Result) }
+  sig { params(term: String, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.execute(term:, executor: self.executor)
     variables = {
       "term" => term,
     }
 
-    result = executor.execute(QUERY, variables: variables).to_h
-    if (errors = result["errors"])
-      raise "query failed: #{errors.inspect}"
-    end
+    raw = executor.execute(QUERY, variables: variables).to_h
+    GraphWeaver::Response[Result].new(
+      data: (Result.from_h(raw["data"]) if raw["data"]),
+      errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
+      extensions: raw["extensions"] || {},
+    )
+  end
 
-    Result.from_h(result.fetch("data"))
+  sig { params(term: String, executor: T.untyped).returns(Result) }
+  def self.execute!(term:, executor: self.executor)
+    execute(term: term, executor: executor).data!
   end
 end

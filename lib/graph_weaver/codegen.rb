@@ -492,7 +492,7 @@ class GraphWeaver::Codegen
   def generate
     errors = @schema.validate(@query)
     if errors.any?
-      raise ArgumentError, "invalid query: #{errors.map(&:message).join("; ")}"
+      raise GraphWeaver::ValidationError.new(errors.map { |e| validation_detail(e) })
     end
 
     doc = GraphQL.parse(@query)
@@ -810,7 +810,11 @@ class GraphWeaver::Codegen
     kwargs = variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
     kwargs << "executor: self.executor"
 
-    out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+    # execute returns the full envelope; execute! is the strict shortcut for
+    # `execute(...).data!` — the typed result, or a raised QueryError.
+    forward = (variables.map { |var| "#{var.kwarg}: #{var.kwarg}" } + ["executor: executor"]).join(", ")
+
+    out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
     out << "  def self.execute(#{kwargs.join(", ")})"
 
     required, optional = variables.partition(&:required)
@@ -828,18 +832,30 @@ class GraphWeaver::Codegen
     end
 
     out << ""
-    out << "    result = executor.execute(QUERY, variables: variables).to_h"
-    out << "    if (errors = result[\"errors\"])"
-    out << "      raise \"query failed: \#{errors.inspect}\""
-    out << "    end"
+    out << "    raw = executor.execute(QUERY, variables: variables).to_h"
+    out << "    GraphWeaver::Response[Result].new("
+    out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
+    out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"
+    out << "      extensions: raw[\"extensions\"] || {},"
+    out << "    )"
+    out << "  end"
     out << ""
-    out << "    Result.from_h(result.fetch(\"data\"))"
+    out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+    out << "  def self.execute!(#{kwargs.join(", ")})"
+    out << "    execute(#{forward}).data!"
     out << "  end"
   end
 
   def variable_serialize(var)
     value = var.node.coerce? ? var.node.coerce(var.kwarg) : var.kwarg
     var.node.serialize_identity? ? value : var.node.serialize(value, 1)
+  end
+
+  # Structured shape for a schema-validation error: message plus its first
+  # source location, so ValidationError#errors is inspectable.
+  def validation_detail(error)
+    loc = (error.to_h["locations"]&.first if error.respond_to?(:to_h))
+    { message: error.message, line: loc && loc["line"], column: loc && loc["column"] }
   end
 
   def field_cast(field)

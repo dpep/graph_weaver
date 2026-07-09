@@ -31,13 +31,19 @@ class GraphWeaver::FaradayExecutor
   end
 
   def execute(query, variables: {})
-    response = @connection.post do |request|
-      request.headers["Content-Type"] = "application/json"
-      request.body = JSON.generate(query:, variables:)
+    response = begin
+      @connection.post do |request|
+        request.headers["Content-Type"] = "application/json"
+        request.body = JSON.generate(query:, variables:)
+      end
+    rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Faraday::SSLError => e
+      # never got a response — connection refused/reset, TLS, timeout
+      raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end
 
+    # reached the server, but it returned a non-2xx status
     unless response.success?
-      raise "HTTP #{response.status}: #{response.body}"
+      raise GraphWeaver::ServerError.new(status: response.status, body: response.body.to_s)
     end
 
     body = response.body
