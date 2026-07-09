@@ -63,11 +63,13 @@ class GraphWeaver::Codegen
     ].freeze
 
     # Accepted kwarg types for Symbol (instance-method) coercion — the
-    # looser inputs the conversion sensibly handles.
+    # looser inputs the conversion sensibly handles. #to_s is defined on
+    # every object, so it accepts anything; #to_f/#to_i only make sense for
+    # numerics and strings.
     CONVERT_INPUTS = {
       to_f: "T.any(Float, Integer, String)",
       to_i: "T.any(Integer, Float, String)",
-      to_s: "T.any(String, Symbol, Integer)",
+      to_s: "T.anything",
     }.freeze
 
     attr_reader :graphql_name, :type, :requires
