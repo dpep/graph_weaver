@@ -25,6 +25,22 @@ module GraphWeaver
       @executor or raise Error, "no executor configured — set GraphWeaver.executor= or pass executor:"
     end
 
+    # Teach the generator how a GraphQL custom scalar deserializes into a
+    # rich Ruby object (and serializes back onto the wire when used as a
+    # variable):
+    #
+    #   GraphWeaver.register_scalar("Money", type: Money, cast: :parse, serialize: :to_s)
+    #
+    # A field typed `Money` then generates `const :price, T.nilable(Money)`
+    # and casts with `Money.parse(...)` in from_h. type: takes a class or a
+    # string; cast:/serialize: take a Symbol method name (safest — no string
+    # to misspell), a Proc(expr) => code string, or nil for pass-through.
+    # Built-in scalars are pre-registered the same way, so this also
+    # overrides them. Call before generating.
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil)
+      Codegen.register_scalar(graphql_name, type:, cast:, serialize:)
+    end
+
     # Parse a query into a typed query module:
     #
     #   PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")

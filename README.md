@@ -88,6 +88,25 @@ PersonQuery.execute(id: "1")
 GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
 ```
 
+#### Custom scalars
+
+Teach the generator how a GraphQL custom scalar deserializes into a rich
+Ruby object (and serializes back when used as a variable). A field typed
+`Money` then generates `const :price, T.nilable(Money)` and casts with
+`Money.parse(...)` inline — no runtime reflection:
+
+```ruby
+GraphWeaver.register_scalar("Money", type: Money, cast: :parse, serialize: :to_s)
+```
+
+`type:` takes a class (its name is derived) or a string. `cast:`/`serialize:`
+take a `Symbol` method name — safest, nothing to misspell (`cast: :parse` →
+`Money.parse(expr)`; `serialize: :to_s` → `expr.to_s`) — or a `Proc` (`->(expr)
+{ "Money.parse(#{expr})" }`) for anything a method name can't express, or `nil`
+to pass through. The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered
+the same way, so a later `register_scalar` also overrides them. Register before
+generating; it's a codegen-time concern, baked into the emitted source.
+
 ----
 ## Installation
 

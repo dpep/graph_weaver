@@ -1,6 +1,7 @@
 # typed: true
 # frozen_string_literal: true
 
+require "date"
 require "graphql"
 require "sorbet-runtime"
 
@@ -19,34 +20,110 @@ require_relative "inflect"
 
 class GraphWeaver::Codegen
   include GraphWeaver::Inflect
-  # sorbet types for scalars
-  SCALARS = {
-    "ID" => "String",
-    "String" => "String",
-    "Int" => "Integer",
-    "Float" => "Float",
-    "Boolean" => "T::Boolean",
-    "Date" => "Date",
-  }.freeze
 
-  # deserialization for scalars whose wire format differs from their Ruby
-  # type; anything absent passes through untouched
-  SCALAR_CASTS = {
-    "Date" => ->(expr) { "Date.iso8601(#{expr})" },
-  }.freeze
+  # How one GraphQL scalar maps to Ruby: the Sorbet prop type, and the
+  # (optional) code emitted to deserialize a wire value into a rich Ruby
+  # object and serialize it back. A single registry (below) holds one of
+  # these per scalar name; the built-in scalars are just pre-registered
+  # entries, so custom scalars and overrides go through the same path.
+  #
+  # cast/serialize are normalized to procs that, given a Ruby expression
+  # string, return the code to inline. Callers pass whichever is least
+  # error-prone:
+  #   - a Symbol names a method, so there is no string to misspell:
+  #       cast: :parse      => "Money.parse(expr)"   (class method on type)
+  #       serialize: :to_s  => "expr.to_s"           (instance method)
+  #   - a real class/module as type: means its name is derived, not typed:
+  #       type: Money       => prop type "Money"
+  #   - a Proc handles anything a Symbol can't express:
+  #       cast: ->(e) { "Money.parse(#{e})" }
+  class ScalarType
+    attr_reader :graphql_name, :type
 
-  # the inverse, for serializing variables onto the wire
-  SCALAR_SERIALIZERS = {
-    "Date" => ->(expr) { "#{expr}.iso8601" },
-  }.freeze
+    def initialize(graphql_name, type:, cast: nil, serialize: nil)
+      @graphql_name = graphql_name.to_s
+      @type = type_name(type)
+      @cast = cast_proc(cast)
+      @serialize = serialize_proc(serialize)
+    end
+
+    def cast(expr) = @cast&.call(expr)
+    def cast? = !@cast.nil?
+    def serialize(expr) = @serialize&.call(expr)
+    def serialize? = !@serialize.nil?
+
+    private
+
+    def type_name(type)
+      case type
+      when Module then type.name
+      when String then type
+      else raise ArgumentError, "type: must be a class/module or String, got #{type.inspect}"
+      end
+    end
+
+    # a class method on the scalar's Ruby type: Money.parse(expr)
+    def cast_proc(cast)
+      case cast
+      when nil then nil
+      when Proc then cast
+      when Symbol then ->(expr) { "#{@type}.#{cast}(#{expr})" }
+      else raise ArgumentError, "cast: must be a Symbol, Proc, or nil, got #{cast.inspect}"
+      end
+    end
+
+    # an instance method on the Ruby value: expr.to_s
+    def serialize_proc(serialize)
+      case serialize
+      when nil then nil
+      when Proc then serialize
+      when Symbol then ->(expr) { "#{expr}.#{serialize}" }
+      else raise ArgumentError, "serialize: must be a Symbol, Proc, or nil, got #{serialize.inspect}"
+      end
+    end
+  end
+
+  class << self
+    # Register (or override) how a GraphQL custom scalar deserializes into
+    # a Ruby object and serializes back onto the wire. See ScalarType for
+    # the accepted cast:/serialize: forms. Later registrations win, so an
+    # app can override a built-in (e.g. map Date onto its own type).
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil)
+      scalar_registry[graphql_name.to_s] =
+        ScalarType.new(graphql_name, type:, cast:, serialize:)
+    end
+
+    # The ScalarType for a scalar name; unknown scalars fall back to an
+    # untyped pass-through (T.untyped, no cast) — the prior behavior for
+    # scalars outside the table.
+    def scalar(graphql_name)
+      scalar_registry.fetch(graphql_name.to_s) do
+        ScalarType.new(graphql_name, type: "T.untyped")
+      end
+    end
+
+    def scalar_registry
+      @scalar_registry ||= {}
+    end
+  end
+
+  # Built-in scalars — pre-registered entries in the one registry. The
+  # standard scalars are pass-through (identity cast); Date is the one
+  # that deserializes (ISO-8601 string <-> Date).
+  register_scalar "ID", type: String
+  register_scalar "String", type: String
+  register_scalar "Int", type: Integer
+  register_scalar "Float", type: Float
+  register_scalar "Boolean", type: "T::Boolean"
+  register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601
 
   class Scalar
     def initialize(name)
-      @name = name
+      @scalar = GraphWeaver::Codegen.scalar(name)
     end
 
     def bare_type
-      SCALARS.fetch(@name, "T.untyped")
+      @scalar.type
     end
 
     def prop_type
@@ -54,19 +131,19 @@ class GraphWeaver::Codegen
     end
 
     def cast(expr, _depth)
-      SCALAR_CASTS.fetch(@name) { return expr }.call(expr)
+      @scalar.cast(expr)
     end
 
     def identity?
-      !SCALAR_CASTS.key?(@name)
+      !@scalar.cast?
     end
 
     def serialize(expr, _depth)
-      SCALAR_SERIALIZERS.fetch(@name) { return expr }.call(expr)
+      @scalar.serialize(expr)
     end
 
     def serialize_identity?
-      !SCALAR_SERIALIZERS.key?(@name)
+      !@scalar.serialize?
     end
 
     def non_null? = false

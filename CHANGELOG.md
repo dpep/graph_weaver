@@ -1,4 +1,7 @@
 ###  v0.0.2  (unreleased)
+- GraphWeaver.register_scalar: custom scalar deserialization into rich Ruby
+  objects (Symbol/Proc cast + serialize); built-in scalars pre-registered in
+  one overridable registry
 - FaradayExecutor: url, Faraday connection, or middleware block
 - GraphWeaver.executor default transport; per-module executor= override
 - GraphWeaver.parse and GraphWeaver.execute (dynamic queries)
