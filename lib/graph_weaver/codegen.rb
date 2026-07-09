@@ -1,7 +1,6 @@
 # typed: true
 # frozen_string_literal: true
 
-require "date"
 require "graphql"
 require "sorbet-runtime"
 
@@ -21,30 +20,38 @@ require_relative "inflect"
 class GraphWeaver::Codegen
   include GraphWeaver::Inflect
 
-  # How one GraphQL scalar maps to Ruby: the Sorbet prop type, and the
+  # How one GraphQL scalar maps to Ruby: the Sorbet prop type, the
   # (optional) code emitted to deserialize a wire value into a rich Ruby
-  # object and serialize it back. A single registry (below) holds one of
-  # these per scalar name; the built-in scalars are just pre-registered
-  # entries, so custom scalars and overrides go through the same path.
+  # object and serialize it back, and any requires the generated file
+  # needs. A single registry (below) holds one of these per scalar name;
+  # the built-in scalars are just pre-registered entries, so custom
+  # scalars and overrides go through the same path.
   #
-  # cast/serialize are normalized to procs that, given a Ruby expression
-  # string, return the code to inline. Callers pass whichever is least
-  # error-prone:
+  # cast/serialize normalize to procs that, given a Ruby expression string,
+  # return the code to inline. They default to :auto, which infers from the
+  # Ruby type when it is a real class — cast uses .parse if the class
+  # defines it, serialize uses #to_s — so the common case needs no more
+  # than a class:
+  #   type: Money                       => Money.parse(expr) / expr.to_s
+  # Override (or opt out) with an explicit value:
   #   - a Symbol names a method, so there is no string to misspell:
-  #       cast: :parse      => "Money.parse(expr)"   (class method on type)
-  #       serialize: :to_s  => "expr.to_s"           (instance method)
-  #   - a real class/module as type: means its name is derived, not typed:
-  #       type: Money       => prop type "Money"
+  #       cast: :load       => "Money.load(expr)"   (class method on type)
+  #       serialize: :to_json => "expr.to_json"     (instance method)
   #   - a Proc handles anything a Symbol can't express:
-  #       cast: ->(e) { "Money.parse(#{e})" }
+  #       cast: ->(e) { "Money.new(#{e})" }
+  #   - nil disables it (identity pass-through)
+  # requires: a String or Array of paths emitted as `require`s atop the
+  # generated file (e.g. "bigdecimal") so the cast/type resolve.
   class ScalarType
-    attr_reader :graphql_name, :type
+    attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type:, cast: nil, serialize: nil)
+    def initialize(graphql_name, type:, cast: :auto, serialize: :auto, requires: nil)
       @graphql_name = graphql_name.to_s
+      @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
-      @cast = cast_proc(cast)
-      @serialize = serialize_proc(serialize)
+      @cast = cast_proc(resolve_cast(cast))
+      @serialize = serialize_proc(resolve_serialize(serialize))
+      @requires = Array(requires)
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -60,6 +67,20 @@ class GraphWeaver::Codegen
       when String then type
       else raise ArgumentError, "type: must be a class/module or String, got #{type.inspect}"
       end
+    end
+
+    # :auto infers from the Ruby class: .parse for casting, if defined
+    def resolve_cast(cast)
+      return cast unless cast == :auto
+
+      @klass&.respond_to?(:parse) ? :parse : nil
+    end
+
+    # :auto infers from the Ruby class: #to_s for serializing
+    def resolve_serialize(serialize)
+      return serialize unless serialize == :auto
+
+      @klass ? :to_s : nil
     end
 
     # a class method on the scalar's Ruby type: Money.parse(expr)
@@ -86,11 +107,12 @@ class GraphWeaver::Codegen
   class << self
     # Register (or override) how a GraphQL custom scalar deserializes into
     # a Ruby object and serializes back onto the wire. See ScalarType for
-    # the accepted cast:/serialize: forms. Later registrations win, so an
-    # app can override a built-in (e.g. map Date onto its own type).
-    def register_scalar(graphql_name, type:, cast: nil, serialize: nil)
+    # the accepted cast:/serialize:/requires: forms. Later registrations
+    # win, so an app can override a built-in (e.g. map Date onto its own
+    # type).
+    def register_scalar(graphql_name, type:, cast: :auto, serialize: :auto, requires: nil)
       scalar_registry[graphql_name.to_s] =
-        ScalarType.new(graphql_name, type:, cast:, serialize:)
+        ScalarType.new(graphql_name, type:, cast:, serialize:, requires:)
     end
 
     # The ScalarType for a scalar name; unknown scalars fall back to an
@@ -98,24 +120,45 @@ class GraphWeaver::Codegen
     # scalars outside the table.
     def scalar(graphql_name)
       scalar_registry.fetch(graphql_name.to_s) do
-        ScalarType.new(graphql_name, type: "T.untyped")
+        ScalarType.new(graphql_name, type: "T.untyped", cast: nil, serialize: nil)
       end
     end
 
     def scalar_registry
       @scalar_registry ||= {}
     end
+
+    # Empty the registry entirely, built-ins included. Mostly useful for
+    # tests; see reset_scalars! to restore the built-in defaults.
+    def clear_scalars!
+      scalar_registry.clear
+      self
+    end
+
+    # Drop every custom registration and restore the built-in scalars —
+    # the clean slate to reach for between tests, or to undo overrides.
+    def reset_scalars!
+      clear_scalars!
+      register_builtin_scalars!
+      self
+    end
+
+    # Built-in scalars — pre-registered entries in the one registry. The
+    # standard scalars are pass-through (identity, so String stays String
+    # on the wire); Date is the one that deserializes (ISO-8601 <-> Date).
+    # Given as type-name strings, not classes, so :auto never infers a
+    # spurious #to_s serializer for them.
+    def register_builtin_scalars!
+      register_scalar "ID", type: "String"
+      register_scalar "String", type: "String"
+      register_scalar "Int", type: "Integer"
+      register_scalar "Float", type: "Float"
+      register_scalar "Boolean", type: "T::Boolean"
+      register_scalar "Date", type: "Date", cast: :iso8601, serialize: :iso8601
+    end
   end
 
-  # Built-in scalars — pre-registered entries in the one registry. The
-  # standard scalars are pass-through (identity cast); Date is the one
-  # that deserializes (ISO-8601 string <-> Date).
-  register_scalar "ID", type: String
-  register_scalar "String", type: String
-  register_scalar "Int", type: Integer
-  register_scalar "Float", type: Float
-  register_scalar "Boolean", type: "T::Boolean"
-  register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601
+  register_builtin_scalars!
 
   class Scalar
     def initialize(name)
@@ -346,6 +389,8 @@ class GraphWeaver::Codegen
       .grep(GraphQL::Language::Nodes::FragmentDefinition)
       .to_h { |fragment| [fragment.name, fragment] }
     @variable_enums = {}
+    # requires contributed by the custom scalars this query actually uses
+    @scalar_requires = []
 
     operation = doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
     root_type = case operation&.operation_type
@@ -375,6 +420,11 @@ class GraphWeaver::Codegen
     out << ""
     out << "# Generated by GraphWeaver — do not edit."
     out << ""
+    requires = @scalar_requires.uniq.sort
+    if requires.any?
+      requires.each { |req| out << "require #{req.inspect}" }
+      out << ""
+    end
     out << "module #{@module_name}"
     out << "  extend T::Sig"
     out << ""
@@ -460,7 +510,7 @@ class GraphWeaver::Codegen
           # (SDL round-trips reorder values alphabetically)
           type_ref(field_type) { EnumNode.new(name, core.values.keys.sort) }
         when "SCALAR"
-          type_ref(field_type) { Scalar.new(core.graphql_name) }
+          type_ref(field_type) { scalar_node(core.graphql_name) }
         else
           raise NotImplementedError, "unsupported kind: #{core.kind.name}"
         end
@@ -501,7 +551,7 @@ class GraphWeaver::Codegen
       core = @schema.get_type(ast_type.name)
       case core.kind.name
       when "SCALAR"
-        Scalar.new(core.graphql_name)
+        scalar_node(core.graphql_name)
       when "ENUM"
         @variable_enums[core.graphql_name] ||=
           EnumNode.new(core.graphql_name, core.values.keys.sort)
@@ -511,6 +561,13 @@ class GraphWeaver::Codegen
     else
       raise NotImplementedError, "unsupported type node: #{ast_type.class}"
     end
+  end
+
+  # A Scalar node, recording any requires its registered type needs so the
+  # generated file can require them (collected across the whole query).
+  def scalar_node(name)
+    @scalar_requires.concat(GraphWeaver::Codegen.scalar(name).requires)
+    Scalar.new(name)
   end
 
   # rebuild the NON_NULL/LIST wrappers around the core node

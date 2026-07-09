@@ -96,16 +96,26 @@ Ruby object (and serializes back when used as a variable). A field typed
 `Money.parse(...)` inline — no runtime reflection:
 
 ```ruby
-GraphWeaver.register_scalar("Money", type: Money, cast: :parse, serialize: :to_s)
+GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
 ```
 
-`type:` takes a class (its name is derived) or a string. `cast:`/`serialize:`
-take a `Symbol` method name — safest, nothing to misspell (`cast: :parse` →
-`Money.parse(expr)`; `serialize: :to_s` → `expr.to_s`) — or a `Proc` (`->(expr)
-{ "Money.parse(#{expr})" }`) for anything a method name can't express, or `nil`
-to pass through. The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered
-the same way, so a later `register_scalar` also overrides them. Register before
-generating; it's a codegen-time concern, baked into the emitted source.
+Pass a real class as `type:` and the cast/serialize are **inferred** — `.parse`
+for deserializing (when the class defines it) and `#to_s` for serializing — so
+the common case needs nothing more. Override (or opt out) explicitly:
+
+- a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
+  `serialize: :to_json` → `expr.to_json`
+- a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
+- `nil` to pass through untouched
+
+`type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
+reference the class. `requires:` (a string or array) names files emitted as
+`require`s atop the generated source so the cast/type resolve.
+
+The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
+same path, so a later `register_scalar` overrides them; `GraphWeaver.reset_scalars!`
+restores the defaults (and `clear_scalars!` empties the registry). Register
+before generating — it's a codegen-time concern, baked into the emitted source.
 
 ----
 ## Installation

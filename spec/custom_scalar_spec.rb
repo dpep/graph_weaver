@@ -1,30 +1,31 @@
 # typed: false
+require "bigdecimal"
 require "graphql"
 
-# A rich Ruby value object we want GraphQL `Money` fields cast into, and a
-# tiny in-process schema exposing a `Money` custom scalar. Kept in its own
-# namespace and separate from Demo::Schema so registering scalars here can
-# never perturb the rest of the suite.
+# A rich Ruby value object we want GraphQL `Money` fields cast into, backed
+# by BigDecimal, plus a tiny in-process schema exposing a `Money` custom
+# scalar. Kept in its own namespace and separate from Demo::Schema so
+# registering scalars here can never perturb the rest of the suite.
 module MoneyDemo
   class Money
-    attr_reader :cents
+    attr_reader :amount # BigDecimal
 
-    # wire ("$19.99") -> Money
+    # wire ("$1,999.00") -> Money
     def self.parse(str)
-      new((Float(str.delete("$,")) * 100).round)
+      new(BigDecimal(str.to_s.delete("$,")))
     end
 
-    def initialize(cents)
-      @cents = cents
+    def initialize(amount)
+      @amount = amount
     end
 
-    # Money -> wire ("$19.99")
+    # Money -> wire ("1999.0")
     def to_s
-      format("$%.2f", @cents / 100.0)
+      @amount.to_s("F")
     end
 
     def ==(other)
-      other.is_a?(Money) && other.cents == @cents
+      other.is_a?(Money) && other.amount == @amount
     end
   end
 
@@ -68,14 +69,9 @@ module MoneyDemo
 end
 
 describe "custom scalar deserialization" do
-  # register_scalar mutates a process-wide registry; snapshot and restore
-  # so these examples neither leak into nor depend on the rest of the suite.
-  around do |example|
-    saved = GraphWeaver::Codegen.scalar_registry.dup
-    example.run
-  ensure
-    GraphWeaver::Codegen.scalar_registry.replace(saved)
-  end
+  # register_scalar mutates a process-wide registry; restore the built-in
+  # defaults after each example so these don't leak into the rest of the suite.
+  after { GraphWeaver::Codegen.reset_scalars! }
 
   let(:query) do
     <<~GRAPHQL
@@ -92,19 +88,43 @@ describe "custom scalar deserialization" do
     GraphWeaver::Codegen.generate(schema: MoneyDemo::Schema, query:, module_name: "StoreQuery")
   end
 
-  it "generates a Money-typed prop and inlines the cast in from_h" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, cast: :parse, serialize: :to_s)
+  it "infers cast (.parse) and serialize (#to_s) from a class type" do
+    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money)
+
+    scalar = GraphWeaver::Codegen.scalar("Money")
+    expect(scalar.type).to eq "MoneyDemo::Money"
+    expect(scalar.cast("v")).to eq "MoneyDemo::Money.parse(v)"
+    expect(scalar.serialize("v")).to eq "v.to_s"
+  end
+
+  it "does not infer a cast when the class has no .parse" do
+    GraphWeaver.register_scalar("Money", type: String) # no String.parse
+
+    expect(GraphWeaver::Codegen.scalar("Money").cast?).to be false
+  end
+
+  it "generates a Money-typed prop and inlines the inferred cast in from_h" do
+    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money)
 
     source = generate
 
     expect(source).to include("const :price, MoneyDemo::Money")
     expect(source).to include('price: MoneyDemo::Money.parse(data.fetch("price"))')
-    # serialize: :to_s emits the inverse for the Money variable
+    # inferred serialize emits the inverse for the Money variable
     expect(source).to include('"budget" => budget.to_s')
   end
 
-  it "round-trips a custom object through serialize and cast end to end" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, cast: :parse, serialize: :to_s)
+  it "emits requires: atop the generated source, before the module" do
+    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "bigdecimal")
+
+    source = generate
+
+    expect(source).to include(%(require "bigdecimal"))
+    expect(source.index(%(require "bigdecimal"))).to be < source.index("module StoreQuery")
+  end
+
+  it "round-trips a BigDecimal-backed object through serialize and cast" do
+    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "bigdecimal")
 
     mod = GraphWeaver.parse(
       schema: MoneyDemo::Schema,
@@ -113,13 +133,13 @@ describe "custom scalar deserialization" do
       name: "StoreQuery",
     )
 
-    product = mod.execute(name: "Widget", budget: MoneyDemo::Money.new(2500)).product
+    product = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("2500.50")).product
 
     expect(product.price).to be_a MoneyDemo::Money
-    expect(product.price).to eq MoneyDemo::Money.new(2500)
+    expect(product.price.amount).to eq BigDecimal("2500.50")
   end
 
-  it "accepts a Proc cast for expressions a method name can't express" do
+  it "accepts an explicit Proc cast, overriding inference" do
     GraphWeaver.register_scalar("Money", type: "MoneyDemo::Money",
       cast: ->(expr) { "MoneyDemo::Money.new(#{expr})" })
 
@@ -132,6 +152,14 @@ describe "custom scalar deserialization" do
     scalar = GraphWeaver::Codegen.scalar("Date")
     expect(scalar.type).to eq "MyDate"
     expect(scalar.cast("s")).to eq "MyDate.load(s)"
+  end
+
+  it "clears and resets the registry" do
+    GraphWeaver::Codegen.clear_scalars!
+    expect(GraphWeaver::Codegen.scalar("Date").cast?).to be false # built-in gone
+
+    GraphWeaver::Codegen.reset_scalars!
+    expect(GraphWeaver::Codegen.scalar("Date").cast("s")).to eq "Date.iso8601(s)"
   end
 
   it "leaves unregistered custom scalars as untyped pass-through" do
