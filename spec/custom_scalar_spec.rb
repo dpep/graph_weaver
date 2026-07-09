@@ -205,4 +205,26 @@ describe "custom scalar deserialization" do
     expect { GraphWeaver.register_scalar("X", type: "X", serialize: 99) }
       .to raise_error(ArgumentError, /serialize:/)
   end
+
+  it "validates requires: is a String or Array of Strings" do
+    expect { GraphWeaver.register_scalar("X", type: "X", requires: 42) }
+      .to raise_error(ArgumentError, /requires:/)
+    expect { GraphWeaver.register_scalar("X", type: "X", requires: ["ok", ""]) }
+      .to raise_error(ArgumentError, /requires:/)
+    expect { GraphWeaver.register_scalar("X", type: "X", requires: ["bigdecimal"]) }
+      .not_to raise_error
+  end
+
+  # the built-in Date scalar carries its own require, so any query using it
+  # generates a self-contained file
+  it "emits require \"date\" for the built-in Date scalar" do
+    source = GraphWeaver::Codegen.generate(
+      schema: Demo::Schema,
+      query: File.read(File.expand_path("queries/person.graphql", __dir__)),
+      module_name: "PersonQuery",
+    )
+
+    expect(source).to include(%(require "date"))
+    expect(source.index(%(require "date"))).to be < source.index("module PersonQuery")
+  end
 end

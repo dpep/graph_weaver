@@ -71,7 +71,7 @@ class GraphWeaver::Codegen
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
       @cast = normalize_cast(cast, codec&.cast)
       @serialize = normalize_serialize(serialize, codec&.serialize)
-      @requires = Array(requires)
+      @requires = normalize_requires(requires)
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -110,6 +110,17 @@ class GraphWeaver::Codegen
       when Proc then serialize
       when Symbol then ->(expr) { "#{expr}.#{serialize}" }
       else raise ArgumentError, "serialize: must be a Symbol, Proc, :itself, or nil, got #{serialize.inspect}"
+      end
+    end
+
+    # requires: is a require path or list of them; each must be a non-empty
+    # String (it is emitted verbatim as `require "..."`), caught here rather
+    # than as a syntax error in the generated file.
+    def normalize_requires(requires)
+      Array(requires).each do |req|
+        unless req.is_a?(String) && !req.empty?
+          raise ArgumentError, "requires: must be a String or Array of Strings, got #{req.inspect}"
+        end
       end
     end
   end
@@ -166,7 +177,7 @@ class GraphWeaver::Codegen
       register_scalar "Int", type: Integer
       register_scalar "Float", type: Float
       register_scalar "Boolean", type: "T::Boolean"
-      register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601
+      register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601, requires: "date"
     end
   end
 
