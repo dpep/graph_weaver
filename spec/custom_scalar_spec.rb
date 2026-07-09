@@ -153,7 +153,6 @@ describe "custom scalar deserialization" do
       schema: MoneyDemo::Schema,
       executor: MoneyDemo::Schema,
       query:,
-      name: "StoreQuery",
     )
 
     product = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("2500.50")).product
@@ -249,7 +248,6 @@ describe "custom scalar deserialization" do
         schema: MoneyDemo::Schema,
         executor: MoneyDemo::Schema,
         query:,
-        name: "StoreQuery",
       )
 
       from_string = mod.execute(name: "Widget", budget: "12.00").product

@@ -118,7 +118,6 @@ describe GraphWeaver::Codegen do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
         executor: Demo::Schema,
-        name: "DefaultedSearch",
         query: <<~GRAPHQL,
           query($term: String = "el") {
             search(term: $term) {

@@ -82,7 +82,6 @@ describe "built-in scalar coercion" do
       schema: BuiltinDemo::Schema,
       executor: BuiltinDemo::Schema,
       query:,
-      name: "ComputeQuery",
     )
 
     # amount/count arrive as strings but land on the wire as a Float/Integer;
