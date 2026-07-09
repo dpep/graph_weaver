@@ -492,7 +492,7 @@ class GraphWeaver::Codegen
   def generate
     errors = @schema.validate(@query)
     if errors.any?
-      raise ArgumentError, "invalid query: #{errors.map(&:message).join("; ")}"
+      raise GraphWeaver::ValidationError.new(errors.map { |e| validation_detail(e) })
     end
 
     doc = GraphQL.parse(@query)
@@ -548,6 +548,8 @@ class GraphWeaver::Codegen
       out << ""
     end
     emit_nested(root, out, 1)
+    out << ""
+    emit_response(out, 1)
     out << ""
     emit_execute(out, variables)
     out << "end"
@@ -783,6 +785,32 @@ class GraphWeaver::Codegen
     out << "#{pad}end"
   end
 
+  # The envelope execute returns: the typed data (nil on total failure),
+  # the top-level GraphQL errors, and top-level extensions (cost/throttle).
+  # data! is the strict accessor — the result, or a raised QueryError.
+  def emit_response(out, indent)
+    pad = "  " * indent
+
+    out << "#{pad}class Response < T::Struct"
+    out << "#{pad}  extend T::Sig"
+    out << ""
+    out << "#{pad}  const :data, T.nilable(Result)"
+    out << "#{pad}  const :errors, T::Array[GraphWeaver::GraphQLError], default: []"
+    out << "#{pad}  const :extensions, T::Hash[String, T.untyped], default: {}"
+    out << ""
+    out << "#{pad}  sig { returns(T::Boolean) }"
+    out << "#{pad}  def errors? = !errors.empty?"
+    out << ""
+    out << "#{pad}  # The typed result, or raise QueryError if the response carried"
+    out << "#{pad}  # top-level errors (partial data and extensions ride along on it)."
+    out << "#{pad}  sig { returns(Result) }"
+    out << "#{pad}  def data!"
+    out << "#{pad}    raise GraphWeaver::QueryError.new(errors, data: data, extensions: extensions) unless errors.empty?"
+    out << "#{pad}    T.must(data)"
+    out << "#{pad}  end"
+    out << "#{pad}end"
+  end
+
   def emit_execute(out, variables)
     out << "  @executor = T.let(nil, T.untyped)"
     out << ""
@@ -810,7 +838,7 @@ class GraphWeaver::Codegen
     kwargs = variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
     kwargs << "executor: self.executor"
 
-    out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+    out << "  sig { params(#{sig_params.join(", ")}).returns(Response) }"
     out << "  def self.execute(#{kwargs.join(", ")})"
 
     required, optional = variables.partition(&:required)
@@ -828,18 +856,25 @@ class GraphWeaver::Codegen
     end
 
     out << ""
-    out << "    result = executor.execute(QUERY, variables: variables).to_h"
-    out << "    if (errors = result[\"errors\"])"
-    out << "      raise \"query failed: \#{errors.inspect}\""
-    out << "    end"
-    out << ""
-    out << "    Result.from_h(result.fetch(\"data\"))"
+    out << "    raw = executor.execute(QUERY, variables: variables).to_h"
+    out << "    Response.new("
+    out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
+    out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"
+    out << "      extensions: raw[\"extensions\"] || {},"
+    out << "    )"
     out << "  end"
   end
 
   def variable_serialize(var)
     value = var.node.coerce? ? var.node.coerce(var.kwarg) : var.kwarg
     var.node.serialize_identity? ? value : var.node.serialize(value, 1)
+  end
+
+  # Structured shape for a schema-validation error: message plus its first
+  # source location, so ValidationError#errors is inspectable.
+  def validation_detail(error)
+    loc = (error.to_h["locations"]&.first if error.respond_to?(:to_h))
+    { message: error.message, line: loc && loc["line"], column: loc && loc["column"] }
   end
 
   def field_cast(field)

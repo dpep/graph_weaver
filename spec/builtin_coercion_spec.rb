@@ -86,7 +86,7 @@ describe "built-in scalar coercion" do
 
     # amount/count arrive as strings but land on the wire as a Float/Integer;
     # id (Integer) and label (Float, another built-in) are stringified via to_s
-    echo = mod.execute(amount: "5.5", count: "3", id: 42, label: 3.5).echo
+    echo = mod.execute(amount: "5.5", count: "3", id: 42, label: 3.5).data!.echo
 
     expect(echo).to eq "Float:5.5 Integer:3 String:42 String:3.5"
   end

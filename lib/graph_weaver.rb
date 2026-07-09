@@ -1,6 +1,7 @@
 require "graphql"
 require "sorbet-runtime"
 
+require_relative "graph_weaver/errors"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
 require_relative "graph_weaver/http_executor"
@@ -13,8 +14,6 @@ require_relative "graph_weaver/version"
 #     dropping directive argument defaults when loading SDL (needed for
 #     Apollo supergraph SDL until rmosolgo/graphql-ruby#5659 ships)
 module GraphWeaver
-  class Error < StandardError; end
-
   class << self
     # global default transport; generated modules fall back to this
     # (override per module with MyQuery.executor=, or per call with
@@ -84,6 +83,10 @@ module GraphWeaver
     #
     #   GraphWeaver.execute(schema:, query:, variables: { id: "1" })
     #
+    # A convenience wrapper: unlike a generated module's #execute (which
+    # returns a Response envelope), this returns the typed result directly
+    # and raises GraphWeaver::QueryError on top-level errors — call the
+    # generated module when you need the envelope's errors/extensions.
     # Transport precedence: executor: param, then GraphWeaver.executor,
     # then in-process execution against schema. Variable keys may be
     # graphql-cased strings or ruby symbols.
@@ -91,7 +94,7 @@ module GraphWeaver
       executor ||= @executor || schema
       mod = parse(schema:, query:, executor:)
       kwargs = variables.to_h { |key, value| [Inflect.underscore(key.to_s).to_sym, value] }
-      mod.execute(**kwargs)
+      mod.execute(**kwargs).data!
     end
   end
 end

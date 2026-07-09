@@ -32,10 +32,12 @@ describe GraphWeaver::Codegen do
   end
 
   describe "the generated module" do
-    let(:result) { PersonQuery.execute(id: "1") }
+    let(:response) { PersonQuery.execute(id: "1") }
+    let(:result) { response.data! }
     let(:person) { result.person }
 
     it "executes and casts into the generated structs" do
+      expect(response).to be_a PersonQuery::Response
       expect(result).to be_a PersonQuery::Result
       expect(person).to be_a PersonQuery::Result::Person
       expect(person.name).to eq "Daniel"
@@ -43,19 +45,22 @@ describe GraphWeaver::Codegen do
       expect(person.pets.map(&:name)).to eq %w[Shelby Brownie]
     end
 
-    it "raises on failed queries" do
+    it "returns errors in the envelope; data! raises QueryError" do
       failing = Class.new do
         def execute(_query, variables:)
-          { "errors" => [{ "message" => "boom" }] }
+          { "errors" => [{ "message" => "boom", "extensions" => { "code" => "OOPS" } }] }
         end
       end
 
-      expect { PersonQuery.execute(id: "1", executor: failing.new) }.to raise_error(/query failed/)
+      response = PersonQuery.execute(id: "1", executor: failing.new)
+      expect(response.errors?).to be true
+      expect(response.errors.first.code).to eq "OOPS"
+      expect { response.data! }.to raise_error(GraphWeaver::QueryError, /boom/)
     end
   end
 
   describe "unions and fragments" do
-    let(:results) { SearchQuery.execute(term: "el").search }
+    let(:results) { SearchQuery.execute(term: "el").data!.search }
 
     it "dispatches each result to its member struct via __typename" do
       expect(results.map(&:class)).to eq [
@@ -95,8 +100,8 @@ describe GraphWeaver::Codegen do
 
   describe "interface-typed fields" do
     it "dispatches to member structs like unions" do
-      pet = NamedQuery.execute(name: "Shelby").named
-      person = NamedQuery.execute(name: "Daniel").named
+      pet = NamedQuery.execute(name: "Shelby").data!.named
+      person = NamedQuery.execute(name: "Daniel").data!.named
 
       expect(pet).to be_a NamedQuery::Result::Named::Pet
       expect(pet.name).to eq "Shelby" # interface field, gathered into every member
@@ -108,7 +113,7 @@ describe GraphWeaver::Codegen do
 
   describe "mutations and typed variables" do
     it "executes mutations with typed kwargs, serializing enum variables" do
-      result = AddPetQuery.execute(name: "Rex", species: AddPetQuery::Species::Dog)
+      result = AddPetQuery.execute(name: "Rex", species: AddPetQuery::Species::Dog).data!
 
       expect(result.add_pet.name).to eq "Rex"
       expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
@@ -130,7 +135,7 @@ describe GraphWeaver::Codegen do
         GRAPHQL
       )
 
-      names = mod.execute.search.map(&:name)
+      names = mod.execute.data!.search.map(&:name)
       expect(names).to eq %w[Daniel Shelby] # server applied the "el" default
     end
   end
@@ -143,7 +148,7 @@ describe GraphWeaver::Codegen do
         query: "query People { people { name } }",
       )
 
-      expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+      expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
     end
 
     it "derives the module name from a .graphql file" do
@@ -155,7 +160,7 @@ describe GraphWeaver::Codegen do
         query: File.expand_path("queries/person.graphql", __dir__),
       )
 
-      expect(mod.execute(id: "1").person&.name).to eq "Daniel"
+      expect(mod.execute(id: "1").data!.person&.name).to eq "Daniel"
     end
 
     it "parses anonymous raw query strings, defaulting the name" do
@@ -165,7 +170,7 @@ describe GraphWeaver::Codegen do
         query: "query { people { name } }",
       )
 
-      expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+      expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
     end
 
     it "still requires a deliberate name when generating files" do
@@ -195,7 +200,7 @@ describe GraphWeaver::Codegen do
 
       begin
         GraphWeaver.executor = Demo::Schema
-        expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+        expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
       ensure
         GraphWeaver.executor = nil
       end
@@ -204,7 +209,7 @@ describe GraphWeaver::Codegen do
     it "supports per-module override" do
       mod.executor = Demo::Schema
 
-      expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+      expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
     end
   end
 

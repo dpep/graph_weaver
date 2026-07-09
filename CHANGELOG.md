@@ -1,4 +1,12 @@
 ###  v0.0.2  (unreleased)
+- Structured errors: execute returns a typed Response envelope (#data/#data!,
+  #errors, #errors?, #extensions) instead of raising on GraphQL errors, so
+  partial data and top-level extensions (cost/throttle) survive. Error classes
+  under GraphWeaver::Error — TransportError (network), ServerError (non-2xx
+  HTTP, #status/#body), QueryError (#errors/#data/#extensions/#codes),
+  ValidationError (build-time) — plus a GraphQLError value object with #code.
+  BREAKING: module #execute returns Response; call #data! for the old
+  raise-or-result behavior (GraphWeaver.execute one-shot already does).
 - GraphWeaver.register_scalar: custom scalar deserialization into rich Ruby
   objects. cast/serialize inferred from a class type via paired codecs
   (.parse/#to_s or .load/.dump), or given as a Symbol/Proc (:itself opts out);

@@ -19,7 +19,7 @@ query($id: ID!) {
 ```
 
 ```ruby
-result = PersonQuery.execute(id: "1")
+result = PersonQuery.execute(id: "1").data!   # envelope#data! → typed result, or raises QueryError
 
 result.person&.name       # => "Daniel" (typed String)
 result.person&.birthday   # => Date (custom scalars deserialize)
@@ -32,6 +32,7 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 - **Fragments** (inline, named, interface conditions), **unions and interfaces** (member structs, `__typename` dispatch), **enums** (`T::Enum`), **custom scalars** (pluggable registry)
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL
 - **Any transport**: in-process schema execution (perfect for tests), the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
+- **Structured errors**: a typed response envelope (data + errors + extensions), and a `GraphWeaver::Error` hierarchy that separates transport, server, and GraphQL failures — match on error `code`, not message strings
 - **Dynamic mode** for development: `GraphWeaver::Codegen.load(...)` generates and evals on the fly, no build step
 
 ####  Usage
@@ -158,6 +159,54 @@ same path (`Date` even carries its own `require "date"`), so a later
 defaults (`reset_scalars!(coerce: true)` restores them coercible) and
 `clear_scalars!` empties the registry. Register before generating — it's a
 codegen-time concern, baked into the emitted source.
+
+#### Errors
+
+`execute` returns a typed **`Response` envelope** rather than raising on GraphQL
+errors — so partial data and top-level `extensions` (cost, throttle) survive:
+
+```ruby
+response = PersonQuery.execute(id: "1")
+
+response.data           # T.nilable(Result) — typed, present even on partial success
+response.errors         # Array[GraphWeaver::GraphQLError]
+response.errors?        # any top-level errors?
+response.extensions     # { "cost" => … } — rides on success too
+response.data!          # the Result, or raise GraphWeaver::QueryError
+```
+
+Every `GraphQLError` exposes `#message`, `#locations`, `#path`, `#extensions`,
+and `#code` (`extensions["code"]`) — match on the **code**, not the message
+string (`response.errors.first.code == "THROTTLED"`).
+
+Everything GraphWeaver raises descends from `GraphWeaver::Error`, split by where
+it failed:
+
+| Class | When |
+|-------|------|
+| `TransportError` | never reached the server — DNS, connection refused, TLS, timeout |
+| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
+| `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
+| `ValidationError` | build time: the query didn't validate against the schema (also an `ArgumentError`) |
+
+```ruby
+begin
+  person = PersonQuery.execute(id: "1").data!.person
+rescue GraphWeaver::TransportError
+  retry                                   # network blip
+rescue GraphWeaver::ServerError => e
+  raise if e.status < 500                 # backoff on 5xx only
+rescue GraphWeaver::QueryError => e
+  e.codes.include?("THROTTLED") ? backoff : raise
+end
+```
+
+Business/validation failures returned *as data* (Shopify-style `userErrors { field
+message code }`) aren't errors here — they're just fields you selected, so they
+deserialize onto `response.data` like anything else and you inspect them there.
+
+The one-shot `GraphWeaver.execute(...)` skips the envelope: it returns the typed
+result directly and raises `QueryError` on top-level errors.
 
 ----
 ## Installation
