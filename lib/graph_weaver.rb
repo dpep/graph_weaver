@@ -65,8 +65,10 @@ module GraphWeaver
     #   PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
     #
     # query is a .graphql/.gql path (module name derived from the file
-    # name) or an inline string (name derived from the operation name).
-    # Pass name: to override, executor: to set the module's transport.
+    # name) or a raw query string (name derived from the operation name,
+    # falling back to "Query" for anonymous operations — collisions are
+    # impossible since each parse gets its own container). Pass name: to
+    # override, executor: to set the module's transport.
     def parse(schema:, query:, name: nil, executor: nil)
       if query.end_with?(".graphql", ".gql")
         name ||= "#{Inflect.camelize(File.basename(query, ".*"))}Query"
@@ -85,7 +87,7 @@ module GraphWeaver
     # graphql-cased strings or ruby symbols.
     def execute(schema:, query:, variables: {}, executor: nil)
       executor ||= @executor || schema
-      mod = parse(schema:, query:, name: "OneShot", executor:)
+      mod = parse(schema:, query:, executor:)
       kwargs = variables.to_h { |key, value| [Inflect.underscore(key.to_s).to_sym, value] }
       mod.execute(**kwargs)
     end

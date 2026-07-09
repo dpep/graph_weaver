@@ -80,8 +80,9 @@ executor = GraphWeaver::FaradayExecutor.new(MyApp.faraday_connection)
 In development, skip the build step entirely:
 
 ```ruby
-# parse a query into a typed module on the fly (name from file / operation)
+# parse a query into a typed module on the fly — a .graphql path or a raw string
 PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
+PeopleQuery = GraphWeaver.parse(schema:, query: "query { people { name } }")
 PersonQuery.execute(id: "1")
 
 # or one-shot, no module at all

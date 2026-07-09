@@ -401,11 +401,16 @@ class GraphWeaver::Codegen
   # execute accepts a per-call executor: override.
   #
   # module_name: defaults to the operation's name (`query GetPerson` →
-  # GetPerson); required for anonymous operations.
-  def initialize(schema:, query:, module_name: nil, executor: nil)
+  # GetPerson); required for anonymous operations when generating files.
+  # default_module_name: is the last-resort fallback — parse sets it to
+  # "Query" since its container scoping makes name collisions impossible,
+  # while file generation stays strict (a checked-in file deserves a
+  # deliberate name).
+  def initialize(schema:, query:, module_name: nil, executor: nil, default_module_name: nil)
     @schema = schema
     @query = query.strip
     @module_name = module_name
+    @default_module_name = default_module_name
     @executor_const = executor.is_a?(Module) ? executor.name : executor
   end
 
@@ -425,7 +430,7 @@ class GraphWeaver::Codegen
     when Module then executor.name # nil for anonymous modules
     end
 
-    codegen = new(schema:, query:, module_name:, executor: executor_const)
+    codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query")
     source = codegen.generate
 
     container = Module.new
@@ -460,7 +465,7 @@ class GraphWeaver::Codegen
     else raise NotImplementedError, "unsupported operation: #{operation.operation_type}"
     end
 
-    @module_name ||= operation.name
+    @module_name ||= operation.name || @default_module_name
     unless @module_name
       raise ArgumentError, "module_name: required for anonymous operations"
     end

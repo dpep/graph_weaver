@@ -159,9 +159,19 @@ describe GraphWeaver::Codegen do
       expect(mod.execute(id: "1").person&.name).to eq "Daniel"
     end
 
-    it "requires a name for anonymous inline operations" do
+    it "parses anonymous raw query strings, defaulting the name" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: "query { people { name } }",
+      )
+
+      expect(mod.execute.people.map(&:name)).to eq ["Daniel"]
+    end
+
+    it "still requires a deliberate name when generating files" do
       expect {
-        GraphWeaver.parse(schema: Demo::Schema, query: "query { people { name } }")
+        described_class.generate(schema: Demo::Schema, query: "query { people { name } }")
       }.to raise_error(ArgumentError, /module_name/)
     end
 
