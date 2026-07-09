@@ -5,8 +5,10 @@
   requires: emits (validated, and require-checked when type: is a class)
   requires into generated source — the built-in Date scalar carries
   require "date" so Date-using queries are self-contained; coerce: true lets a
-  variable accept the value or its raw input, casting the latter; built-in
-  scalars pre-registered in one overridable registry (reset_scalars!/clear_scalars!)
+  variable accept the value or its raw input (coerce: :to_f for a built-in
+  conversion), casting/converting the latter — reset_scalars!(coerce: true)
+  reloads the built-ins coercible; built-in scalars pre-registered in one
+  overridable registry (reset_scalars!/clear_scalars!)
 - FaradayExecutor: url, Faraday connection, or middleware block
 - GraphWeaver.executor default transport; per-module executor= override
 - GraphWeaver.parse and GraphWeaver.execute (dynamic queries)

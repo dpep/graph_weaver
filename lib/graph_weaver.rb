@@ -49,9 +49,11 @@ module GraphWeaver
     end
 
     # Restore the built-in scalars, dropping every custom registration —
-    # the clean slate to reach for between tests or to undo overrides.
-    def reset_scalars!
-      Codegen.reset_scalars!
+    # the clean slate to reach for between tests or to undo overrides. Pass
+    # coerce: true to reload the built-ins with input coercion enabled
+    # (Float accepts 5/"5", etc.), then register your own scalars on top.
+    def reset_scalars!(coerce: false)
+      Codegen.reset_scalars!(coerce:)
     end
 
     # Empty the scalar registry entirely, built-ins included (see
