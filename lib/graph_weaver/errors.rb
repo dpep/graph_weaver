@@ -1,6 +1,7 @@
 # typed: true
 # frozen_string_literal: true
 
+require "set"
 require "sorbet-runtime"
 
 module GraphWeaver
@@ -11,6 +12,29 @@ module GraphWeaver
   # TLS handshake, timeout. The original exception is preserved as #cause.
   # Generally retriable.
   class TransportError < Error; end
+
+  class << self
+    # The exception classes the bundled executors reclassify as
+    # TransportError — network-level failures where the request never
+    # reached the server. A mutable Set: each transport contributes its own
+    # on load (net/http adds Timeout/SSL, Faraday adds its ConnectionFailed,
+    # …), and you can add more so they get the same handling:
+    #
+    #   GraphWeaver.transport_errors << MyPool::TimeoutError
+    #   GraphWeaver.register_transport_error(Adapter::ResetError)
+    #
+    # SystemCallError covers every Errno::* (connection refused/reset, host
+    # unreachable); SocketError covers DNS.
+    def transport_errors
+      @transport_errors ||= Set[SocketError, SystemCallError, IOError]
+    end
+
+    # Add one or more exception classes to the transport-error set.
+    def register_transport_error(*classes)
+      transport_errors.merge(classes)
+      classes
+    end
+  end
 
   # The request reached the server but it returned a non-2xx status — a 500
   # that exploded, a 502 from a proxy, a 401, etc. Distinct from a GraphQL

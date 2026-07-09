@@ -4,6 +4,8 @@
 require "faraday"
 require "json"
 
+require_relative "errors"
+
 # Faraday-backed transport. Opt-in (faraday is not a hard dependency):
 #
 #   require "graph_weaver/faraday_executor"
@@ -20,6 +22,12 @@ require "json"
 #   # or bring a fully configured connection
 #   GraphWeaver::FaradayExecutor.new(Faraday.new(url:) { |conn| ... })
 class GraphWeaver::FaradayExecutor
+  # Faraday's network-level failures — added to the shared, extensible
+  # transport-error set.
+  GraphWeaver.register_transport_error(
+    Faraday::ConnectionFailed, Faraday::TimeoutError, Faraday::SSLError
+  )
+
   def initialize(url_or_connection, headers: {}, &block)
     @connection = case url_or_connection
     when Faraday::Connection
@@ -36,7 +44,7 @@ class GraphWeaver::FaradayExecutor
         request.headers["Content-Type"] = "application/json"
         request.body = JSON.generate(query:, variables:)
       end
-    rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Faraday::SSLError => e
+    rescue *GraphWeaver.transport_errors.to_a => e
       # never got a response — connection refused/reset, TLS, timeout
       raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end

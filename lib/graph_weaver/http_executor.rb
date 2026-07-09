@@ -7,9 +7,15 @@ require "net/http"
 require "openssl"
 require "uri"
 
+require_relative "errors"
+
 # Minimal HTTP transport satisfying the generated modules' executor
 # interface: execute(query, variables:) => {"data" => ..., "errors" => ...}
 class GraphWeaver::HttpExecutor
+  # net/http's own network-level failures (Errno/SocketError/IOError are
+  # already seeded) — added to the shared, extensible transport-error set.
+  GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
+
   def initialize(url, headers: {})
     @uri = URI(url)
     @headers = headers
@@ -23,7 +29,7 @@ class GraphWeaver::HttpExecutor
       Net::HTTP.start(@uri.hostname, @uri.port, use_ssl: @uri.scheme == "https") do |http|
         http.request(request)
       end
-    rescue SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError, IOError => e
+    rescue *GraphWeaver.transport_errors.to_a => e
       # never got a response — DNS, connection refused/reset, TLS, timeout
       raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end

@@ -206,6 +206,16 @@ rescue GraphWeaver::QueryError => e
 end
 ```
 
+What counts as a `TransportError` is an **extensible set** — each transport
+seeds its own network exceptions (`Errno::*`, `SocketError`, timeouts, TLS; the
+Faraday adapter adds its own), and you can register more so a custom adapter's
+or connection pool's failure gets the same treatment:
+
+```ruby
+GraphWeaver.register_transport_error(ConnectionPool::TimeoutError)
+GraphWeaver.transport_errors << MyAdapter::ResetError   # it's just a Set
+```
+
 Business/validation failures returned *as data* (Shopify-style `userErrors { field
 message code }`) aren't errors here — they're just fields you selected, so they
 deserialize onto `response.data` like anything else and you inspect them there.

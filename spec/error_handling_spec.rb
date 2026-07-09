@@ -101,6 +101,16 @@ describe "error handling" do
     it "is a GraphWeaver::Error" do
       expect(GraphWeaver::TransportError.new).to be_a GraphWeaver::Error
     end
+
+    it "classifies via a mutable, extensible set (seeded with core network errors)" do
+      expect(GraphWeaver.transport_errors).to include(SocketError, SystemCallError, IOError)
+
+      pool_error = Class.new(StandardError)
+      expect(GraphWeaver.register_transport_error(pool_error)).to eq [pool_error]
+      expect(GraphWeaver.transport_errors).to include(pool_error)
+    ensure
+      GraphWeaver.transport_errors.delete(pool_error)
+    end
   end
 
   describe "ValidationError" do
