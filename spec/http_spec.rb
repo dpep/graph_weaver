@@ -33,4 +33,15 @@ describe GraphWeaver::HttpExecutor do
     expect { PersonQuery.execute(id: "1", executor: bad) }
       .to raise_error(GraphWeaver::TransportError)
   end
+
+  it "reclassifies a user-registered exception (e.g. a pool error) as TransportError" do
+    pool_error = Class.new(StandardError)
+    GraphWeaver.register_transport_error(pool_error)
+    allow(Net::HTTP).to receive(:start).and_raise(pool_error.new("pool exhausted"))
+
+    expect { PersonQuery.execute(id: "1", executor:) }
+      .to raise_error(GraphWeaver::TransportError, /pool exhausted/)
+  ensure
+    GraphWeaver.transport_errors.delete(pool_error)
+  end
 end

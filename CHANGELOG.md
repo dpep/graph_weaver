@@ -5,6 +5,9 @@
   under GraphWeaver::Error — TransportError (network), ServerError (non-2xx
   HTTP, #status/#body), QueryError (#errors/#data/#extensions/#codes),
   ValidationError (build-time) — plus a GraphQLError value object with #code.
+  Transport-error classification is an extensible Set (GraphWeaver.transport_errors
+  / register_transport_error): each transport seeds its own network exceptions
+  and apps can add more (e.g. a connection-pool timeout).
   The envelope is a single generic GraphWeaver::Response[Result] (no per-query
   wrapper class). execute! is the shortcut for execute(...).data! — the typed
   result or a raised QueryError — on both generated modules and the one-shot
