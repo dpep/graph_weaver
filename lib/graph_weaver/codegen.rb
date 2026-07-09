@@ -549,8 +549,6 @@ class GraphWeaver::Codegen
     end
     emit_nested(root, out, 1)
     out << ""
-    emit_response(out, 1)
-    out << ""
     emit_execute(out, variables)
     out << "end"
 
@@ -785,32 +783,6 @@ class GraphWeaver::Codegen
     out << "#{pad}end"
   end
 
-  # The envelope execute returns: the typed data (nil on total failure),
-  # the top-level GraphQL errors, and top-level extensions (cost/throttle).
-  # data! is the strict accessor — the result, or a raised QueryError.
-  def emit_response(out, indent)
-    pad = "  " * indent
-
-    out << "#{pad}class Response < T::Struct"
-    out << "#{pad}  extend T::Sig"
-    out << ""
-    out << "#{pad}  const :data, T.nilable(Result)"
-    out << "#{pad}  const :errors, T::Array[GraphWeaver::GraphQLError], default: []"
-    out << "#{pad}  const :extensions, T::Hash[String, T.untyped], default: {}"
-    out << ""
-    out << "#{pad}  sig { returns(T::Boolean) }"
-    out << "#{pad}  def errors? = !errors.empty?"
-    out << ""
-    out << "#{pad}  # The typed result, or raise QueryError if the response carried"
-    out << "#{pad}  # top-level errors (partial data and extensions ride along on it)."
-    out << "#{pad}  sig { returns(Result) }"
-    out << "#{pad}  def data!"
-    out << "#{pad}    raise GraphWeaver::QueryError.new(errors, data: data, extensions: extensions) unless errors.empty?"
-    out << "#{pad}    T.must(data)"
-    out << "#{pad}  end"
-    out << "#{pad}end"
-  end
-
   def emit_execute(out, variables)
     out << "  @executor = T.let(nil, T.untyped)"
     out << ""
@@ -838,7 +810,11 @@ class GraphWeaver::Codegen
     kwargs = variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
     kwargs << "executor: self.executor"
 
-    out << "  sig { params(#{sig_params.join(", ")}).returns(Response) }"
+    # execute returns the full envelope; execute! is the strict shortcut for
+    # `execute(...).data!` — the typed result, or a raised QueryError.
+    forward = (variables.map { |var| "#{var.kwarg}: #{var.kwarg}" } + ["executor: executor"]).join(", ")
+
+    out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
     out << "  def self.execute(#{kwargs.join(", ")})"
 
     required, optional = variables.partition(&:required)
@@ -857,11 +833,16 @@ class GraphWeaver::Codegen
 
     out << ""
     out << "    raw = executor.execute(QUERY, variables: variables).to_h"
-    out << "    Response.new("
+    out << "    GraphWeaver::Response[Result].new("
     out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
     out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"
     out << "      extensions: raw[\"extensions\"] || {},"
     out << "    )"
+    out << "  end"
+    out << ""
+    out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+    out << "  def self.execute!(#{kwargs.join(", ")})"
+    out << "    execute(#{forward}).data!"
     out << "  end"
   end
 

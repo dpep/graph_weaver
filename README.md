@@ -19,7 +19,7 @@ query($id: ID!) {
 ```
 
 ```ruby
-result = PersonQuery.execute(id: "1").data!   # envelope#data! → typed result, or raises QueryError
+result = PersonQuery.execute!(id: "1")   # typed result, or raises on errors (execute returns an envelope)
 
 result.person&.name       # => "Daniel" (typed String)
 result.person&.birthday   # => Date (custom scalars deserialize)
@@ -163,17 +163,22 @@ codegen-time concern, baked into the emitted source.
 #### Errors
 
 `execute` returns a typed **`Response` envelope** rather than raising on GraphQL
-errors — so partial data and top-level `extensions` (cost, throttle) survive:
+errors — so partial data and top-level `extensions` (cost, throttle) survive.
+`execute!` is the shortcut when you just want the result:
 
 ```ruby
-response = PersonQuery.execute(id: "1")
+PersonQuery.execute!(id: "1")   # => Result, or raises QueryError  (== execute(...).data!)
 
+response = PersonQuery.execute(id: "1")   # => GraphWeaver::Response[Result]
 response.data           # T.nilable(Result) — typed, present even on partial success
 response.errors         # Array[GraphWeaver::GraphQLError]
 response.errors?        # any top-level errors?
 response.extensions     # { "cost" => … } — rides on success too
 response.data!          # the Result, or raise GraphWeaver::QueryError
 ```
+
+The envelope is a single generic `GraphWeaver::Response[Result]` — `response.data`
+stays fully typed to *this* query's result, no per-query wrapper class.
 
 Every `GraphQLError` exposes `#message`, `#locations`, `#path`, `#extensions`,
 and `#code` (`extensions["code"]`) — match on the **code**, not the message
@@ -191,7 +196,7 @@ it failed:
 
 ```ruby
 begin
-  person = PersonQuery.execute(id: "1").data!.person
+  person = PersonQuery.execute!(id: "1").person
 rescue GraphWeaver::TransportError
   retry                                   # network blip
 rescue GraphWeaver::ServerError => e
@@ -205,8 +210,8 @@ Business/validation failures returned *as data* (Shopify-style `userErrors { fie
 message code }`) aren't errors here — they're just fields you selected, so they
 deserialize onto `response.data` like anything else and you inspect them there.
 
-The one-shot `GraphWeaver.execute(...)` skips the envelope: it returns the typed
-result directly and raises `QueryError` on top-level errors.
+The one-shot `GraphWeaver.execute` / `execute!` mirror this: `execute` returns
+the envelope, `execute!` the result-or-raise.
 
 ----
 ## Installation

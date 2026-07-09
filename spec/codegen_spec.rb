@@ -37,7 +37,7 @@ describe GraphWeaver::Codegen do
     let(:person) { result.person }
 
     it "executes and casts into the generated structs" do
-      expect(response).to be_a PersonQuery::Response
+      expect(response).to be_a GraphWeaver::Response
       expect(result).to be_a PersonQuery::Result
       expect(person).to be_a PersonQuery::Result::Person
       expect(person.name).to eq "Daniel"
@@ -56,6 +56,16 @@ describe GraphWeaver::Codegen do
       expect(response.errors?).to be true
       expect(response.errors.first.code).to eq "OOPS"
       expect { response.data! }.to raise_error(GraphWeaver::QueryError, /boom/)
+    end
+
+    it "execute! returns the result directly, raising QueryError on errors" do
+      expect(PersonQuery.execute!(id: "1").person&.name).to eq "Daniel"
+
+      failing = Class.new do
+        def execute(_query, variables:) = { "errors" => [{ "message" => "boom" }] }
+      end
+      expect { PersonQuery.execute!(id: "1", executor: failing.new) }
+        .to raise_error(GraphWeaver::QueryError)
     end
   end
 
@@ -215,7 +225,7 @@ describe GraphWeaver::Codegen do
 
   describe "GraphWeaver.execute (one-shot)" do
     it "runs a query in-process with variables" do
-      result = GraphWeaver.execute(
+      result = GraphWeaver.execute!(
         schema: Demo::Schema,
         query: "query($id: ID!) { person(id: $id) { name } }",
         variables: { id: "1" },
@@ -224,8 +234,19 @@ describe GraphWeaver::Codegen do
       expect(result.person&.name).to eq "Daniel"
     end
 
+    it "execute returns the envelope, execute! the result" do
+      args = {
+        schema: Demo::Schema,
+        query: "query($id: ID!) { person(id: $id) { name } }",
+        variables: { id: "1" },
+      }
+
+      expect(GraphWeaver.execute(**args)).to be_a GraphWeaver::Response
+      expect(GraphWeaver.execute!(**args).person&.name).to eq "Daniel"
+    end
+
     it "accepts graphql-cased variable keys" do
-      result = GraphWeaver.execute(
+      result = GraphWeaver.execute!(
         schema: Demo::Schema,
         query: 'query($term: String!) { search(term: $term) { __typename ... on Named { name } } }',
         variables: { "term" => "el" },
@@ -246,7 +267,7 @@ describe GraphWeaver::Codegen do
 
       begin
         GraphWeaver.executor = recorder.new(recorded)
-        result = GraphWeaver.execute(
+        result = GraphWeaver.execute!(
           schema: Demo::Schema,
           query: "query($id: ID!) { person(id: $id) { name } }",
           variables: { id: "1" },
@@ -268,7 +289,7 @@ describe GraphWeaver::Codegen do
 
       begin
         GraphWeaver.executor = failing.new
-        result = GraphWeaver.execute(
+        result = GraphWeaver.execute!(
           schema: Demo::Schema,
           query: "query($id: ID!) { person(id: $id) { name } }",
           variables: { id: "1" },

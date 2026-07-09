@@ -2,6 +2,7 @@ require "graphql"
 require "sorbet-runtime"
 
 require_relative "graph_weaver/errors"
+require_relative "graph_weaver/response"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
 require_relative "graph_weaver/http_executor"
@@ -81,20 +82,24 @@ module GraphWeaver
 
     # One-shot dynamic execution — no module handling, no build step:
     #
-    #   GraphWeaver.execute(schema:, query:, variables: { id: "1" })
+    #   GraphWeaver.execute(schema:, query:, variables: { id: "1" })   # => Response
+    #   GraphWeaver.execute!(schema:, query:, variables: { id: "1" })  # => Result (or raise)
     #
-    # A convenience wrapper: unlike a generated module's #execute (which
-    # returns a Response envelope), this returns the typed result directly
-    # and raises GraphWeaver::QueryError on top-level errors — call the
-    # generated module when you need the envelope's errors/extensions.
-    # Transport precedence: executor: param, then GraphWeaver.executor,
-    # then in-process execution against schema. Variable keys may be
-    # graphql-cased strings or ruby symbols.
+    # Mirrors a generated module: execute returns the Response envelope,
+    # execute! returns the typed result directly and raises QueryError on
+    # top-level errors. Transport precedence: executor: param, then
+    # GraphWeaver.executor, then in-process execution against schema.
+    # Variable keys may be graphql-cased strings or ruby symbols.
     def execute(schema:, query:, variables: {}, executor: nil)
       executor ||= @executor || schema
       mod = parse(schema:, query:, executor:)
       kwargs = variables.to_h { |key, value| [Inflect.underscore(key.to_s).to_sym, value] }
-      mod.execute(**kwargs).data!
+      mod.execute(**kwargs)
+    end
+
+    # execute + data! — the typed result, or a raised QueryError. See execute.
+    def execute!(schema:, query:, variables: {}, executor: nil)
+      execute(schema:, query:, variables:, executor:).data!
     end
   end
 end

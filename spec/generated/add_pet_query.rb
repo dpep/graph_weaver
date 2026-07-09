@@ -60,25 +60,6 @@ module AddPetQuery
     end
   end
 
-  class Response < T::Struct
-    extend T::Sig
-
-    const :data, T.nilable(Result)
-    const :errors, T::Array[GraphWeaver::GraphQLError], default: []
-    const :extensions, T::Hash[String, T.untyped], default: {}
-
-    sig { returns(T::Boolean) }
-    def errors? = !errors.empty?
-
-    # The typed result, or raise QueryError if the response carried
-    # top-level errors (partial data and extensions ride along on it).
-    sig { returns(Result) }
-    def data!
-      raise GraphWeaver::QueryError.new(errors, data: data, extensions: extensions) unless errors.empty?
-      T.must(data)
-    end
-  end
-
   @executor = T.let(nil, T.untyped)
 
   class << self
@@ -94,7 +75,7 @@ module AddPetQuery
     end
   end
 
-  sig { params(name: String, species: Species, executor: T.untyped).returns(Response) }
+  sig { params(name: String, species: Species, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.execute(name:, species:, executor: self.executor)
     variables = {
       "name" => name,
@@ -102,10 +83,15 @@ module AddPetQuery
     }
 
     raw = executor.execute(QUERY, variables: variables).to_h
-    Response.new(
+    GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
       extensions: raw["extensions"] || {},
     )
+  end
+
+  sig { params(name: String, species: Species, executor: T.untyped).returns(Result) }
+  def self.execute!(name:, species:, executor: self.executor)
+    execute(name: name, species: species, executor: executor).data!
   end
 end
