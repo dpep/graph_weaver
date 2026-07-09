@@ -33,13 +33,14 @@ module GraphWeaver
     #
     # A field typed `Money` then generates `const :price, T.nilable(Money)`
     # and casts with `Money.parse(...)` in from_h. Pass a real class as
-    # type: and cast:/serialize: are inferred (.parse and #to_s); override
-    # with a Symbol method name (safest — no string to misspell), a
-    # Proc(expr) => code string, or nil for pass-through. requires: (a
-    # String or Array) names files the generated code needs. Built-in
+    # type: and cast:/serialize: are inferred from it — .parse/#to_s, or
+    # .load/.dump — by probing the deserialize side (see ScalarType::CODECS).
+    # Override with a Symbol method name (safest — no string to misspell), a
+    # Proc(expr) => code string, or :itself to force pass-through. requires:
+    # (a String or Array) names files the generated code needs. Built-in
     # scalars are pre-registered the same way, so this also overrides them.
     # Call before generating.
-    def register_scalar(graphql_name, type:, cast: :auto, serialize: :auto, requires: nil)
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
       Codegen.register_scalar(graphql_name, type:, cast:, serialize:, requires:)
     end
 

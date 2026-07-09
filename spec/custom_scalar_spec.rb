@@ -19,9 +19,9 @@ module MoneyDemo
       @amount = amount
     end
 
-    # Money -> wire ("1999.0")
+    # Money -> wire, always two decimal places ("1999.00")
     def to_s
-      @amount.to_s("F")
+      format("%.2f", @amount)
     end
 
     def ==(other)
@@ -71,7 +71,7 @@ end
 describe "custom scalar deserialization" do
   # register_scalar mutates a process-wide registry; restore the built-in
   # defaults after each example so these don't leak into the rest of the suite.
-  after { GraphWeaver::Codegen.reset_scalars! }
+  after { GraphWeaver.reset_scalars! }
 
   let(:query) do
     <<~GRAPHQL
@@ -97,10 +97,33 @@ describe "custom scalar deserialization" do
     expect(scalar.serialize("v")).to eq "v.to_s"
   end
 
-  it "does not infer a cast when the class has no .parse" do
-    GraphWeaver.register_scalar("Money", type: String) # no String.parse
+  it "infers a .load/.dump codec when the class defines .load" do
+    blob = Class.new do
+      def self.name = "Blob"
+      def self.load(_str) = new
+      def self.dump(_obj) = ""
+    end
+    GraphWeaver.register_scalar("Blob", type: blob)
 
-    expect(GraphWeaver::Codegen.scalar("Money").cast?).to be false
+    scalar = GraphWeaver::Codegen.scalar("Blob")
+    expect(scalar.cast("v")).to eq "Blob.load(v)"
+    expect(scalar.serialize("v")).to eq "Blob.dump(v)"
+  end
+
+  it "does not infer anything for plain types (no spurious #to_s serializer)" do
+    GraphWeaver.register_scalar("Money", type: String) # String has no .parse/.load
+
+    scalar = GraphWeaver::Codegen.scalar("Money")
+    expect(scalar.cast?).to be false
+    expect(scalar.serialize?).to be false
+  end
+
+  it "opts out of inference with :itself" do
+    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, cast: :itself, serialize: :itself)
+
+    scalar = GraphWeaver::Codegen.scalar("Money")
+    expect(scalar.cast?).to be false
+    expect(scalar.serialize?).to be false
   end
 
   it "generates a Money-typed prop and inlines the inferred cast in from_h" do
@@ -139,11 +162,14 @@ describe "custom scalar deserialization" do
     expect(product.price.amount).to eq BigDecimal("2500.50")
   end
 
-  it "accepts an explicit Proc cast, overriding inference" do
+  it "accepts an explicit Proc cast and serialize, overriding inference" do
     GraphWeaver.register_scalar("Money", type: "MoneyDemo::Money",
-      cast: ->(expr) { "MoneyDemo::Money.new(#{expr})" })
+      cast: ->(expr) { "MoneyDemo::Money.new(#{expr})" },
+      serialize: ->(expr) { "#{expr}.amount.to_s" })
 
-    expect(GraphWeaver::Codegen.scalar("Money").cast("x")).to eq "MoneyDemo::Money.new(x)"
+    scalar = GraphWeaver::Codegen.scalar("Money")
+    expect(scalar.cast("x")).to eq "MoneyDemo::Money.new(x)"
+    expect(scalar.serialize("x")).to eq "x.amount.to_s"
   end
 
   it "lets a later registration override an earlier one, including built-ins" do
@@ -155,10 +181,10 @@ describe "custom scalar deserialization" do
   end
 
   it "clears and resets the registry" do
-    GraphWeaver::Codegen.clear_scalars!
+    GraphWeaver.clear_scalars!
     expect(GraphWeaver::Codegen.scalar("Date").cast?).to be false # built-in gone
 
-    GraphWeaver::Codegen.reset_scalars!
+    GraphWeaver.reset_scalars!
     expect(GraphWeaver::Codegen.scalar("Date").cast("s")).to eq "Date.iso8601(s)"
   end
 
@@ -176,5 +202,7 @@ describe "custom scalar deserialization" do
       .to raise_error(ArgumentError, /type:/)
     expect { GraphWeaver.register_scalar("X", type: "X", cast: "nope") }
       .to raise_error(ArgumentError, /cast:/)
+    expect { GraphWeaver.register_scalar("X", type: "X", serialize: 99) }
+      .to raise_error(ArgumentError, /serialize:/)
   end
 end

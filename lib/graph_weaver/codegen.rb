@@ -1,6 +1,7 @@
 # typed: true
 # frozen_string_literal: true
 
+require "date"
 require "graphql"
 require "sorbet-runtime"
 
@@ -28,29 +29,48 @@ class GraphWeaver::Codegen
   # scalars and overrides go through the same path.
   #
   # cast/serialize normalize to procs that, given a Ruby expression string,
-  # return the code to inline. They default to :auto, which infers from the
-  # Ruby type when it is a real class — cast uses .parse if the class
-  # defines it, serialize uses #to_s — so the common case needs no more
-  # than a class:
-  #   type: Money                       => Money.parse(expr) / expr.to_s
-  # Override (or opt out) with an explicit value:
+  # return the code to inline. Left nil (the default) they are inferred
+  # from the Ruby type when it is a real class, by probing for a known
+  # deserializer and pairing its serializer (see CODECS) — so the common
+  # case needs no more than a class:
+  #   type: Money   (defines .parse)   => Money.parse(expr) / expr.to_s
+  #   type: Blob    (defines .load)    => Blob.load(expr)   / Blob.dump(expr)
+  # Probing the *deserialize* side is deliberate: every object has #to_s,
+  # so inferring a serializer off it would wrongly wrap plain types (String,
+  # Integer) — pairing off a deserializer the type actually defines avoids
+  # that. Override with an explicit value:
   #   - a Symbol names a method, so there is no string to misspell:
-  #       cast: :load       => "Money.load(expr)"   (class method on type)
-  #       serialize: :to_json => "expr.to_json"     (instance method)
+  #       cast: :load        => "Blob.load(expr)"    (class method on type)
+  #       serialize: :to_json => "expr.to_json"      (instance method)
   #   - a Proc handles anything a Symbol can't express:
   #       cast: ->(e) { "Money.new(#{e})" }
-  #   - nil disables it (identity pass-through)
+  #   - :itself opts out — force identity pass-through even when a codec
+  #     would otherwise match (rare)
   # requires: a String or Array of paths emitted as `require`s atop the
   # generated file (e.g. "bigdecimal") so the cast/type resolve.
   class ScalarType
+    # Inferred (deserialize, serialize) codecs, tried in order; the first
+    # whose probe the Ruby type defines as a class method wins, and its
+    # serialize is paired with it. Builders take (type_name, expr) => code.
+    Codec = Struct.new(:probe, :cast, :serialize)
+    CODECS = [
+      Codec.new(:parse, # Type.parse(wire) <-> value.to_s
+        ->(type, expr) { "#{type}.parse(#{expr})" },
+        ->(_type, expr) { "#{expr}.to_s" }),
+      Codec.new(:load, # Type.load(wire) <-> Type.dump(value)
+        ->(type, expr) { "#{type}.load(#{expr})" },
+        ->(type, expr) { "#{type}.dump(#{expr})" }),
+    ].freeze
+
     attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type:, cast: :auto, serialize: :auto, requires: nil)
+    def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
-      @cast = cast_proc(resolve_cast(cast))
-      @serialize = serialize_proc(resolve_serialize(serialize))
+      codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
+      @cast = normalize_cast(cast, codec&.cast)
+      @serialize = normalize_serialize(serialize, codec&.serialize)
       @requires = Array(requires)
     end
 
@@ -69,37 +89,27 @@ class GraphWeaver::Codegen
       end
     end
 
-    # :auto infers from the Ruby class: .parse for casting, if defined
-    def resolve_cast(cast)
-      return cast unless cast == :auto
-
-      @klass&.respond_to?(:parse) ? :parse : nil
-    end
-
-    # :auto infers from the Ruby class: #to_s for serializing
-    def resolve_serialize(serialize)
-      return serialize unless serialize == :auto
-
-      @klass ? :to_s : nil
-    end
-
-    # a class method on the scalar's Ruby type: Money.parse(expr)
-    def cast_proc(cast)
+    # nil infers via the matched codec; :itself opts out (identity); a
+    # Symbol is a class method on the type — Money.parse(expr)
+    def normalize_cast(cast, inferred)
       case cast
-      when nil then nil
+      when :itself then nil
+      when nil then inferred && ->(expr) { inferred.call(@type, expr) }
       when Proc then cast
       when Symbol then ->(expr) { "#{@type}.#{cast}(#{expr})" }
-      else raise ArgumentError, "cast: must be a Symbol, Proc, or nil, got #{cast.inspect}"
+      else raise ArgumentError, "cast: must be a Symbol, Proc, :itself, or nil, got #{cast.inspect}"
       end
     end
 
-    # an instance method on the Ruby value: expr.to_s
-    def serialize_proc(serialize)
+    # nil infers via the matched codec; :itself opts out (identity); a
+    # Symbol is an instance method on the value — expr.to_s
+    def normalize_serialize(serialize, inferred)
       case serialize
-      when nil then nil
+      when :itself then nil
+      when nil then inferred && ->(expr) { inferred.call(@type, expr) }
       when Proc then serialize
       when Symbol then ->(expr) { "#{expr}.#{serialize}" }
-      else raise ArgumentError, "serialize: must be a Symbol, Proc, or nil, got #{serialize.inspect}"
+      else raise ArgumentError, "serialize: must be a Symbol, Proc, :itself, or nil, got #{serialize.inspect}"
       end
     end
   end
@@ -110,7 +120,7 @@ class GraphWeaver::Codegen
     # the accepted cast:/serialize:/requires: forms. Later registrations
     # win, so an app can override a built-in (e.g. map Date onto its own
     # type).
-    def register_scalar(graphql_name, type:, cast: :auto, serialize: :auto, requires: nil)
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
       scalar_registry[graphql_name.to_s] =
         ScalarType.new(graphql_name, type:, cast:, serialize:, requires:)
     end
@@ -120,7 +130,7 @@ class GraphWeaver::Codegen
     # scalars outside the table.
     def scalar(graphql_name)
       scalar_registry.fetch(graphql_name.to_s) do
-        ScalarType.new(graphql_name, type: "T.untyped", cast: nil, serialize: nil)
+        ScalarType.new(graphql_name, type: "T.untyped")
       end
     end
 
@@ -144,17 +154,19 @@ class GraphWeaver::Codegen
     end
 
     # Built-in scalars — pre-registered entries in the one registry. The
-    # standard scalars are pass-through (identity, so String stays String
-    # on the wire); Date is the one that deserializes (ISO-8601 <-> Date).
-    # Given as type-name strings, not classes, so :auto never infers a
-    # spurious #to_s serializer for them.
+    # standard scalars stay pass-through: their Ruby classes (String,
+    # Integer, Float) define neither .parse nor .load, so codec inference
+    # matches nothing and leaves them identity — which is exactly why we
+    # can name them with the real class constants. Date deserializes via
+    # ISO-8601 (it *does* define .parse, but we want iso8601 specifically,
+    # so it's explicit).
     def register_builtin_scalars!
-      register_scalar "ID", type: "String"
-      register_scalar "String", type: "String"
-      register_scalar "Int", type: "Integer"
-      register_scalar "Float", type: "Float"
+      register_scalar "ID", type: String
+      register_scalar "String", type: String
+      register_scalar "Int", type: Integer
+      register_scalar "Float", type: Float
       register_scalar "Boolean", type: "T::Boolean"
-      register_scalar "Date", type: "Date", cast: :iso8601, serialize: :iso8601
+      register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601
     end
   end
 

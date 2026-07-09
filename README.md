@@ -99,14 +99,24 @@ Ruby object (and serializes back when used as a variable). A field typed
 GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
 ```
 
-Pass a real class as `type:` and the cast/serialize are **inferred** — `.parse`
-for deserializing (when the class defines it) and `#to_s` for serializing — so
-the common case needs nothing more. Override (or opt out) explicitly:
+Pass a real class as `type:` and the cast/serialize are **inferred** from it by
+probing the deserialize side and pairing its serializer:
+
+| the class defines | cast          | serialize      |
+|-------------------|---------------|----------------|
+| `.parse`          | `Type.parse(v)` | `v.to_s`     |
+| `.load`           | `Type.load(v)`  | `Type.dump(v)` |
+
+so the common case needs nothing more. Probing the *deserialize* side is
+deliberate — every object has `#to_s`, so inferring off it would wrongly wrap
+plain types like `String`/`Integer`; requiring a `.parse`/`.load` the type
+actually defines avoids that (and is why the built-ins can be registered with
+their real class constants). Override explicitly when you need to:
 
 - a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
   `serialize: :to_json` → `expr.to_json`
 - a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
-- `nil` to pass through untouched
+- `:itself` to force pass-through, opting out of inference (rare)
 
 `type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
 reference the class. `requires:` (a string or array) names files emitted as
