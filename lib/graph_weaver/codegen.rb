@@ -64,7 +64,7 @@ class GraphWeaver::Codegen
 
     attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
+    def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: false)
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
@@ -72,12 +72,15 @@ class GraphWeaver::Codegen
       @cast = normalize_cast(cast, codec&.cast)
       @serialize = normalize_serialize(serialize, codec&.serialize)
       @requires = normalize_requires(requires)
+      @coerce = coerce
+      validate_coerce!
     end
 
     def cast(expr) = @cast&.call(expr)
     def cast? = !@cast.nil?
     def serialize(expr) = @serialize&.call(expr)
     def serialize? = !@serialize.nil?
+    def coerce? = @coerce
 
     private
 
@@ -115,13 +118,35 @@ class GraphWeaver::Codegen
 
     # requires: is a require path or list of them; each must be a non-empty
     # String (it is emitted verbatim as `require "..."`), caught here rather
-    # than as a syntax error in the generated file.
+    # than as a syntax error in the generated file. When a real class was
+    # given as type:, we're in a runtime with its deps loaded, so we also
+    # `require` each path to prove it resolves (a no-op for already-loaded
+    # libs, and it surfaces a typo now). With only a type-name string we
+    # can't assume the lib is installed at codegen time, so we don't try.
     def normalize_requires(requires)
       Array(requires).each do |req|
         unless req.is_a?(String) && !req.empty?
           raise ArgumentError, "requires: must be a String or Array of Strings, got #{req.inspect}"
         end
+
+        next unless @klass
+
+        begin
+          require req
+        rescue LoadError => e
+          raise ArgumentError, "requires: #{req.inspect} is not loadable (#{e.message})"
+        end
       end
+    end
+
+    # coerce: only makes sense as parse-then-serialize, so it needs both a
+    # deserializer and a serializer to round-trip a raw input value.
+    def validate_coerce!
+      return unless @coerce
+      return if cast? && serialize?
+
+      raise ArgumentError,
+        "coerce: needs both a cast and a serialize (#{@graphql_name} is missing one)"
     end
   end
 
@@ -131,9 +156,9 @@ class GraphWeaver::Codegen
     # the accepted cast:/serialize:/requires: forms. Later registrations
     # win, so an app can override a built-in (e.g. map Date onto its own
     # type).
-    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: false)
       scalar_registry[graphql_name.to_s] =
-        ScalarType.new(graphql_name, type:, cast:, serialize:, requires:)
+        ScalarType.new(graphql_name, type:, cast:, serialize:, requires:, coerce:)
     end
 
     # The ScalarType for a scalar name; unknown scalars fall back to an
@@ -212,6 +237,14 @@ class GraphWeaver::Codegen
       !@scalar.serialize?
     end
 
+    # coercion (opt-in per scalar): accept either the Ruby value or its raw
+    # input and normalize through the cast, so passing "12.00" is parsed to
+    # Money before serializing. is_a? skips the parse for an already-typed
+    # value; the surrounding parens let the serializer wrap the whole result.
+    def coerce? = @scalar.coerce?
+    def coerce(expr) = "(#{expr}.is_a?(#{bare_type}) ? #{expr} : #{@scalar.cast(expr)})"
+    def coerce_input_type = "T.any(#{bare_type}, String)"
+
     def non_null? = false
     def nested = nil
   end
@@ -227,6 +260,9 @@ class GraphWeaver::Codegen
     def identity? = @of.identity?
     def serialize(expr, depth) = @of.serialize(expr, depth)
     def serialize_identity? = @of.serialize_identity?
+    def coerce? = @of.coerce?
+    def coerce(expr) = @of.coerce(expr)
+    def coerce_input_type = @of.coerce_input_type
     def non_null? = true
     def nested = @of.nested
   end
@@ -269,6 +305,7 @@ class GraphWeaver::Codegen
     end
 
     def serialize_identity? = @of.serialize_identity?
+    def coerce? = false
     def non_null? = false
     def nested = @of.nested
   end
@@ -323,6 +360,7 @@ class GraphWeaver::Codegen
     end
 
     def serialize_identity? = false
+    def coerce? = false
     def non_null? = false
     def nested = self
   end
@@ -713,7 +751,8 @@ class GraphWeaver::Codegen
     out << ""
 
     sig_params = variables.map do |var|
-      kwarg_type = var.required ? var.node.prop_type : "T.nilable(#{var.node.bare_type})"
+      bare = var.node.coerce? ? var.node.coerce_input_type : var.node.bare_type
+      kwarg_type = var.required ? bare : "T.nilable(#{bare})"
       "#{var.kwarg}: #{kwarg_type}"
     end
     sig_params << "executor: T.untyped"
@@ -749,7 +788,8 @@ class GraphWeaver::Codegen
   end
 
   def variable_serialize(var)
-    var.node.serialize_identity? ? var.kwarg : var.node.serialize(var.kwarg, 1)
+    value = var.node.coerce? ? var.node.coerce(var.kwarg) : var.kwarg
+    var.node.serialize_identity? ? value : var.node.serialize(value, 1)
   end
 
   def field_cast(field)
