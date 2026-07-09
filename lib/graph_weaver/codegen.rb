@@ -62,6 +62,16 @@ class GraphWeaver::Codegen
         ->(type, expr) { "#{type}.dump(#{expr})" }),
     ].freeze
 
+    # Accepted kwarg types for Symbol (instance-method) coercion — the
+    # looser inputs the conversion sensibly handles. #to_s is defined on
+    # every object, so it accepts anything; #to_f/#to_i only make sense for
+    # numerics and strings.
+    CONVERT_INPUTS = {
+      to_f: "T.any(Float, Integer, String)",
+      to_i: "T.any(Integer, Float, String)",
+      to_s: "T.anything",
+    }.freeze
+
     attr_reader :graphql_name, :type, :requires
 
     def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: false)
@@ -80,7 +90,29 @@ class GraphWeaver::Codegen
     def cast? = !@cast.nil?
     def serialize(expr) = @serialize&.call(expr)
     def serialize? = !@serialize.nil?
-    def coerce? = @coerce
+    def coerce? = !!@coerce
+
+    # The code that normalizes a variable input before it's serialized. Two
+    # shapes: coerce: true parses a raw value into the rich type via the cast
+    # (guarded so an already-typed value passes through); coerce: :to_f (a
+    # Symbol) calls that instance method, for built-ins where a plain
+    # conversion is the whole story (5, "5" -> 5.0). serialize still runs
+    # afterward, but is identity for the conversion built-ins, so the
+    # converted value goes on the wire natively (a Float, not "5.0").
+    def coerce_input(expr)
+      case @coerce
+      when true then "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
+      when Symbol then "#{expr}.#{@coerce}"
+      end
+    end
+
+    # the accepted Sorbet type for a coercible variable kwarg
+    def coerce_type
+      case @coerce
+      when true then "T.any(#{@type}, String)"
+      when Symbol then CONVERT_INPUTS.fetch(@coerce, "T.untyped")
+      end
+    end
 
     private
 
@@ -139,14 +171,19 @@ class GraphWeaver::Codegen
       end
     end
 
-    # coerce: only makes sense as parse-then-serialize, so it needs both a
-    # deserializer and a serializer to round-trip a raw input value.
+    # coerce: true round-trips through cast+serialize, so it needs both; a
+    # Symbol is a self-contained conversion and needs neither.
     def validate_coerce!
-      return unless @coerce
-      return if cast? && serialize?
+      case @coerce
+      when false, nil, Symbol then nil
+      when true
+        return if cast? && serialize?
 
-      raise ArgumentError,
-        "coerce: needs both a cast and a serialize (#{@graphql_name} is missing one)"
+        raise ArgumentError,
+          "coerce: true needs both a cast and a serialize (#{@graphql_name} is missing one)"
+      else
+        raise ArgumentError, "coerce: must be true, false, or a Symbol method name, got #{@coerce.inspect}"
+      end
     end
   end
 
@@ -181,11 +218,15 @@ class GraphWeaver::Codegen
       self
     end
 
-    # Drop every custom registration and restore the built-in scalars —
-    # the clean slate to reach for between tests, or to undo overrides.
-    def reset_scalars!
+    # Drop every custom registration and restore the built-in scalars — the
+    # clean slate to reach for between tests, or to undo overrides. Pass
+    # coerce: true to reload the built-ins with input coercion enabled
+    # (Float accepts 5/"5" and .to_f's it, etc.), then register your own
+    # scalars on top — a one-liner alternative to re-registering each
+    # built-in by hand.
+    def reset_scalars!(coerce: false)
       clear_scalars!
-      register_builtin_scalars!
+      register_builtin_scalars!(coerce:)
       self
     end
 
@@ -196,11 +237,16 @@ class GraphWeaver::Codegen
     # can name them with the real class constants. Date deserializes via
     # ISO-8601 (it *does* define .parse, but we want iso8601 specifically,
     # so it's explicit).
-    def register_builtin_scalars!
-      register_scalar "ID", type: String
-      register_scalar "String", type: String
-      register_scalar "Int", type: Integer
-      register_scalar "Float", type: Float
+    #
+    # coerce: true opts the convertible scalars into input coercion via a
+    # plain conversion method (to_f/to_i/to_s); the wire value stays native
+    # (a Float, not "5.0"). Boolean and Date have no lossless one-method
+    # conversion, so they stay strict either way.
+    def register_builtin_scalars!(coerce: false)
+      register_scalar "ID", type: String, coerce: (:to_s if coerce)
+      register_scalar "String", type: String, coerce: (:to_s if coerce)
+      register_scalar "Int", type: Integer, coerce: (:to_i if coerce)
+      register_scalar "Float", type: Float, coerce: (:to_f if coerce)
       register_scalar "Boolean", type: "T::Boolean"
       register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601, requires: "date"
     end
@@ -237,13 +283,12 @@ class GraphWeaver::Codegen
       !@scalar.serialize?
     end
 
-    # coercion (opt-in per scalar): accept either the Ruby value or its raw
-    # input and normalize through the cast, so passing "12.00" is parsed to
-    # Money before serializing. is_a? skips the parse for an already-typed
-    # value; the surrounding parens let the serializer wrap the whole result.
+    # coercion (opt-in per scalar): accept the value or its raw input and
+    # normalize before serializing — parse for a rich type (coerce: true),
+    # or a plain conversion for built-ins (coerce: :to_f). See ScalarType.
     def coerce? = @scalar.coerce?
-    def coerce(expr) = "(#{expr}.is_a?(#{bare_type}) ? #{expr} : #{@scalar.cast(expr)})"
-    def coerce_input_type = "T.any(#{bare_type}, String)"
+    def coerce(expr) = @scalar.coerce_input(expr)
+    def coerce_input_type = @scalar.coerce_type
 
     def non_null? = false
     def nested = nil

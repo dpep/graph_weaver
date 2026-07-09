@@ -138,11 +138,26 @@ StoreQuery.execute(budget: Money.new(1200))  # passed straight through
 Bad input still explodes (the cast raises), so some safety survives; it needs
 both a cast and a serialize. Off by default — the strict typed kwarg is the norm.
 
+`coerce:` also takes a **Symbol** naming a conversion method, for built-ins where
+a plain method is the whole story — `coerce: :to_f` makes a variable accept
+`5`/`"5"` and `.to_f` it, sending a native number (not `"5.0"`) on the wire. The
+convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`,
+`ID`/`String`→`:to_s`), so rather than re-registering each, flip them all on at
+once:
+
+```ruby
+GraphWeaver.reset_scalars!(coerce: true)   # reload built-ins as coercible
+GraphWeaver.register_scalar("Money", ...)  # then add your own
+```
+
+`Boolean` and `Date` have no lossless one-method conversion, so they stay strict.
+
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
 `register_scalar` overrides them; `GraphWeaver.reset_scalars!` restores the
-defaults (and `clear_scalars!` empties the registry). Register before
-generating — it's a codegen-time concern, baked into the emitted source.
+defaults (`reset_scalars!(coerce: true)` restores them coercible) and
+`clear_scalars!` empties the registry. Register before generating — it's a
+codegen-time concern, baked into the emitted source.
 
 ----
 ## Installation
