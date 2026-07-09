@@ -88,6 +88,45 @@ PersonQuery.execute(id: "1")
 GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
 ```
 
+#### Custom scalars
+
+Teach the generator how a GraphQL custom scalar deserializes into a rich
+Ruby object (and serializes back when used as a variable). A field typed
+`Money` then generates `const :price, T.nilable(Money)` and casts with
+`Money.parse(...)` inline — no runtime reflection:
+
+```ruby
+GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
+```
+
+Pass a real class as `type:` and the cast/serialize are **inferred** from it by
+probing the deserialize side and pairing its serializer:
+
+| the class defines | cast          | serialize      |
+|-------------------|---------------|----------------|
+| `.parse`          | `Type.parse(v)` | `v.to_s`     |
+| `.load`           | `Type.load(v)`  | `Type.dump(v)` |
+
+so the common case needs nothing more. Probing the *deserialize* side is
+deliberate — every object has `#to_s`, so inferring off it would wrongly wrap
+plain types like `String`/`Integer`; requiring a `.parse`/`.load` the type
+actually defines avoids that (and is why the built-ins can be registered with
+their real class constants). Override explicitly when you need to:
+
+- a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
+  `serialize: :to_json` → `expr.to_json`
+- a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
+- `:itself` to force pass-through, opting out of inference (rare)
+
+`type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
+reference the class. `requires:` (a string or array) names files emitted as
+`require`s atop the generated source so the cast/type resolve.
+
+The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
+same path, so a later `register_scalar` overrides them; `GraphWeaver.reset_scalars!`
+restores the defaults (and `clear_scalars!` empties the registry). Register
+before generating — it's a codegen-time concern, baked into the emitted source.
+
 ----
 ## Installation
 

@@ -25,6 +25,37 @@ module GraphWeaver
       @executor or raise Error, "no executor configured — set GraphWeaver.executor= or pass executor:"
     end
 
+    # Teach the generator how a GraphQL custom scalar deserializes into a
+    # rich Ruby object (and serializes back onto the wire when used as a
+    # variable):
+    #
+    #   GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
+    #
+    # A field typed `Money` then generates `const :price, T.nilable(Money)`
+    # and casts with `Money.parse(...)` in from_h. Pass a real class as
+    # type: and cast:/serialize: are inferred from it — .parse/#to_s, or
+    # .load/.dump — by probing the deserialize side (see ScalarType::CODECS).
+    # Override with a Symbol method name (safest — no string to misspell), a
+    # Proc(expr) => code string, or :itself to force pass-through. requires:
+    # (a String or Array) names files the generated code needs. Built-in
+    # scalars are pre-registered the same way, so this also overrides them.
+    # Call before generating.
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
+      Codegen.register_scalar(graphql_name, type:, cast:, serialize:, requires:)
+    end
+
+    # Restore the built-in scalars, dropping every custom registration —
+    # the clean slate to reach for between tests or to undo overrides.
+    def reset_scalars!
+      Codegen.reset_scalars!
+    end
+
+    # Empty the scalar registry entirely, built-ins included (see
+    # reset_scalars! to restore the defaults).
+    def clear_scalars!
+      Codegen.clear_scalars!
+    end
+
     # Parse a query into a typed query module:
     #
     #   PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
