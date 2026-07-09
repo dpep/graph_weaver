@@ -120,12 +120,28 @@ their real class constants). Override explicitly when you need to:
 
 `type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
 reference the class. `requires:` (a string or array) names files emitted as
-`require`s atop the generated source so the cast/type resolve.
+`require`s atop the generated source so the cast/type resolve — when `type:` is
+a real class (so the runtime is loaded) each path is actually `require`d at
+registration to catch a typo now rather than in the generated file.
+
+Pass `coerce: true` to let a variable of this scalar accept **either** the value
+object **or** its raw input, normalizing the latter through the cast:
+
+```ruby
+GraphWeaver.register_scalar("Money", type: Money, coerce: true)
+# generated execute now takes T.any(Money, String); "12.00" is parsed
+StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the hood
+StoreQuery.execute(budget: Money.new(1200))  # passed straight through
+```
+
+Bad input still explodes (the cast raises), so some safety survives; it needs
+both a cast and a serialize. Off by default — the strict typed kwarg is the norm.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
-same path, so a later `register_scalar` overrides them; `GraphWeaver.reset_scalars!`
-restores the defaults (and `clear_scalars!` empties the registry). Register
-before generating — it's a codegen-time concern, baked into the emitted source.
+same path (`Date` even carries its own `require "date"`), so a later
+`register_scalar` overrides them; `GraphWeaver.reset_scalars!` restores the
+defaults (and `clear_scalars!` empties the registry). Register before
+generating — it's a codegen-time concern, baked into the emitted source.
 
 ----
 ## Installation

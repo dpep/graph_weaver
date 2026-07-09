@@ -37,11 +37,15 @@ module GraphWeaver
     # .load/.dump — by probing the deserialize side (see ScalarType::CODECS).
     # Override with a Symbol method name (safest — no string to misspell), a
     # Proc(expr) => code string, or :itself to force pass-through. requires:
-    # (a String or Array) names files the generated code needs. Built-in
+    # (a String or Array) names files the generated code needs — validated,
+    # and actually required to confirm it resolves when type: is a real class.
+    # coerce: true makes a variable of this scalar accept the value OR its
+    # raw input (e.g. "12.00"), running the latter through the cast before
+    # serializing — it raises on bad input, so some safety survives. Built-in
     # scalars are pre-registered the same way, so this also overrides them.
     # Call before generating.
-    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil)
-      Codegen.register_scalar(graphql_name, type:, cast:, serialize:, requires:)
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: false)
+      Codegen.register_scalar(graphql_name, type:, cast:, serialize:, requires:, coerce:)
     end
 
     # Restore the built-in scalars, dropping every custom registration —

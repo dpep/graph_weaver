@@ -205,4 +205,76 @@ describe "custom scalar deserialization" do
     expect { GraphWeaver.register_scalar("X", type: "X", serialize: 99) }
       .to raise_error(ArgumentError, /serialize:/)
   end
+
+  it "validates requires: is a String or Array of Strings" do
+    expect { GraphWeaver.register_scalar("X", type: "X", requires: 42) }
+      .to raise_error(ArgumentError, /requires:/)
+    expect { GraphWeaver.register_scalar("X", type: "X", requires: ["ok", ""]) }
+      .to raise_error(ArgumentError, /requires:/)
+    expect { GraphWeaver.register_scalar("X", type: "X", requires: ["bigdecimal"]) }
+      .not_to raise_error
+  end
+
+  it "actually requires the path when a real class is given, catching typos" do
+    # a real class means the runtime is loaded, so a bogus require is caught now
+    expect { GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "no_such_lib_zzz") }
+      .to raise_error(ArgumentError, /not loadable/)
+
+    # a valid one loads (or no-ops if already loaded) without complaint
+    expect { GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "bigdecimal") }
+      .not_to raise_error
+  end
+
+  it "does not attempt the require for a type-name string (dep may be codegen-absent)" do
+    expect { GraphWeaver.register_scalar("Money", type: "MoneyDemo::Money", requires: "no_such_lib_zzz") }
+      .not_to raise_error
+  end
+
+  describe "coerce:" do
+    it "accepts the value or its raw input, running the raw one through the cast" do
+      GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, coerce: true)
+
+      source = generate
+
+      expect(source).to include("budget: T.any(MoneyDemo::Money, String)")
+      expect(source).to include(
+        '"budget" => (budget.is_a?(MoneyDemo::Money) ? budget : MoneyDemo::Money.parse(budget)).to_s',
+      )
+    end
+
+    it "coerces a raw string input end to end, and passes a value through" do
+      GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, coerce: true, requires: "bigdecimal")
+
+      mod = GraphWeaver.parse(
+        schema: MoneyDemo::Schema,
+        executor: MoneyDemo::Schema,
+        query:,
+        name: "StoreQuery",
+      )
+
+      from_string = mod.execute(name: "Widget", budget: "12.00").product
+      from_value = mod.execute(name: "Widget", budget: MoneyDemo::Money.parse("12.00")).product
+
+      expect(from_string.price.amount).to eq BigDecimal("12.00")
+      expect(from_value.price.amount).to eq BigDecimal("12.00")
+    end
+
+    it "requires both a cast and a serialize" do
+      expect { GraphWeaver.register_scalar("Money", type: String, coerce: true) } # String: no cast
+        .to raise_error(ArgumentError, /coerce:/)
+    end
+  end
+
+  # the built-in Date scalar carries its own require, so any query using it
+  # generates a self-contained file
+  it "emits require \"date\" for the built-in Date scalar" do
+    source = GraphWeaver::Codegen.generate(
+      schema: Demo::Schema,
+      query: File.read(File.expand_path("queries/person.graphql", __dir__)),
+      module_name: "PersonQuery",
+    )
+
+    expect(source).to include(%(require "date"))
+    expect(source.index(%(require "date"))).to be < source.index("module PersonQuery")
+  end
 end
