@@ -19,6 +19,10 @@ require gem_name
 RSpec.configure do |config|
   # allow "fit" examples
   config.filter_run_when_matching :focus
+
+  # network-touching specs (spec/integration) are opt-in:
+  #   make integration
+  config.filter_run_excluding :integration unless ENV["INTEGRATION"]
 end
 
 Dir["./spec/support/**/*.rb"].sort.each { |f| require f }

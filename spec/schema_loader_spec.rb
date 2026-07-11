@@ -41,4 +41,24 @@ describe GraphWeaver::SchemaLoader do
   it "rejects other formats" do
     expect { described_class.load("schema.yaml") }.to raise_error(ArgumentError)
   end
+
+  describe ".introspect" do
+    it "fetches a schema through an executor" do
+      # a schema class is itself an executor, so this exercises the same
+      # path a live HTTP endpoint would
+      codegen_parity(described_class.introspect(Demo::Schema))
+    end
+
+    it "surfaces introspection failures" do
+      failing = Class.new do
+        def execute(_query, variables:)
+          { "errors" => [{ "message" => "introspection disabled" }] }
+        end
+      end
+
+      expect {
+        described_class.introspect(failing.new)
+      }.to raise_error(GraphWeaver::Error, /introspection failed/)
+    end
+  end
 end
