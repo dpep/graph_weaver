@@ -67,6 +67,10 @@ describe GraphWeaver::Codegen do
     let(:result) { response.data! }
     let(:person) { result.person }
 
+    it "freezes QUERY (frozen_string_literal covers the heredoc)" do
+      expect(PersonQuery::QUERY).to be_frozen
+    end
+
     it "executes and casts into the generated structs" do
       expect(response).to be_a GraphWeaver::Response
       expect(result).to be_a PersonQuery::Result

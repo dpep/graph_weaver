@@ -4,6 +4,58 @@
 Ruby module. Everything `srb tc` knows about your query results comes from this
 file — there is no runtime schema, no lazy wrapper, no reflection.
 
+## Generating
+
+The workflow that keeps generated code honest: queries live as `.graphql`
+files (the source of truth), a script regenerates the Ruby, and a spec fails
+when the two drift.
+
+```
+app/graphql/
+  queries/           # *.graphql — hand-written, reviewed
+  generated/         # *_query.rb — generated, checked in, never edited
+```
+
+A generation script (`bin/graphql_generate` or a rake task):
+
+```ruby
+#!/usr/bin/env ruby
+require "graph_weaver"
+
+schema = GraphWeaver::SchemaLoader.load("app/graphql/schema.json")
+# register custom scalars BEFORE generating — they're baked into the source
+GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
+
+Dir["app/graphql/queries/*.graphql"].sort.each do |path|
+  base = File.basename(path, ".graphql")
+  source = GraphWeaver::Codegen.generate(
+    schema:,
+    query: File.read(path),
+    module_name: "#{base.split("_").map(&:capitalize).join}Query",
+  )
+  File.write("app/graphql/generated/#{base}_query.rb", source)
+end
+```
+
+And the freshness guard — a spec that regenerates in memory and compares
+(exactly how GraphWeaver tests itself):
+
+```ruby
+it "generated queries are up to date" do
+  Dir["app/graphql/queries/*.graphql"].sort.each do |path|
+    base = File.basename(path, ".graphql")
+    source = GraphWeaver::Codegen.generate(schema:, query: File.read(path), module_name: ...)
+    expect(File.read("app/graphql/generated/#{base}_query.rb")).to eq source
+  end
+end
+```
+
+Regenerate when: a query changes, the schema changes (a
+[`schema_stale?`](errors.md) error in production is the late signal — refresh
+the schema dump and regenerate), a scalar registration changes, or GraphWeaver
+itself upgrades (emission may differ across versions; the parity spec
+catches it).
+
 ## Anatomy
 
 ```ruby
