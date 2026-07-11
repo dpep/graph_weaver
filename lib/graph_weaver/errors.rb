@@ -147,9 +147,13 @@ module GraphWeaver
   module ErrorFiltering
     include Kernel # for sorbet: hosts are Objects
 
-    # overridden by the host's attr_reader
+    # the host's interface, overridden by its attr_readers
     def errors
       raise NotImplementedError, "#{self.class} must define #errors"
+    end
+
+    def data
+      raise NotImplementedError, "#{self.class} must define #data"
     end
 
     # Errors touching a field path — "user.email" or ["user", "email"];
@@ -187,12 +191,14 @@ module GraphWeaver
     # ["people", 3, "email"] resolves to people[3].id. nil when the data
     # is missing, the path doesn't walk, or the record has no id field.
     def entity_id(error)
-      node = T.let(T.unsafe(self).respond_to?(:data) ? T.unsafe(self).data : nil, T.untyped)
+      # untyped by nature: the walk traverses whatever structs this query
+      # generated, reassigning across types at each step
+      node = T.let(data, T.untyped)
       return unless node && error.path
 
       error.path[0..-2].each do |segment|
         node = if segment.is_a?(Integer) || segment.to_s.match?(/\A\d+\z/)
-          node.is_a?(Array) ? T.unsafe(node)[segment.to_i] : nil
+          node.is_a?(Array) ? node[segment.to_i] : nil
         else
           prop = GraphWeaver::Inflect.underscore(segment.to_s).to_sym
           node.respond_to?(prop) ? node.public_send(prop) : nil
