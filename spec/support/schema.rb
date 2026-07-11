@@ -90,10 +90,12 @@ module Demo
 
     field :search, [SearchResultType], null: false do
       argument :term, String, required: true
+      argument :first, Integer, required: false
     end
 
-    def search(term:)
-      (PEOPLE + PETS).select { |record| record.name.downcase.include?(term.downcase) }
+    def search(term:, first: nil)
+      matches = (PEOPLE + PETS).select { |record| record.name.downcase.include?(term.downcase) }
+      first ? matches.first(first) : matches
     end
 
     field :named, NamedType do
@@ -103,6 +105,14 @@ module Demo
     def named(name:)
       (PEOPLE + PETS).find { |record| record.name == name }
     end
+  end
+
+  class AdoptionInputType < GraphQL::Schema::InputObject
+    graphql_name "AdoptionInput"
+
+    argument :name, String, required: true
+    argument :species, SpeciesType, required: true
+    argument :nickname, String, required: false
   end
 
   class MutationType < GraphQL::Schema::Object
@@ -116,6 +126,14 @@ module Demo
     # returns without persisting, so specs stay isolated
     def add_pet(name:, species:)
       Pet.new(id: "99", name:, species:)
+    end
+
+    field :adopt, PetType, null: false do
+      argument :input, AdoptionInputType, required: true
+    end
+
+    def adopt(input:)
+      Pet.new(id: "77", name: input[:nickname] || input[:name], species: input[:species])
     end
   end
 

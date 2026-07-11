@@ -72,6 +72,16 @@ describe GraphWeaver::Testing do
       expect(person&.pets&.map(&:name)).to all(eq "generic") # field-name fallback
     end
 
+    it "honors first/last/limit args when fabricating lists" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: fake,
+        query: 'query Capped { search(term: "x", first: 3) { __typename ... on Named { name } } }',
+      )
+
+      expect(mod.execute!.search.size).to eq 3
+    end
+
     it "honors null_chance and list_size" do
       always_nil = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, null_chance: 1.0)
       # person is itself nullable, so it nils at the root

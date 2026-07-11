@@ -30,6 +30,8 @@ class GraphWeaver::Codegen
   include GraphWeaver::Selection
   include Emit
 
+  attr_reader :module_name
+
   # An executor is anything responding to `execute(query, variables:)`
   # whose result `to_h`s into {"data" => ..., "errors" => ...}.
   #
@@ -96,6 +98,8 @@ class GraphWeaver::Codegen
     end
 
     @variable_enums = {}
+    @variable_inputs = {}
+    @inputs_in_progress = []
     # requires contributed by the custom scalars this query actually uses
     @scalar_requires = []
 
@@ -149,6 +153,10 @@ class GraphWeaver::Codegen
       emit_enum(enum, out, 1)
       out << ""
     end
+    @variable_inputs.each_value do |input|
+      emit_input(input, out, 1)
+      out << ""
+    end
     emit_nested(root, out, 1)
     out << ""
     emit_execute(out, variables)
@@ -200,6 +208,12 @@ class GraphWeaver::Codegen
         end
       end
 
+      # a field under @skip/@include may be absent from the response no
+      # matter what the schema says — its type must admit nil
+      if field_nodes.any? { |n| n.directives.any? { |d| %w[skip include].include?(d.name) } }
+        child = child.of while child.is_a?(NonNull)
+      end
+
       node.fields << ObjectNode::Field.new(prop, key, child)
     end
 
@@ -232,19 +246,50 @@ class GraphWeaver::Codegen
     when GraphQL::Language::Nodes::ListType
       List.new(ast_type_ref(ast_type.of_type))
     when GraphQL::Language::Nodes::TypeName
-      core = @schema.get_type(ast_type.name)
-      case core.kind.name
-      when "SCALAR"
-        scalar_node(core.graphql_name)
-      when "ENUM"
-        @variable_enums[core.graphql_name] ||=
-          EnumNode.new(core.graphql_name, core.values.keys.sort)
-      else
-        raise NotImplementedError, "unsupported variable kind: #{core.kind.name}"
-      end
+      variable_core(@schema.get_type(ast_type.name))
     else
       raise NotImplementedError, "unsupported type node: #{ast_type.class}"
     end
+  end
+
+  # the input-side core kinds a variable (or input-object field) can have
+  def variable_core(core)
+    case core.kind.name
+    when "SCALAR"
+      scalar_node(core.graphql_name)
+    when "ENUM"
+      @variable_enums[core.graphql_name] ||=
+        EnumNode.new(core.graphql_name, core.values.keys.sort)
+    when "INPUT_OBJECT"
+      input_node(core)
+    else
+      raise NotImplementedError, "unsupported variable kind: #{core.kind.name}"
+    end
+  end
+
+  # A module-level T::Struct per input type, with a serialize method
+  # producing the wire hash. Registered once per type; nested inputs
+  # register their dependencies first (insertion order = emission order).
+  def input_node(core)
+    return @variable_inputs[core.graphql_name] if @variable_inputs.key?(core.graphql_name)
+
+    if @inputs_in_progress.include?(core.graphql_name)
+      raise NotImplementedError, "recursive input type: #{core.graphql_name}"
+    end
+    @inputs_in_progress << core.graphql_name
+
+    node = InputNode.new(core.graphql_name)
+    # sorted so output is deterministic across schema sources
+    core.arguments.values.sort_by(&:graphql_name).each do |argument|
+      child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
+      required = child.non_null? && !argument.default_value?
+      node.fields << InputNode::Field.new(
+        underscore(argument.graphql_name), argument.graphql_name, child, required
+      )
+    end
+
+    @inputs_in_progress.delete(core.graphql_name)
+    @variable_inputs[core.graphql_name] = node
   end
 
   # A Scalar node, recording any requires its registered type needs so the

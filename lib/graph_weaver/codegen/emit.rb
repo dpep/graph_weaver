@@ -175,5 +175,32 @@ class GraphWeaver::Codegen
         node.identity? ? raw : "#{raw}&.then { |v1| #{node.cast("v1", 2)} }"
       end
     end
+
+    # a module-level T::Struct per input type; serialize builds the wire
+    # hash, omitting optional fields left nil
+    def emit_input(node, out, indent)
+      pad = "  " * indent
+
+      out << "#{pad}class #{node.class_name} < T::Struct"
+      out << "#{pad}  extend T::Sig"
+      out << ""
+      node.fields.each do |field|
+        default = field.required ? "" : ", default: nil"
+        out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}#{default}"
+      end
+      out << ""
+      out << "#{pad}  sig { returns(T::Hash[String, T.untyped]) }"
+      out << "#{pad}  def serialize"
+      out << "#{pad}    result = T.let({}, T::Hash[String, T.untyped])"
+      node.fields.each do |field|
+        value = field.node.serialize_identity? ? field.prop.to_s : field.node.serialize(field.prop.to_s, 1)
+        line = "result[#{field.wire.inspect}] = #{value}"
+        line += " unless #{field.prop}.nil?" unless field.required
+        out << "#{pad}    #{line}"
+      end
+      out << "#{pad}    result"
+      out << "#{pad}  end"
+      out << "#{pad}end"
+    end
   end
 end

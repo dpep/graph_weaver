@@ -1,0 +1,7 @@
+mutation($input: AdoptionInput!) {
+  adopt(input: $input) {
+    id
+    name
+    species
+  }
+}

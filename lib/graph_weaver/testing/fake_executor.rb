@@ -175,12 +175,21 @@ class GraphWeaver::Testing::FakeExecutor
     @fail_at.find { |spec| !spec["triggered"] && spec["path"] == chain }
   end
 
+  # honor pagination-ish arg semantics: first/last/limit with a literal
+  # int caps the fabricated list length
+  def list_length(node)
+    argument = node.arguments.find { |arg| %w[first last limit].include?(arg.name) }
+    return argument.value if argument && argument.value.is_a?(Integer)
+
+    rng.rand(@list_size)
+  end
+
   def type_value(type, node, non_null: false)
     case type.kind.name
     when "NON_NULL"
       type_value(type.of_type, node, non_null: true)
     when "LIST"
-      elements = Array.new(rng.rand(@list_size)) do |index|
+      elements = Array.new(list_length(node)) do |index|
         @path.push(index)
         element = type_value(type.of_type, node)
         @path.pop

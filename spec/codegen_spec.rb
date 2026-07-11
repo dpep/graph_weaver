@@ -1,5 +1,6 @@
 
 require_relative "generated/add_pet_query"
+require_relative "generated/adopt_query"
 require_relative "generated/named_query"
 require_relative "generated/person_query"
 require_relative "generated/search_query"
@@ -8,7 +9,7 @@ describe GraphWeaver::Codegen do
   it "keeps the checked-in generated files up to date" do
     root = File.expand_path("..", __dir__)
 
-    %w[add_pet named person search].each do |base|
+    %w[add_pet adopt named person search].each do |base|
       source = described_class.new(
         schema: Demo::Schema,
         executor: Demo::Schema,
@@ -159,6 +160,27 @@ describe GraphWeaver::Codegen do
       expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
     end
 
+    it "passes input objects as generated T::Structs, serializing to the wire" do
+      input = AdoptQuery::AdoptionInput.new(
+        name: "Rex",
+        species: AdoptQuery::Species::Dog,
+      )
+
+      pet = AdoptQuery.execute!(input:).adopt
+      expect(pet.name).to eq "Rex"
+      expect(pet.species).to eq AdoptQuery::Result::Pet::Species::Dog
+
+      # optional fields ride along when set, stay off the wire when nil
+      nicknamed = AdoptQuery::AdoptionInput.new(
+        name: "Rex",
+        species: AdoptQuery::Species::Dog,
+        nickname: "Rexy",
+      )
+      expect(AdoptQuery.execute!(input: nicknamed).adopt.name).to eq "Rexy"
+      expect(input.serialize).not_to have_key("nickname")
+      expect(nicknamed.serialize).to include("nickname" => "Rexy", "species" => "DOG")
+    end
+
     it "omits optional variables from the wire when nil" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
@@ -177,6 +199,32 @@ describe GraphWeaver::Codegen do
 
       names = mod.execute.data!.search.map(&:name)
       expect(names).to eq %w[Daniel Shelby] # server applied the "el" default
+    end
+  end
+
+  describe "@skip / @include directives" do
+    it "makes conditional fields nilable, whatever the schema says" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: <<~GRAPHQL,
+          query WithPets($withPets: Boolean!) {
+            person(id: 1) {
+              name
+              pets @include(if: $withPets) {
+                name
+              }
+            }
+          }
+        GRAPHQL
+      )
+
+      included = mod.execute!(with_pets: true).person
+      expect(included&.pets&.map(&:name)).to eq %w[Shelby Brownie]
+
+      skipped = mod.execute!(with_pets: false).person
+      expect(skipped&.name).to eq "Daniel"
+      expect(skipped&.pets).to be_nil # absent from the wire, typed nilable
     end
   end
 

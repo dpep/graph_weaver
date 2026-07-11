@@ -42,7 +42,7 @@ describe "introspection" do
     dump = Demo::Schema.as_json
     rebuilt = GraphQL::Schema.from_introspection(dump)
 
-    %w[add_pet named person search].each do |base|
+    %w[add_pet adopt named person search].each do |base|
       source = GraphWeaver::Codegen.new(
         schema: rebuilt,
         executor: "Demo::Schema",

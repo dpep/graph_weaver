@@ -46,6 +46,8 @@ class GraphWeaver::Codegen
   end
 
   class NonNull
+    attr_reader :of
+
     def initialize(of)
       @of = of
     end
@@ -184,21 +186,37 @@ class GraphWeaver::Codegen
     def nested = self
   end
 
-  attr_reader :module_name
+  # An input-object variable: emitted as a module-level T::Struct whose
+  # serialize produces the wire hash. Inputs never cast FROM the wire.
+  class InputNode
+    Field = Struct.new(:prop, :wire, :node, :required)
 
-  # An executor is anything responding to `execute(query, variables:)`
-  # whose result `to_h`s into {"data" => ..., "errors" => ...} — a Schema
-  # class for in-process execution, or an Http/FaradayExecutor for a
-  # remote endpoint.
-  #
-  # executor: (a constant, or its name as a string) becomes the generated
-  # module's default transport; when omitted, generated code falls back
-  # to GraphWeaver.executor. Either way the module exposes .executor= and
-  # execute accepts a per-call executor: override.
-  #
-  # module_name: defaults to the operation's name (`query GetPerson` →
-  # GetPerson); required for anonymous operations when generating files.
-  # default_module_name: is the last-resort fallback — parse sets it to
-  # "Query" since its container scoping makes name collisions impossible,
-  # while file generation stays strict (a checked-in file deserves a
+    attr_reader :class_name, :fields
+
+    def initialize(class_name)
+      @class_name = class_name
+      @fields = []
+    end
+
+    def bare_type = class_name
+
+    def prop_type
+      "T.nilable(#{bare_type})"
+    end
+
+    def serialize(expr, _depth)
+      "#{expr}.serialize"
+    end
+
+    def serialize_identity? = false
+
+    def cast(_expr, _depth)
+      raise NotImplementedError, "input objects are never cast from responses"
+    end
+
+    def identity? = false
+    def coerce? = false
+    def non_null? = false
+    def nested = nil
+  end
 end

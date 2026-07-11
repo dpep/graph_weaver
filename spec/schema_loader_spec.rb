@@ -12,7 +12,7 @@ describe GraphWeaver::SchemaLoader do
   def codegen_parity(schema)
     root = File.expand_path("..", __dir__)
 
-    %w[add_pet named person search].each do |base|
+    %w[add_pet adopt named person search].each do |base|
       source = GraphWeaver::Codegen.new(
         schema:,
         executor: "Demo::Schema",
