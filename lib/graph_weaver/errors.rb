@@ -3,6 +3,7 @@
 
 require "set"
 require "sorbet-runtime"
+require_relative "inflect"
 
 module GraphWeaver
   # Base for every error GraphWeaver raises — rescue this to catch them
@@ -106,6 +107,17 @@ module GraphWeaver
       code == "GRAPHQL_VALIDATION_FAILED" || VALIDATION_MESSAGE.match?(message)
     end
 
+    # The field the error points at, as a stable dotted path with list
+    # indices stripped — ["people", 3, "email"] => "people.email". The
+    # parseable key for grouping/reporting (the raw #path keeps indices).
+    # nil for global errors with no path.
+    def field
+      return unless path
+
+      named = path.reject { |seg| seg.is_a?(Integer) || seg.to_s.match?(/\A\d+\z/) }
+      named.join(".") unless named.empty?
+    end
+
     def to_s
       loc = locations&.first
       at = loc ? " at #{loc["line"]}:#{loc["column"]}" : ""
@@ -114,12 +126,14 @@ module GraphWeaver
       "#{message}#{at}#{where}#{tag}"
     end
 
-    # JSON-ready: the problematic field (path — list indices included),
-    # the machine code, and the server's full extensions.
+    # JSON-ready: the problematic field (both forms — #field for grouping,
+    # #path with indices for exact location), the machine code, and the
+    # server's full extensions.
     def to_h
       {
         "message" => message,
         "code" => code,
+        "field" => field,
         "path" => path,
         "locations" => locations,
         "extensions" => extensions,
@@ -150,8 +164,60 @@ module GraphWeaver
     # shape — the schema has likely changed since the module was
     # generated. Regenerate (bin/generate) and/or refresh the schema
     # cache (delete the cache: file, or wait out its ttl).
-    def schema_drift?
+    def schema_stale?
       errors.any?(&:validation?)
+    end
+
+    # Errors grouped by the field they point at (index-stripped dotted
+    # path; nil key for global errors) — iterate with each_error:
+    #
+    #   response.each_error do |field, errors|
+    #     form.add_error(field, errors.map(&:message))
+    #   end
+    def errors_by_field
+      errors.group_by(&:field)
+    end
+
+    def each_error(&block)
+      errors_by_field.each(&block)
+    end
+
+    # The id of the record an error points into, resolved by walking the
+    # error's path through the (partial) typed data: an error at
+    # ["people", 3, "email"] resolves to people[3].id. nil when the data
+    # is missing, the path doesn't walk, or the record has no id field.
+    def entity_id(error)
+      node = T.let(T.unsafe(self).respond_to?(:data) ? T.unsafe(self).data : nil, T.untyped)
+      return unless node && error.path
+
+      error.path[0..-2].each do |segment|
+        node = if segment.is_a?(Integer) || segment.to_s.match?(/\A\d+\z/)
+          node.is_a?(Array) ? T.unsafe(node)[segment.to_i] : nil
+        else
+          prop = GraphWeaver::Inflect.underscore(segment.to_s).to_sym
+          node.respond_to?(prop) ? node.public_send(prop) : nil
+        end
+        return if node.nil?
+      end
+
+      node.respond_to?(:id) ? node.id : nil
+    end
+
+    # The user-facing rollup: errors keyed by field, with the ids of the
+    # actual records that failed inlined — "the 3 in people.3.email is
+    # useless to a user; people.email plus which people is the answer".
+    #
+    #   { "people.email" => { "messages" => [...], "codes" => [...],
+    #     "entity_ids" => ["7", "9"], "errors" => [full to_h...] } }
+    def report
+      errors_by_field.to_h do |field, field_errors|
+        [field, {
+          "messages" => field_errors.map(&:message),
+          "codes" => field_errors.filter_map(&:code).uniq,
+          "entity_ids" => field_errors.filter_map { |e| entity_id(e) }.uniq,
+          "errors" => field_errors.map(&:to_h),
+        }]
+      end
     end
   end
 
@@ -180,7 +246,7 @@ module GraphWeaver
     # the drift verdict — nest this straight into a JSON response.
     def to_h
       super.merge(
-        "schema_drift" => schema_drift?,
+        "schema_stale" => schema_stale?,
         "codes" => codes,
         "errors" => errors.map(&:to_h),
         "extensions" => extensions,
@@ -192,7 +258,7 @@ module GraphWeaver
     def summary
       first = errors.first
       more = errors.size > 1 ? " (and #{errors.size - 1} more)" : ""
-      drift = schema_drift? ? " — the server rejected the query shape: the schema may have changed since generation; regenerate modules (bin/generate) and/or refresh the schema cache" : ""
+      drift = schema_stale? ? " — the server rejected the query shape: the schema may have changed since generation; regenerate modules (bin/generate) and/or refresh the schema cache" : ""
       "GraphQL query failed: #{first}#{more}#{drift}"
     end
   end
@@ -203,7 +269,7 @@ module GraphWeaver
   # unknown enum value). #struct names the generated type that failed;
   # #cause carries the original TypeError/KeyError with the offending
   # prop in its message.
-  class CastError < Error
+  class TypeError < Error
     attr_reader :struct
 
     def initialize(struct:, error: nil, message: nil)

@@ -38,8 +38,14 @@ describe GraphWeaver::SchemaLoader do
     codegen_parity(described_class.load(path))
   end
 
+  it "loads raw content: introspection JSON, SDL strings, and Hashes" do
+    codegen_parity(described_class.load(Demo::Schema.to_definition))
+    codegen_parity(described_class.load(Demo::Schema.as_json))
+  end
+
   it "rejects other formats" do
     expect { described_class.load("schema.yaml") }.to raise_error(ArgumentError)
+    expect { described_class.load("not a schema at all") }.to raise_error(ArgumentError)
   end
 
   describe ".introspect" do
@@ -66,11 +72,10 @@ describe GraphWeaver::SchemaLoader do
     end
 
     it "round-trips schemas through their own to_json for external caches" do
-      # the Rails.cache pattern: introspect(...).to_json, then rebuild
+      # the Rails.cache pattern: introspect(...).to_json, then load
       schema = described_class.introspect(Demo::Schema)
-      rebuilt = GraphQL::Schema.from_introspection(JSON.parse(schema.to_json))
 
-      codegen_parity(rebuilt)
+      codegen_parity(described_class.load(schema.to_json))
     end
 
     it "caches the introspection result to a file" do

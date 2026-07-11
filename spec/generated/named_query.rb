@@ -36,10 +36,10 @@ module NamedQuery
             __typename: data.fetch("__typename"),
             name: data.fetch("name"),
           )
-        rescue GraphWeaver::CastError
+        rescue GraphWeaver::TypeError
           raise # already wrapped by a nested struct — keep the innermost context
         rescue TypeError, ArgumentError, KeyError => e
-          raise GraphWeaver::CastError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
 
@@ -64,10 +64,10 @@ module NamedQuery
             name: data.fetch("name"),
             species: Species.deserialize(data.fetch("species")),
           )
-        rescue GraphWeaver::CastError
+        rescue GraphWeaver::TypeError
           raise # already wrapped by a nested struct — keep the innermost context
         rescue TypeError, ArgumentError, KeyError => e
-          raise GraphWeaver::CastError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
 
@@ -78,7 +78,7 @@ module NamedQuery
         case (typename = data.fetch("__typename"))
         when "Person" then Person.from_h(data)
         when "Pet" then Pet.from_h(data)
-        else raise GraphWeaver::CastError.new(struct: self, message: "unexpected __typename: #{typename}")
+        else raise GraphWeaver::TypeError.new(struct: self, message: "unexpected __typename: #{typename}")
         end
       end
     end
@@ -90,10 +90,10 @@ module NamedQuery
       new(
         named: data["named"]&.then { |v1| Named.from_h(v1) },
       )
-    rescue GraphWeaver::CastError
+    rescue GraphWeaver::TypeError
       raise # already wrapped by a nested struct — keep the innermost context
     rescue TypeError, ArgumentError, KeyError => e
-      raise GraphWeaver::CastError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, error: e)
     end
   end
 

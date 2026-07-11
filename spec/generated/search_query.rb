@@ -49,10 +49,10 @@ module SearchQuery
             name: data.fetch("name"),
             birthday: data["birthday"]&.then { |v1| Date.iso8601(v1) },
           )
-        rescue GraphWeaver::CastError
+        rescue GraphWeaver::TypeError
           raise # already wrapped by a nested struct — keep the innermost context
         rescue TypeError, ArgumentError, KeyError => e
-          raise GraphWeaver::CastError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
 
@@ -77,10 +77,10 @@ module SearchQuery
             name: data.fetch("name"),
             species: Species.deserialize(data.fetch("species")),
           )
-        rescue GraphWeaver::CastError
+        rescue GraphWeaver::TypeError
           raise # already wrapped by a nested struct — keep the innermost context
         rescue TypeError, ArgumentError, KeyError => e
-          raise GraphWeaver::CastError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
 
@@ -91,7 +91,7 @@ module SearchQuery
         case (typename = data.fetch("__typename"))
         when "Person" then Person.from_h(data)
         when "Pet" then Pet.from_h(data)
-        else raise GraphWeaver::CastError.new(struct: self, message: "unexpected __typename: #{typename}")
+        else raise GraphWeaver::TypeError.new(struct: self, message: "unexpected __typename: #{typename}")
         end
       end
     end
@@ -103,10 +103,10 @@ module SearchQuery
       new(
         search: data.fetch("search").map { |v1| SearchResult.from_h(v1) },
       )
-    rescue GraphWeaver::CastError
+    rescue GraphWeaver::TypeError
       raise # already wrapped by a nested struct — keep the innermost context
     rescue TypeError, ArgumentError, KeyError => e
-      raise GraphWeaver::CastError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, error: e)
     end
   end
 

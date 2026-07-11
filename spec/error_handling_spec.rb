@@ -130,9 +130,9 @@ describe "error handling" do
     it "flags validation-shaped errors and hints at regeneration" do
       resp = run("errors" => [{ "message" => "Field 'nmae' doesn't exist on type 'Person'" }])
 
-      expect(resp.schema_drift?).to be true
+      expect(resp.schema_stale?).to be true
       expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
-        expect(e.schema_drift?).to be true
+        expect(e.schema_stale?).to be true
         expect(e.message).to match(/schema may have changed since generation/)
         expect(e.message).to match(%r{bin/generate})
       end
@@ -142,7 +142,7 @@ describe "error handling" do
       errors = [{ "message" => "rate limited", "extensions" => { "code" => "THROTTLED" } }]
       resp = run("data" => person_data, "errors" => errors)
 
-      expect(resp.schema_drift?).to be false
+      expect(resp.schema_stale?).to be false
       expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
         expect(e.message).not_to match(/schema may have changed/)
       end
@@ -182,6 +182,53 @@ describe "error handling" do
     end
   end
 
+  describe "field-keyed iteration and the error report" do
+    # two pets, errors on both names — path indices differ, field is the same
+    let(:data) do
+      { "person" => { "id" => "1", "name" => "Daniel", "birthday" => nil,
+                      "pets" => [{ "name" => "Shelby" }, { "name" => "Brownie" }] } }
+    end
+    let(:errors) do
+      [
+        { "message" => "name hidden", "path" => ["person", "pets", 0, "name"],
+          "extensions" => { "code" => "PRIVATE" } },
+        { "message" => "name hidden", "path" => ["person", "pets", 1, "name"],
+          "extensions" => { "code" => "PRIVATE" } },
+        { "message" => "outage", "extensions" => { "code" => "DOWN" } },
+      ]
+    end
+    let(:resp) { run("data" => data, "errors" => errors) }
+
+    it "exposes the index-stripped field on each error" do
+      expect(resp.errors.map(&:field)).to eq ["person.pets.name", "person.pets.name", nil]
+    end
+
+    it "iterates errors grouped by field" do
+      seen = {}
+      resp.each_error { |field, errs| seen[field] = errs.size }
+
+      expect(seen).to eq("person.pets.name" => 2, nil => 1)
+    end
+
+    it "builds a report keyed by field with entity ids resolved from the data" do
+      report = resp.report
+
+      expect(report.keys).to contain_exactly("person.pets.name", nil)
+      expect(report["person.pets.name"]["messages"]).to eq ["name hidden", "name hidden"]
+      expect(report["person.pets.name"]["codes"]).to eq ["PRIVATE"]
+      expect(report[nil]["codes"]).to eq ["DOWN"]
+      expect { JSON.generate(report) }.not_to raise_error
+    end
+
+    it "resolves entity ids by walking the path through typed data" do
+      # a person-level error resolves to the person's id (pets carry no id
+      # in this selection, so pet-level errors resolve nil)
+      resp = run("data" => data, "errors" => [{ "message" => "x", "path" => ["person", "name"] }])
+
+      expect(resp.entity_id(resp.errors.first)).to eq "1"
+    end
+  end
+
   describe "machine-readable output (#to_h)" do
     it "nests the full error detail as JSON-ready hashes" do
       errors = [
@@ -195,11 +242,12 @@ describe "error handling" do
 
           expect(h["error"]).to eq "GraphWeaver::QueryError"
           expect(h["message"]).to match(/bad email/)
-          expect(h["schema_drift"]).to be false
+          expect(h["schema_stale"]).to be false
           expect(h["codes"]).to eq ["INVALID_EMAIL"]
           expect(h["errors"]).to eq [{
             "message" => "bad email",
             "code" => "INVALID_EMAIL",
+            "field" => "person.email",
             "path" => ["person", "email"],
             "locations" => [],
             "extensions" => { "code" => "INVALID_EMAIL" },
@@ -222,7 +270,7 @@ describe "error handling" do
     end
   end
 
-  describe "CastError" do
+  describe "TypeError" do
     # the checked-in fixture module, so generated structs have real names
     def run_generated(payload)
       executor = Object.new
@@ -234,7 +282,7 @@ describe "error handling" do
       # birthday should be an iso8601 string; a number breaks the Date cast
       bad = { "person" => { "id" => "1", "name" => "Daniel", "birthday" => 123, "pets" => [] } }
 
-      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::CastError) do |e|
+      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
         expect(e.message).to match(/failed to cast response/)
         expect(e.cause).not_to be_nil
@@ -250,7 +298,7 @@ describe "error handling" do
         },
       }
 
-      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::CastError) do |e|
+      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person::Pet"
       end
     end

@@ -762,10 +762,10 @@ class GraphWeaver::Codegen
       out << "#{pad}      #{field.prop}: #{field_cast(field)},"
     end
     out << "#{pad}    )"
-    out << "#{pad}  rescue GraphWeaver::CastError"
+    out << "#{pad}  rescue GraphWeaver::TypeError"
     out << "#{pad}    raise # already wrapped by a nested struct — keep the innermost context"
     out << "#{pad}  rescue TypeError, ArgumentError, KeyError => e"
-    out << "#{pad}    raise GraphWeaver::CastError.new(struct: self, error: e)"
+    out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, error: e)"
     out << "#{pad}  end"
     out << "#{pad}end"
   end
@@ -792,7 +792,7 @@ class GraphWeaver::Codegen
     node.members.each do |graphql_name, member|
       out << "#{pad}    when #{graphql_name.inspect} then #{member.class_name}.from_h(data)"
     end
-    out << "#{pad}    else raise GraphWeaver::CastError.new(struct: self, message: \"unexpected __typename: \#{typename}\")"
+    out << "#{pad}    else raise GraphWeaver::TypeError.new(struct: self, message: \"unexpected __typename: \#{typename}\")"
     out << "#{pad}    end"
     out << "#{pad}  end"
     out << "#{pad}end"
