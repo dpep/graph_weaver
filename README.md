@@ -298,16 +298,39 @@ GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: {
 Or configure once, initializer-style (e.g. in `spec/support/graph_weaver.rb`):
 
 ```ruby
+require "graph_weaver/testing/rspec"   # rspec: seed follows --seed
+
 GraphWeaver::Testing.configure do |config|
-  config.seed = 42                     # reproducible fakes (seeds faker too)
+  config.schema = MySchema
+  config.auto_fake = true              # every example runs against a fresh FakeExecutor
   config.overrides = { "Person.name" => "Daniel" }
   config.list_size = 1..3
   config.null_chance = 0.1             # nullable fields go nil sometimes
 end
 ```
 
-faker is optional — without it, values are type-derived. Coming next:
-capture/replay cassettes and anonymized recording.
+With the rspec integration, `rspec --seed 1234` reproduces fake data
+along with test order, and `auto_fake` installs a seeded executor per
+example (generate modules *without* a baked `executor:` so they consult
+`GraphWeaver.executor`). faker is optional — without it, values are
+type-derived.
+
+**Capture and replay** — cassettes live above the transport (no HTTP
+interception), so they work identically for HTTP, Faraday, or in-process
+executors:
+
+```ruby
+# records against the live executor when the file is missing, replays after
+executor = GraphWeaver::Testing::Cassette.use("github", executor: live)
+```
+
+Cassettes hold real responses. Anonymize before committing — shape,
+nulls, list lengths, enums, and id relationships survive; values are
+replaced with (semantically matched) fakes:
+
+```ruby
+GraphWeaver::Testing::Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
+```
 
 ----
 ## Installation

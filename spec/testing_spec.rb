@@ -84,6 +84,70 @@ describe GraphWeaver::Testing do
     end
   end
 
+  describe GraphWeaver::Testing::Values do
+    let(:values) { GraphWeaver::Testing::Values.new(seed: 3) }
+
+    it "gives numbers field-name semantics too" do
+      expect(values.scalar("Int", "age")).to be_between(1, 99)
+      expect(values.scalar("Float", "price")).to be_between(1.0, 10_000.0)
+      expect(values.scalar("Int", "count")).to be_between(0, 100)
+      expect(values.scalar("Float", "latitude")).to be_between(-90, 90)
+    end
+
+    it "falls back to type-based values for unmatched names" do
+      expect(values.scalar("Int", "widget")).to be_a Integer
+      expect(values.scalar("String", "widget")).to match(/widget/)
+    end
+  end
+
+  describe "rspec integration" do
+    # capture the hooks install registers, then run them by hand
+    let(:hooks) { Hash.new { |h, k| h[k] = [] } }
+    let(:rspec_config) do
+      recorder = hooks
+      Class.new do
+        define_method(:before) { |scope, &block| recorder[[:before, scope]] << block }
+        define_method(:after) { |scope, &block| recorder[[:after, scope]] << block }
+      end.new
+    end
+    let(:context) { Object.new }
+
+    def run(scope_key)
+      hooks[scope_key].each { |block| context.instance_exec(&block) }
+    end
+
+    before do
+      require "graph_weaver/testing/rspec"
+      GraphWeaver::Testing::RSpecIntegration.install(rspec_config)
+    end
+
+    it "defaults the seed to rspec's seed" do
+      run([:before, :suite])
+
+      expect(GraphWeaver::Testing.config.seed).to eq RSpec.configuration.seed
+    end
+
+    it "auto-injects a fake executor per example when opted in" do
+      GraphWeaver::Testing.configure do |config|
+        config.schema = Demo::Schema
+        config.auto_fake = true
+      end
+
+      run([:before, :each])
+      expect(GraphWeaver.executor).to be_a GraphWeaver::Testing::FakeExecutor
+      expect(PersonQuery.execute!(id: "1").person&.name).to be_a String
+
+      run([:after, :each])
+      expect { GraphWeaver.executor }.to raise_error(GraphWeaver::Error, /no executor/)
+    end
+
+    it "stays out of the way when auto_fake is off" do
+      run([:before, :each])
+
+      expect { GraphWeaver.executor }.to raise_error(GraphWeaver::Error, /no executor/)
+    end
+  end
+
   describe ".configure" do
     it "applies config defaults to new executors" do
       described_class.configure do |config|

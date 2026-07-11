@@ -3,8 +3,8 @@
 
 require_relative "../graph_weaver"
 
-# faker is optional — semantic values (name/email/url...) when present,
-# type-based values when not
+# faker is optional — semantic values (name/email/age/price/...) when
+# present, type-based values when not
 begin
   require "faker"
 rescue LoadError
@@ -15,28 +15,36 @@ end
 # helper (never from production code). Configure once, initializer-style:
 #
 #   GraphWeaver::Testing.configure do |config|
+#     config.schema = MySchema                  # for auto_fake / cassettes
 #     config.seed = 42                          # reproducible fakes
-#     config.semantics = true                   # faker-backed field matching
+#     config.faker = true                       # semantic field matching
 #     config.overrides = { "Person.name" => "Daniel" }
 #     config.list_size = 2..4
 #     config.null_chance = 0.1                  # nullable fields go nil sometimes
+#     config.cassette_dir = "spec/cassettes"
 #   end
+#
+# rspec users: require "graph_weaver/testing/rspec" instead — it hooks
+# the suite (seed from rspec, optional auto-faked executor per example).
 module GraphWeaver
   module Testing
     class Config
-      attr_accessor :overrides, :seed, :list_size, :null_chance
-      attr_writer :semantics
+      attr_accessor :overrides, :seed, :list_size, :null_chance, :schema, :cassette_dir, :auto_fake
+      attr_writer :faker
 
       def initialize
         @overrides = {}
         @seed = nil
         @list_size = 1..3
         @null_chance = 0.0
-        @semantics = nil # auto: on when faker is loaded
+        @faker = nil # auto: on when the faker gem is loaded
+        @schema = nil
+        @cassette_dir = "spec/cassettes"
+        @auto_fake = false
       end
 
-      def semantics
-        @semantics.nil? ? !defined?(::Faker).nil? : @semantics
+      def faker
+        @faker.nil? ? !defined?(::Faker).nil? : @faker
       end
     end
 
@@ -53,8 +61,18 @@ module GraphWeaver
       def reset!
         @config = nil
       end
+
+      # resolve a cassette name ("github") against cassette_dir; paths
+      # with separators or extensions pass through
+      def cassette_path(name)
+        return name if name.include?("/") || name.end_with?(".yml", ".yaml")
+
+        File.join(config.cassette_dir, "#{name}.yml")
+      end
     end
   end
 end
 
+require_relative "testing/values"
 require_relative "testing/fake_executor"
+require_relative "testing/cassette"
