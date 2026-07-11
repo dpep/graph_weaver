@@ -38,7 +38,7 @@ begin
 rescue GraphWeaver::TransportError
   retry                                   # network blip
 rescue GraphWeaver::ServerError => e
-  raise if e.status < 500                 # backoff on 5xx only
+  e.status >= 500 ? backoff : raise       # retry 5xx; a 4xx is our bug
 rescue GraphWeaver::QueryError => e
   e.codes.include?("THROTTLED") ? backoff : raise
 end
@@ -46,7 +46,7 @@ end
 
 What counts as a `TransportError` is an **extensible set** — each transport
 seeds its own network exceptions (`Errno::*`, `SocketError`, timeouts, TLS; the
-Faraday adapter adds its own), and you can register more so a custom adapter's
+Faraday executor adds its own), and you can register more so a custom adapter's
 or connection pool's failure gets the same treatment:
 
 ```ruby
@@ -102,5 +102,5 @@ When wire data disagrees with the types the schema promised at generation time
 (a nil where non-null was declared, a malformed scalar, an unknown enum value),
 casting raises `GraphWeaver::TypeError` naming the failing generated struct,
 with the original exception as `#cause`. Simulate one in tests with
-`FakeExecutor.new(schema:, corrupt: "Person.birthday")` — see
+`GraphWeaver::Testing::FakeExecutor.new(schema:, corrupt: "Person.birthday")` — see
 [testing](testing.md).

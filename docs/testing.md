@@ -1,7 +1,7 @@
 # Testing
 
 `require "graph_weaver/rspec"` from your spec helper (or
-`graph_weaver/testing` outside rspec — never production code) for a
+`graph_weaver/testing` outside rspec — never in production) for a
 zero-setup fake backend. `FakeExecutor` fabricates
 schema-correct responses for whatever query arrives: real enum values,
 valid `__typename` members, iso8601 date scalars — every fake casts

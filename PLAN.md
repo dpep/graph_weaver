@@ -57,17 +57,19 @@ NOTES.md. Prior-art check partially answered: graphql-client PR #7
 Jan 2024 with users asking; schema-wide typing can't catch
 unfetched-field bugs or type unions/interfaces — the niche looks open.
 
+~~Input objects~~ DONE 2026-07-11: module-level T::Structs, serialize/
+to_h, hash coercion at the execute boundary.
+~~Release~~ 0.1.0 cut 2026-07-11 (breaking: execute returns the
+Response envelope; execute! for raise-or-result).
+
 1. Stable class naming design — names come from GraphQL type names per
    selection site; must not shift when unrelated selections are added
    (generated code is app-code API). Current: one-level field-name
-   disambiguation, then raise.
-2. Input objects as variables (raise NotImplementedError today) — likely
-   generated T::Structs with serialize.
-3. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
+   disambiguation, then raise. Shipped in 0.1.0 as-is — a naming change
+   is fair game pre-1.0 but should land early.
+2. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
    bin/generate is spec-fixture tooling, not shipped.
-4. Subscriptions (unsupported; raise).
-5. Release 0.0.2 (Faraday, ergonomics, scalars, errors — accumulating);
-   then 0.1.0 once naming design settles.
+3. Subscriptions (unsupported; raise). Recursive input types (raise).
 6. Parse/execute memoization: repeated GraphWeaver.parse/execute of the
    same [schema, query] re-generates and re-evals every call (~3x the
    cost of a cached module; benchmarked 2026-07-09) — memo keyed on

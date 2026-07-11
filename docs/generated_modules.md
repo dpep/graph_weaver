@@ -1,7 +1,7 @@
 # Generated modules
 
 `GraphWeaver::Codegen` turns one GraphQL operation into one `# typed: strict`
-Ruby module. Everything srb tc knows about your query results comes from this
+Ruby module. Everything `srb tc` knows about your query results comes from this
 file — there is no runtime schema, no lazy wrapper, no reflection.
 
 ## Anatomy
@@ -50,14 +50,14 @@ AddPetQuery.execute!(name: "Rex", species: AddPetQuery::Species::Dog)
 - custom scalars serialize through the [scalar registry](scalars.md)
 
 **Input objects** generate module-level `T::Struct`s with `serialize`
-(aliased `to_h`) producing the wire hash — optional fields default nil and
+(aliased as `to_h`) producing the wire hash — optional fields default nil and
 stay off the wire:
 
 ```ruby
 input = AdoptQuery::AdoptionInput.new(name: "Rex", species: AdoptQuery::Species::Dog)
 AdoptQuery.execute!(input:)
 
-# or hand execute a plain hash — .coerce normalizes and type-checks it at
+# or pass a plain hash straight to execute — .coerce normalizes and type-checks it at
 # the boundary (underscored Symbol/String keys; enums accept wire values;
 # nested inputs accept hashes)
 AdoptQuery.execute!(input: { name: "Rex", species: "DOG" })
@@ -85,7 +85,7 @@ yet supported.
 Module names derive from the operation name (`query GetPerson` → `GetPerson`);
 `GraphWeaver.parse` on a `.graphql` file derives from the file name
 (`person.graphql` → `PersonQuery`). Pass `module_name:`/`name:` to override.
-File generation requires a deliberate name for anonymous operations; dynamic
+`Codegen.generate` requires a deliberate name for anonymous operations; dynamic
 `parse` defaults to `Query` (its constants are container-scoped, so collisions
 are impossible).
 
@@ -110,7 +110,7 @@ fake per example.
 
 `GraphWeaver.parse` generates + evals in one step (no build artifact, evaled
 into an anonymous container — no global constants leak). Same runtime
-semantics; invisible to srb tc, so prefer the build step where static
+semantics; invisible to `srb tc`, so prefer the build step where static
 checking matters. `GraphWeaver.execute(schema:, query:, variables: {})` is
 the one-shot form.
 

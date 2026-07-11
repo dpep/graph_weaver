@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    graph_weaver (0.0.2)
+    graph_weaver (0.1.0)
       graphql (>= 2)
       sorbet-runtime
 
@@ -156,7 +156,7 @@ CHECKSUMS
   faraday (2.14.3) sha256=1882247e6766615c8220b4392bf1d27f6ebb63d8e28267587cef1fb0bf37f278
   faraday-net_http (3.4.4) sha256=0e78af151747ed1b00f33e25973b4bc220d7f16c00c39676817c8b12331eb588
   fiber-storage (1.0.1) sha256=f48e5b6d8b0be96dac486332b55cee82240057065dc761c1ea692b2e719240e1
-  graph_weaver (0.0.2)
+  graph_weaver (0.1.0)
   graphql (2.6.5) sha256=1051825bfb4aedb4293cdbcd9726c3150e69e3512556609a32c2ca19d4be3d00
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5
   io-console (0.8.2) sha256=d6e3ae7a7cc7574f4b8893b4fca2162e57a825b223a177b7afa236c5ef9814cc

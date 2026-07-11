@@ -30,9 +30,9 @@ their real class constants). Override explicitly when you need to:
 
 `type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
 reference the class. `requires:` (a string or array) names files emitted as
-`require`s atop the generated source so the cast/type resolve — when `type:` is
-a real class (so the runtime is loaded) each path is actually `require`d at
-registration to catch a typo now rather than in the generated file.
+`require`s atop the generated source so the cast/type resolve. When `type:` is
+a real class (so the runtime is loaded), each path is also `require`d at
+registration — a typo fails now, not in the generated file.
 
 Pass `coerce: true` to let a variable of this scalar accept **either** the value
 object **or** its raw input, normalizing the latter through the cast:
@@ -44,8 +44,8 @@ StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the ho
 StoreQuery.execute(budget: Money.new(1200))  # passed straight through
 ```
 
-Bad input still explodes (the cast raises), so some safety survives; it needs
-both a cast and a serialize. Off by default — the strict typed kwarg is the norm.
+Bad input still explodes (the cast raises), so some safety survives; coercion
+needs both a cast and a serialize. Off by default — the strict typed kwarg is the norm.
 
 `coerce:` also takes a **Symbol** naming a conversion method, for built-ins where
 a plain method is the whole story — `coerce: :to_f` makes a variable accept

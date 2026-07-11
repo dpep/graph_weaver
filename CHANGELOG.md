@@ -1,4 +1,4 @@
-###  v0.0.2  (unreleased)
+###  v0.1.0  (2026-07-11)
 - Structured errors: execute returns a typed Response envelope (#data/#data!,
   #errors, #errors?, #extensions) instead of raising on GraphQL errors, so
   partial data and top-level extensions (cost/throttle) survive. Error classes
@@ -50,6 +50,19 @@
   --seed; auto_fake installs a fake executor per example
 - one-off integration specs against live GitHub + Countries APIs
   (make integration)
+- Input objects: INPUT_OBJECT variables generate module-level T::Structs
+  with serialize (aliased to_h) producing the wire hash; execute kwargs
+  also accept plain hashes, normalized + type-checked via the generated
+  .coerce (underscored Symbol/String keys, enums as instances or wire
+  values, nested inputs as hashes)
+- fields under @skip/@include generate nilable regardless of schema
+  nullability; FakeExecutor honors first/last/limit when sizing lists
+- eval hardening for parse: module names must be constant names, and
+  QUERY heredocs can't be terminated early by block strings
+- GraphWeaver::Selection: one shared query-walk (codegen, FakeExecutor,
+  anonymizer); codegen split into scalar_type / nodes / emit
+- docs/: generated_modules, real_world, scalars, errors, testing;
+  README slimmed to pitch + quickstart
 
 ###  v0.0.1  (2026-07-07)
 - voila: typed codegen (T::Structs, T::Enums, typed variable kwargs)
