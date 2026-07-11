@@ -211,7 +211,7 @@ class GraphWeaver::Codegen
       # a field under @skip/@include may be absent from the response no
       # matter what the schema says — its type must admit nil
       if field_nodes.any? { |n| n.directives.any? { |d| %w[skip include].include?(d.name) } }
-        child = child.of while child.is_a?(NonNull)
+        child = child.of if child.is_a?(NonNull)
       end
 
       node.fields << ObjectNode::Field.new(prop, key, child)
