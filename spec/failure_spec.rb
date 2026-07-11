@@ -47,6 +47,16 @@ describe "failure simulation" do
       expect(stale.schema_stale?).to be true
       expect { stale.data! }.to raise_error(GraphWeaver::QueryError, /regenerate/)
     end
+
+    it "stale_schema names a specific field, or samples a real one from the schema" do
+      named = PersonQuery.execute(id: "1", executor: failure.stale_schema(type: "Person", field: "name"))
+      expect(named.errors.first&.message).to eq "Field 'name' doesn't exist on type 'Person'"
+
+      sampled = PersonQuery.execute(id: "1", executor: failure.stale_schema(schema: Demo::Schema, seed: 3))
+      message = sampled.errors.first&.message
+      expect(message).to match(/Field '\w+' doesn't exist on type '(Person|Pet|Query|Mutation)'/)
+      expect(sampled.schema_stale?).to be true
+    end
   end
 
   describe GraphWeaver::Testing::SequenceExecutor do
@@ -66,11 +76,11 @@ describe "failure simulation" do
   end
 
   describe "FakeExecutor failure injection" do
-    it "simulates type mismatches via overrides" do
+    it "simulates type mismatches via corrupt: — the wrong-typed value is derived" do
       corrupt = GraphWeaver::Testing::FakeExecutor.new(
         schema: Demo::Schema,
         seed: 1,
-        overrides: { "Person.birthday" => 123 },
+        corrupt: "Person.birthday",
       )
 
       expect {
@@ -78,6 +88,37 @@ describe "failure simulation" do
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
+    end
+
+    it "corrupts strings and object lists by kind" do
+      # String field gets an Integer
+      name_corrupt = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, corrupt: "Person.name")
+      expect {
+        PersonQuery.execute(id: "1", executor: name_corrupt)
+      }.to raise_error(GraphWeaver::TypeError) do |e|
+        expect(e.struct.name).to eq "PersonQuery::Result::Person"
+      end
+
+      # list elements get non-Hash values; the sig on Pet.from_h rejects
+      # them at the call site, so Person owns the failure and the cause
+      # names Pet
+      pets_corrupt = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, corrupt: "Person.pets")
+      expect {
+        PersonQuery.execute(id: "1", executor: pets_corrupt)
+      }.to raise_error(GraphWeaver::TypeError) do |e|
+        expect(e.struct.name).to eq "PersonQuery::Result::Person"
+        expect(e.cause&.message).to include("Pet.from_h")
+      end
+    end
+
+    it "overrides remain the manual escape hatch for exact corrupt values" do
+      executor = GraphWeaver::Testing::FakeExecutor.new(
+        schema: Demo::Schema,
+        seed: 1,
+        overrides: { "Person.birthday" => "not-iso8601" },
+      )
+
+      expect { PersonQuery.execute(id: "1", executor:) }.to raise_error(GraphWeaver::TypeError)
     end
 
     it "appends verbatim errors alongside fake data" do

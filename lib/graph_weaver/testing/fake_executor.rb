@@ -38,6 +38,13 @@ require "json"
 #
 # errors: appends verbatim top-level errors alongside the fake data.
 #
+# Type mismatches: corrupt: names fields ("Type.field") that should
+# arrive wire-corrupted — a wrong-typed value derived from the schema,
+# so casting raises GraphWeaver::TypeError. One spec checks the failure
+# path; every other spec gets working data:
+#
+#   FakeExecutor.new(schema:, corrupt: "Person.birthday")
+#
 # seed: makes a run reproducible (also seeds faker). Per-executor options
 # fall back to GraphWeaver::Testing.config.
 class GraphWeaver::Testing::FakeExecutor
@@ -45,7 +52,7 @@ class GraphWeaver::Testing::FakeExecutor
   NULL_BUBBLE = Object.new.freeze
 
   def initialize(schema:, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
-    errors: nil, fail_at: nil)
+    errors: nil, fail_at: nil, corrupt: nil)
     config = GraphWeaver::Testing.config
     @schema = schema
     @overrides = config.overrides.merge(overrides)
@@ -55,6 +62,7 @@ class GraphWeaver::Testing::FakeExecutor
     # NOT Array(): it would explode a bare Hash into key/value pairs
     @extra_errors = wrap(errors).map { |error| normalize_error(error) }
     @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }
+    @corrupt = wrap(corrupt)
   end
 
   def execute(query, variables: {})
@@ -165,7 +173,29 @@ class GraphWeaver::Testing::FakeExecutor
     end
     return override.is_a?(Proc) ? override.call : override unless override.nil?
 
-    type_value(@schema.get_field(parent_type.graphql_name, node.name).type, node)
+    field_type = @schema.get_field(parent_type.graphql_name, node.name).type
+    if @corrupt.include?("#{parent_type.graphql_name}.#{node.name}")
+      return corrupt_value(field_type)
+    end
+
+    type_value(field_type, node)
+  end
+
+  # a value casting can't accept, derived from the field's own type — and
+  # wrapped per list layer so the corruption lands on the element cast
+  def corrupt_value(type)
+    case type.kind.name
+    when "NON_NULL" then corrupt_value(type.of_type)
+    when "LIST" then [corrupt_value(type.of_type)]
+    when "SCALAR"
+      case type.graphql_name
+      when "Int", "Float" then "not-a-number"
+      when "Boolean" then "not-a-boolean"
+      else 123 # breaks String/ID props and every string-wire custom scalar
+      end
+    when "ENUM" then "__NOT_A_REAL_VALUE__"
+    else [] # objects/unions: an Array fails Hash-shaped casting loudly
+    end
   end
 
   # first untriggered fail_at spec whose field chain (indices stripped)

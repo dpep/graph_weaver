@@ -55,10 +55,26 @@ module GraphWeaver
         graphql([{ message: "rate limited", extensions: { code: "THROTTLED" } }])
       end
 
-      # a validation-shaped rejection — trips schema_stale? and its
-      # regenerate hint, as if the schema changed under the module
-      def stale_schema(field: "someField", type: "SomeType")
-        graphql("Field '#{field}' doesn't exist on type '#{type}'")
+      # A validation-shaped rejection — trips schema_stale? and its
+      # regenerate hint, as if the schema changed under the module. Name
+      # the casualty explicitly, or pass schema: to sample a real
+      # type/field (as if the server just dropped it):
+      #
+      #   Failure.stale_schema(type: "Person", field: "name")
+      #   Failure.stale_schema(schema: MySchema)             # random real field
+      #   Failure.stale_schema(schema: MySchema, seed: 42)   # reproducibly random
+      def stale_schema(field: nil, type: nil, schema: nil, seed: nil)
+        if schema && (field.nil? || type.nil?)
+          rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
+          candidates = schema.types.values.select do |candidate|
+            candidate.kind.name == "OBJECT" && !candidate.graphql_name.start_with?("__")
+          end
+          chosen = candidates.sort_by(&:graphql_name).sample(random: rng)
+          type ||= chosen.graphql_name
+          field ||= chosen.fields.keys.sort.sample(random: rng)
+        end
+
+        graphql("Field '#{field || "someField"}' doesn't exist on type '#{type || "SomeType"}'")
       end
     end
 

@@ -333,8 +333,12 @@ PersonQuery.execute(id: "1", executor: Failure.graphql("boom", data: {...}))  # 
 # retries: fail twice, then succeed
 GraphWeaver::Testing::SequenceExecutor.new(Failure.transport, Failure.transport, fake)
 
-# type mismatch: corrupt the wire via an override — casting raises GraphWeaver::TypeError
-GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: { "Person.birthday" => 123 })
+# type mismatch: corrupt: derives a wrong-typed wire value for the field —
+# casting raises GraphWeaver::TypeError (overrides remain the manual escape hatch)
+GraphWeaver::Testing::FakeExecutor.new(schema:, corrupt: "Person.birthday")
+
+# stale schema naming a real (sampled) field
+Failure.stale_schema(schema: MySchema)
 
 # field-level partial failure with real GraphQL null propagation: the error
 # lands with its concrete path and nulls bubble to the nearest nullable spot
