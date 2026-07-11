@@ -26,21 +26,44 @@ module GraphWeaver
       @executor or raise Error, "no executor configured — set GraphWeaver.executor= or pass executor:"
     end
 
-    # The best available HTTP transport for a url: Faraday when the app
-    # already loads it (so its middleware/proxy/timeout ecosystem comes
-    # along), the built-in zero-dependency executor otherwise. A block
-    # customizes the Faraday connection (and therefore requires faraday):
+    # One-shot setup: build the best transport for a url, wrap it with
+    # retries, and wire it in as the global executor. Most apps need
+    # exactly one line:
     #
-    #   GraphWeaver.executor = GraphWeaver.http(url, headers: { ... })
-    #   GraphWeaver.http(url) { |conn| conn.response :logger }
+    #   GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
     #
-    # Detection is `defined?(Faraday)` — deliberately NOT a require:
-    # faraday rides along transitively in most bundles (stripe, octokit,
-    # ...), and try-requiring would switch transports on apps that never
-    # chose it. The cost is load-order sensitivity: with faraday under
-    # `require: false`, load it before calling http (or construct
-    # FaradayExecutor / HttpExecutor directly to be unambiguous).
-    def http(url, headers: {}, &middleware)
+    # auth: is a token — "Bearer" is assumed unless the string carries
+    # its own scheme ("Basic dXNlcjpwYXNz..."); headers: covers anything
+    # else (API keys etc). retries: true wraps the transport in a
+    # RetryExecutor with defaults; pass a Hash of RetryExecutor options
+    # to tune, or false for none. A block customizes the Faraday
+    # connection (faraday only). Returns the executor it wired in.
+    #
+    # Transport pick: Faraday when the app already loads it (its
+    # middleware/proxy/timeout ecosystem comes along), the built-in
+    # zero-dependency executor otherwise. Detection is `defined?(Faraday)`
+    # — deliberately NOT a require: faraday rides along transitively in
+    # most bundles (stripe, octokit, ...), and try-requiring would switch
+    # transports on apps that never chose it. With faraday under
+    # `require: false`, load it before calling connect — or construct
+    # FaradayExecutor / HttpExecutor / RetryExecutor directly and assign
+    # GraphWeaver.executor= yourself; connect is convenience, not the
+    # only door.
+    def connect(url, auth: nil, headers: {}, retries: true, &middleware)
+      headers = headers.dup
+      if auth
+        headers["Authorization"] ||= auth.include?(" ") ? auth : "Bearer #{auth}"
+      end
+
+      transport = build_transport(url, headers:, &middleware)
+      self.executor = case retries
+      when true then RetryExecutor.new(transport)
+      when false, nil then transport
+      else RetryExecutor.new(transport, **retries)
+      end
+    end
+
+    def build_transport(url, headers:, &middleware)
       if defined?(::Faraday)
         require_relative "graph_weaver/faraday_executor"
         FaradayExecutor.new(url, headers:, &middleware)
@@ -50,6 +73,7 @@ module GraphWeaver
         HttpExecutor.new(url, headers:)
       end
     end
+    private :build_transport
 
     # Teach the generator how a GraphQL custom scalar deserializes into a
     # rich Ruby object (and serializes back onto the wire when used as a

@@ -1,6 +1,8 @@
 ###  unreleased
-- GraphWeaver.http(url): transport factory — FaradayExecutor when the
-  app loads faraday (middleware block supported), HttpExecutor otherwise
+- GraphWeaver.connect(url, auth:, headers:, retries:): one-shot setup —
+  best transport (Faraday when the app loads it; detection is defined?,
+  never a require), bearer/verbatim auth, RetryExecutor wrapping
+  (true / false / options Hash), wired in as the global executor
 - RetryExecutor: composable retries over any transport — tries:,
   exponential/linear/custom backoff with jitter and max clamp,
   retry-by-error-class (5xx yes, 4xx no by default; retry_if: override)

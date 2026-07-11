@@ -41,8 +41,8 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 ```ruby
 require "graph_weaver"
 
-# configure the default transport once (override per module or per call)
-GraphWeaver.executor = GraphWeaver.http("https://api.example.com/graphql")  # Faraday when loaded, else built-in
+# one-shot setup: best transport (Faraday when loaded), auth, retries, wired in
+GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
 
 # generate from any schema source
 schema = GraphWeaver::SchemaLoader.load("schema.json")   # or .graphql SDL, or a live class
