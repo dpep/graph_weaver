@@ -21,9 +21,7 @@ describe "GitHub API", :integration do
     )
   end
 
-  let(:schema) do
-    INTEGRATION_SCHEMAS[:github] ||= GraphWeaver::SchemaLoader.introspect(executor)
-  end
+  let(:schema) { integration_schema(:github, executor) }
 
   it "queries the viewer" do
     viewer_query = GraphWeaver.parse(

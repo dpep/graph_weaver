@@ -43,10 +43,49 @@ describe GraphWeaver::SchemaLoader do
   end
 
   describe ".introspect" do
+    # counts how many introspections actually hit the "network"
+    let(:counting_executor) do
+      Class.new do
+        attr_reader :calls
+
+        def initialize
+          @calls = 0
+        end
+
+        def execute(query, variables:)
+          @calls += 1
+          Demo::Schema.execute(query, variables:)
+        end
+      end.new
+    end
+
     it "fetches a schema through an executor" do
       # a schema class is itself an executor, so this exercises the same
       # path a live HTTP endpoint would
       codegen_parity(described_class.introspect(Demo::Schema))
+    end
+
+    it "caches the introspection result to a file" do
+      path = File.join(@dir, "schema-cache.json")
+
+      first = described_class.introspect(counting_executor, cache: path)
+      second = described_class.introspect(counting_executor, cache: path)
+
+      expect(counting_executor.calls).to eq 1
+      expect(File).to exist(path)
+      codegen_parity(first)
+      codegen_parity(second)
+    end
+
+    it "refreshes the cache when the ttl has elapsed" do
+      path = File.join(@dir, "schema-cache.json")
+
+      described_class.introspect(counting_executor, cache: path, ttl: 60)
+      stale = Time.now - 3600
+      File.utime(stale, stale, path)
+      described_class.introspect(counting_executor, cache: path, ttl: 60)
+
+      expect(counting_executor.calls).to eq 2
     end
 
     it "surfaces introspection failures" do

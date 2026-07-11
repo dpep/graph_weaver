@@ -61,6 +61,10 @@ unfetched-field bugs or type unions/interfaces — the niche looks open.
    same [schema, query] re-generates and re-evals every call (~3x the
    cost of a cached module; benchmarked 2026-07-09) — memo keyed on
    schema/query/name/executor, minding shared executor= mutation.
+   (Schema-side caching landed: SchemaLoader.introspect cache:/ttl: +
+   introspection_result primitive for Rails.cache et al. Possible
+   follow-up: re-introspect + retry once on validation-shaped
+   QueryErrors, since GraphQL has no standard schema-version signal.)
 7. Nice-to-haves: __typename auto-injection (currently required manually
    on abstract selections), fragment reuse across queries, directives on
    selections (@skip/@include make non-null fields nullable).

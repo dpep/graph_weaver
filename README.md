@@ -103,7 +103,15 @@ executor = GraphWeaver::HttpExecutor.new(
   "https://api.github.com/graphql",
   headers: { "Authorization" => "Bearer #{`gh auth token`.strip}" },
 )
-schema = GraphWeaver::SchemaLoader.introspect(executor)
+
+# introspecting a big API takes seconds — cache: stores the introspection
+# JSON in a file and reuses it for ttl: seconds. For Rails.cache/redis,
+# cache SchemaLoader.introspection_result(executor) (a plain Hash) instead.
+schema = GraphWeaver::SchemaLoader.introspect(
+  executor,
+  cache: "tmp/github-schema.json",
+  ttl: 24 * 60 * 60,
+)
 
 # map GitHub's DateTime scalar onto Time (cast inferred from Time.parse)
 GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")

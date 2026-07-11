@@ -5,9 +5,7 @@
 describe "Countries API", :integration do
   let(:executor) { GraphWeaver::HttpExecutor.new("https://countries.trevorblades.com/") }
 
-  let(:schema) do
-    INTEGRATION_SCHEMAS[:countries] ||= GraphWeaver::SchemaLoader.introspect(executor)
-  end
+  let(:schema) { integration_schema(:countries, executor) }
 
   it "introspects the schema and runs a typed query with variables" do
     country_query = GraphWeaver.parse(
