@@ -269,6 +269,46 @@ deserialize onto `response.data` like anything else and you inspect them there.
 The one-shot `GraphWeaver.execute` / `execute!` mirror this: `execute` returns
 the envelope, `execute!` the result-or-raise.
 
+#### Testing
+
+`require "graph_weaver/testing"` (from your spec helper — never production
+code) for a zero-setup fake backend. `FakeExecutor` fabricates
+schema-correct responses for whatever query arrives: real enum values,
+valid `__typename` members, iso8601 date scalars — every fake casts
+cleanly through your generated structs.
+
+```ruby
+fake = GraphWeaver::Testing::FakeExecutor.new(schema:)
+
+person = PersonQuery.execute!(id: "1", executor: fake).person
+person.name       # => "Eliza Kertzmann" (faker-matched on field name, when faker is loaded)
+person.birthday   # => a real Date
+```
+
+Pin what matters, keyed by GraphQL names (schema vocabulary — keys
+survive query refactors); `"Type.field"` beats `"field"`:
+
+```ruby
+GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: {
+  "Person.name" => "Daniel",
+  "email" => -> { "test@example.com" },
+})
+```
+
+Or configure once, initializer-style (e.g. in `spec/support/graph_weaver.rb`):
+
+```ruby
+GraphWeaver::Testing.configure do |config|
+  config.seed = 42                     # reproducible fakes (seeds faker too)
+  config.overrides = { "Person.name" => "Daniel" }
+  config.list_size = 1..3
+  config.null_chance = 0.1             # nullable fields go nil sometimes
+end
+```
+
+faker is optional — without it, values are type-derived. Coming next:
+capture/replay cassettes and anonymized recording.
+
 ----
 ## Installation
 

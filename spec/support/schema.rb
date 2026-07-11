@@ -57,6 +57,7 @@ module Demo
 
     field :id, ID, null: false
     field :name, String, null: false
+    field :email, String # resolved nowhere; exists for FakeExecutor specs
     field :birthday, DateType
     field :pets, [PetType], null: false
   end
