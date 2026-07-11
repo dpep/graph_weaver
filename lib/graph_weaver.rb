@@ -28,14 +28,18 @@ module GraphWeaver
 
     # The best available HTTP transport for a url: Faraday when the app
     # already loads it (so its middleware/proxy/timeout ecosystem comes
-    # along — GraphWeaver never loads faraday itself), the built-in
-    # zero-dependency executor otherwise. A block customizes the Faraday
-    # connection (and therefore requires faraday):
+    # along), the built-in zero-dependency executor otherwise. A block
+    # customizes the Faraday connection (and therefore requires faraday):
     #
     #   GraphWeaver.executor = GraphWeaver.http(url, headers: { ... })
     #   GraphWeaver.http(url) { |conn| conn.response :logger }
     #
-    # Construct HttpExecutor / FaradayExecutor directly to be unambiguous.
+    # Detection is `defined?(Faraday)` — deliberately NOT a require:
+    # faraday rides along transitively in most bundles (stripe, octokit,
+    # ...), and try-requiring would switch transports on apps that never
+    # chose it. The cost is load-order sensitivity: with faraday under
+    # `require: false`, load it before calling http (or construct
+    # FaradayExecutor / HttpExecutor directly to be unambiguous).
     def http(url, headers: {}, &middleware)
       if defined?(::Faraday)
         require_relative "graph_weaver/faraday_executor"
