@@ -15,6 +15,7 @@ module GraphWeaver
   class Response
     extend T::Sig
     extend T::Generic
+    include ErrorFiltering
 
     Data = type_member
 

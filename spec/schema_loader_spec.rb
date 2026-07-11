@@ -65,6 +65,14 @@ describe GraphWeaver::SchemaLoader do
       codegen_parity(described_class.introspect(Demo::Schema))
     end
 
+    it "round-trips schemas through their own to_json for external caches" do
+      # the Rails.cache pattern: introspect(...).to_json, then rebuild
+      schema = described_class.introspect(Demo::Schema)
+      rebuilt = GraphQL::Schema.from_introspection(JSON.parse(schema.to_json))
+
+      codegen_parity(rebuilt)
+    end
+
     it "caches the introspection result to a file" do
       path = File.join(@dir, "schema-cache.json")
 

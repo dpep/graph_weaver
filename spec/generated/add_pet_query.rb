@@ -47,6 +47,10 @@ module AddPetQuery
           name: data.fetch("name"),
           species: Species.deserialize(data.fetch("species")),
         )
+      rescue GraphWeaver::CastError
+        raise # already wrapped by a nested struct — keep the innermost context
+      rescue TypeError, ArgumentError, KeyError => e
+        raise GraphWeaver::CastError.new(struct: self, error: e)
       end
     end
 
@@ -57,6 +61,10 @@ module AddPetQuery
       new(
         add_pet: Pet.from_h(data.fetch("addPet")),
       )
+    rescue GraphWeaver::CastError
+      raise # already wrapped by a nested struct — keep the innermost context
+    rescue TypeError, ArgumentError, KeyError => e
+      raise GraphWeaver::CastError.new(struct: self, error: e)
     end
   end
 

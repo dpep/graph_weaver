@@ -32,7 +32,7 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 - **Fragments** (inline, named, interface conditions), **unions and interfaces** (member structs, `__typename` dispatch), **enums** (`T::Enum`), **custom scalars** (pluggable registry)
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL
 - **Any transport**: in-process schema execution (perfect for tests), the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
-- **Structured errors**: a typed response envelope (data + errors + extensions), and a `GraphWeaver::Error` hierarchy that separates transport, server, and GraphQL failures — match on error `code`, not message strings
+- **Structured errors**: a typed response envelope (data + errors + extensions), and a `GraphWeaver::Error` hierarchy that separates transport, server, GraphQL, and casting failures. Every error is dual-surface — a human message plus `#to_h` (JSON-ready: paths, codes, extensions) for logs, agents, and user-facing reporting. `errors_at("user.email")` filters field-level failures; `schema_drift?` flags when the server rejected a query shape (regenerate / refresh the schema cache)
 - **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
 
 ####  Usage

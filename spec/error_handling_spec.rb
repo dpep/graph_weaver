@@ -1,5 +1,6 @@
 # typed: false
 require "graph_weaver"
+require_relative "generated/person_query"
 
 # Exercises the error surface end to end against a fake executor returning
 # canned GraphQL payloads (data / errors / extensions), plus the standalone
@@ -121,6 +122,136 @@ describe "error handling" do
         expect(e).to be_a ArgumentError # source-compatible
         expect(e.message).to match(/invalid query/)
         expect(e.errors.first[:message]).to be_a String
+      end
+    end
+  end
+
+  describe "schema drift detection" do
+    it "flags validation-shaped errors and hints at regeneration" do
+      resp = run("errors" => [{ "message" => "Field 'nmae' doesn't exist on type 'Person'" }])
+
+      expect(resp.schema_drift?).to be true
+      expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
+        expect(e.schema_drift?).to be true
+        expect(e.message).to match(/schema may have changed since generation/)
+        expect(e.message).to match(%r{bin/generate})
+      end
+    end
+
+    it "does not flag business errors" do
+      errors = [{ "message" => "rate limited", "extensions" => { "code" => "THROTTLED" } }]
+      resp = run("data" => person_data, "errors" => errors)
+
+      expect(resp.schema_drift?).to be false
+      expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
+        expect(e.message).not_to match(/schema may have changed/)
+      end
+    end
+
+    it "recognizes the Apollo validation code" do
+      error = GraphWeaver::GraphQLError.from_h(
+        "message" => "anything",
+        "extensions" => { "code" => "GRAPHQL_VALIDATION_FAILED" },
+      )
+
+      expect(error.validation?).to be true
+    end
+  end
+
+  describe "field-level error filtering" do
+    let(:errors) do
+      [
+        { "message" => "boom", "path" => ["person", "pets", 0, "name"] },
+        { "message" => "bad email", "path" => ["person", "email"] },
+        { "message" => "global" },
+      ]
+    end
+
+    it "filters errors by path prefix, on the response and the raised error" do
+      resp = run("data" => person_data, "errors" => errors)
+
+      expect(resp.errors_at("person").size).to eq 2
+      expect(resp.errors_at("person.email").map(&:message)).to eq ["bad email"]
+      expect(resp.errors_at(["person", "pets"]).map(&:message)).to eq ["boom"]
+      expect(resp.errors_at("person.pets.0.name").map(&:message)).to eq ["boom"]
+      expect(resp.errors_at("nothing")).to be_empty
+
+      expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
+        expect(e.errors_at("person.email").map(&:message)).to eq ["bad email"]
+      end
+    end
+  end
+
+  describe "machine-readable output (#to_h)" do
+    it "nests the full error detail as JSON-ready hashes" do
+      errors = [
+        { "message" => "bad email", "path" => ["person", "email"],
+          "extensions" => { "code" => "INVALID_EMAIL" } },
+      ]
+
+      expect { run("data" => person_data, "errors" => errors).data! }
+        .to raise_error(GraphWeaver::QueryError) do |e|
+          h = e.to_h
+
+          expect(h["error"]).to eq "GraphWeaver::QueryError"
+          expect(h["message"]).to match(/bad email/)
+          expect(h["schema_drift"]).to be false
+          expect(h["codes"]).to eq ["INVALID_EMAIL"]
+          expect(h["errors"]).to eq [{
+            "message" => "bad email",
+            "code" => "INVALID_EMAIL",
+            "path" => ["person", "email"],
+            "locations" => [],
+            "extensions" => { "code" => "INVALID_EMAIL" },
+            "validation" => false,
+          }]
+          expect { JSON.generate(h) }.not_to raise_error
+        end
+    end
+
+    it "covers the whole hierarchy" do
+      server = GraphWeaver::ServerError.new(status: 502, body: "bad gateway")
+      expect(server.to_h).to include("error" => "GraphWeaver::ServerError", "status" => 502)
+
+      validation = begin
+        GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", module_name: "Bad")
+      rescue GraphWeaver::ValidationError => e
+        e
+      end
+      expect(validation.to_h["errors"].first).to include("message")
+    end
+  end
+
+  describe "CastError" do
+    # the checked-in fixture module, so generated structs have real names
+    def run_generated(payload)
+      executor = Object.new
+      executor.define_singleton_method(:execute) { |_query, variables:| payload }
+      PersonQuery.execute(id: "1", executor:)
+    end
+
+    it "wraps wire data that disagrees with the generated types, naming the struct" do
+      # birthday should be an iso8601 string; a number breaks the Date cast
+      bad = { "person" => { "id" => "1", "name" => "Daniel", "birthday" => 123, "pets" => [] } }
+
+      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::CastError) do |e|
+        expect(e.struct.name).to eq "PersonQuery::Result::Person"
+        expect(e.message).to match(/failed to cast response/)
+        expect(e.cause).not_to be_nil
+      end
+    end
+
+    it "keeps the innermost struct context for nested failures" do
+      # pet name must be a String; nil violates the non-null prop
+      bad = {
+        "person" => {
+          "id" => "1", "name" => "Daniel", "birthday" => nil,
+          "pets" => [{ "name" => nil }],
+        },
+      }
+
+      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::CastError) do |e|
+        expect(e.struct.name).to eq "PersonQuery::Result::Person::Pet"
       end
     end
   end

@@ -37,6 +37,10 @@ module PersonQuery
           new(
             name: data.fetch("name"),
           )
+        rescue GraphWeaver::CastError
+          raise # already wrapped by a nested struct — keep the innermost context
+        rescue TypeError, ArgumentError, KeyError => e
+          raise GraphWeaver::CastError.new(struct: self, error: e)
         end
       end
 
@@ -53,6 +57,10 @@ module PersonQuery
           birthday: data["birthday"]&.then { |v1| Date.iso8601(v1) },
           pets: data.fetch("pets").map { |v1| Pet.from_h(v1) },
         )
+      rescue GraphWeaver::CastError
+        raise # already wrapped by a nested struct — keep the innermost context
+      rescue TypeError, ArgumentError, KeyError => e
+        raise GraphWeaver::CastError.new(struct: self, error: e)
       end
     end
 
@@ -63,6 +71,10 @@ module PersonQuery
       new(
         person: data["person"]&.then { |v1| Person.from_h(v1) },
       )
+    rescue GraphWeaver::CastError
+      raise # already wrapped by a nested struct — keep the innermost context
+    rescue TypeError, ArgumentError, KeyError => e
+      raise GraphWeaver::CastError.new(struct: self, error: e)
     end
   end
 
