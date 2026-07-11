@@ -1,24 +1,13 @@
 #!/usr/bin/env ruby
 # regenerate spec/generated/ from spec/queries/
 
-require "fileutils"
 require_relative "../lib/graph_weaver"
 require_relative "../spec/support/schema"
 
 root = File.expand_path("..", __dir__)
-FileUtils.mkdir_p(File.join(root, "spec/generated"))
-
-Dir[File.join(root, "spec/queries/*.graphql")].sort.each do |query_path|
-  base = File.basename(query_path, ".graphql")
-
-  source = GraphWeaver::Codegen.generate(
-    schema: Demo::Schema,
-    executor: Demo::Schema,
-    query: File.read(query_path),
-    module_name: "#{GraphWeaver::Inflect.camelize(base)}Query",
-  )
-
-  path = File.join(root, "spec/generated/#{base}_query.rb")
-  File.write(path, source)
-  puts "wrote #{path}"
-end
+GraphWeaver.generate!(
+  schema: Demo::Schema,
+  queries: File.join(root, "spec/queries"),
+  output: File.join(root, "spec/generated"),
+  executor: Demo::Schema,
+).each { |path| puts "wrote #{path}" }

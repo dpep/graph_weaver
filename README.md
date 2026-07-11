@@ -99,6 +99,8 @@ GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } 
   `@skip`/`@include`, naming, executors, dynamic mode
 - **[Against a real API](docs/real_world.md)** — introspect a live endpoint
   (GitHub end to end), schema caching
+- **[Transports](docs/transports.md)** — connect, the executor contract,
+  Faraday, retries and backoff
 - **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
   requires, input coercion
 - **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy,

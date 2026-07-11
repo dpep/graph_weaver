@@ -13,12 +13,14 @@ describe "GraphWeaver.connect" do
 
   after { GraphWeaver.executor = nil }
 
-  it "wires up transport + retries + global executor in one call" do
+  it "wires up transport + global executor in one call; retries are opt-in" do
     executor = GraphWeaver.connect(url)
 
-    expect(executor).to be_a GraphWeaver::RetryExecutor
+    expect(executor).to be_a GraphWeaver::FaradayExecutor # no retry wrapper by default
     expect(GraphWeaver.executor).to equal executor
     expect(mod.execute!.person&.name).to eq "Daniel" # no executor: needed
+
+    expect(GraphWeaver.connect(url, retries: true)).to be_a GraphWeaver::RetryExecutor
   end
 
   it "sends bearer auth, or a verbatim scheme, or custom headers" do

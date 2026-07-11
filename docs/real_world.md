@@ -7,14 +7,13 @@ end to end:
 ```ruby
 require "graph_weaver"
 
-executor = GraphWeaver::HttpExecutor.new(
-  "https://api.github.com/graphql",
-  headers: { "Authorization" => "Bearer #{`gh auth token`.strip}" },
-)
+# transport + auth, wired in as the default executor (see docs/transports.md
+# for retries and advanced setup)
+executor = GraphWeaver.connect("https://api.github.com/graphql", auth: `gh auth token`.strip)
 
 # introspecting a big API takes seconds — cache: stores the introspection
 # JSON in a file and reuses it for ttl: seconds. For Rails.cache/redis,
-# cache SchemaLoader.introspection_result(executor) (a plain Hash) instead.
+# cache introspect(executor).to_json and SchemaLoader.load it back.
 schema = GraphWeaver::SchemaLoader.introspect(
   executor,
   cache: "tmp/github-schema.json",
@@ -24,7 +23,7 @@ schema = GraphWeaver::SchemaLoader.introspect(
 # map GitHub's DateTime scalar onto Time (cast inferred from Time.parse)
 GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
 
-RepoQuery = GraphWeaver.parse(schema:, executor:, query: <<~GRAPHQL)
+RepoQuery = GraphWeaver.parse(schema:, query: <<~GRAPHQL)
   query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
       nameWithOwner

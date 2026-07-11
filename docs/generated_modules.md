@@ -7,53 +7,47 @@ file — there is no runtime schema, no lazy wrapper, no reflection.
 ## Generating
 
 The workflow that keeps generated code honest: queries live as `.graphql`
-files (the source of truth), a script regenerates the Ruby, and a spec fails
-when the two drift.
+files (the source of truth), generation writes the Ruby, and verification
+fails when the two drift. The conventional layout (configurable via
+`GraphWeaver.queries_path` / `generated_path` / `schema_path`):
 
 ```
 app/graphql/
+  schema.json        # introspection dump (or schema.graphql SDL)
   queries/           # *.graphql — hand-written, reviewed
   generated/         # *_query.rb — generated, checked in, never edited
 ```
 
-A generation script (`bin/graphql_generate` or a rake task):
+Rake tasks (add `require "graph_weaver/tasks"` to your Rakefile; register
+custom scalars first — they're baked into generated source):
 
-```ruby
-#!/usr/bin/env ruby
-require "graph_weaver"
-
-schema = GraphWeaver::SchemaLoader.load("app/graphql/schema.json")
-# register custom scalars BEFORE generating — they're baked into the source
-GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
-
-Dir["app/graphql/queries/*.graphql"].sort.each do |path|
-  base = File.basename(path, ".graphql")
-  source = GraphWeaver::Codegen.generate(
-    schema:,
-    query: File.read(path),
-    module_name: "#{base.split("_").map(&:capitalize).join}Query",
-  )
-  File.write("app/graphql/generated/#{base}_query.rb", source)
-end
+```
+rake graph_weaver:generate    # queries_path -> generated_path
+rake graph_weaver:verify      # fail if anything is stale — run in CI
 ```
 
-And the freshness guard — a spec that regenerates in memory and compares
-(exactly how GraphWeaver tests itself):
+Or call the same APIs directly:
 
 ```ruby
-it "generated queries are up to date" do
-  Dir["app/graphql/queries/*.graphql"].sort.each do |path|
-    base = File.basename(path, ".graphql")
-    source = GraphWeaver::Codegen.generate(schema:, query: File.read(path), module_name: ...)
-    expect(File.read("app/graphql/generated/#{base}_query.rb")).to eq source
-  end
-end
+schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
+GraphWeaver.generate!(schema:)            # write the modules
+GraphWeaver.verify_generated!(schema:)    # the freshness guard, one line in a spec
 ```
+
+Loading is explicit, factory_bot-style — one line, only when you call it:
+
+```ruby
+GraphWeaver.load_generated!   # require every file under generated_path
+```
+
+(In Rails, prefer this over autoloading: Zeitwerk would expect
+`Generated::PersonQuery` from `generated/person_query.rb`, and generated
+code only changes on regeneration — restart, like a schema migration.)
 
 Regenerate when: a query changes, the schema changes (a
 [`schema_stale?`](errors.md) error in production is the late signal — refresh
 the schema dump and regenerate), a scalar registration changes, or GraphWeaver
-itself upgrades (emission may differ across versions; the parity spec
+itself upgrades (emission may differ across versions; `verify_generated!`
 catches it).
 
 ## Anatomy

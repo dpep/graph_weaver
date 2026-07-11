@@ -56,7 +56,7 @@ class GraphWeaver::Codegen
 
     attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: false)
+    def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: nil)
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
@@ -68,11 +68,29 @@ class GraphWeaver::Codegen
       validate_coerce!
     end
 
+    # conversions applied to the four convertible built-ins when the
+    # global GraphWeaver.auto_coerce is on and no explicit coerce: given
+    AUTO_CONVERSIONS = {
+      "ID" => :to_s, "String" => :to_s, "Int" => :to_i, "Float" => :to_f,
+    }.freeze
+
     def cast(expr) = @cast&.call(expr)
     def cast? = !@cast.nil?
     def serialize(expr) = @serialize&.call(expr)
     def serialize? = !@serialize.nil?
-    def coerce? = !!@coerce
+    def coerce? = !!effective_coerce
+
+    # Explicit coerce: always wins (false means never). Left unset, the
+    # global GraphWeaver.auto_coerce decides — resolved HERE, at
+    # generation time, so registration order doesn't matter: convertible
+    # built-ins get their conversion, anything with a full cast/serialize
+    # pair gets parse-style coercion.
+    def effective_coerce
+      return @coerce unless @coerce.nil?
+      return false unless GraphWeaver.auto_coerce
+
+      AUTO_CONVERSIONS.fetch(@graphql_name) { (cast? && serialize?) || nil }
+    end
 
     # The code that normalizes a variable input before it's serialized. Two
     # shapes: coerce: true parses a raw value into the rich type via the cast
@@ -82,17 +100,17 @@ class GraphWeaver::Codegen
     # afterward, but is identity for the conversion built-ins, so the
     # converted value goes on the wire natively (a Float, not "5.0").
     def coerce_input(expr)
-      case @coerce
+      case effective_coerce
       when true then "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
-      when Symbol then "#{expr}.#{@coerce}"
+      when Symbol then "#{expr}.#{effective_coerce}"
       end
     end
 
     # the accepted Sorbet type for a coercible variable kwarg
     def coerce_type
-      case @coerce
+      case effective_coerce
       when true then "T.any(#{@type}, String)"
-      when Symbol then CONVERT_INPUTS.fetch(@coerce, "T.untyped")
+      when Symbol then CONVERT_INPUTS.fetch(effective_coerce, "T.untyped")
       end
     end
 
@@ -175,7 +193,7 @@ class GraphWeaver::Codegen
     # the accepted cast:/serialize:/requires: forms. Later registrations
     # win, so an app can override a built-in (e.g. map Date onto its own
     # type).
-    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: false)
+    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: nil)
       scalar_registry[graphql_name.to_s] =
         ScalarType.new(graphql_name, type:, cast:, serialize:, requires:, coerce:)
     end

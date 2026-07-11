@@ -1,8 +1,19 @@
 ###  unreleased
 - GraphWeaver.connect(url, auth:, headers:, retries:): one-shot setup —
   best transport (Faraday when the app loads it; detection is defined?,
-  never a require), bearer/verbatim auth, RetryExecutor wrapping
-  (true / false / options Hash), wired in as the global executor
+  never a require), bearer/verbatim auth, opt-in RetryExecutor wrapping
+  (true / options Hash; off by default), wired in as the global executor
+- Generation workflow: GraphWeaver.generate! (queries dir -> generated
+  dir), verify_generated! (the freshness guard — raises naming stale
+  files), load_generated! (factory_bot-style explicit loading), rake
+  tasks (require "graph_weaver/tasks": graph_weaver:generate / :verify),
+  all defaulting to configurable conventional paths (queries_path /
+  generated_path / schema_path)
+- GraphWeaver.auto_coerce = true: default input coercion for scalars
+  without an explicit coerce:, resolved lazily at generation time (no
+  reset_scalars! ordering dance) — convertible built-ins take their
+  conversion, cast/serialize pairs take parse-style coercion
+- docs/transports.md: connect, the executor contract, Faraday, retries
 - RetryExecutor: composable retries over any transport — tries:,
   exponential/linear/custom backoff with jitter and max clamp,
   retry-by-error-class (5xx yes, 4xx no by default; retry_if: override)
