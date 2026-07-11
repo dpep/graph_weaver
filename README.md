@@ -28,11 +28,12 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 
 ####  Features
 
-- **Queries and mutations** with typed variable kwargs — required vs optional falls out of nullability and defaults
-- **Fragments** (inline, named, interface conditions), **unions and interfaces** (member structs, `__typename` dispatch), **enums** (`T::Enum`), **custom scalars** (pluggable registry)
-- **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL
-- **Any transport**: in-process schema execution (perfect for tests), the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
-- **Structured errors**: a typed response envelope (data + errors + extensions), and a `GraphWeaver::Error` hierarchy that separates transport, server, GraphQL, and casting failures. Every error is dual-surface — a human message plus `#to_h` (JSON-ready: paths, codes, extensions) for logs, agents, and user-facing reporting. `errors_at("user.email")` filters field-level failures; `schema_drift?` flags when the server rejected a query shape (regenerate / refresh the schema cache)
+- **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
+- **Fragments** (inline, named, interface conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
+- **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
+- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
+- **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
+- **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
 - **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
 
 ####  Usage
@@ -90,277 +91,20 @@ PersonQuery.execute(id: "1")
 GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
 ```
 
-#### Against a real API
 
-Everything composes for a remote endpoint — introspect the schema
-straight off the wire, then query with typed results. GitHub's API,
-end to end:
+#### Dig deeper
 
-```ruby
-require "graph_weaver"
-
-executor = GraphWeaver::HttpExecutor.new(
-  "https://api.github.com/graphql",
-  headers: { "Authorization" => "Bearer #{`gh auth token`.strip}" },
-)
-
-# introspecting a big API takes seconds — cache: stores the introspection
-# JSON in a file and reuses it for ttl: seconds. For Rails.cache/redis,
-# cache SchemaLoader.introspection_result(executor) (a plain Hash) instead.
-schema = GraphWeaver::SchemaLoader.introspect(
-  executor,
-  cache: "tmp/github-schema.json",
-  ttl: 24 * 60 * 60,
-)
-
-# map GitHub's DateTime scalar onto Time (cast inferred from Time.parse)
-GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
-
-RepoQuery = GraphWeaver.parse(schema:, executor:, query: <<~GRAPHQL)
-  query($owner: String!, $name: String!) {
-    repository(owner: $owner, name: $name) {
-      nameWithOwner
-      createdAt
-      stargazerCount
-    }
-  }
-GRAPHQL
-
-repo = RepoQuery.execute!(owner: "dpep", name: "graph_weaver").repository
-repo&.name_with_owner   # => "dpep/graph_weaver"
-repo&.created_at        # => 2026-07-07 ... (a real Time)
-repo&.stargazer_count   # => Integer
-```
-
-The same flow runs as one-off integration specs against the live GitHub
-and Countries APIs — `make integration` (network; GitHub auth via
-`gh auth token` or `GITHUB_TOKEN`).
-
-#### Custom scalars
-
-Teach the generator how a GraphQL custom scalar deserializes into a rich
-Ruby object (and serializes back when used as a variable). A field typed
-`Money` then generates `const :price, T.nilable(Money)` and casts with
-`Money.parse(...)` inline — no runtime reflection:
-
-```ruby
-GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
-```
-
-Pass a real class as `type:` and the cast/serialize are **inferred** from it by
-probing the deserialize side and pairing its serializer:
-
-| the class defines | cast          | serialize      |
-|-------------------|---------------|----------------|
-| `.parse`          | `Type.parse(v)` | `v.to_s`     |
-| `.load`           | `Type.load(v)`  | `Type.dump(v)` |
-
-so the common case needs nothing more. Probing the *deserialize* side is
-deliberate — every object has `#to_s`, so inferring off it would wrongly wrap
-plain types like `String`/`Integer`; requiring a `.parse`/`.load` the type
-actually defines avoids that (and is why the built-ins can be registered with
-their real class constants). Override explicitly when you need to:
-
-- a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
-  `serialize: :to_json` → `expr.to_json`
-- a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
-- `:itself` to force pass-through, opting out of inference (rare)
-
-`type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
-reference the class. `requires:` (a string or array) names files emitted as
-`require`s atop the generated source so the cast/type resolve — when `type:` is
-a real class (so the runtime is loaded) each path is actually `require`d at
-registration to catch a typo now rather than in the generated file.
-
-Pass `coerce: true` to let a variable of this scalar accept **either** the value
-object **or** its raw input, normalizing the latter through the cast:
-
-```ruby
-GraphWeaver.register_scalar("Money", type: Money, coerce: true)
-# generated execute now takes T.any(Money, String); "12.00" is parsed
-StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the hood
-StoreQuery.execute(budget: Money.new(1200))  # passed straight through
-```
-
-Bad input still explodes (the cast raises), so some safety survives; it needs
-both a cast and a serialize. Off by default — the strict typed kwarg is the norm.
-
-`coerce:` also takes a **Symbol** naming a conversion method, for built-ins where
-a plain method is the whole story — `coerce: :to_f` makes a variable accept
-`5`/`"5"` and `.to_f` it, sending a native number (not `"5.0"`) on the wire. The
-convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`,
-`ID`/`String`→`:to_s`), so rather than re-registering each, flip them all on at
-once:
-
-```ruby
-GraphWeaver.reset_scalars!(coerce: true)   # reload built-ins as coercible
-GraphWeaver.register_scalar("Money", ...)  # then add your own
-```
-
-`Boolean` and `Date` have no lossless one-method conversion, so they stay strict.
-
-The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
-same path (`Date` even carries its own `require "date"`), so a later
-`register_scalar` overrides them; `GraphWeaver.reset_scalars!` restores the
-defaults (`reset_scalars!(coerce: true)` restores them coercible) and
-`clear_scalars!` empties the registry. Register before generating — it's a
-codegen-time concern, baked into the emitted source.
-
-#### Errors
-
-`execute` returns a typed **`Response` envelope** rather than raising on GraphQL
-errors — so partial data and top-level `extensions` (cost, throttle) survive.
-`execute!` is the shortcut when you just want the result:
-
-```ruby
-PersonQuery.execute!(id: "1")   # => Result, or raises QueryError  (== execute(...).data!)
-
-response = PersonQuery.execute(id: "1")   # => GraphWeaver::Response[Result]
-response.data           # T.nilable(Result) — typed, present even on partial success
-response.errors         # Array[GraphWeaver::GraphQLError]
-response.errors?        # any top-level errors?
-response.extensions     # { "cost" => … } — rides on success too
-response.data!          # the Result, or raise GraphWeaver::QueryError
-```
-
-The envelope is a single generic `GraphWeaver::Response[Result]` — `response.data`
-stays fully typed to *this* query's result, no per-query wrapper class.
-
-Every `GraphQLError` exposes `#message`, `#locations`, `#path`, `#extensions`,
-and `#code` (`extensions["code"]`) — match on the **code**, not the message
-string (`response.errors.first.code == "THROTTLED"`).
-
-Everything GraphWeaver raises descends from `GraphWeaver::Error`, split by where
-it failed:
-
-| Class | When |
-|-------|------|
-| `TransportError` | never reached the server — DNS, connection refused, TLS, timeout |
-| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
-| `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
-| `ValidationError` | build time: the query didn't validate against the schema (also an `ArgumentError`) |
-
-```ruby
-begin
-  person = PersonQuery.execute!(id: "1").person
-rescue GraphWeaver::TransportError
-  retry                                   # network blip
-rescue GraphWeaver::ServerError => e
-  raise if e.status < 500                 # backoff on 5xx only
-rescue GraphWeaver::QueryError => e
-  e.codes.include?("THROTTLED") ? backoff : raise
-end
-```
-
-What counts as a `TransportError` is an **extensible set** — each transport
-seeds its own network exceptions (`Errno::*`, `SocketError`, timeouts, TLS; the
-Faraday adapter adds its own), and you can register more so a custom adapter's
-or connection pool's failure gets the same treatment:
-
-```ruby
-GraphWeaver.register_transport_error(ConnectionPool::TimeoutError)
-GraphWeaver.transport_errors << MyAdapter::ResetError   # it's just a Set
-```
-
-Business/validation failures returned *as data* (Shopify-style `userErrors { field
-message code }`) aren't errors here — they're just fields you selected, so they
-deserialize onto `response.data` like anything else and you inspect them there.
-
-The one-shot `GraphWeaver.execute` / `execute!` mirror this: `execute` returns
-the envelope, `execute!` the result-or-raise.
-
-#### Testing
-
-`require "graph_weaver/rspec"` from your spec helper (or
-`graph_weaver/testing` outside rspec — never production code) for a
-zero-setup fake backend. `FakeExecutor` fabricates
-schema-correct responses for whatever query arrives: real enum values,
-valid `__typename` members, iso8601 date scalars — every fake casts
-cleanly through your generated structs.
-
-```ruby
-fake = GraphWeaver::Testing::FakeExecutor.new(schema:)
-
-person = PersonQuery.execute!(id: "1", executor: fake).person
-person.name       # => "Eliza Kertzmann" (faker-matched on field name, when faker is loaded)
-person.birthday   # => a real Date
-```
-
-Pin what matters, keyed by GraphQL names (schema vocabulary — keys
-survive query refactors); `"Type.field"` beats `"field"`:
-
-```ruby
-GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: {
-  "Person.name" => "Daniel",
-  "email" => -> { "test@example.com" },
-})
-```
-
-Or configure once, initializer-style (e.g. in `spec/support/graph_weaver.rb`):
-
-```ruby
-require "graph_weaver/rspec"   # rspec: seed follows --seed
-
-GraphWeaver::Testing.configure do |config|
-  config.schema = MySchema
-  config.auto_fake = true              # every example runs against a fresh FakeExecutor
-  config.mode = :faker                 # or :literal (plain typed values); nil = auto
-  config.overrides = { "Person.name" => "Daniel" }
-  config.list_size = 1..3
-  config.null_chance = 0.1             # nullable fields go nil sometimes
-end
-```
-
-With the rspec integration, `rspec --seed 1234` reproduces fake data
-along with test order, and `auto_fake` installs a seeded executor per
-example (generate modules *without* a baked `executor:` so they consult
-`GraphWeaver.executor`). `mode:` picks value fabrication: `:faker`
-(semantic, field-name matched — raises if the gem is missing),
-`:literal` (plain type-derived), or nil to auto-detect faker.
-
-**Simulating failures** — every failure mode is just an executor, so
-error-handling paths are testable without a server that misbehaves on cue:
-
-```ruby
-Failure = GraphWeaver::Testing::Failure
-
-PersonQuery.execute(id: "1", executor: Failure.transport)             # TransportError (cause preserved)
-PersonQuery.execute(id: "1", executor: Failure.server(status: 502))   # ServerError
-PersonQuery.execute(id: "1", executor: Failure.throttled)             # QueryError, code THROTTLED
-PersonQuery.execute(id: "1", executor: Failure.stale_schema)          # schema_stale? => true
-PersonQuery.execute(id: "1", executor: Failure.graphql("boom", data: {...}))  # partial failure
-
-# retries: fail twice, then succeed
-GraphWeaver::Testing::SequenceExecutor.new(Failure.transport, Failure.transport, fake)
-
-# type mismatch: corrupt: derives a wrong-typed wire value for the field —
-# casting raises GraphWeaver::TypeError (overrides remain the manual escape hatch)
-GraphWeaver::Testing::FakeExecutor.new(schema:, corrupt: "Person.birthday")
-
-# stale schema naming a real (sampled) field
-Failure.stale_schema(schema: MySchema)
-
-# field-level partial failure with real GraphQL null propagation: the error
-# lands with its concrete path and nulls bubble to the nearest nullable spot
-GraphWeaver::Testing::FakeExecutor.new(schema:, fail_at: { path: "person.email", code: "PRIVATE" })
-```
-
-**Capture and replay** — cassettes live above the transport (no HTTP
-interception), so they work identically for HTTP, Faraday, or in-process
-executors:
-
-```ruby
-# records against the live executor when the file is missing, replays after
-executor = GraphWeaver::Testing::Cassette.use("github", executor: live)
-```
-
-Cassettes hold real responses. Anonymize before committing — shape,
-nulls, list lengths, enums, and id relationships survive; values are
-replaced with (semantically matched) fakes:
-
-```ruby
-GraphWeaver::Testing::Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
-```
+- **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
+  variables (enums, input objects), fragments/unions/interfaces,
+  `@skip`/`@include`, naming, executors, dynamic mode
+- **[Against a real API](docs/real_world.md)** — introspect a live endpoint
+  (GitHub end to end), schema caching
+- **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
+  requires, input coercion
+- **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy,
+  field-level reports with entity ids, stale-schema detection
+- **[Testing](docs/testing.md)** — schema-correct fakes, failure simulation,
+  cassettes with anonymized capture, rspec integration
 
 ----
 ## Installation
@@ -380,6 +124,7 @@ gem install graph_weaver
 ## Development
 
 `make check` — regenerate spec fixtures, run specs, typecheck.
+`make integration` — one-off checks against the live GitHub and Countries APIs.
 
 See `PLAN.md` for roadmap and `NOTES.md` for the research notebook this
 gem grew out of (an exploration of graphql-client internals — GraphWeaver
