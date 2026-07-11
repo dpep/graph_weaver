@@ -98,6 +98,22 @@ describe GraphWeaver::Testing do
       expect(values.scalar("Int", "widget")).to be_a Integer
       expect(values.scalar("String", "widget")).to match(/widget/)
     end
+
+    it "mode: :literal skips semantics even with faker loaded" do
+      literal = GraphWeaver::Testing::Values.new(seed: 3, mode: :literal)
+
+      expect(literal.scalar("String", "email")).to match(/^email-\d+$/)
+    end
+
+    it "rejects unknown modes" do
+      expect {
+        GraphWeaver::Testing::Values.new(mode: :chaos)
+      }.to raise_error(ArgumentError, /:faker, :literal/)
+
+      expect {
+        GraphWeaver::Testing.configure { |config| config.mode = :chaos }
+      }.to raise_error(ArgumentError, /:faker, :literal/)
+    end
   end
 
   describe "rspec integration" do
@@ -117,7 +133,7 @@ describe GraphWeaver::Testing do
     end
 
     before do
-      require "graph_weaver/testing/rspec"
+      require "graph_weaver/rspec"
       GraphWeaver::Testing::RSpecIntegration.install(rspec_config)
     end
 

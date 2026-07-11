@@ -34,10 +34,10 @@ class GraphWeaver::Testing::Values
 
   attr_reader :rng
 
-  def initialize(seed: nil, faker: nil)
+  def initialize(seed: nil, mode: nil)
     config = GraphWeaver::Testing.config
     @rng = Random.new(seed || config.seed || Random.new_seed)
-    @faker = (faker.nil? ? config.faker : faker) && !defined?(::Faker).nil?
+    @mode = resolve_mode(mode || config.mode)
     @sequence = 0
     @id_map = {}
   end
@@ -45,7 +45,7 @@ class GraphWeaver::Testing::Values
   def scalar(type_name, field_name)
     prop = underscore(field_name)
 
-    if @faker
+    if @mode == :faker
       # rebind per call: several Values instances may interleave (e.g. two
       # seeded executors), and faker's rng is global
       ::Faker::Config.random = @rng
@@ -77,5 +77,22 @@ class GraphWeaver::Testing::Values
   # same original id => same fake id, so relationships survive anonymization
   def mapped_id(original)
     @id_map[original] ||= (@sequence += 1).to_s
+  end
+
+  private
+
+  # :faker is an explicit ask — fail loudly when the gem is missing; auto
+  # (nil) quietly falls back to :literal
+  def resolve_mode(mode)
+    case mode
+    when :faker
+      raise ArgumentError, "mode: :faker requires the faker gem (add it to your Gemfile's test group)" unless defined?(::Faker)
+
+      :faker
+    when :literal then :literal
+    when nil then defined?(::Faker) ? :faker : :literal
+    else
+      raise ArgumentError, "mode: must be one of #{GraphWeaver::Testing::MODES.inspect} (or nil for auto), got #{mode.inspect}"
+    end
   end
 end

@@ -76,8 +76,8 @@ module GraphWeaver
       # Replace recorded response values with fakes, preserving structure.
       # Walks each entry's query against the schema (like FakeExecutor,
       # but transforming what's there instead of generating from scratch).
-      def anonymize!(schema:, seed: nil, faker: nil)
-        anonymizer = Anonymizer.new(schema:, seed:, faker:)
+      def anonymize!(schema:, seed: nil, mode: nil)
+        anonymizer = Anonymizer.new(schema:, seed:, mode:)
         @entries.each do |entry|
           data = entry.dig("response", "data")
           entry["response"]["data"] = anonymizer.anonymize(entry["query"], data) if data
@@ -131,9 +131,9 @@ module GraphWeaver
     # fake values. Enums, booleans, __typename, and null positions are
     # preserved; ids map consistently so relationships survive.
     class Anonymizer
-      def initialize(schema:, seed: nil, faker: nil)
+      def initialize(schema:, seed: nil, mode: nil)
         @schema = schema
-        @values = Values.new(seed:, faker:)
+        @values = Values.new(seed:, mode:)
       end
 
       def anonymize(query, data)

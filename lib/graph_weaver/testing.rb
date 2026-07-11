@@ -17,34 +17,45 @@ end
 #   GraphWeaver::Testing.configure do |config|
 #     config.schema = MySchema                  # for auto_fake / cassettes
 #     config.seed = 42                          # reproducible fakes
-#     config.faker = true                       # semantic field matching
+#     config.mode = :faker                      # or :literal; nil = auto
 #     config.overrides = { "Person.name" => "Daniel" }
 #     config.list_size = 2..4
 #     config.null_chance = 0.1                  # nullable fields go nil sometimes
 #     config.cassette_dir = "spec/cassettes"
 #   end
 #
-# rspec users: require "graph_weaver/testing/rspec" instead — it hooks
-# the suite (seed from rspec, optional auto-faked executor per example).
+# mode picks how values are fabricated:
+#   :faker   — semantic, field-name matched (requires the faker gem)
+#   :literal — plain type-derived values ("name-1", seeded numbers)
+#   nil      — auto: :faker when the gem is loaded, else :literal
+#
+# rspec users: require "graph_weaver/rspec" instead — it hooks the suite
+# (seed from rspec, optional auto-faked executor per example).
 module GraphWeaver
   module Testing
+    MODES = [:faker, :literal].freeze
+
     class Config
       attr_accessor :overrides, :seed, :list_size, :null_chance, :schema, :cassette_dir, :auto_fake
-      attr_writer :faker
+      attr_reader :mode
 
       def initialize
         @overrides = {}
         @seed = nil
         @list_size = 1..3
         @null_chance = 0.0
-        @faker = nil # auto: on when the faker gem is loaded
+        @mode = nil # auto
         @schema = nil
         @cassette_dir = "spec/cassettes"
         @auto_fake = false
       end
 
-      def faker
-        @faker.nil? ? !defined?(::Faker).nil? : @faker
+      def mode=(mode)
+        unless mode.nil? || MODES.include?(mode)
+          raise ArgumentError, "mode: must be one of #{MODES.inspect} (or nil for auto), got #{mode.inspect}"
+        end
+
+        @mode = mode
       end
     end
 

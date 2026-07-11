@@ -28,11 +28,11 @@ require "graphql"
 # seed: makes a run reproducible (also seeds faker). Per-executor options
 # fall back to GraphWeaver::Testing.config.
 class GraphWeaver::Testing::FakeExecutor
-  def initialize(schema:, overrides: {}, seed: nil, faker: nil, list_size: nil, null_chance: nil)
+  def initialize(schema:, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil)
     config = GraphWeaver::Testing.config
     @schema = schema
     @overrides = config.overrides.merge(overrides)
-    @values = GraphWeaver::Testing::Values.new(seed:, faker:)
+    @values = GraphWeaver::Testing::Values.new(seed:, mode:)
     @list_size = list_size || config.list_size
     @null_chance = null_chance || config.null_chance
   end

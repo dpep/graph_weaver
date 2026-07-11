@@ -271,8 +271,9 @@ the envelope, `execute!` the result-or-raise.
 
 #### Testing
 
-`require "graph_weaver/testing"` (from your spec helper — never production
-code) for a zero-setup fake backend. `FakeExecutor` fabricates
+`require "graph_weaver/rspec"` from your spec helper (or
+`graph_weaver/testing` outside rspec — never production code) for a
+zero-setup fake backend. `FakeExecutor` fabricates
 schema-correct responses for whatever query arrives: real enum values,
 valid `__typename` members, iso8601 date scalars — every fake casts
 cleanly through your generated structs.
@@ -298,11 +299,12 @@ GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: {
 Or configure once, initializer-style (e.g. in `spec/support/graph_weaver.rb`):
 
 ```ruby
-require "graph_weaver/testing/rspec"   # rspec: seed follows --seed
+require "graph_weaver/rspec"   # rspec: seed follows --seed
 
 GraphWeaver::Testing.configure do |config|
   config.schema = MySchema
   config.auto_fake = true              # every example runs against a fresh FakeExecutor
+  config.mode = :faker                 # or :literal (plain typed values); nil = auto
   config.overrides = { "Person.name" => "Daniel" }
   config.list_size = 1..3
   config.null_chance = 0.1             # nullable fields go nil sometimes
@@ -312,8 +314,9 @@ end
 With the rspec integration, `rspec --seed 1234` reproduces fake data
 along with test order, and `auto_fake` installs a seeded executor per
 example (generate modules *without* a baked `executor:` so they consult
-`GraphWeaver.executor`). faker is optional — without it, values are
-type-derived.
+`GraphWeaver.executor`). `mode:` picks value fabrication: `:faker`
+(semantic, field-name matched — raises if the gem is missing),
+`:literal` (plain type-derived), or nil to auto-detect faker.
 
 **Capture and replay** — cassettes live above the transport (no HTTP
 interception), so they work identically for HTTP, Faraday, or in-process
