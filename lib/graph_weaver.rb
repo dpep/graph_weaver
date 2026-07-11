@@ -26,6 +26,27 @@ module GraphWeaver
       @executor or raise Error, "no executor configured — set GraphWeaver.executor= or pass executor:"
     end
 
+    # The best available HTTP transport for a url: Faraday when the app
+    # already loads it (so its middleware/proxy/timeout ecosystem comes
+    # along — GraphWeaver never loads faraday itself), the built-in
+    # zero-dependency executor otherwise. A block customizes the Faraday
+    # connection (and therefore requires faraday):
+    #
+    #   GraphWeaver.executor = GraphWeaver.http(url, headers: { ... })
+    #   GraphWeaver.http(url) { |conn| conn.response :logger }
+    #
+    # Construct HttpExecutor / FaradayExecutor directly to be unambiguous.
+    def http(url, headers: {}, &middleware)
+      if defined?(::Faraday)
+        require_relative "graph_weaver/faraday_executor"
+        FaradayExecutor.new(url, headers:, &middleware)
+      elsif middleware
+        raise ArgumentError, "middleware blocks require the faraday gem"
+      else
+        HttpExecutor.new(url, headers:)
+      end
+    end
+
     # Teach the generator how a GraphQL custom scalar deserializes into a
     # rich Ruby object (and serializes back onto the wire when used as a
     # variable):
