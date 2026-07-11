@@ -86,4 +86,5 @@ end
 
 require_relative "testing/values"
 require_relative "testing/fake_executor"
+require_relative "testing/failure"
 require_relative "testing/cassette"

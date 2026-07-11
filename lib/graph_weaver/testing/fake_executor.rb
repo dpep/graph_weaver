@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "graphql"
+require "json"
 
 # An executor that fabricates schema-correct responses for whatever query
 # arrives — the zero-setup way to test code built on generated modules:
@@ -12,29 +13,48 @@ require "graphql"
 #
 # Values are type-correct by construction (real enum values, valid
 # __typename members for unions/interfaces, iso8601 for date scalars), so
-# every fake response casts cleanly through the generated structs. With
-# the faker gem loaded, string and numeric fields get semantic values
-# matched on the field name (name/email/url/age/price/...) — see Values.
+# every fake response casts cleanly through the generated structs. See
+# Values for value fabrication (mode: :faker / :literal).
 #
 # overrides: pin fields by GraphQL name — schema vocabulary, so keys
 # survive query refactors. "Type.field" beats "field"; values are
-# literals or zero-arg procs:
+# literals or zero-arg procs. (An override with a wrong-typed value is
+# also the way to simulate a corrupt payload — casting raises
+# GraphWeaver::TypeError.)
 #
 #   FakeExecutor.new(schema:, overrides: {
 #     "Person.name" => "Daniel",
 #     "email" => -> { "test@example.com" },
 #   })
 #
+# Partial failures: fail_at simulates a field-level error with
+# spec-correct null propagation — the field's error lands in the errors
+# array (with its concrete path), the field becomes null, and nulls
+# bubble past non-null positions to the nearest nullable ancestor, just
+# like a real server:
+#
+#   FakeExecutor.new(schema:, fail_at: "person.pets.name")
+#   FakeExecutor.new(schema:, fail_at: { path: "person.email", message: "hidden", code: "PRIVATE" })
+#
+# errors: appends verbatim top-level errors alongside the fake data.
+#
 # seed: makes a run reproducible (also seeds faker). Per-executor options
 # fall back to GraphWeaver::Testing.config.
 class GraphWeaver::Testing::FakeExecutor
-  def initialize(schema:, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil)
+  # sentinel: a simulated failure bubbling up to the nearest nullable spot
+  NULL_BUBBLE = Object.new.freeze
+
+  def initialize(schema:, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
+    errors: nil, fail_at: nil)
     config = GraphWeaver::Testing.config
     @schema = schema
     @overrides = config.overrides.merge(overrides)
     @values = GraphWeaver::Testing::Values.new(seed:, mode:)
     @list_size = list_size || config.list_size
     @null_chance = null_chance || config.null_chance
+    # NOT Array(): it would explode a bare Hash into key/value pairs
+    @extra_errors = wrap(errors).map { |error| normalize_error(error) }
+    @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }
   end
 
   def execute(query, variables: {})
@@ -46,20 +66,60 @@ class GraphWeaver::Testing::FakeExecutor
     operation = doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
     root_type = operation&.operation_type == "mutation" ? @schema.mutation : @schema.query
 
-    { "data" => object_value(root_type, operation.selections) }
+    @path = []
+    @failures = []
+    data = object_value(root_type, operation.selections)
+    data = nil if data.equal?(NULL_BUBBLE) # total propagation, like a real server
+
+    response = { "data" => data }
+    errors = @failures + @extra_errors
+    response["errors"] = errors unless errors.empty?
+    response
   end
 
   private
 
   def rng = @values.rng
 
+  def wrap(value)
+    case value
+    when nil then []
+    when Array then value
+    else [value]
+    end
+  end
+
+  def normalize_error(error)
+    error.is_a?(String) ? { "message" => error } : JSON.parse(JSON.generate(error))
+  end
+
+  def normalize_fail_spec(spec)
+    spec.is_a?(String) ? { "path" => spec } : JSON.parse(JSON.generate(spec))
+  end
+
   def object_value(type, selections)
     result = {}
     each_field(type, selections) do |key, node|
-      result[key] = node.name == "__typename" ? type.graphql_name : field_value(type, node)
+      @path.push(key)
+      value = node.name == "__typename" ? type.graphql_name : field_value(type, node)
+      @path.pop
+
+      if value.equal?(NULL_BUBBLE)
+        # bubble past non-null fields to the nearest nullable ancestor
+        return NULL_BUBBLE if non_null_field?(type, node)
+
+        value = nil
+      end
+      result[key] = value
     end
 
     result
+  end
+
+  def non_null_field?(type, node)
+    return false if node.name == "__typename"
+
+    @schema.get_field(type.graphql_name, node.name).type.kind.name == "NON_NULL"
   end
 
   # walk a selection set as seen by `type`, flattening fragments — the
@@ -90,6 +150,16 @@ class GraphWeaver::Testing::FakeExecutor
   end
 
   def field_value(parent_type, node)
+    if (spec = matching_failure)
+      @failures << {
+        "message" => spec["message"] || "simulated failure",
+        "path" => @path.dup,
+      }.merge(spec["code"] ? { "extensions" => { "code" => spec["code"] } } : {})
+      spec["triggered"] = true
+
+      return NULL_BUBBLE
+    end
+
     override = @overrides.fetch("#{parent_type.graphql_name}.#{node.name}") do
       @overrides[node.name]
     end
@@ -98,12 +168,32 @@ class GraphWeaver::Testing::FakeExecutor
     type_value(@schema.get_field(parent_type.graphql_name, node.name).type, node)
   end
 
+  # first untriggered fail_at spec whose field chain (indices stripped)
+  # matches where we are
+  def matching_failure
+    chain = @path.reject { |segment| segment.is_a?(Integer) }.join(".")
+    @fail_at.find { |spec| !spec["triggered"] && spec["path"] == chain }
+  end
+
   def type_value(type, node, non_null: false)
     case type.kind.name
     when "NON_NULL"
       type_value(type.of_type, node, non_null: true)
     when "LIST"
-      Array.new(rng.rand(@list_size)) { type_value(type.of_type, node) }
+      elements = Array.new(rng.rand(@list_size)) do |index|
+        @path.push(index)
+        element = type_value(type.of_type, node)
+        @path.pop
+        element
+      end
+
+      if elements.any? { |element| element.equal?(NULL_BUBBLE) }
+        # non-null elements bubble the whole list; nullable ones go nil
+        return NULL_BUBBLE if type.of_type.kind.name == "NON_NULL"
+
+        elements.map! { |element| element.equal?(NULL_BUBBLE) ? nil : element }
+      end
+      elements
     else
       return if !non_null && rng.rand < @null_chance
 

@@ -318,6 +318,29 @@ example (generate modules *without* a baked `executor:` so they consult
 (semantic, field-name matched — raises if the gem is missing),
 `:literal` (plain type-derived), or nil to auto-detect faker.
 
+**Simulating failures** — every failure mode is just an executor, so
+error-handling paths are testable without a server that misbehaves on cue:
+
+```ruby
+Failure = GraphWeaver::Testing::Failure
+
+PersonQuery.execute(id: "1", executor: Failure.transport)             # TransportError (cause preserved)
+PersonQuery.execute(id: "1", executor: Failure.server(status: 502))   # ServerError
+PersonQuery.execute(id: "1", executor: Failure.throttled)             # QueryError, code THROTTLED
+PersonQuery.execute(id: "1", executor: Failure.stale_schema)          # schema_stale? => true
+PersonQuery.execute(id: "1", executor: Failure.graphql("boom", data: {...}))  # partial failure
+
+# retries: fail twice, then succeed
+GraphWeaver::Testing::SequenceExecutor.new(Failure.transport, Failure.transport, fake)
+
+# type mismatch: corrupt the wire via an override — casting raises GraphWeaver::TypeError
+GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: { "Person.birthday" => 123 })
+
+# field-level partial failure with real GraphQL null propagation: the error
+# lands with its concrete path and nulls bubble to the nearest nullable spot
+GraphWeaver::Testing::FakeExecutor.new(schema:, fail_at: { path: "person.email", code: "PRIVATE" })
+```
+
 **Capture and replay** — cassettes live above the transport (no HTTP
 interception), so they work identically for HTTP, Faraday, or in-process
 executors:
