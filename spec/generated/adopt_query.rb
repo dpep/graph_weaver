@@ -38,6 +38,29 @@ module AdoptQuery
       result["species"] = species.serialize
       result
     end
+
+    # serialize, under the conventional name
+    sig { returns(T::Hash[String, T.untyped]) }
+    def to_h = serialize
+
+    # Build from a plain hash (underscored keys, Symbol or String):
+    # enums accept their wire values, nested inputs accept hashes;
+    # the struct's types are enforced on construction.
+    sig { params(value: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped])).returns(AdoptionInput) }
+    def self.coerce(value)
+      return value if value.is_a?(AdoptionInput)
+
+      new(
+        name: value_at(value, :name),
+        nickname: value_at(value, :nickname),
+        species: value_at(value, :species).then { |v1| (v1.is_a?(Species) ? v1 : Species.deserialize(v1)) },
+      )
+    end
+
+    sig { params(hash: T::Hash[T.untyped, T.untyped], key: Symbol).returns(T.untyped) }
+    private_class_method def self.value_at(hash, key)
+      hash.key?(key) ? hash[key] : hash[key.to_s]
+    end
   end
 
   class Result < T::Struct
@@ -100,10 +123,10 @@ module AdoptQuery
     end
   end
 
-  sig { params(input: AdoptionInput, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
+  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), executor: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.execute(input:, executor: self.executor)
     variables = {
-      "input" => input.serialize,
+      "input" => AdoptionInput.coerce(input).serialize,
     }
 
     raw = executor.execute(QUERY, variables: variables).to_h
@@ -114,7 +137,7 @@ module AdoptQuery
     )
   end
 
-  sig { params(input: AdoptionInput, executor: T.untyped).returns(Result) }
+  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), executor: T.untyped).returns(Result) }
   def self.execute!(input:, executor: self.executor)
     execute(input: input, executor: executor).data!
   end

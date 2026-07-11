@@ -49,12 +49,18 @@ AddPetQuery.execute!(name: "Rex", species: AddPetQuery::Species::Dog)
 - enum variables generate module-level `T::Enum`s and serialize themselves
 - custom scalars serialize through the [scalar registry](scalars.md)
 
-**Input objects** generate module-level `T::Struct`s with a `serialize`
-producing the wire hash — optional fields default nil and stay off the wire:
+**Input objects** generate module-level `T::Struct`s with `serialize`
+(aliased `to_h`) producing the wire hash — optional fields default nil and
+stay off the wire:
 
 ```ruby
 input = AdoptQuery::AdoptionInput.new(name: "Rex", species: AdoptQuery::Species::Dog)
 AdoptQuery.execute!(input:)
+
+# or hand execute a plain hash — .coerce normalizes and type-checks it at
+# the boundary (underscored Symbol/String keys; enums accept wire values;
+# nested inputs accept hashes)
+AdoptQuery.execute!(input: { name: "Rex", species: "DOG" })
 ```
 
 Nested inputs work (dependencies emit first); recursive input types are not

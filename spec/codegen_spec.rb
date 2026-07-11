@@ -179,6 +179,24 @@ describe GraphWeaver::Codegen do
       expect(AdoptQuery.execute!(input: nicknamed).adopt.name).to eq "Rexy"
       expect(input.serialize).not_to have_key("nickname")
       expect(nicknamed.serialize).to include("nickname" => "Rexy", "species" => "DOG")
+      expect(nicknamed.to_h).to eq nicknamed.serialize
+    end
+
+    it "coerces plain hashes into input structs, type-checked" do
+      # symbol keys, enum as wire value
+      pet = AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }).adopt
+      expect(pet.name).to eq "Rex"
+      expect(pet.species).to eq AdoptQuery::Result::Pet::Species::Dog
+
+      # string keys, enum instance, optional field
+      pet = AdoptQuery.execute!(
+        input: { "name" => "Rex", "species" => AdoptQuery::Species::Cat, "nickname" => "Rexy" },
+      ).adopt
+      expect(pet.name).to eq "Rexy"
+
+      # bad shapes fail loudly at the boundary
+      expect { AdoptQuery.execute!(input: { species: "DOG" }) }.to raise_error(TypeError)
+      expect { AdoptQuery.execute!(input: { name: "Rex", species: "DRAGON" }) }.to raise_error(KeyError)
     end
 
     it "omits optional variables from the wire when nil" do

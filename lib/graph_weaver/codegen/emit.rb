@@ -200,6 +200,37 @@ class GraphWeaver::Codegen
       end
       out << "#{pad}    result"
       out << "#{pad}  end"
+      out << ""
+      out << "#{pad}  # serialize, under the conventional name"
+      out << "#{pad}  sig { returns(T::Hash[String, T.untyped]) }"
+      out << "#{pad}  def to_h = serialize"
+      out << ""
+      out << "#{pad}  # Build from a plain hash (underscored keys, Symbol or String):"
+      out << "#{pad}  # enums accept their wire values, nested inputs accept hashes;"
+      out << "#{pad}  # the struct's types are enforced on construction."
+      out << "#{pad}  sig { params(value: T.any(#{node.class_name}, T::Hash[T.untyped, T.untyped])).returns(#{node.class_name}) }"
+      out << "#{pad}  def self.coerce(value)"
+      out << "#{pad}    return value if value.is_a?(#{node.class_name})"
+      out << ""
+      out << "#{pad}    new("
+      node.fields.each do |field|
+        raw = "value_at(value, :#{field.prop})"
+        expr = if field.node.hash_coerce_identity?
+          raw
+        elsif field.required
+          "#{raw}.then { |v1| #{field.node.hash_coerce("v1", 2)} }"
+        else
+          "#{raw}&.then { |v1| #{field.node.hash_coerce("v1", 2)} }"
+        end
+        out << "#{pad}      #{field.prop}: #{expr},"
+      end
+      out << "#{pad}    )"
+      out << "#{pad}  end"
+      out << ""
+      out << "#{pad}  sig { params(hash: T::Hash[T.untyped, T.untyped], key: Symbol).returns(T.untyped) }"
+      out << "#{pad}  private_class_method def self.value_at(hash, key)"
+      out << "#{pad}    hash.key?(key) ? hash[key] : hash[key.to_s]"
+      out << "#{pad}  end"
       out << "#{pad}end"
     end
   end

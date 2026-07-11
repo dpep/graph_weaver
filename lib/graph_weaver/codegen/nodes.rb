@@ -41,6 +41,9 @@ class GraphWeaver::Codegen
     def coerce(expr) = @scalar.coerce_input(expr)
     def coerce_input_type = @scalar.coerce_type
 
+    def hash_coerce(expr, _depth) = expr
+    def hash_coerce_identity? = true
+
     def non_null? = false
     def nested = nil
   end
@@ -61,6 +64,8 @@ class GraphWeaver::Codegen
     def coerce? = @of.coerce?
     def coerce(expr) = @of.coerce(expr)
     def coerce_input_type = @of.coerce_input_type
+    def hash_coerce(expr, depth) = @of.hash_coerce(expr, depth)
+    def hash_coerce_identity? = @of.hash_coerce_identity?
     def non_null? = true
     def nested = @of.nested
   end
@@ -104,6 +109,19 @@ class GraphWeaver::Codegen
 
     def serialize_identity? = @of.serialize_identity?
     def coerce? = false
+
+    def hash_coerce(expr, depth)
+      var = "v#{depth}"
+      inner = if @of.non_null? || @of.hash_coerce_identity?
+        @of.hash_coerce_identity? ? var : @of.hash_coerce(var, depth + 1)
+      else
+        "#{var}.nil? ? nil : #{@of.hash_coerce(var, depth + 1)}"
+      end
+
+      "#{expr}.map { |#{var}| #{inner} }"
+    end
+
+    def hash_coerce_identity? = @of.hash_coerce_identity?
     def non_null? = false
     def nested = @of.nested
   end
@@ -159,6 +177,13 @@ class GraphWeaver::Codegen
 
     def serialize_identity? = false
     def coerce? = false
+
+    # enum fields in a plain hash accept the T::Enum or its wire value
+    def hash_coerce(expr, _depth)
+      "(#{expr}.is_a?(#{class_name}) ? #{expr} : #{class_name}.deserialize(#{expr}))"
+    end
+
+    def hash_coerce_identity? = false
     def non_null? = false
     def nested = self
   end
@@ -188,6 +213,8 @@ class GraphWeaver::Codegen
 
   # An input-object variable: emitted as a module-level T::Struct whose
   # serialize produces the wire hash. Inputs never cast FROM the wire.
+  # Joins the coerce protocol so execute kwargs accept plain hashes,
+  # normalized (and type-checked) through the generated .coerce.
   class InputNode
     Field = Struct.new(:prop, :wire, :node, :required)
 
@@ -214,8 +241,15 @@ class GraphWeaver::Codegen
       raise NotImplementedError, "input objects are never cast from responses"
     end
 
+    def coerce? = true
+    def coerce(expr) = "#{class_name}.coerce(#{expr})"
+    def coerce_input_type = "T.any(#{class_name}, T::Hash[T.untyped, T.untyped])"
+
+    # building a struct field from a caller-supplied plain hash value
+    def hash_coerce(expr, _depth) = "#{class_name}.coerce(#{expr})"
+    def hash_coerce_identity? = false
+
     def identity? = false
-    def coerce? = false
     def non_null? = false
     def nested = nil
   end
