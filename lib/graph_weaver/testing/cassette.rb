@@ -131,21 +131,17 @@ module GraphWeaver
     # fake values. Enums, booleans, __typename, and null positions are
     # preserved; ids map consistently so relationships survive.
     class Anonymizer
+      include GraphWeaver::Selection
+
       def initialize(schema:, seed: nil, mode: nil)
         @schema = schema
         @values = Values.new(seed:, mode:)
       end
 
       def anonymize(query, data)
-        doc = GraphQL.parse(query)
-        @fragments = doc.definitions
-          .grep(GraphQL::Language::Nodes::FragmentDefinition)
-          .to_h { |fragment| [fragment.name, fragment] }
+        operation = load_operation(query)
 
-        operation = doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
-        root_type = operation&.operation_type == "mutation" ? @schema.mutation : @schema.query
-
-        object_value(root_type, operation.selections, data)
+        object_value(operation_root_type(operation), operation.selections, data)
       end
 
       private
@@ -170,31 +166,6 @@ module GraphWeaver
         end
 
         result
-      end
-
-      def each_field(type, selections, &block)
-        selections.each do |selection|
-          case selection
-          when GraphQL::Language::Nodes::Field
-            yield(selection.alias || selection.name, selection)
-          when GraphQL::Language::Nodes::InlineFragment
-            each_field(type, selection.selections, &block) if applies?(selection.type&.name, type)
-          when GraphQL::Language::Nodes::FragmentSpread
-            fragment = @fragments.fetch(selection.name)
-            each_field(type, fragment.selections, &block) if applies?(fragment.type.name, type)
-          end
-        end
-      end
-
-      def applies?(condition, type)
-        return true if condition.nil? || condition == type.graphql_name
-
-        condition_type = @schema.get_type(condition)
-        return false unless condition_type
-
-        kind = condition_type.kind.name
-        (kind == "INTERFACE" || kind == "UNION") &&
-          @schema.possible_types(condition_type).include?(type)
       end
 
       def field_value(parent_type, node, value)

@@ -30,6 +30,26 @@
 - GraphWeaver.parse and GraphWeaver.execute (dynamic queries)
 - Codegen.generate shorthand; executor: takes a constant; module_name
   derived from operation or file name
+- Error ergonomics: schema_stale? (validation-shaped rejections hint at
+  regeneration), errors_at(path) + each_error/errors_by_field filtering,
+  #report (field-keyed rollup with entity ids resolved from partial
+  data), #to_h across the hierarchy (JSON-ready machine output), and
+  GraphWeaver::TypeError wrapping cast failures with the failing struct
+- SchemaLoader: introspect(executor, cache:, ttl:) fetches schemas from
+  live endpoints with file caching; load accepts introspection JSON /
+  SDL content / Hashes as well as paths (cache round-trips)
+- GraphWeaver::Testing (require "graph_weaver/testing", or
+  "graph_weaver/rspec" for the rspec integration): FakeExecutor
+  fabricates schema-correct castable responses (mode: :faker semantic
+  values / :literal; overrides by GraphQL name; seeded; list_size /
+  null_chance), failure simulation (Failure.transport/server/graphql/
+  throttled/stale_schema, SequenceExecutor for retries, fail_at: with
+  spec-correct null propagation, corrupt: for derived type mismatches),
+  cassette record/replay above the transport, and Cassette#anonymize!
+  (shape-preserving, consistent id mapping). rspec: seed follows
+  --seed; auto_fake installs a fake executor per example
+- one-off integration specs against live GitHub + Countries APIs
+  (make integration)
 
 ###  v0.0.1  (2026-07-07)
 - voila: typed codegen (T::Structs, T::Enums, typed variable kwargs)

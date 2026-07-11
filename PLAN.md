@@ -29,12 +29,23 @@ Transport: executor precedence per call → per module → baked const →
 GraphWeaver.executor; HttpExecutor (zero-dep) + opt-in FaradayExecutor
 (url / block middleware / ready connection), e2e specs against WEBrick.
 Errors: typed Response envelope (partial data + extensions survive) and
-a GraphWeaver::Error hierarchy (Transport/Server/Query/Validation) with
-extensible transport-error classification.
+a GraphWeaver::Error hierarchy (Transport/Server/Query/Validation/Type)
+with extensible transport-error classification, schema_stale? staleness
+detection, errors_at/each_error/report field-level surfacing (entity
+ids resolved from partial data), and #to_h machine output throughout.
 Dynamic mode: GraphWeaver.parse (paths or raw strings, derived names,
 container-scoped constants) and GraphWeaver.execute one-shots.
+Schema fetching: SchemaLoader.introspect(executor, cache:, ttl:) off
+live endpoints; load takes paths, content, or Hashes.
+Testing (graph_weaver/testing + graph_weaver/rspec): FakeExecutor
+(schema-correct castable fakes, faker semantics, GraphQL-name
+overrides, corrupt:, fail_at: with null propagation), Failure canned
+executors + SequenceExecutor, cassettes with shape-preserving
+anonymization, rspec seed + auto_fake integration. Selection module is
+the single shared query-walk (codegen/fake/anonymizer).
 Federation supergraph SDL loads transparently (needs
 directive_defaults_patch until upstream fix ships).
+Live validation: make integration (GitHub + Countries APIs).
 
 ## Next steps (in rough order)
 
