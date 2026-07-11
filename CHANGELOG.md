@@ -14,6 +14,12 @@
   reset_scalars! ordering dance) — convertible built-ins take their
   conversion, cast/serialize pairs take parse-style coercion
 - docs/transports.md: connect, the executor contract, Faraday, retries
+- Cassette workflow: GRAPHWEAVER_RECORD=1 / config.record force
+  re-recording; config.anonymize scrubs responses as they are recorded
+  (caller sees the anonymized data too, so assertions hold on replay);
+  rake graph_weaver:cassettes:anonymize; docs/cassettes.md guide
+- auto_coerce reaches input-object fields: raw scalar values inside
+  input hashes coerce via the registry, mutations included
 - RetryExecutor: composable retries over any transport — tries:,
   exponential/linear/custom backoff with jitter and max clamp,
   retry-by-error-class (5xx yes, 4xx no by default; retry_if: override)

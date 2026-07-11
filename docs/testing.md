@@ -59,7 +59,9 @@ PersonQuery.execute(id: "1", executor: Failure.throttled)             # QueryErr
 PersonQuery.execute(id: "1", executor: Failure.stale_schema)          # schema_stale? => true
 PersonQuery.execute(id: "1", executor: Failure.graphql("boom", data: {...}))  # partial failure
 
-# retries: fail twice, then succeed
+# retries: executors run in sequence (the last repeats) — here, two
+# transport failures and then a FakeExecutor serving good responses
+fake = GraphWeaver::Testing::FakeExecutor.new(schema:)
 GraphWeaver::Testing::SequenceExecutor.new(Failure.transport, Failure.transport, fake)
 
 # type mismatch: corrupt: derives a wrong-typed wire value for the field —
@@ -74,20 +76,16 @@ Failure.stale_schema(schema: MySchema)
 GraphWeaver::Testing::FakeExecutor.new(schema:, fail_at: { path: "person.email", code: "PRIVATE" })
 ```
 
-**Capture and replay** — cassettes live above the transport (no HTTP
-interception), so they work identically for HTTP, Faraday, or in-process
-executors:
+**Capture and replay** — cassettes record real API responses and replay
+them offline, above the transport (no HTTP interception):
 
 ```ruby
 # records against the live executor when the file is missing, replays after
 executor = GraphWeaver::Testing::Cassette.use("github", executor: live)
 ```
 
-Cassettes hold real responses. Anonymize before committing — shape,
-nulls, list lengths, enums, and id relationships survive; values are
-replaced with (semantically matched) fakes:
-
-```ruby
-GraphWeaver::Testing::Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
-```
+Re-record with `GRAPHWEAVER_RECORD=1`, anonymize before committing
+(`config.anonymize = true` scrubs as recordings happen, or
+`rake graph_weaver:cassettes:anonymize` after) — the full workflow guide
+is **[cassettes](cassettes.md)**.
 

@@ -128,4 +128,19 @@ describe "GraphWeaver.auto_coerce" do
     GraphWeaver.register_scalar("Date", type: Date, cast: :iso8601, serialize: :iso8601, requires: "date", coerce: false)
     expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be false # explicit false beats auto
   end
+
+  it "applies inside input-object hashes too — mutations included" do
+    GraphWeaver.auto_coerce = true
+
+    mod = GraphWeaver.parse(
+      schema: Demo::Schema,
+      executor: Demo::Schema,
+      query: "mutation Adopt($input: AdoptionInput!) { adopt(input: $input) { name species } }",
+    )
+
+    # birthday as a raw iso8601 string inside a plain hash: the Date
+    # scalar's coercion (auto) parses it before the struct type-checks
+    pet = mod.execute!(input: { name: "Rex", species: "DOG", birthday: "2020-06-15" }).adopt
+    expect(pet.name).to eq "Rex"
+  end
 end

@@ -27,4 +27,17 @@ namespace :graph_weaver do
     GraphWeaver.verify_generated!(schema:)
     puts "generated queries up to date"
   end
+
+  namespace :cassettes do
+    desc "Anonymize every cassette in Testing.config.cassette_dir (PII-safe to commit)"
+    task :anonymize do
+      require "graph_weaver/testing"
+
+      schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
+      Dir[File.join(GraphWeaver::Testing.config.cassette_dir, "*.yml")].sort.each do |path|
+        GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
+        puts "anonymized #{path}"
+      end
+    end
+  end
 end

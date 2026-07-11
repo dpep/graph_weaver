@@ -41,8 +41,13 @@ class GraphWeaver::Codegen
     def coerce(expr) = @scalar.coerce_input(expr)
     def coerce_input_type = @scalar.coerce_type
 
-    def hash_coerce(expr, _depth) = expr
-    def hash_coerce_identity? = true
+    # inside input-struct hashes, scalars coerce exactly like variable
+    # kwargs do — the registry (incl. GraphWeaver.auto_coerce) decides
+    def hash_coerce(expr, _depth)
+      @scalar.coerce_input(expr) || expr
+    end
+
+    def hash_coerce_identity? = !@scalar.coerce?
 
     def non_null? = false
     def nested = nil

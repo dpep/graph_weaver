@@ -106,7 +106,9 @@ GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } 
 - **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy,
   field-level reports with entity ids, stale-schema detection
 - **[Testing](docs/testing.md)** — schema-correct fakes, failure simulation,
-  cassettes with anonymized capture, rspec integration
+  rspec integration
+- **[Cassettes](docs/cassettes.md)** — capture and replay real API
+  responses; anonymized recording (`GRAPHWEAVER_RECORD=1`, rake tasks)
 
 ----
 ## Installation

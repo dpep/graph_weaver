@@ -44,11 +44,15 @@ module GraphWeaver
       def exist? = File.exist?(@path)
       def size = @entries.size
 
-      # replay when recorded, record when not (VCR's once mode).
+      # Replay when recorded, record when not (VCR's once mode).
       # executor: is required to record; omit it to replay-or-raise.
+      # With Testing.config.record on (or GRAPHWEAVER_RECORD=1), always
+      # records — the "just re-record everything" switch.
       def self.use(path, executor: nil)
         cassette = new(path)
-        if cassette.exist?
+        if Testing.config.record && executor
+          RecordingExecutor.new(executor, cassette)
+        elsif cassette.exist?
           ReplayExecutor.new(cassette)
         elsif executor
           RecordingExecutor.new(executor, cassette)
@@ -99,14 +103,30 @@ module GraphWeaver
     end
 
     # Tees requests through a live executor and records every response.
+    # With Testing.config.anonymize (or anonymize: true), responses are
+    # anonymized as they're recorded — and the anonymized version is what
+    # the caller sees too, so assertions written now hold on replay.
     class RecordingExecutor
-      def initialize(executor, cassette)
+      def initialize(executor, cassette, anonymize: nil)
         @executor = executor
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
+
+        config = Testing.config
+        if anonymize.nil? ? config.anonymize : anonymize
+          unless config.schema
+            raise ArgumentError, "anonymizing recordings needs GraphWeaver::Testing.config.schema"
+          end
+
+          @anonymizer = Anonymizer.new(schema: config.schema, seed: config.seed)
+        end
       end
 
       def execute(query, variables: {})
         response = @executor.execute(query, variables:).to_h
+        if @anonymizer && (data = response["data"])
+          response = response.merge("data" => @anonymizer.anonymize(query, data))
+        end
+
         @cassette.record(query, variables, response)
         response
       end

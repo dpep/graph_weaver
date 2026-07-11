@@ -36,7 +36,8 @@ module GraphWeaver
     MODES = [:faker, :literal].freeze
 
     class Config
-      attr_accessor :overrides, :seed, :list_size, :null_chance, :schema, :cassette_dir, :auto_fake
+      attr_accessor :overrides, :seed, :list_size, :null_chance, :schema, :cassette_dir, :auto_fake,
+        :record, :anonymize
       attr_reader :mode
 
       def initialize
@@ -48,6 +49,10 @@ module GraphWeaver
         @schema = nil
         @cassette_dir = "spec/cassettes"
         @auto_fake = false
+        # GRAPHWEAVER_RECORD=1 rspec ...  -> Cassette.use re-records
+        @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
+        # anonymize responses as they're recorded (needs config.schema)
+        @anonymize = false
       end
 
       def mode=(mode)

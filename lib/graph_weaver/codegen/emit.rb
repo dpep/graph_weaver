@@ -193,10 +193,17 @@ class GraphWeaver::Codegen
       out << "#{pad}  def serialize"
       out << "#{pad}    result = T.let({}, T::Hash[String, T.untyped])"
       node.fields.each do |field|
-        value = field.node.serialize_identity? ? field.prop.to_s : field.node.serialize(field.prop.to_s, 1)
-        line = "result[#{field.wire.inspect}] = #{value}"
-        line += " unless #{field.prop}.nil?" unless field.required
-        out << "#{pad}    #{line}"
+        if field.required || field.node.serialize_identity?
+          value = field.node.serialize_identity? ? field.prop.to_s : field.node.serialize(field.prop.to_s, 1)
+          line = "result[#{field.wire.inspect}] = #{value}"
+          line += " unless #{field.prop}.nil?" unless field.required
+          out << "#{pad}    #{line}"
+        else
+          # bind a local so sorbet's flow-sensitivity narrows the nilable
+          out << "#{pad}    unless (value = #{field.prop}).nil?"
+          out << "#{pad}      result[#{field.wire.inspect}] = #{field.node.serialize("value", 1)}"
+          out << "#{pad}    end"
+        end
       end
       out << "#{pad}    result"
       out << "#{pad}  end"

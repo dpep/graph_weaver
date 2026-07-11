@@ -71,6 +71,43 @@ describe GraphWeaver::Testing::Cassette do
     end
   end
 
+  describe "record mode and anonymize-on-record" do
+    it "config.record forces re-recording even when the cassette exists" do
+      described_class.use(path, executor: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
+      expect(live.calls).to eq 1
+
+      GraphWeaver::Testing.configure { |config| config.record = true }
+      executor = described_class.use(path, executor: live)
+      expect(executor).to be_a GraphWeaver::Testing::RecordingExecutor
+      executor.execute(PersonQuery::QUERY, variables: { "id" => "1" })
+      expect(live.calls).to eq 2 # hit the live executor again
+    end
+
+    it "config.anonymize scrubs responses as they are recorded" do
+      GraphWeaver::Testing.configure do |config|
+        config.schema = Demo::Schema
+        config.anonymize = true
+        config.seed = 5
+      end
+
+      recorder = GraphWeaver::Testing::RecordingExecutor.new(live, path)
+      returned = recorder.execute(PersonQuery::QUERY, variables: { "id" => "1" })
+
+      recorded = described_class.new(path).lookup(PersonQuery::QUERY, { "id" => "1" })
+      name = recorded.dig("response", "data", "person", "name")
+      expect(name).not_to eq "Daniel" # scrubbed on disk
+      expect(returned.dig("data", "person", "name")).to eq name # caller sees the same
+    end
+
+    it "anonymize-on-record requires a schema" do
+      GraphWeaver::Testing.configure { |config| config.anonymize = true }
+
+      expect {
+        GraphWeaver::Testing::RecordingExecutor.new(live, path)
+      }.to raise_error(ArgumentError, /schema/)
+    end
+  end
+
   describe "#anonymize!" do
     let(:query) do
       <<~GRAPHQL

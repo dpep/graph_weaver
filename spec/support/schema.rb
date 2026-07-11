@@ -113,6 +113,7 @@ module Demo
     argument :name, String, required: true
     argument :species, SpeciesType, required: true
     argument :nickname, String, required: false
+    argument :birthday, DateType, required: false
   end
 
   class MutationType < GraphQL::Schema::Object
