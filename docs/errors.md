@@ -44,6 +44,25 @@ rescue GraphWeaver::QueryError => e
 end
 ```
 
+Or skip the hand-rolling — `RetryExecutor` wraps any transport with
+configurable retries:
+
+```ruby
+executor = GraphWeaver::RetryExecutor.new(
+  GraphWeaver::HttpExecutor.new(url),
+  tries: 5,                        # total attempts
+  backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
+  base: 0.5, max: 30,              # seconds, clamped at max:
+  jitter: true,                    # randomize each delay by 50-100%
+  retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
+)
+```
+
+Defaults match the rescue block above: transport failures always retry,
+`ServerError` only on 5xx (a 4xx is your bug — retrying won't fix it;
+override with `retry_if:`), and GraphQL-level codes only when listed in
+`retry_codes:`. Exhausting `tries:` re-raises the last error.
+
 What counts as a `TransportError` is an **extensible set** — each transport
 seeds its own network exceptions (`Errno::*`, `SocketError`, timeouts, TLS; the
 Faraday executor adds its own), and you can register more so a custom adapter's

@@ -1,3 +1,9 @@
+###  unreleased
+- RetryExecutor: composable retries over any transport — tries:,
+  exponential/linear/custom backoff with jitter and max clamp,
+  retry-by-error-class (5xx yes, 4xx no by default; retry_if: override)
+  and retry-by-GraphQL-code (retry_codes: ["THROTTLED"])
+
 ###  v0.1.0  (2026-07-11)
 - Structured errors: execute returns a typed Response envelope (#data/#data!,
   #errors, #errors?, #extensions) instead of raising on GraphQL errors, so

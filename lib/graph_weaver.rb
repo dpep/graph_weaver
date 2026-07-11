@@ -6,6 +6,7 @@ require_relative "graph_weaver/response"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
 require_relative "graph_weaver/http_executor"
+require_relative "graph_weaver/retry_executor"
 require_relative "graph_weaver/schema_loader"
 require_relative "graph_weaver/version"
 

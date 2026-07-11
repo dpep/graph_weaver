@@ -31,7 +31,7 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 - **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
-- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
+- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `RetryExecutor` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
 - **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
