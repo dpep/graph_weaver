@@ -33,7 +33,7 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL
 - **Any transport**: in-process schema execution (perfect for tests), the zero-dependency HTTP executor, or Faraday with your own middleware — swap per call with `executor:`
 - **Structured errors**: a typed response envelope (data + errors + extensions), and a `GraphWeaver::Error` hierarchy that separates transport, server, and GraphQL failures — match on error `code`, not message strings
-- **Dynamic mode** for development: `GraphWeaver::Codegen.load(...)` generates and evals on the fly, no build step
+- **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
 
 ####  Usage
 

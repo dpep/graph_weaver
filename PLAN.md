@@ -1,7 +1,7 @@
-# Project Plan — typed GraphQL codegen for Ruby/Sorbet
+# Project Plan — GraphWeaver, typed GraphQL client for Ruby/Sorbet
 
-_Resume-from-here notes. The README is the lab notebook (findings); this is
-the plan. Update both when state changes._
+_Resume-from-here notes. README documents the product, NOTES.md is the
+research notebook this grew out of; this is the plan. Update on change._
 
 ## Vision
 
@@ -12,20 +12,28 @@ shape of every query result. Dynamic (eval) mode for development, build
 step for CI/static checking. Runtime deps: graphql + sorbet-runtime only
 (graphql-client is NOT a dependency; the exploration outgrew it).
 
-## State: working prototype, all green
+## State: v0.0.1 on rubygems; v0.0.2 accumulating on main
 
-`bundle exec rspec` (35 examples) + `bundle exec srb tc` + `bin/generate`
-(regenerates lib/generated/ from queries/; parity specs enforce freshness).
+`make check` = bin/generate (spec fixture regeneration; parity specs
+enforce freshness) + rspec + srb tc.
 
-Language coverage: queries, mutations, typed variables (kwargs on execute,
-optional-when-defaulted, enum/scalar serialization), fragments (inline,
-named, interface conditions), union- AND interface-typed fields
-(__typename dispatch, required at generation time), enums (T::Enum),
-custom scalars (name-keyed SCALAR_CASTS / SCALAR_SERIALIZERS registries).
+Language coverage: queries, mutations, typed variables (kwargs on
+execute, optional-when-defaulted), fragments (inline, named, interface
+conditions), union- AND interface-typed fields (__typename dispatch,
+required at generation time), enums (T::Enum), custom scalars via the
+ScalarType registry (register_scalar: codec inference off .parse/.load,
+requires:, opt-in input coercion incl. built-ins).
 Sources: live schema / introspection JSON / SDL — byte-identical output
 (enum values + abstract-type members sorted for determinism).
-Transport: executor: kwarg — in-process schema or HttpExecutor (e2e spec
-against WEBrick). Federation supergraph SDL loads transparently (needs
+Transport: executor precedence per call → per module → baked const →
+GraphWeaver.executor; HttpExecutor (zero-dep) + opt-in FaradayExecutor
+(url / block middleware / ready connection), e2e specs against WEBrick.
+Errors: typed Response envelope (partial data + extensions survive) and
+a GraphWeaver::Error hierarchy (Transport/Server/Query/Validation) with
+extensible transport-error classification.
+Dynamic mode: GraphWeaver.parse (paths or raw strings, derived names,
+container-scoped constants) and GraphWeaver.execute one-shots.
+Federation supergraph SDL loads transparently (needs
 directive_defaults_patch until upstream fix ships).
 
 ## Next steps (in rough order)
@@ -47,12 +55,17 @@ unfetched-field bugs or type unions/interfaces — the niche looks open.
 3. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
    bin/generate is spec-fixture tooling, not shipped.
 4. Subscriptions (unsupported; raise).
-5. First release: 0.1.0 to rubygems once naming design settles.
-6. Nice-to-haves: __typename auto-injection (currently required manually
+5. Release 0.0.2 (Faraday, ergonomics, scalars, errors — accumulating);
+   then 0.1.0 once naming design settles.
+6. Parse/execute memoization: repeated GraphWeaver.parse/execute of the
+   same [schema, query] re-generates and re-evals every call (~3x the
+   cost of a cached module; benchmarked 2026-07-09) — memo keyed on
+   schema/query/name/executor, minding shared executor= mutation.
+7. Nice-to-haves: __typename auto-injection (currently required manually
    on abstract selections), fragment reuse across queries, directives on
    selections (@skip/@include make non-null fields nullable).
-7. Tapioca DSL compiler over dynamic mode (idea from graphql-client
-   PR #7): RBI the GraphWeaver::Codegen.load-eval'd modules so development mode
+8. Tapioca DSL compiler over dynamic mode (idea from graphql-client
+   PR #7): RBI the GraphWeaver.parse-eval'd modules so development mode
    gets static types without the bin/generate build step — tapioca is
    already in every Sorbet shop's workflow. Upstream's
    Tapioca::Dsl::Helpers::GraphqlTypeHelper is prior art for type mapping.

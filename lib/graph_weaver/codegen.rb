@@ -7,9 +7,8 @@ require "sorbet-runtime"
 
 # Generates plain, statically-typecheckable Ruby from a GraphQL query +
 # schema: nested T::Structs, from_h casting code, and a sig'd execute
-# method. Unlike StructTypes (which builds classes at parse time, visible
-# only at runtime), the output is source on disk — srb tc sees the exact
-# result type of each query.
+# method. The output is source on disk, so srb tc sees the exact result
+# type of each query.
 #
 # Supports queries and mutations; plain fields, inline fragments, named
 # fragment spreads (including interface type conditions), union- and
@@ -456,7 +455,22 @@ class GraphWeaver::Codegen
     @query = query.strip
     @module_name = module_name
     @default_module_name = default_module_name
-    @executor_const = executor.is_a?(Module) ? executor.name : executor
+    @executor_const = self.class.executor_const(executor)
+
+    if executor && @executor_const.nil?
+      # a live object can't be spelled in generated source — parse can
+      # set one via the module's writer, but file generation cannot
+      raise ArgumentError, "executor: must be a named constant or String (got #{executor.inspect}); pass live objects to parse"
+    end
+  end
+
+  # The constant name an executor can be referenced by in generated
+  # source — nil when it can't be (live objects, anonymous modules).
+  def self.executor_const(executor)
+    case executor
+    when String then executor
+    when Module then executor.name
+    end
   end
 
   # one-step shorthand
@@ -470,10 +484,7 @@ class GraphWeaver::Codegen
   # Evaluates into an anonymous container, so no global constants leak;
   # executor: additionally accepts a live object (set via .executor=).
   def self.parse(schema:, query:, module_name: nil, executor: nil)
-    executor_const = case executor
-    when String then executor
-    when Module then executor.name # nil for anonymous modules
-    end
+    executor_const = executor_const(executor)
 
     codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query")
     source = codegen.generate

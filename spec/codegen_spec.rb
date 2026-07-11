@@ -20,6 +20,16 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  it "rejects live executor objects when generating files" do
+    expect {
+      described_class.generate(
+        schema: Demo::Schema,
+        executor: GraphWeaver::HttpExecutor.new("http://example.com"),
+        query: "query People { people { name } }",
+      )
+    }.to raise_error(ArgumentError, /named constant/)
+  end
+
   it "rejects queries that do not validate against the schema" do
     codegen = described_class.new(
       schema: Demo::Schema,
