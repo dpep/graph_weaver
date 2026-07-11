@@ -20,6 +20,26 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  describe "eval safety" do
+    it "rejects module names that are not constant names" do
+      expect {
+        described_class.generate(
+          schema: Demo::Schema,
+          query: "query People { people { name } }",
+          module_name: "Foo; end; puts :evil; module Bar",
+        )
+      }.to raise_error(ArgumentError, /constant name/)
+    end
+
+    it "survives queries containing bare GRAPHQL lines (block strings)" do
+      query = %(query Sneaky { search(term: """\nGRAPHQL\n""") { __typename ... on Named { name } } })
+
+      mod = GraphWeaver.parse(schema: Demo::Schema, query:, executor: Demo::Schema)
+      expect(mod::QUERY).to include(%("""\nGRAPHQL\n"""))
+      expect(mod.execute.errors?).to be false
+    end
+  end
+
   it "rejects live executor objects when generating files" do
     expect {
       described_class.generate(

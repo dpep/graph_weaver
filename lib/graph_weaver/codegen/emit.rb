@@ -1,0 +1,177 @@
+# typed: true
+# frozen_string_literal: true
+
+# Source emission: turns the node tree into the generated module text.
+# Mixed into Codegen — methods run with the generator instance state.
+class GraphWeaver::Codegen
+  module Emit
+    private
+
+    def emit_nested(node, out, indent)
+      case node
+      when UnionNode then emit_union(node, out, indent)
+      when EnumNode then emit_enum(node, out, indent)
+      else emit_object(node, out, indent)
+      end
+    end
+
+    def emit_enum(node, out, indent)
+      pad = "  " * indent
+
+      out << "#{pad}class #{node.class_name} < T::Enum"
+      out << "#{pad}  enums do"
+      node.values.each do |value|
+        out << "#{pad}    #{camelize(value.downcase)} = new(#{value.inspect})"
+      end
+      out << "#{pad}  end"
+      out << "#{pad}end"
+    end
+
+    def emit_object(node, out, indent)
+      pad = "  " * indent
+
+      out << "#{pad}class #{node.class_name} < T::Struct"
+      out << "#{pad}  extend T::Sig"
+      out << ""
+
+      node.fields.filter_map { |field| field.node.nested }.each do |child|
+        emit_nested(child, out, indent + 1)
+        out << ""
+      end
+
+      node.fields.each do |field|
+        out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}"
+      end
+
+      out << ""
+      out << "#{pad}  sig { params(data: T::Hash[String, T.untyped]).returns(#{node.class_name}) }"
+      out << "#{pad}  def self.from_h(data)"
+      out << "#{pad}    new("
+      node.fields.each do |field|
+        out << "#{pad}      #{field.prop}: #{field_cast(field)},"
+      end
+      out << "#{pad}    )"
+      out << "#{pad}  rescue GraphWeaver::TypeError"
+      out << "#{pad}    raise # already wrapped by a nested struct — keep the innermost context"
+      out << "#{pad}  rescue TypeError, ArgumentError, KeyError => e"
+      out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, error: e)"
+      out << "#{pad}  end"
+      out << "#{pad}end"
+    end
+
+    def emit_union(node, out, indent)
+      pad = "  " * indent
+
+      out << "#{pad}module #{node.class_name}"
+      out << "#{pad}  extend T::Sig"
+      out << ""
+
+      node.members.each_value do |member|
+        emit_object(member, out, indent + 1)
+        out << ""
+      end
+
+      member_names = node.members.values.map(&:class_name)
+      type_alias = member_names.size == 1 ? member_names.first : "T.any(#{member_names.join(", ")})"
+      out << "#{pad}  Type = T.type_alias { #{type_alias} }"
+      out << ""
+      out << "#{pad}  sig { params(data: T::Hash[String, T.untyped]).returns(Type) }"
+      out << "#{pad}  def self.from_h(data)"
+      out << "#{pad}    case (typename = data.fetch(\"__typename\"))"
+      node.members.each do |graphql_name, member|
+        out << "#{pad}    when #{graphql_name.inspect} then #{member.class_name}.from_h(data)"
+      end
+      out << "#{pad}    else raise GraphWeaver::TypeError.new(struct: self, message: \"unexpected __typename: \#{typename}\")"
+      out << "#{pad}    end"
+      out << "#{pad}  end"
+      out << "#{pad}end"
+    end
+
+    def emit_execute(out, variables)
+      out << "  @executor = T.let(nil, T.untyped)"
+      out << ""
+      out << "  class << self"
+      out << "    extend T::Sig"
+      out << ""
+      out << "    sig { params(executor: T.untyped).void }"
+      out << "    attr_writer :executor"
+      out << ""
+      out << "    # default transport for execute"
+      out << "    sig { returns(T.untyped) }"
+      out << "    def executor"
+      out << "      @executor || #{@executor_const || "GraphWeaver.executor"}"
+      out << "    end"
+      out << "  end"
+      out << ""
+
+      sig_params = variables.map do |var|
+        bare = var.node.coerce? ? var.node.coerce_input_type : var.node.bare_type
+        kwarg_type = var.required ? bare : "T.nilable(#{bare})"
+        "#{var.kwarg}: #{kwarg_type}"
+      end
+      sig_params << "executor: T.untyped"
+
+      kwargs = variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
+      kwargs << "executor: self.executor"
+
+      # execute returns the full envelope; execute! is the strict shortcut for
+      # `execute(...).data!` — the typed result, or a raised QueryError.
+      forward = (variables.map { |var| "#{var.kwarg}: #{var.kwarg}" } + ["executor: executor"]).join(", ")
+
+      out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
+      out << "  def self.execute(#{kwargs.join(", ")})"
+
+      required, optional = variables.partition(&:required)
+      if required.empty?
+        out << "    variables = {}"
+      else
+        out << "    variables = {"
+        required.each do |var|
+          out << "      #{var.wire.inspect} => #{variable_serialize(var)},"
+        end
+        out << "    }"
+      end
+      optional.each do |var|
+        out << "    variables[#{var.wire.inspect}] = #{variable_serialize(var)} unless #{var.kwarg}.nil?"
+      end
+
+      out << ""
+      out << "    raw = executor.execute(QUERY, variables: variables).to_h"
+      out << "    GraphWeaver::Response[Result].new("
+      out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
+      out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"
+      out << "      extensions: raw[\"extensions\"] || {},"
+      out << "    )"
+      out << "  end"
+      out << ""
+      out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+      out << "  def self.execute!(#{kwargs.join(", ")})"
+      out << "    execute(#{forward}).data!"
+      out << "  end"
+    end
+
+    def variable_serialize(var)
+      value = var.node.coerce? ? var.node.coerce(var.kwarg) : var.kwarg
+      var.node.serialize_identity? ? value : var.node.serialize(value, 1)
+    end
+
+    # Structured shape for a schema-validation error: message plus its first
+    # source location, so ValidationError#errors is inspectable.
+    def validation_detail(error)
+      loc = (error.to_h["locations"]&.first if error.respond_to?(:to_h))
+      { message: error.message, line: loc && loc["line"], column: loc && loc["column"] }
+    end
+
+    def field_cast(field)
+      node = field.node
+
+      if node.non_null?
+        raw = "data.fetch(#{field.key.inspect})"
+        node.identity? ? raw : node.cast(raw, 1)
+      else
+        raw = "data[#{field.key.inspect}]"
+        node.identity? ? raw : "#{raw}&.then { |v1| #{node.cast("v1", 2)} }"
+      end
+    end
+  end
+end
