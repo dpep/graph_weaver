@@ -5,6 +5,8 @@
 # Mixed into Codegen — methods run with the generator instance state.
 class GraphWeaver::Codegen
   module Emit
+    include GraphWeaver::Inflect
+
     private
 
     def emit_nested(node, out, indent)
