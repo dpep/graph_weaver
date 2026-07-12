@@ -4,8 +4,14 @@
   (config.schema= / config.auto_fake = false to override) — one line is
   the whole test setup in a conventional app
 - examples/: runnable demos — countries.rb (public API, no auth, all
-  dynamic) and github/ (auth, checked-in generated modules, stargazers
-  query, and a --star easter egg); excluded from the gem package
+  dynamic) and github/ (auth, checked-in generated modules; stars the
+  repo ⭐ then tours the stargazers, their top repos, and what else
+  they've starred); excluded from the gem package
+- Fix: requires: now load before codec probing, so inference sees
+  methods the required file provides — register_scalar("DateTime", Time,
+  requires: "time") correctly infers Time.parse in a fresh process
+  (previously the cast was silently skipped unless "time" was already
+  loaded)
 - docs/quickstart.md renamed to docs/getting_started.md
 - Rails Railtie: the graph_weaver:* rake tasks self-register (no
   Rakefile edit) and depend on :environment, and generated modules load

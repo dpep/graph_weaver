@@ -20,6 +20,12 @@ module StargazersQuery
             node {
               login
               name
+              repositories(first: 2, orderBy: { field: STARGAZERS, direction: DESC }) {
+                nodes {
+                  nameWithOwner
+                  stargazerCount
+                }
+              }
             }
           }
         }
@@ -47,14 +53,54 @@ module StargazersQuery
             extend T::Sig
             include GraphWeaver::Hints
 
+            class RepositoryConnection < T::Struct
+              extend T::Sig
+              include GraphWeaver::Hints
+
+              class Repository < T::Struct
+                extend T::Sig
+                include GraphWeaver::Hints
+
+                const :name_with_owner, String
+                const :stargazer_count, Integer
+
+                sig { params(data: T::Hash[String, T.untyped]).returns(Repository) }
+                def self.from_h(data)
+                  new(
+                    name_with_owner: data.fetch("nameWithOwner"),
+                    stargazer_count: data.fetch("stargazerCount"),
+                  )
+                rescue GraphWeaver::TypeError
+                  raise # already wrapped by a nested struct — keep the innermost context
+                rescue TypeError, ArgumentError, KeyError => e
+                  raise GraphWeaver::TypeError.new(struct: self, error: e)
+                end
+              end
+
+              const :nodes, T.nilable(T::Array[T.nilable(Repository)])
+
+              sig { params(data: T::Hash[String, T.untyped]).returns(RepositoryConnection) }
+              def self.from_h(data)
+                new(
+                  nodes: data["nodes"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Repository.from_h(v3) } } },
+                )
+              rescue GraphWeaver::TypeError
+                raise # already wrapped by a nested struct — keep the innermost context
+              rescue TypeError, ArgumentError, KeyError => e
+                raise GraphWeaver::TypeError.new(struct: self, error: e)
+              end
+            end
+
             const :login, String
             const :name, T.nilable(String)
+            const :repositories, RepositoryConnection
 
             sig { params(data: T::Hash[String, T.untyped]).returns(User) }
             def self.from_h(data)
               new(
                 login: data.fetch("login"),
                 name: data["name"],
+                repositories: RepositoryConnection.from_h(data.fetch("repositories")),
               )
             rescue GraphWeaver::TypeError
               raise # already wrapped by a nested struct — keep the innermost context
@@ -69,7 +115,7 @@ module StargazersQuery
           sig { params(data: T::Hash[String, T.untyped]).returns(StargazerEdge) }
           def self.from_h(data)
             new(
-              starred_at: data.fetch("starredAt"),
+              starred_at: Time.parse(data.fetch("starredAt")),
               node: User.from_h(data.fetch("node")),
             )
           rescue GraphWeaver::TypeError

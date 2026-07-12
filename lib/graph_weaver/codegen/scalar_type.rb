@@ -60,10 +60,13 @@ class GraphWeaver::Codegen
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
+      # requires: load BEFORE codec probing — the probe method may come
+      # from the required file (core Time has no .parse until the "time"
+      # stdlib loads)
+      @requires = normalize_requires(requires)
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
       @cast = normalize_cast(cast, codec&.cast)
       @serialize = normalize_serialize(serialize, codec&.serialize)
-      @requires = normalize_requires(requires)
       @coerce = coerce
       validate_coerce!
     end

@@ -9,6 +9,12 @@ query($owner: String!, $name: String!, $first: Int!) {
         node {
           login
           name
+          repositories(first: 2, orderBy: { field: STARGAZERS, direction: DESC }) {
+            nodes {
+              nameWithOwner
+              stargazerCount
+            }
+          }
         }
       }
     }

@@ -146,6 +146,24 @@ describe "custom scalar deserialization" do
     expect(source.index(%(require "bigdecimal"))).to be < source.index("module StoreQuery")
   end
 
+  it "loads requires: before probing for a codec (Time.parse lives in the time stdlib)" do
+    # the probe method arrives with the require — a bare class gains
+    # .parse only once its file loads, exactly like core Time and "time"
+    Dir.mktmpdir do |dir|
+      class LateProbe; end # rubocop:disable Lint/ConstantDefinitionInBlock
+      ext = File.join(dir, "late_probe_ext.rb")
+      File.write(ext, "class LateProbe; def self.parse(v) = new; def to_s = \"wire\"; end")
+
+      GraphWeaver.register_scalar("Late", LateProbe, requires: ext)
+
+      scalar = GraphWeaver::Codegen.scalar("Late")
+      expect(scalar.cast?).to be true
+      expect(scalar.cast("v")).to eq "LateProbe.parse(v)"
+    ensure
+      Object.send(:remove_const, :LateProbe) if Object.const_defined?(:LateProbe)
+    end
+  end
+
   it "round-trips a BigDecimal-backed object through serialize and cast" do
     GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "bigdecimal")
 
