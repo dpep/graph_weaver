@@ -4,6 +4,12 @@
 Ruby module. Everything `srb tc` knows about your query results comes from this
 file — there is no runtime schema, no lazy wrapper, no reflection.
 
+This is the production path — checked in, reviewed, statically checked
+(assembled step by step in the [quickstart](quickstart.md), including
+[what Sorbet does and doesn't require](quickstart.md#sorbet-with-or-without)).
+For consoles and dev there's [dynamic mode](#dynamic-mode); for one-off
+scripts, `client.execute!` skips modules entirely.
+
 ## Generating
 
 The workflow that keeps generated code honest: queries live as `.graphql`
@@ -18,13 +24,22 @@ app/graphql/
   generated/         # *_query.rb — generated, checked in, never edited
 ```
 
-Rake tasks (add `require "graph_weaver/tasks"` to your Rakefile; register
-custom scalars first — they're baked into generated source):
+The schema dump is step 0 — codegen reads it, never a live endpoint.
+`cache: true` on a url client writes it on first introspection
+(`GraphWeaver.new(url, cache: true).schema` in a console bootstraps it);
+generating without one fails pointing at exactly that.
+
+Rake tasks (add `require "graph_weaver/tasks"` to your Rakefile):
 
 ```sh
 rake graph_weaver:generate    # queries_path -> generated_path
 rake graph_weaver:verify      # fail if anything is stale — run in CI
 ```
+
+Scalar/enum/type registrations are baked into generated source, so they
+must run before the tasks do. In Rails they will — the tasks depend on
+`:environment`, which runs your initializers. Outside Rails, require the
+file that does your registrations from the Rakefile yourself.
 
 Or call the same APIs directly:
 
@@ -54,7 +69,11 @@ Introspected dumps record their source url, so drift is checkable ahead
 of the late signal: `rake graph_weaver:schema:verify` re-introspects the
 recorded url and fails when the server has moved;
 `rake graph_weaver:schema:refresh` rewrites the dump
-(`GRAPHWEAVER_AUTH` supplies a token for private APIs).
+(`GRAPHWEAVER_AUTH` supplies a token for private APIs). Don't confuse
+the two verifies: `graph_weaver:verify` asks "is the generated code
+fresh?" — local, every CI run; `graph_weaver:schema:verify` asks "has the
+*server* drifted from the dump?" — network, needs the recorded url, run
+on a schedule.
 
 In development, skip the build entirely — `client.load_queries!` parses
 every query file into modules with the same names generation would use
@@ -170,16 +189,13 @@ field name on collision.
 ## Executors
 
 An executor is anything with `execute(query, variables:)` whose result `to_h`s
-into `{"data" => ..., "errors" => ...}`. Resolution order:
-
-1. per call: `execute(..., executor: something)`
-2. per module: `PersonQuery.executor = something`
-3. baked constant: `Codegen.generate(..., executor: MyApi::Executor)`
-4. global: `GraphWeaver.executor` (raises helpfully when unconfigured)
+into `{"data" => ..., "errors" => ...}`. Resolution: per call → per module →
+baked constant → `GraphWeaver.executor=` → `GraphWeaver.client` — the
+canonical list lives in [transports](transports.md#executor-resolution).
 
 Generate *without* a baked constant when you want modules to follow the
-global — that's also what lets [testing's auto_fake](testing.md) swap in a
-fake per example.
+app default (`GraphWeaver.client =` in an initializer) — that's also what
+lets [testing's auto_fake](testing.md) swap in a fake per example.
 
 ## Dynamic mode
 

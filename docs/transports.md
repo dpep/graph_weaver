@@ -30,6 +30,9 @@ lazily, and `parse`/`execute` bound to both.
 - `headers:` — anything else (API keys, custom headers)
 - `retries:` — off by default; `true` for a `RetryExecutor` with defaults,
   or a Hash of its options
+- `cache:` / `ttl:` — schema introspection caching (see
+  [real world](real_world.md)); url clients only — a schema source never
+  introspects, so passing them raises
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
 To wire generated modules that don't bake a transport, make it the app's
@@ -64,10 +67,17 @@ GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
 GraphWeaver.executor = ...   # the global default
 ```
 
-Executor resolution order for a generated module: per call
-(`execute(executor:)`) → per module (`MyQuery.executor=`) → baked constant
-(`Codegen.generate(executor:)`) → `GraphWeaver.executor=` →
-`GraphWeaver.client`.
+## Executor resolution
+
+The canonical order — how a generated module finds its transport:
+
+1. per call: `execute(..., executor: something)`
+2. per module: `MyQuery.executor = something`
+3. baked constant: `Codegen.generate(..., executor: MyApi::Executor)`
+4. global override: `GraphWeaver.executor=` (fakes win over the client)
+5. the default client: `GraphWeaver.client`
+
+Nothing set anywhere raises with a message saying which knobs exist.
 
 ## Retries
 
@@ -96,4 +106,4 @@ code-matched response).
 Or via the client: `GraphWeaver.new(url, retries: { tries: 5, retry_codes: ["THROTTLED"] })`.
 
 What classifies as a transport failure is an extensible set — see
-[errors](errors.md#programmatic-surfacing) (`GraphWeaver.register_transport_error`).
+[errors](errors.md#extending-transporterror) (`GraphWeaver.register_transport_error`).

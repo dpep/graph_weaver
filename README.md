@@ -26,6 +26,9 @@ result.person&.birthday   # => Date (custom scalars deserialize)
 result.person&.nmae       # => srb tc: Method `nmae` does not exist
 ```
 
+New here? The **[quickstart](docs/quickstart.md)** walks the production
+setup end to end — initializer, codegen, fakes, CI.
+
 #### Features
 
 - **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
@@ -38,6 +41,17 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 
 #### Usage
 
+Three ways to run a query — pick by context:
+
+| Context | Use |
+|---------|-----|
+| Production | checked-in codegen (`rake graph_weaver:generate`) — reviewed, `srb tc`-checked |
+| Development, consoles | `client.parse` / `client.load_queries!` — no build step |
+| Scripts, one-offs | `client.execute!` — no module at all |
+
+The production path assembled is the [quickstart](docs/quickstart.md);
+the pieces:
+
 ```ruby
 require "graph_weaver"
 
@@ -46,7 +60,10 @@ require "graph_weaver"
 # source — a live schema class, or a .json/.graphql dump
 api = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"], cache: true)
 
-# generate checked-in typed modules
+# make it the app default — generated modules execute through it
+GraphWeaver.client = api
+
+# generate checked-in typed modules (rake graph_weaver:generate, or directly)
 source = GraphWeaver::Codegen.generate(
   schema: api.schema,
   query: File.read("queries/person.graphql"),
@@ -55,31 +72,19 @@ source = GraphWeaver::Codegen.generate(
 File.write("app/queries/person_query.rb", source)
 
 # at runtime
-PersonQuery.execute(id: "1")                        # uses GraphWeaver.executor
+PersonQuery.execute(id: "1")                        # via GraphWeaver.client
 PersonQuery.execute(id: "1", executor: other)       # or per call
 ```
 
 Module names derive from the operation name (`query GetPerson` →
 `GetPerson`) or, for `parse` on a `.graphql` file, from the file name;
 pass `module_name:`/`name:` to override. Pass `executor:` (a constant) to
-bake a default transport into the generated module.
+bake a default transport into the generated module. Prefer Faraday? It's
+opt-in (`gem "faraday"`), and the client picks it up when loaded —
+middleware blocks and ready connections in [transports](docs/transports.md).
 
-Prefer Faraday? It's opt-in (`gem "faraday"` in your Gemfile):
-
-```ruby
-require "graph_weaver/transport/faraday"
-
-# from a url, with optional middleware customization
-executor = GraphWeaver::Transport::Faraday.new("https://api.example.com/graphql") do |conn|
-  conn.request :authorization, "Bearer", -> { Tokens.fetch }
-  conn.response :logger
-end
-
-# or bring a fully configured Faraday connection
-executor = GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
-```
-
-In development, skip the build step entirely:
+In development, skip the build step entirely — modules from `client.parse`
+carry the client's transport, no global wiring needed:
 
 ```ruby
 # parse a query into a typed module on the fly — a .graphql path or a raw string
@@ -96,11 +101,13 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 
 #### Dig deeper
 
+- **[Quickstart](docs/quickstart.md)** — the production path in Rails,
+  step by step: initializer, rake tasks, fakes, CI, Sorbet or not
 - **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
   variables (enums, input objects), fragments/unions/interfaces,
   `@skip`/`@include`, naming, executors, dynamic mode
-- **[Against a real API](docs/real_world.md)** — introspect a live endpoint
-  (GitHub end to end), schema caching
+- **[Against a real API](docs/real_world.md)** — the exploratory tour:
+  introspect a live endpoint (GitHub end to end), dynamic mode, schema caching
 - **[Transports](docs/transports.md)** — clients, the executor contract,
   Faraday, retries and backoff
 - **[Custom scalars](docs/scalars.md)** — the registry: codec inference,

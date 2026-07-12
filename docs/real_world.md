@@ -1,5 +1,11 @@
 # Against a real API
 
+The exploratory tour: point a client at a live endpoint and go, no build
+step — ideal for consoles, spikes, and getting a feel for an API. What
+ships is the checked-in codegen path in the [quickstart](quickstart.md);
+this page is how you get there (the `parse` below becomes a `.graphql`
+file plus `rake graph_weaver:generate`, everything else stays).
+
 Everything hangs off a client — transport, schema, and scalars for one
 server. GitHub's API, end to end:
 

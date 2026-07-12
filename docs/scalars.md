@@ -25,7 +25,8 @@ probing the deserialize side and pairing its serializer:
 so the common case needs nothing more. Probing the *deserialize* side is
 deliberate — every object has `#to_s`, so inferring off it would wrongly wrap
 plain types like `String`/`Integer`; requiring a `.parse`/`.load` the type
-actually defines avoids that (and is why the built-ins can be registered with
+actually defines avoids that (and is why the built-in scalars — `Date`, `ID`,
+`Int`, and friends, pre-registered and detailed below — can be registered with
 their real class constants). Override explicitly when you need to:
 
 - a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,

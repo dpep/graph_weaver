@@ -1,5 +1,11 @@
 # Testing
 
+Everything here is an *executor* — the one interface queries run
+through: anything with `execute(query, variables:)` returning
+`{"data" => ..., "errors" => ...}` (see [transports](transports.md)).
+Fakes, failures, and cassettes all slot in wherever a real transport
+would.
+
 `require "graph_weaver/rspec"` from your spec helper (or
 `graph_weaver/testing` outside rspec — never in production) for a
 zero-setup fake backend. `FakeExecutor` fabricates
@@ -31,7 +37,8 @@ Or configure once, initializer-style (e.g. in `spec/support/graph_weaver.rb`):
 require "graph_weaver/rspec"   # rspec: seed follows --seed
 
 GraphWeaver::Testing.configure do |config|
-  config.schema = MySchema
+  config.schema = MySchema                             # an in-process schema class,
+  # config.schema = GraphWeaver::SchemaLoader.locate   # or the committed dump (remote APIs)
   config.auto_fake = true              # every example runs against a fresh FakeExecutor
   config.mode = :faker                 # or :literal (plain typed values); nil = auto
   config.overrides = { "Person.name" => "Daniel" }

@@ -64,6 +64,15 @@ Defaults match the rescue block above: transport failures always retry,
 override with `retry_if:`), and GraphQL-level codes only when listed in
 `retry_codes:`. Exhausting `tries:` re-raises the last error.
 
+Business/validation failures returned *as data* (Shopify-style `userErrors { field
+message code }`) aren't errors here — they're just fields you selected, so they
+deserialize onto `response.data` like anything else and you inspect them there.
+
+The one-shot `GraphWeaver.execute` / `execute!` mirror this: `execute` returns
+the envelope, `execute!` the result-or-raise.
+
+## Extending TransportError
+
 What counts as a `TransportError` is an **extensible set** — each transport
 seeds its own network exceptions (`Errno::*`, `SocketError`, timeouts, TLS; the
 Faraday transport adds its own), and you can register more so a custom adapter's
@@ -73,13 +82,6 @@ or connection pool's failure gets the same treatment:
 GraphWeaver.register_transport_error(ConnectionPool::TimeoutError)
 GraphWeaver.transport_errors << MyAdapter::ResetError   # it's just a Set
 ```
-
-Business/validation failures returned *as data* (Shopify-style `userErrors { field
-message code }`) aren't errors here — they're just fields you selected, so they
-deserialize onto `response.data` like anything else and you inspect them there.
-
-The one-shot `GraphWeaver.execute` / `execute!` mirror this: `execute` returns
-the envelope, `execute!` the result-or-raise.
 
 
 ## Programmatic surfacing
