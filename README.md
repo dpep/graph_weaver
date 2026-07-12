@@ -28,8 +28,8 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 
 New here? The **[getting started](docs/getting_started.md)** guide walks the
 production setup end to end — initializer, codegen, fakes, CI. Or run the
-**[examples](examples/)**: `ruby examples/countries.rb` (public API, no auth,
-all dynamic) and `ruby examples/github/run.rb` (auth + checked-in generated
+**[examples](examples/)**: `examples/countries.rb` (public API, no auth,
+all dynamic) and `examples/github/run.rb` (auth + checked-in generated
 modules; it stars this repo ⭐ and introduces you to your fellow stargazers).
 
 #### Features

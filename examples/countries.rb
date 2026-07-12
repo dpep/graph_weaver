@@ -1,11 +1,12 @@
+#!/usr/bin/env ruby
 # typed: false
 # frozen_string_literal: true
 
 # The simplest possible GraphWeaver session: a public API, no auth, no
 # build step — everything dynamic and in memory.
 #
-#      ruby examples/countries.rb [CODE ...]
-#      ruby examples/countries.rb JP BR
+#      examples/countries.rb [CODE ...]
+#      examples/countries.rb JP BR
 #
 # (https://countries.trevorblades.com — a free public GraphQL API)
 require_relative "../lib/graph_weaver"

@@ -1,13 +1,14 @@
+#!/usr/bin/env ruby
 # typed: false
 # frozen_string_literal: true
 
 # Star graph_weaver ⭐ (thanks!), then meet your fellow stargazers —
 # who they are, their biggest repos, and what else they've starred:
 #
-#      ruby examples/github/run.rb
+#      examples/github/run.rb
 require_relative "setup"
 
-# the checked-in typed modules (regenerate: ruby examples/github/generate.rb)
+# the checked-in typed modules (regenerate: examples/github/generate.rb)
 Dir[File.join(__dir__, "generated", "*.rb")].sort.each { |file| require file }
 
 OWNER = "dpep"
