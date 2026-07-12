@@ -29,7 +29,8 @@ The schema dump is step 0 — codegen reads it, never a live endpoint.
 (`GraphWeaver.new(url, cache: true).schema` in a console bootstraps it);
 generating without one fails pointing at exactly that.
 
-Rake tasks (add `require "graph_weaver/tasks"` to your Rakefile):
+Rake tasks (self-registering in Rails; elsewhere add
+`require "graph_weaver/tasks"` to your Rakefile):
 
 ```sh
 rake graph_weaver:generate    # queries_path -> generated_path

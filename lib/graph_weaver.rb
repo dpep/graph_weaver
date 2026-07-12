@@ -11,6 +11,7 @@ require_relative "graph_weaver/transport/http"
 require_relative "graph_weaver/retry_executor"
 require_relative "graph_weaver/schema_loader"
 require_relative "graph_weaver/version"
+require_relative "graph_weaver/railtie" if defined?(::Rails::Railtie)
 
 # opt-in extras:
 #      require "graph_weaver/transport/faraday"        # Faraday transport

@@ -1,4 +1,7 @@
 ###  unreleased
+- Rails Railtie: the graph_weaver:* rake tasks self-register (no
+  Rakefile edit) and depend on :environment; outside Rails, require
+  "graph_weaver/tasks" as before
 - GraphWeaver.client= — the blessed global wiring: assign the app's
   default client and generated modules resolve through it (per call ->
   per module -> baked -> executor= -> client). executor= stays as the

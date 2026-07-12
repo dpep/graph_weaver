@@ -55,15 +55,12 @@ GraphWeaver.load_generated!
 without a baked transport resolve to it at execute time (the full
 [resolution order](transports.md#executor-resolution)).
 
-## 4. Add the rake tasks
+## 4. Rake tasks — nothing to do
 
-```ruby
-# Rakefile
-require "graph_weaver/tasks"
-```
-
-In Rails the tasks depend on `:environment`, so your initializer — and
-its registrations, which are baked into generated source — runs first.
+In Rails the `graph_weaver:*` tasks register themselves (a Railtie), and
+they depend on `:environment`, so your initializer — and its
+registrations, which are baked into generated source — runs first.
+Outside Rails, add `require "graph_weaver/tasks"` to your Rakefile.
 
 ## 5. Write a query, generate, commit
 
@@ -132,8 +129,8 @@ runtime to CI.
 
 ## Not Rails?
 
-Everything above works the same, minus the `:environment` hook: the rake
-tasks can't run your registrations for you, so require the file that does
-them from your Rakefile alongside `graph_weaver/tasks`. And
-`GraphWeaver.load_generated!` goes wherever your app boots instead of an
-initializer.
+Everything above works the same, minus the Railtie conveniences: add
+`require "graph_weaver/tasks"` to your Rakefile yourself, and — since
+there's no `:environment` hook to run your registrations — require the
+file that does them from the Rakefile too. `GraphWeaver.load_generated!`
+goes wherever your app boots instead of an initializer.
