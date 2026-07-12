@@ -13,6 +13,8 @@
   without an explicit coerce:, resolved lazily at generation time (no
   reset_scalars! ordering dance) — convertible built-ins take their
   conversion, cast/serialize pairs take parse-style coercion
+- SchemaLoader.introspect cache: true — caches at GraphWeaver.schema_path,
+  the same dump rake graph_weaver:generate reads
 - docs/transports.md: connect, the executor contract, Faraday, retries
 - Cassette workflow: GRAPHWEAVER_RECORD=1 / config.record force
   re-recording; config.anonymize scrubs responses as they are recorded

@@ -45,12 +45,14 @@ module GraphWeaver::SchemaLoader
   #   executor = GraphWeaver::HttpExecutor.new(url, headers: { ... })
   #   schema = GraphWeaver::SchemaLoader.introspect(executor)
   #
-  # Introspecting a large API takes seconds, so cache: (a file path)
-  # stores the raw introspection JSON and reuses it until ttl: seconds
-  # elapse (no ttl = until the file is deleted). GraphQL has no standard
-  # schema-version signal to invalidate on — a stale cache surfaces as
-  # server-side validation errors (see QueryError#schema_stale?), so pick
-  # a ttl that matches how fast the API moves, or delete the file.
+  # Introspecting a large API takes seconds, so cache: stores the raw
+  # introspection JSON and reuses it until ttl: seconds elapse (no ttl =
+  # until the file is deleted). cache: true uses GraphWeaver.schema_path —
+  # the same file the generation workflow reads — or pass a file path.
+  # GraphQL has no standard schema-version signal to invalidate on — a
+  # stale cache surfaces as server-side validation errors (see
+  # QueryError#schema_stale?), so pick a ttl that matches how fast the
+  # API moves, or delete the file.
   #
   # To cache anywhere else (Rails.cache, redis, ...), serialize the schema
   # itself — schemas round-trip through their introspection JSON:
@@ -60,6 +62,16 @@ module GraphWeaver::SchemaLoader
   #   end
   #   schema = GraphWeaver::SchemaLoader.load(json)
   def self.introspect(executor, cache: nil, ttl: nil)
+    if cache == true
+      # default to the schema dump the generation workflow reads — one
+      # file serves both (introspect caches it, rake generate loads it)
+      cache = GraphWeaver.schema_path
+      unless cache.end_with?(".json")
+        raise ArgumentError,
+          "cache: true writes introspection JSON to GraphWeaver.schema_path, but it's #{cache} — point it at a .json file or pass an explicit cache: path"
+      end
+    end
+
     if cache && fresh?(cache, ttl)
       return GraphQL::Schema.from_introspection(JSON.parse(File.read(cache)))
     end

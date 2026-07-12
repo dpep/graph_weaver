@@ -11,14 +11,11 @@ require "graph_weaver"
 # for retries and advanced setup)
 executor = GraphWeaver.connect("https://api.github.com/graphql", auth: `gh auth token`.strip)
 
-# introspecting a big API takes seconds — cache: stores the introspection
-# JSON in a file and reuses it for ttl: seconds. For Rails.cache/redis,
-# cache introspect(executor).to_json and SchemaLoader.load it back.
-schema = GraphWeaver::SchemaLoader.introspect(
-  executor,
-  cache: "tmp/github-schema.json",
-  ttl: 24 * 60 * 60,
-)
+# introspecting a big API takes seconds — cache: true stores the
+# introspection JSON at GraphWeaver.schema_path (the same file rake
+# graph_weaver:generate reads); pass a path/ttl: for finer control, or
+# cache introspect(executor).to_json in Rails.cache and SchemaLoader.load it
+schema = GraphWeaver::SchemaLoader.introspect(executor, cache: true)
 
 # map GitHub's DateTime scalar onto Time (cast inferred from Time.parse)
 GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")

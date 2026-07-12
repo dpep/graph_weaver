@@ -90,6 +90,24 @@ describe GraphWeaver::SchemaLoader do
       codegen_parity(second)
     end
 
+    it "cache: true defaults to GraphWeaver.schema_path" do
+      path = File.join(@dir, "schema.json")
+      GraphWeaver.schema_path = path
+
+      described_class.introspect(counting_executor, cache: true)
+      described_class.introspect(counting_executor, cache: true)
+
+      expect(counting_executor.calls).to eq 1
+      expect(File).to exist(path)
+
+      GraphWeaver.schema_path = File.join(@dir, "schema.graphql")
+      expect {
+        described_class.introspect(counting_executor, cache: true)
+      }.to raise_error(ArgumentError, /\.json/)
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+
     it "refreshes the cache when the ttl has elapsed" do
       path = File.join(@dir, "schema-cache.json")
 

@@ -21,11 +21,11 @@ result = RepoQuery.execute!(owner: "dpep", name: "graph_weaver", executor:)
 3. **Commit** — tests now run offline, fast, deterministic.
 4. **Re-record** when the API's real behavior changes:
 
-```sh
-GRAPHWEAVER_RECORD=1 bundle exec rspec     # every Cassette.use records afresh
-```
+   ```sh
+   GRAPHWEAVER_RECORD=1 bundle exec rspec   # every Cassette.use records afresh
+   ```
 
-(`Testing.config.record = true` is the programmatic equivalent.)
+   (`Testing.config.record = true` is the programmatic equivalent.)
 
 Replaying an unrecorded request raises `MissingRecording` with the query
 and the path — no silent fabrication.
