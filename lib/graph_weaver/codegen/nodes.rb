@@ -137,10 +137,14 @@ class GraphWeaver::Codegen
     Field = Struct.new(:prop, :key, :node)
 
     attr_reader :class_name, :fields
+    # the GraphQL type this struct was generated from, and any registered
+    # helper modules to include (see Codegen.register_type)
+    attr_accessor :graphql_type, :mixins
 
     def initialize(class_name)
       @class_name = class_name
       @fields = []
+      @mixins = []
     end
 
     def bare_type = class_name
@@ -197,6 +201,61 @@ class GraphWeaver::Codegen
     def hash_coerce_identity? = false
     def non_null? = false
     def nested = self
+  end
+
+  # A GraphQL enum mapped onto an app-owned T::Enum (see EnumType): no
+  # generated enum class — instead module-level <NAME>_FROM_WIRE /
+  # <NAME>_TO_WIRE constants translate at the boundary. fallback: makes
+  # casting absorb unknown wire values (inputs stay strict).
+  class MappedEnum
+    attr_reader :graphql_name, :mapping
+
+    def initialize(enum_type, wire_values)
+      @graphql_name = enum_type.graphql_name
+      @type_name = enum_type.type.name
+      @fallback = enum_type.fallback
+      @mapping = enum_type.mapping_for(wire_values)
+    end
+
+    def const_prefix = GraphWeaver::Inflect.underscore(@graphql_name).upcase
+    def fallback_const = @fallback && "#{@type_name}.deserialize(#{@fallback.serialize.to_s.inspect})"
+
+    def bare_type = @type_name
+
+    def prop_type
+      "T.nilable(#{bare_type})"
+    end
+
+    def cast(expr, _depth)
+      if @fallback
+        "#{const_prefix}_FROM_WIRE.fetch(#{expr}) { #{fallback_const} }"
+      else
+        "#{const_prefix}_FROM_WIRE.fetch(#{expr})"
+      end
+    end
+
+    def identity? = false
+
+    def serialize(expr, _depth)
+      "#{const_prefix}_TO_WIRE.fetch(#{expr})"
+    end
+
+    def serialize_identity? = false
+
+    # kwargs and hash fields accept the member or its wire value; unlike
+    # casting, bad input raises even with a fallback (a typo'd input is
+    # our bug, not server drift)
+    def coerce? = true
+
+    def coerce(expr)
+      "(#{expr}.is_a?(#{@type_name}) ? #{expr} : #{const_prefix}_FROM_WIRE.fetch(#{expr}))"
+    end
+
+    def coerce_input_type = "T.any(#{@type_name}, String)"
+    def hash_coerce(expr, _depth) = coerce(expr)
+    def hash_coerce_identity? = false
+    def non_null? = false
+    def nested = nil
   end
 
   class UnionNode

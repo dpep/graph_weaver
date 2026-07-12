@@ -32,8 +32,10 @@ lazily, and `parse`/`execute` bound to both.
   or a Hash of its options
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
-To wire generated modules that don't bake a transport, set the global
-default: `GraphWeaver.executor = github.executor`.
+To wire generated modules that don't bake a transport, make it the app's
+default client: `GraphWeaver.client = github`. (`GraphWeaver.executor=`
+is the low-level knob underneath — assign a bare executor, e.g. a test
+fake, and it wins over the default client.)
 
 **Transport pick**: `Transport::Faraday` when the app already loads
 faraday (its middleware/proxy/timeout ecosystem comes along), the
@@ -64,7 +66,8 @@ GraphWeaver.executor = ...   # the global default
 
 Executor resolution order for a generated module: per call
 (`execute(executor:)`) → per module (`MyQuery.executor=`) → baked constant
-(`Codegen.generate(executor:)`) → `GraphWeaver.executor`.
+(`Codegen.generate(executor:)`) → `GraphWeaver.executor=` →
+`GraphWeaver.client`.
 
 ## Retries
 

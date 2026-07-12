@@ -22,6 +22,7 @@ require "sorbet-runtime"
 require_relative "hints"
 require_relative "inflect"
 require_relative "selection"
+require_relative "codegen/enum_type"
 require_relative "codegen/scalar_type"
 require_relative "codegen/nodes"
 require_relative "codegen/emit"
@@ -41,14 +42,18 @@ class GraphWeaver::Codegen
   # to GraphWeaver.executor. module_name: defaults to the operation's
   # name; default_module_name: is parse's container-scoped fallback (file
   # generation stays strict — a checked-in file deserves a deliberate
-  # name). scalars: is a client-scoped overlay ({name => ScalarType})
-  # consulted before the global registry.
-  def initialize(schema:, query:, module_name: nil, executor: nil, default_module_name: nil, scalars: nil)
+  # name). scalars:/enums:/types: are client-scoped overlays consulted
+  # before the global registries (ScalarType, EnumType, and arrays of
+  # mixin modules, each keyed by GraphQL name).
+  def initialize(schema:, query:, module_name: nil, executor: nil, default_module_name: nil,
+    scalars: nil, enums: nil, types: nil)
     @schema = schema
     @query = query.strip
     @module_name = module_name
     @default_module_name = default_module_name
     @scalars = scalars || {}
+    @enums = enums || {}
+    @types = types || {}
     @executor_const = self.class.executor_const(executor)
 
     if executor && @executor_const.nil?
@@ -68,8 +73,8 @@ class GraphWeaver::Codegen
   end
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, executor: nil, scalars: nil)
-    new(schema:, query:, module_name:, executor:, scalars:).generate
+  def self.generate(schema:, query:, module_name: nil, executor: nil, scalars: nil, enums: nil, types: nil)
+    new(schema:, query:, module_name:, executor:, scalars:, enums:, types:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -77,10 +82,11 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # executor: additionally accepts a live object (set via .executor=).
-  def self.parse(schema:, query:, module_name: nil, executor: nil, scalars: nil)
+  def self.parse(schema:, query:, module_name: nil, executor: nil, scalars: nil, enums: nil, types: nil)
     executor_const = executor_const(executor)
 
-    codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query", scalars:)
+    codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query",
+      scalars:, enums:, types:)
     source = codegen.generate
 
     container = Module.new
@@ -102,6 +108,7 @@ class GraphWeaver::Codegen
 
     @variable_enums = {}
     @variable_inputs = {}
+    @mapped_enums = {}
     @inputs_in_progress = []
     # requires contributed by the custom scalars this query actually uses
     @scalar_requires = []
@@ -152,6 +159,10 @@ class GraphWeaver::Codegen
     @query.each_line { |line| out << "    #{line}".rstrip }
     out << "  #{delimiter}"
     out << ""
+    @mapped_enums.each_value do |mapped|
+      emit_mapped_enum(mapped, out, 1)
+      out << ""
+    end
     @variable_enums.each_value do |enum|
       emit_enum(enum, out, 1)
       out << ""
@@ -198,6 +209,8 @@ class GraphWeaver::Codegen
 
   def object_node(type, selections, class_name)
     node = ObjectNode.new(class_name)
+    node.graphql_type = type.graphql_name
+    node.mixins = type_mixins(type.graphql_name)
     taken = [class_name]
 
     gather(type, selections).each do |key, field_nodes|
@@ -218,10 +231,14 @@ class GraphWeaver::Codegen
           name = pick_name(core.graphql_name, key, taken)
           type_ref(field_type) { union_node(core, sub_selections, name) }
         when "ENUM"
-          name = pick_name(core.graphql_name, key, taken)
-          # sorted so output is deterministic across schema sources
-          # (SDL round-trips reorder values alphabetically)
-          type_ref(field_type) { EnumNode.new(name, core.values.keys.sort) }
+          if (mapped = mapped_enum_node(core))
+            type_ref(field_type) { mapped }
+          else
+            name = pick_name(core.graphql_name, key, taken)
+            # sorted so output is deterministic across schema sources
+            # (SDL round-trips reorder values alphabetically)
+            type_ref(field_type) { EnumNode.new(name, core.values.keys.sort) }
+          end
         when "SCALAR"
           type_ref(field_type) { scalar_node(core.graphql_name) }
         else
@@ -279,8 +296,8 @@ class GraphWeaver::Codegen
     when "SCALAR"
       scalar_node(core.graphql_name)
     when "ENUM"
-      @variable_enums[core.graphql_name] ||=
-        EnumNode.new(core.graphql_name, core.values.keys.sort)
+      mapped_enum_node(core) || (@variable_enums[core.graphql_name] ||=
+        EnumNode.new(core.graphql_name, core.values.keys.sort))
     when "INPUT_OBJECT"
       input_node(core)
     else
@@ -311,6 +328,25 @@ class GraphWeaver::Codegen
 
     @inputs_in_progress.delete(core.graphql_name)
     @variable_inputs[core.graphql_name] = node
+  end
+
+  # Registered helper-module names for a GraphQL type (additive: global
+  # registrations plus this client's), collecting their requires.
+  def type_mixins(graphql_name)
+    entries = [GraphWeaver::Codegen.type_registry[graphql_name], @types[graphql_name]].compact
+    entries.each { |entry| @scalar_requires.concat(entry[:requires]) }
+    entries.flat_map { |entry| entry[:mixins].map(&:name) }
+  end
+
+  # The MappedEnum node for a schema enum with a registered app-enum
+  # mapping (client overlay first, then the global registry); nil when
+  # unregistered, falling back to a generated T::Enum.
+  def mapped_enum_node(core)
+    enum_type = @enums[core.graphql_name] || GraphWeaver::Codegen.enum_registry[core.graphql_name]
+    return unless enum_type
+
+    @scalar_requires.concat(enum_type.requires)
+    @mapped_enums[core.graphql_name] ||= MappedEnum.new(enum_type, core.values.keys.sort)
   end
 
   # A Scalar node, recording any requires its registered type needs so the

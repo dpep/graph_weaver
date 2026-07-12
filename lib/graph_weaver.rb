@@ -31,15 +31,29 @@ module GraphWeaver
       Client.new(source, **options, &middleware)
     end
 
-    # global default transport; generated modules fall back to this
-    # (override per module with MyQuery.executor=, or per call with
-    # execute(executor:))
+    # The app's default client — the blessed way to wire generated
+    # modules to a server:
+    #
+    #      GraphWeaver.client = GraphWeaver.new(url, auth: token)
+    #
+    # Generated modules resolve their transport per call -> per module ->
+    # baked constant -> GraphWeaver.executor= -> the default client.
+    attr_accessor :client
+
+    # The low-level knob under client=: assign a bare executor (a fake, a
+    # custom transport) and it wins over the default client — which is
+    # how testing's auto_fake swaps in per example. Generated modules
+    # fall back to this method.
     attr_writer :executor
 
     def executor
-      @executor or raise Error, "no executor configured — set GraphWeaver.executor= or pass executor:"
+      @executor || @client&.own_executor or
+        raise Error, "no executor configured — set GraphWeaver.client= (or executor=), or pass executor:"
     end
 
+    # is an explicit executor= override set? (the default client doesn't
+    # count: a client resolving its own transport must not see another
+    # client through the global)
     def executor?
       !@executor.nil?
     end
@@ -165,6 +179,38 @@ module GraphWeaver
       Codegen.register_scalar(graphql_name, type:, cast:, serialize:, requires:, coerce:)
     end
 
+    # Map a GraphQL enum onto an app-owned T::Enum, so generated code
+    # speaks YOUR enum — casting wire values in, serializing members out:
+    #
+    #      GraphWeaver.register_enum("Species", type: PetKind)
+    #
+    # The mapping is inferred by name ("CAT" <-> PetKind::Cat); map: pins
+    # renames, fallback: absorbs unknown wire values on cast (inputs stay
+    # strict), requires: names files the generated code should require.
+    # Generation fails naming any schema value that doesn't resolve —
+    # exhaustiveness checked ahead of runtime. Global; client.register_enum
+    # scopes to one client.
+    def register_enum(graphql_name, type:, map: nil, fallback: nil, requires: nil)
+      Codegen.register_enum(graphql_name, type:, map:, fallback:, requires:)
+    end
+
+    # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
+    def register_enums(mappings)
+      Codegen.register_enums(mappings)
+    end
+
+    # Include app-owned helper modules into every struct generated from a
+    # GraphQL type — derived values live as methods next to the honest
+    # wire data, and srb tc checks them against each query's selection:
+    #
+    #      GraphWeaver.register_type("Pet", include: PetHelpers)
+    #
+    # Additive (repeated and client-scoped registrations stack). Global;
+    # client.register_type scopes to one client.
+    def register_type(graphql_name, include:, requires: nil)
+      Codegen.register_type(graphql_name, include:, requires:)
+    end
+
     # Restore the built-in scalars, dropping every custom registration —
     # the clean slate to reach for between tests or to undo overrides. Pass
     # coerce: true to reload the built-ins with input coercion enabled
@@ -188,13 +234,13 @@ module GraphWeaver
     # falling back to "Query" for anonymous operations — collisions are
     # impossible since each parse gets its own container). Pass name: to
     # override, executor: to set the module's transport.
-    def parse(schema:, query:, name: nil, executor: nil, scalars: nil)
+    def parse(schema:, query:, name: nil, executor: nil, scalars: nil, enums: nil, types: nil)
       if query.end_with?(".graphql", ".gql")
         name ||= "#{Inflect.camelize(File.basename(query, ".*"))}Query"
         query = File.read(query)
       end
 
-      Codegen.parse(schema:, query:, module_name: name, executor:, scalars:)
+      Codegen.parse(schema:, query:, module_name: name, executor:, scalars:, enums:, types:)
     end
 
     # One-shot dynamic execution — a throwaway client, no build step:

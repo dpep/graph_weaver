@@ -72,3 +72,59 @@ same path (`Date` even carries its own `require "date"`), so a later
 defaults (`reset_scalars!(coerce: true)` restores them coercible) and
 `clear_scalars!` empties the registry. Register before generating — it's a
 codegen-time concern, baked into the emitted source.
+
+## Enums: map onto your own T::Enum
+
+By default each generated module grows its own `T::Enum` per GraphQL
+enum. When your app already owns the enum, register the mapping and
+generated code speaks yours instead — casting wire values in,
+serializing members out:
+
+```ruby
+class PetKind < T::Enum
+  enums { Cat = new("cat"); Dog = new("dog") }
+end
+
+GraphWeaver.register_enum("Species", type: PetKind)      # global
+api.register_enums("Species" => PetKind, "Role" => Role)  # or per client, in bulk
+
+pet.species                                # => PetKind::Dog (yours, everywhere)
+AddPetQuery.execute!(species: PetKind::Cat)  # or "CAT" — members and wire values both work
+```
+
+The mapping is inferred by name (`"CAT"` ↔ `PetKind::Cat`,
+case/underscore-insensitive against each member's serialized value);
+`map: { "CAT" => PetKind::Feline }` pins renames and merges over
+inference. Generation **fails naming any schema value that doesn't
+resolve** — exhaustiveness checked before runtime — unless
+`fallback: PetKind::Unknown` absorbs unknown wire values on cast
+(forward-compat for servers that add members; inputs stay strict, since a
+typo'd input is your bug, not drift). The translation tables are emitted
+into the generated source (`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) —
+reviewable, no runtime registry.
+
+## Type helpers: your logic on generated structs
+
+Derived values (display names, emoji, predicates) belong next to the
+data but not *in* it — rewriting wire values on the way in destroys the
+raw truth. Register a plain module and every struct generated from that
+GraphQL type includes it, whatever query it appears in:
+
+```ruby
+module PetHelpers
+  def adult? = birthday && birthday < Date.today << 24
+  def display_name = adult? ? "#{name} 🦴" : "#{name} 🐶"
+end
+
+GraphWeaver.register_type("Pet", include: PetHelpers)   # or api.register_type(...)
+
+pet.display_name   # => "Shelby 🦴"
+pet.name           # => "Shelby" — the wire value stays honest
+```
+
+Because the include is emitted into the generated source, `srb tc` checks
+the helpers against each query's actual selection — a helper that calls
+`birthday` on a query that never selected it is a **static error**, which
+doubles as selection-completeness checking. Registrations are additive
+(global plus client-scoped stack), and fakes/cassettes get the behavior
+automatically since it lives on the struct.

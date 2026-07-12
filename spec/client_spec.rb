@@ -2,6 +2,24 @@ require "graph_weaver/transport/faraday"
 require "graph_weaver/testing"
 require "tmpdir"
 
+# app-owned types for the enum-mapping and type-helper specs
+class PetKind < T::Enum
+  enums do
+    Cat = new("cat")
+    Dog = new("dog")
+    Unknown = new("unknown")
+  end
+end
+
+class CatsOnly < T::Enum
+  enums do
+    Cat = new("cat")
+  end
+end
+
+module PetShouting
+  def shout = "#{name}!"
+end
 
 describe GraphWeaver::Client do
   include_context "graphql http server"
@@ -127,6 +145,30 @@ describe GraphWeaver::Client do
     end
   end
 
+  describe "GraphWeaver.client=" do
+    # parsed without executor:, so it follows the global fallback chain
+    let(:mod) { GraphWeaver.parse(schema: Demo::Schema, query: "query Who { person(id: 1) { name } }") }
+
+    after do
+      GraphWeaver.client = nil
+      GraphWeaver.executor = nil
+    end
+
+    it "wires generated modules to the default client" do
+      expect { mod.execute! }.to raise_error(GraphWeaver::Error, /no executor/)
+
+      GraphWeaver.client = GraphWeaver.new(url)
+      expect(mod.execute!.person&.name).to eq "Daniel"
+    end
+
+    it "an executor= override (e.g. a test fake) beats the default client" do
+      GraphWeaver.client = GraphWeaver.new("http://127.0.0.1:1/graphql") # nothing listens
+      GraphWeaver.executor = Demo::Schema
+
+      expect(mod.execute!.person&.name).to eq "Daniel"
+    end
+  end
+
   describe "schema caching" do
     it "memoizes, and honors cache: on disk" do
       Dir.mktmpdir do |dir|
@@ -157,6 +199,66 @@ describe GraphWeaver::Client do
       # other clients and the global registry are untouched
       expect(GraphWeaver.new(Demo::Schema).execute!(query).person&.birthday).to be_a Date
       expect(GraphWeaver::Codegen.scalar("Date").type).to eq "Date"
+    end
+  end
+
+  describe "enum mappings" do
+    let(:client) { GraphWeaver.new(Demo::Schema) }
+    let(:query) { "query { person(id: 1) { pets { species } } }" }
+    let(:mutation) { "mutation($species: Species!) { addPet(name: \"Rex\", species: $species) { species } }" }
+
+    it "casts wire values into the registered app enum, and serializes back" do
+      client.register_enum("Species", type: PetKind)
+
+      species = client.execute!(query).person&.pets&.map(&:species)
+      expect(species).to eq [PetKind::Dog, PetKind::Cat]
+
+      # variables accept the member or its wire value
+      expect(client.execute!(mutation, species: PetKind::Dog).add_pet.species).to eq PetKind::Dog
+      expect(client.execute!(mutation, species: "CAT").add_pet.species).to eq PetKind::Cat
+
+      # other clients still generate their own T::Enum
+      other = GraphWeaver.new(Demo::Schema).execute!(query).person&.pets&.first&.species
+      expect(other).not_to be_a PetKind
+    end
+
+    it "checks exhaustiveness at generation, naming the gaps" do
+      client.register_enum("Species", type: CatsOnly)
+
+      expect { client.parse(query) }
+        .to raise_error(GraphWeaver::Error, /CatsOnly has no member for Species value\(s\) DOG/)
+    end
+
+    it "fallback: absorbs unknown wire values on cast; inputs stay strict" do
+      client.register_enum("Species", type: CatsOnly, fallback: CatsOnly::Cat)
+
+      species = client.execute!(query).person&.pets&.map(&:species)
+      expect(species).to eq [CatsOnly::Cat, CatsOnly::Cat] # DOG absorbed
+
+      expect { client.execute!(mutation, species: "DOG") }.to raise_error(KeyError)
+    end
+
+    it "register_enums maps several at once" do
+      client.register_enums("Species" => PetKind)
+
+      expect(client.execute!(query).person&.pets&.first&.species).to eq PetKind::Dog
+    end
+  end
+
+  describe "type helpers" do
+    let(:query) { "query { person(id: 1) { pets { name species } } }" }
+
+    it "includes registered modules into structs generated from the type" do
+      client = GraphWeaver.new(Demo::Schema)
+      client.register_type("Pet", include: PetShouting)
+
+      pet = client.execute!(query).person&.pets&.first
+      expect(pet&.shout).to eq "Shelby!"
+      expect(pet&.name).to eq "Shelby" # the wire value stays honest
+
+      # scoped: another client's structs don't get the helpers
+      other = GraphWeaver.new(Demo::Schema).execute!(query).person&.pets&.first
+      expect(other).not_to respond_to(:shout)
     end
   end
 end

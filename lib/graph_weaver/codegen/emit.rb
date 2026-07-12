@@ -29,12 +29,30 @@ class GraphWeaver::Codegen
       out << "#{pad}end"
     end
 
+    # module-level wire translation tables for an app-mapped enum
+    def emit_mapped_enum(node, out, indent)
+      pad = "  " * indent
+      type = node.bare_type
+      prefix = node.const_prefix
+
+      out << "#{pad}# GraphQL enum #{node.graphql_name} <-> #{type} (registered mapping)"
+      out << "#{pad}#{prefix}_FROM_WIRE = T.let({"
+      node.mapping.each do |wire, member|
+        out << "#{pad}  #{wire.inspect} => #{type}.deserialize(#{member.serialize.to_s.inspect}),"
+      end
+      out << "#{pad}}.freeze, T::Hash[String, #{type}])"
+      out << "#{pad}#{prefix}_TO_WIRE = T.let(#{prefix}_FROM_WIRE.invert.freeze, T::Hash[#{type}, String])"
+    end
+
     def emit_object(node, out, indent)
       pad = "  " * indent
 
       out << "#{pad}class #{node.class_name} < T::Struct"
       out << "#{pad}  extend T::Sig"
       out << "#{pad}  include GraphWeaver::Hints"
+      node.mixins.each do |mixin|
+        out << "#{pad}  include #{mixin} # registered for #{node.graphql_type}"
+      end
       out << ""
 
       node.fields.filter_map { |field| field.node.nested }.each do |child|

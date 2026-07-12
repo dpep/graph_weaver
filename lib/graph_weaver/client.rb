@@ -49,17 +49,25 @@ class GraphWeaver::Client
     @cache = cache
     @ttl = ttl
     @scalars = {}
+    @enums = {}
+    @types = {}
   end
 
   # The transport queries run through: this client's own (a url-built
-  # transport, or executor:), else the global default, else — last, so a
-  # configured global such as a test fake still wins — the live schema
-  # class executing in-process.
+  # transport, or executor:), else the global executor= override (a test
+  # fake outranks even a live schema class), else the schema class
+  # executing in-process.
   def executor
     return @executor if @executor
     return GraphWeaver.executor if GraphWeaver.executor?
 
     @implicit_executor || GraphWeaver.executor # raises the helpful error
+  end
+
+  # This client's own transport, independent of any global fallback —
+  # what GraphWeaver.client= wires in for generated modules.
+  def own_executor
+    @executor || @implicit_executor
   end
 
   # The schema, introspecting through the executor on first use (cached
@@ -77,10 +85,41 @@ class GraphWeaver::Client
       GraphWeaver::Codegen::ScalarType.new(graphql_name, type:, cast:, serialize:, requires:, coerce:)
   end
 
+  # Client-scoped enum mapping: this client's generated code speaks your
+  # T::Enum for the named GraphQL enum (see Codegen::EnumType — inference
+  # by name, map: for renames, fallback: to absorb unknown wire values).
+  def register_enum(graphql_name, type:, map: nil, fallback: nil, requires: nil)
+    @enums[graphql_name.to_s] =
+      GraphWeaver::Codegen::EnumType.new(graphql_name, type:, map:, fallback:, requires:)
+  end
+
+  # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
+  def register_enums(mappings)
+    mappings.each { |graphql_name, type| register_enum(graphql_name, type:) }
+  end
+
+  # Client-scoped type helpers: include app-owned modules into every
+  # struct this client generates from the named GraphQL type. Additive
+  # with global registrations (GraphWeaver.register_type).
+  def register_type(graphql_name, include:, requires: nil)
+    mixins = Array(include)
+    mixins.each do |mixin|
+      unless mixin.is_a?(Module) && mixin.name
+        raise ArgumentError, "include: must be (an array of) named modules, got #{mixin.inspect}"
+      end
+    end
+
+    entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [] }
+    entry[:mixins].concat(mixins)
+    entry[:requires].concat(Array(requires))
+    entry
+  end
+
   # Parse a query (a .graphql path or raw string) into a typed module
-  # bound to this client's schema, scalars, and transport.
+  # bound to this client's schema, scalars, enums, helpers, and transport.
   def parse(query, name: nil)
-    GraphWeaver.parse(schema:, query:, name:, executor: @executor, scalars: @scalars)
+    GraphWeaver.parse(schema:, query:, name:, executor: @executor,
+      scalars: @scalars, enums: @enums, types: @types)
   end
 
   # Parse every .graphql query in a directory into typed modules, named
