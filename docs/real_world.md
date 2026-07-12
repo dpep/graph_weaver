@@ -1,29 +1,25 @@
 # Against a real API
 
-Everything composes for a remote endpoint — introspect the schema
-straight off the wire, then query with typed results. GitHub's API,
-end to end:
+Everything hangs off a client — transport, schema, and scalars for one
+server. GitHub's API, end to end:
 
 ```ruby
 require "graph_weaver"
 
-# transport + auth, wired in as the default executor (see docs/transports.md
-# for retries and advanced setup)
-executor = GraphWeaver.connect("https://api.github.com/graphql", auth: `gh auth token`.strip)
+# transport + auth in one object (see docs/transports.md for retries and
+# advanced setup). cache: true dumps the schema at GraphWeaver.schema_path
+# on first introspection — the same file rake graph_weaver:generate reads —
+# and any fresh dump already present is reused regardless of format. The
+# extension picks the format: .json verbatim, .graphql SDL (reviewable
+# diffs) — or say cache: :graphql. Introspected dumps record their source
+# url in a header, so a stale dump says where it came from.
+github = GraphWeaver.new("https://api.github.com/graphql", auth: `gh auth token`.strip, cache: true)
 
-# introspecting a big API takes seconds — cache: true dumps the schema
-# at GraphWeaver.schema_path (the same file rake graph_weaver:generate
-# reads), and any fresh dump already present is reused regardless of
-# format. The extension picks the format: .json verbatim, .graphql SDL
-# (reviewable diffs) — or say cache: :graphql. Pass a path/ttl: for finer
-# control, or cache introspect(executor).to_json in Rails.cache and
-# SchemaLoader.load it
-schema = GraphWeaver::SchemaLoader.introspect(executor, cache: true)
+# map GitHub's DateTime scalar onto Time (cast inferred from Time.parse) —
+# scoped to this client; GraphWeaver.register_scalar sets the global default
+github.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
 
-# map GitHub's DateTime scalar onto Time (cast inferred from Time.parse)
-GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
-
-RepoQuery = GraphWeaver.parse(schema:, query: <<~GRAPHQL)
+RepoQuery = github.parse(<<~GRAPHQL)
   query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
       nameWithOwner
@@ -39,7 +35,13 @@ repo&.created_at        # => 2026-07-07 ... (a real Time)
 repo&.stargazer_count   # => Integer
 ```
 
+Clients are independent — build one per server, each with its own
+transport, schema, and scalar mappings. The introspection step (seconds
+on a big API) happens lazily on first `schema`/`parse` and caches per
+`cache:`/`ttl:`; for finer control the pieces are all public
+(`GraphWeaver::SchemaLoader.introspect(executor, cache:, ttl:)`, or cache
+`introspect(executor).to_json` in Rails.cache and `SchemaLoader.load` it).
+
 The same flow runs as one-off integration specs against the live GitHub
 and Countries APIs — `make integration` (network; GitHub auth via
 `gh auth token` or `GITHUB_TOKEN`).
-

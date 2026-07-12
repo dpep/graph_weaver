@@ -59,6 +59,11 @@ class GraphWeaver::RetryExecutor
     @sleeper = sleeper || ->(seconds) { sleep(seconds) }
   end
 
+  # surface the wrapped transport's endpoint (schema-dump provenance)
+  def url
+    @executor.url if @executor.respond_to?(:url)
+  end
+
   def execute(query, variables: {})
     attempt = 0
 

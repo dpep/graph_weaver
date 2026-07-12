@@ -6,6 +6,7 @@ require_relative "graph_weaver/hints"
 require_relative "graph_weaver/response"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
+require_relative "graph_weaver/client"
 require_relative "graph_weaver/transport/http"
 require_relative "graph_weaver/retry_executor"
 require_relative "graph_weaver/schema_loader"
@@ -18,6 +19,18 @@ require_relative "graph_weaver/version"
 #        Apollo supergraph SDL until rmosolgo/graphql-ruby#5659 ships)
 module GraphWeaver
   class << self
+    # A client for one GraphQL server — transport, schema, and scoped
+    # scalars in one object (see Client):
+    #
+    #      github = GraphWeaver.new("https://api.github.com/graphql", auth: token, cache: true)
+    #      RepoQuery = github.parse("queries/repo.graphql")
+    #
+    # The first argument is a url or any schema source (a live schema
+    # class, or a path/SDL/introspection dump).
+    def new(source, **options, &middleware)
+      Client.new(source, **options, &middleware)
+    end
+
     # global default transport; generated modules fall back to this
     # (override per module with MyQuery.executor=, or per call with
     # execute(executor:))
@@ -27,54 +40,9 @@ module GraphWeaver
       @executor or raise Error, "no executor configured — set GraphWeaver.executor= or pass executor:"
     end
 
-    # One-shot setup: build the best transport for a url, wrap it with
-    # retries, and wire it in as the global executor. Most apps need
-    # exactly one line:
-    #
-    #      GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
-    #
-    # auth: is a token — "Bearer" is assumed unless the string carries
-    # its own scheme ("Basic dXNlcjpwYXNz..."); headers: covers anything
-    # else (API keys etc). retries: is off by default — pass true for a
-    # RetryExecutor with defaults, or a Hash of RetryExecutor options to
-    # tune. A block customizes the Faraday connection (faraday only).
-    # Returns the executor it wired in.
-    #
-    # Transport pick: Transport::Faraday when the app already loads
-    # faraday (its middleware/proxy/timeout ecosystem comes along), the
-    # zero-dependency Transport::HTTP otherwise. Detection is `defined?(Faraday)`
-    # — deliberately NOT a require: faraday rides along transitively in
-    # most bundles (stripe, octokit, ...), and try-requiring would switch
-    # transports on apps that never chose it. With faraday under
-    # `require: false`, load it before calling connect — or construct
-    # Transport::Faraday / Transport::HTTP / RetryExecutor directly and assign
-    # GraphWeaver.executor= yourself; connect is convenience, not the
-    # only door.
-    def connect(url, auth: nil, headers: {}, retries: false, &middleware)
-      headers = headers.dup
-      if auth
-        headers["Authorization"] ||= auth.include?(" ") ? auth : "Bearer #{auth}"
-      end
-
-      transport = build_transport(url, headers:, &middleware)
-      self.executor = case retries
-      when true then RetryExecutor.new(transport)
-      when false, nil then transport
-      else RetryExecutor.new(transport, **retries)
-      end
+    def executor?
+      !@executor.nil?
     end
-
-    def build_transport(url, headers:, &middleware)
-      if defined?(::Faraday)
-        require_relative "graph_weaver/transport/faraday"
-        Transport::Faraday.new(url, headers:, &middleware)
-      elsif middleware
-        raise ArgumentError, "middleware blocks require the faraday gem"
-      else
-        Transport::HTTP.new(url, headers:)
-      end
-    end
-    private :build_transport
 
     # Conventional locations, factory_bot-style: used as defaults by
     # generate!, verify_generated!, load_generated!, and the rake tasks;
@@ -86,14 +54,15 @@ module GraphWeaver
     def schema_path = @schema_path || "app/graphql/schema.json"
 
     # Generate every .graphql query in a directory into checked-in Ruby
-    # files. Paths default to the conventions above; nothing scans or
-    # loads implicitly:
+    # files. Paths default to the conventions above; schema: defaults to
+    # the dump at schema_path (any supported extension):
     #
-    #      GraphWeaver.generate!(schema:)   # queries_path -> generated_path
+    #      GraphWeaver.generate!   # queries_path -> generated_path
     #
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema:, queries: queries_path, output: generated_path, executor: nil)
+    def generate!(schema: nil, queries: queries_path, output: generated_path, executor: nil)
+      schema ||= locate_schema!
       require "fileutils"
       FileUtils.mkdir_p(output)
 
@@ -109,9 +78,10 @@ module GraphWeaver
     # One line in a spec, or `rake graph_weaver:verify` in CI:
     #
     #      it "generated queries are current" do
-    #        GraphWeaver.verify_generated!(schema:)
+    #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema:, queries: queries_path, output: generated_path, executor: nil)
+    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, executor: nil)
+      schema ||= locate_schema!
       stale = each_query(queries, schema:, executor:).filter_map do |base, source|
         target = File.join(output, "#{base}_query.rb")
         target unless File.exist?(target) && File.read(target) == source
@@ -137,6 +107,13 @@ module GraphWeaver
     def load_generated!(path = generated_path)
       Dir[File.join(path, "**/*.rb")].sort.each { |file| require File.expand_path(file) }
     end
+
+    # the conventional schema dump, required
+    def locate_schema!
+      SchemaLoader.locate or raise Error,
+        "no schema dump at #{schema_path} (.json/.graphql/.gql) — pass schema:, or cache one: GraphWeaver.new(url, cache: true).schema"
+    end
+    private :locate_schema!
 
     # (base, generated_source) per .graphql file in a directory
     def each_query(queries, schema:, executor:)
@@ -211,35 +188,32 @@ module GraphWeaver
     # falling back to "Query" for anonymous operations — collisions are
     # impossible since each parse gets its own container). Pass name: to
     # override, executor: to set the module's transport.
-    def parse(schema:, query:, name: nil, executor: nil)
+    def parse(schema:, query:, name: nil, executor: nil, scalars: nil)
       if query.end_with?(".graphql", ".gql")
         name ||= "#{Inflect.camelize(File.basename(query, ".*"))}Query"
         query = File.read(query)
       end
 
-      Codegen.parse(schema:, query:, module_name: name, executor:)
+      Codegen.parse(schema:, query:, module_name: name, executor:, scalars:)
     end
 
-    # One-shot dynamic execution — no module handling, no build step:
+    # One-shot dynamic execution — a throwaway client, no build step:
     #
-    #      GraphWeaver.execute(schema:, query:, variables: { id: "1" })   # => Response
-    #      GraphWeaver.execute!(schema:, query:, variables: { id: "1" })  # => Result (or raise)
+    #      GraphWeaver.execute(schema, "query($id: ID!) { ... }", variables: { id: "1" })  # => Response
+    #      GraphWeaver.execute!(url, "query { viewer { login } }")   # => Result (or raise)
     #
-    # Mirrors a generated module: execute returns the Response envelope,
-    # execute! returns the typed result directly and raises QueryError on
-    # top-level errors. Transport precedence: executor: param, then
-    # GraphWeaver.executor, then in-process execution against schema.
-    # Variable keys may be graphql-cased strings or ruby symbols.
-    def execute(schema:, query:, variables: {}, executor: nil)
-      executor ||= @executor || schema
-      mod = parse(schema:, query:, executor:)
-      kwargs = variables.to_h { |key, value| [Inflect.underscore(key.to_s).to_sym, value] }
-      mod.execute(**kwargs)
+    # The first argument is a url or schema source, exactly as
+    # GraphWeaver.new; this is Client#execute on a client you don't keep.
+    # (A url source introspects the schema on every call — keep a client
+    # for more than one query.) execute returns the Response envelope,
+    # execute! the typed result, raising QueryError on top-level errors.
+    def execute(source, query, variables: {}, executor: nil)
+      Client.new(source, executor:).execute(query, variables:)
     end
 
     # execute + data! — the typed result, or a raised QueryError. See execute.
-    def execute!(schema:, query:, variables: {}, executor: nil)
-      execute(schema:, query:, variables:, executor:).data!
+    def execute!(source, query, variables: {}, executor: nil)
+      execute(source, query, variables:, executor:).data!
     end
   end
 end

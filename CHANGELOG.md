@@ -1,4 +1,19 @@
 ###  unreleased
+- GraphWeaver::Client — transport, schema, and scalars for one server in
+  one object: GraphWeaver.new(url_or_schema) takes a url (transport
+  built, schema introspected lazily per cache:/ttl:) or a schema source
+  (live class — also the in-process executor — or a path/SDL/dump);
+  #parse and #execute/#execute! bind the implicit schema + transport;
+  #register_scalar scopes scalar mappings to the client (overlaying the
+  global registry), so two servers can disagree about a scalar type
+- BREAKING: GraphWeaver.connect removed — GraphWeaver.new(url) replaces
+  it (wire generated modules with GraphWeaver.executor = client.executor)
+- BREAKING: the one-shots are now GraphWeaver.execute(url_or_schema,
+  query, variables:) / execute! — Client#execute on a throwaway client
+- Introspected schema dumps record provenance (source url + timestamp):
+  an SDL header comment, a "graph_weaver" sibling key in JSON
+- generate!/verify_generated!/rake auto-locate the schema dump at
+  schema_path in any supported format; SchemaLoader.locate is public
 - Calling a result field by its camelCase wire name raises a pointed
   NoMethodError naming the snake_case prop that does exist
   (result.addPet => "use 'add_pet'") — the runtime companion to srb tc's

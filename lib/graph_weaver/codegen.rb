@@ -41,12 +41,14 @@ class GraphWeaver::Codegen
   # to GraphWeaver.executor. module_name: defaults to the operation's
   # name; default_module_name: is parse's container-scoped fallback (file
   # generation stays strict — a checked-in file deserves a deliberate
-  # name).
-  def initialize(schema:, query:, module_name: nil, executor: nil, default_module_name: nil)
+  # name). scalars: is a client-scoped overlay ({name => ScalarType})
+  # consulted before the global registry.
+  def initialize(schema:, query:, module_name: nil, executor: nil, default_module_name: nil, scalars: nil)
     @schema = schema
     @query = query.strip
     @module_name = module_name
     @default_module_name = default_module_name
+    @scalars = scalars || {}
     @executor_const = self.class.executor_const(executor)
 
     if executor && @executor_const.nil?
@@ -66,8 +68,8 @@ class GraphWeaver::Codegen
   end
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, executor: nil)
-    new(schema:, query:, module_name:, executor:).generate
+  def self.generate(schema:, query:, module_name: nil, executor: nil, scalars: nil)
+    new(schema:, query:, module_name:, executor:, scalars:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -75,10 +77,10 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # executor: additionally accepts a live object (set via .executor=).
-  def self.parse(schema:, query:, module_name: nil, executor: nil)
+  def self.parse(schema:, query:, module_name: nil, executor: nil, scalars: nil)
     executor_const = executor_const(executor)
 
-    codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query")
+    codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query", scalars:)
     source = codegen.generate
 
     container = Module.new
@@ -203,7 +205,7 @@ class GraphWeaver::Codegen
       prop = underscore(key)
 
       child = if field_name == "__typename"
-        NonNull.new(Scalar.new("String"))
+        NonNull.new(scalar_node("String"))
       else
         field_type = @schema.get_field(type.graphql_name, field_name).type
         sub_selections = field_nodes.flat_map(&:selections)
@@ -313,9 +315,11 @@ class GraphWeaver::Codegen
 
   # A Scalar node, recording any requires its registered type needs so the
   # generated file can require them (collected across the whole query).
+  # Resolution: the client-scoped overlay first, then the global registry.
   def scalar_node(name)
-    @scalar_requires.concat(GraphWeaver::Codegen.scalar(name).requires)
-    Scalar.new(name)
+    scalar = @scalars[name.to_s] || GraphWeaver::Codegen.scalar(name)
+    @scalar_requires.concat(scalar.requires)
+    Scalar.new(scalar)
   end
 
   # rebuild the NON_NULL/LIST wrappers around the core node

@@ -17,14 +17,13 @@ require_relative "../graph_weaver"
 namespace :graph_weaver do
   desc "Generate typed query modules (#{GraphWeaver.queries_path} -> #{GraphWeaver.generated_path})"
   task :generate do
-    schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
-    GraphWeaver.generate!(schema:).each { |path| puts "wrote #{path}" }
+    # schema auto-located at GraphWeaver.schema_path, any supported extension
+    GraphWeaver.generate!.each { |path| puts "wrote #{path}" }
   end
 
   desc "Verify generated query modules are up to date"
   task :verify do
-    schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
-    GraphWeaver.verify_generated!(schema:)
+    GraphWeaver.verify_generated!
     puts "generated queries up to date"
   end
 

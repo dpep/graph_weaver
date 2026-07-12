@@ -31,11 +31,7 @@ describe "Countries API", :integration do
   end
 
   it "handles lists and one-shot execution" do
-    result = GraphWeaver.execute(
-      schema:,
-      executor:,
-      query: "query { continents { name } }",
-    )
+    result = GraphWeaver.execute(schema, "query { continents { name } }", executor:)
 
     expect(result.data!.continents.map(&:name)).to include("Africa", "Europe", "Oceania")
   end

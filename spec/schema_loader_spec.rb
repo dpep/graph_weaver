@@ -48,6 +48,15 @@ describe GraphWeaver::SchemaLoader do
     expect { described_class.load("not a schema at all") }.to raise_error(ArgumentError)
   end
 
+  describe ".locate" do
+    it "loads the conventional dump in whatever format exists" do
+      expect(described_class.locate(File.join(@dir, "schema.json"))).to be_nil
+
+      File.write(File.join(@dir, "schema.graphql"), Demo::Schema.to_definition)
+      codegen_parity(described_class.locate(File.join(@dir, "schema.json")))
+    end
+  end
+
   describe ".introspect" do
     # counts how many introspections actually hit the "network"
     let(:counting_executor) do
@@ -147,6 +156,34 @@ describe GraphWeaver::SchemaLoader do
       codegen_parity(schema)
     ensure
       GraphWeaver.schema_path = nil
+    end
+
+    it "records provenance when the executor knows its url" do
+      with_url = Class.new do
+        def url = "https://api.example.com/graphql"
+
+        def execute(query, variables:)
+          Demo::Schema.execute(query, variables:)
+        end
+      end
+
+      # distinct basenames: a fresh sibling dump in another format would
+      # otherwise satisfy the cache and skip the write
+      sdl_path = File.join(@dir, "sdl.graphql")
+      described_class.introspect(with_url.new, cache: sdl_path)
+      expect(File.read(sdl_path)).to match(%r{\A# Introspected from https://api.example.com/graphql at \d{4}-})
+      codegen_parity(described_class.load(sdl_path)) # the header comment is valid SDL
+
+      json_path = File.join(@dir, "wire.json")
+      described_class.introspect(with_url.new, cache: json_path)
+      meta = JSON.parse(File.read(json_path))["graph_weaver"]
+      expect(meta["url"]).to eq "https://api.example.com/graphql"
+      codegen_parity(described_class.load(json_path)) # the sibling key is ignored on load
+
+      # executors without a url (schema classes, fakes) stay unannotated
+      plain_path = File.join(@dir, "plain.json")
+      described_class.introspect(counting_executor, cache: plain_path)
+      expect(JSON.parse(File.read(plain_path))).not_to have_key "graph_weaver"
     end
 
     it "refreshes the cache when the ttl has elapsed" do

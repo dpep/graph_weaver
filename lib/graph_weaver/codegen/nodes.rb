@@ -6,8 +6,10 @@
 # cast/serialize code to emit.
 class GraphWeaver::Codegen
   class Scalar
-    def initialize(name)
-      @scalar = GraphWeaver::Codegen.scalar(name)
+    # takes a resolved ScalarType — the generator picks it from the
+    # client-scoped overlay or the global registry
+    def initialize(scalar_type)
+      @scalar = scalar_type
     end
 
     def bare_type

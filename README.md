@@ -41,14 +41,14 @@ result.person&.nmae       # => srb tc: Method `nmae` does not exist
 ```ruby
 require "graph_weaver"
 
-# one-shot setup: best transport (Faraday when loaded), auth, retries, wired in
-GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
+# a client for one server: transport (Faraday when loaded), auth, and a
+# lazily introspected schema. The first argument is a url or any schema
+# source — a live schema class, or a .json/.graphql dump
+api = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"], cache: true)
 
-# generate from any schema source
-schema = GraphWeaver::SchemaLoader.load("schema.json")   # or .graphql SDL, or a live class
-
+# generate checked-in typed modules
 source = GraphWeaver::Codegen.generate(
-  schema:,
+  schema: api.schema,
   query: File.read("queries/person.graphql"),
   module_name: "PersonQuery",
 )
@@ -60,9 +60,9 @@ PersonQuery.execute(id: "1", executor: other)       # or per call
 ```
 
 Module names derive from the operation name (`query GetPerson` →
-`GetPerson`) or, for `GraphWeaver.parse` on a `.graphql` file, from the
-file name; pass `module_name:`/`name:` to override. Pass `executor:` (a
-constant) to bake a default transport into the generated module.
+`GetPerson`) or, for `parse` on a `.graphql` file, from the file name;
+pass `module_name:`/`name:` to override. Pass `executor:` (a constant) to
+bake a default transport into the generated module.
 
 Prefer Faraday? It's opt-in (`gem "faraday"` in your Gemfile):
 
@@ -83,12 +83,12 @@ In development, skip the build step entirely:
 
 ```ruby
 # parse a query into a typed module on the fly — a .graphql path or a raw string
-PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
-PeopleQuery = GraphWeaver.parse(schema:, query: "query { people { name } }")
+PersonQuery = api.parse("queries/person.graphql")
+PeopleQuery = api.parse("query { people { name } }")
 PersonQuery.execute(id: "1")
 
 # or one-shot, no module at all
-GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
+api.execute!("query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
 ```
 
 
@@ -99,7 +99,7 @@ GraphWeaver.execute(schema:, query: "query($id: ID!) { person(id: $id) { name } 
   `@skip`/`@include`, naming, executors, dynamic mode
 - **[Against a real API](docs/real_world.md)** — introspect a live endpoint
   (GitHub end to end), schema caching
-- **[Transports](docs/transports.md)** — connect, the executor contract,
+- **[Transports](docs/transports.md)** — clients, the executor contract,
   Faraday, retries and backoff
 - **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
   requires, input coercion

@@ -93,12 +93,38 @@ module GraphWeaver::SchemaLoader
       # the extension picks the format: .json is the verbatim wire
       # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
       # diffs (both generate byte-identical code)
-      content = cache.end_with?(".json") ? JSON.generate(result) : schema.to_definition
+      content = if cache.end_with?(".json")
+        JSON.generate(provenance(executor) ? result.merge("graph_weaver" => provenance(executor)) : result)
+      else
+        header = provenance(executor)&.then do |meta|
+          "# Introspected from #{meta["url"]} at #{meta["introspected_at"]}\n\n"
+        end
+        "#{header}#{schema.to_definition}"
+      end
       File.write(cache, content)
     end
 
     schema
   end
+
+  # The conventional schema dump, whatever its format: schema_path or the
+  # first sibling extension that exists, loaded. nil when none is on disk.
+  def self.locate(path = GraphWeaver.schema_path)
+    found = cache_candidates(path).find { |candidate| File.exist?(candidate) }
+    found && load(found)
+  end
+
+  # Where a dump came from, recorded into the file so it can be
+  # re-verified later — a header comment in SDL, a "graph_weaver" sibling
+  # key in introspection JSON (from_introspection reads only "data").
+  # nil when the executor has no url (schema classes, fakes).
+  def self.provenance(executor)
+    return unless executor.respond_to?(:url) && executor.url
+
+    require "time"
+    { "url" => executor.url, "introspected_at" => Time.now.utc.iso8601 }
+  end
+  private_class_method :provenance
 
   CACHE_EXTENSIONS = %w[.json .graphql .gql].freeze
 

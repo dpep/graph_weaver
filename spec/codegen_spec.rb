@@ -346,8 +346,8 @@ describe GraphWeaver::Codegen do
   describe "GraphWeaver.execute (one-shot)" do
     it "runs a query in-process with variables" do
       result = GraphWeaver.execute!(
-        schema: Demo::Schema,
-        query: "query($id: ID!) { person(id: $id) { name } }",
+        Demo::Schema,
+        "query($id: ID!) { person(id: $id) { name } }",
         variables: { id: "1" },
       )
 
@@ -355,20 +355,16 @@ describe GraphWeaver::Codegen do
     end
 
     it "execute returns the envelope, execute! the result" do
-      args = {
-        schema: Demo::Schema,
-        query: "query($id: ID!) { person(id: $id) { name } }",
-        variables: { id: "1" },
-      }
+      query = "query($id: ID!) { person(id: $id) { name } }"
 
-      expect(GraphWeaver.execute(**args)).to be_a GraphWeaver::Response
-      expect(GraphWeaver.execute!(**args).person&.name).to eq "Daniel"
+      expect(GraphWeaver.execute(Demo::Schema, query, variables: { id: "1" })).to be_a GraphWeaver::Response
+      expect(GraphWeaver.execute!(Demo::Schema, query, variables: { id: "1" }).person&.name).to eq "Daniel"
     end
 
     it "accepts graphql-cased variable keys" do
       result = GraphWeaver.execute!(
-        schema: Demo::Schema,
-        query: 'query($term: String!) { search(term: $term) { __typename ... on Named { name } } }',
+        Demo::Schema,
+        'query($term: String!) { search(term: $term) { __typename ... on Named { name } } }',
         variables: { "term" => "el" },
       )
 
@@ -388,8 +384,8 @@ describe GraphWeaver::Codegen do
       begin
         GraphWeaver.executor = recorder.new(recorded)
         result = GraphWeaver.execute!(
-          schema: Demo::Schema,
-          query: "query($id: ID!) { person(id: $id) { name } }",
+          Demo::Schema,
+          "query($id: ID!) { person(id: $id) { name } }",
           variables: { id: "1" },
         )
 
@@ -410,8 +406,8 @@ describe GraphWeaver::Codegen do
       begin
         GraphWeaver.executor = failing.new
         result = GraphWeaver.execute!(
-          schema: Demo::Schema,
-          query: "query($id: ID!) { person(id: $id) { name } }",
+          Demo::Schema,
+          "query($id: ID!) { person(id: $id) { name } }",
           variables: { id: "1" },
           executor: Demo::Schema,
         )

@@ -19,6 +19,7 @@ module GraphWeaver
       GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
 
       def initialize(url, headers: {})
+        @url = url
         @uri = URI(url)
         @headers = headers
       end

@@ -37,6 +37,7 @@ module GraphWeaver
           # Faraday appends the default adapter when the block doesn't set one
           ::Faraday.new(url: url_or_connection, headers:, &block)
         end
+        @url = @connection.url_prefix.to_s
       end
 
       private

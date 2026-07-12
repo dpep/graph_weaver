@@ -13,16 +13,17 @@ failures as `TransportError`, raise `ServerError` on non-2xx, parse the
 body. A subclass only implements `post(body) => [status, body]` — that's
 the whole recipe for bringing your own HTTP client.
 
-## One-shot setup: connect
+## One-shot setup: a client
 
 Most apps need one line:
 
 ```ruby
-GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
+github = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
 ```
 
-`connect` builds the best transport, applies auth, optionally wraps
-retries, wires the result in as `GraphWeaver.executor`, and returns it.
+`GraphWeaver.new` builds a [`Client`](real_world.md): the best transport
+with auth applied (exposed as `client.executor`), the schema introspected
+lazily, and `parse`/`execute` bound to both.
 
 - `auth:` — a token; "Bearer" is assumed unless the string carries its own
   scheme (`"Basic dXNlcjpwYXNz..."`)
@@ -31,17 +32,20 @@ retries, wires the result in as `GraphWeaver.executor`, and returns it.
   or a Hash of its options
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
+To wire generated modules that don't bake a transport, set the global
+default: `GraphWeaver.executor = github.executor`.
+
 **Transport pick**: `Transport::Faraday` when the app already loads
 faraday (its middleware/proxy/timeout ecosystem comes along), the
 zero-dependency `Transport::HTTP` otherwise. Detection is `defined?(Faraday)` —
 deliberately *not* a require: faraday rides along transitively in most
 bundles (stripe, octokit, ...), and try-requiring would silently switch
 transports on apps that never chose it. With faraday under
-`require: false`, load it before calling `connect`.
+`require: false`, load it before building the client.
 
 ## Building blocks
 
-`connect` is convenience, not the only door — construct and assign
+The client is convenience, not the only door — construct and assign
 yourself for full control:
 
 ```ruby
@@ -86,7 +90,7 @@ throttling can retry too (off by default — pass the codes your API uses).
 Exhausting `tries:` re-raises the last error (or returns the last
 code-matched response).
 
-Or via connect: `GraphWeaver.connect(url, retries: { tries: 5, retry_codes: ["THROTTLED"] })`.
+Or via the client: `GraphWeaver.new(url, retries: { tries: 5, retry_codes: ["THROTTLED"] })`.
 
 What classifies as a transport failure is an extensible set — see
 [errors](errors.md#programmatic-surfacing) (`GraphWeaver.register_transport_error`).

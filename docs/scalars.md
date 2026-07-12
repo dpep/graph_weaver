@@ -9,6 +9,11 @@ Ruby object (and serializes back when used as a variable). A field typed
 GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
 ```
 
+Registrations are global by default. A [client](transports.md) scopes
+them: `client.register_scalar(...)` overlays the global registry for that
+client's generation only — so two servers can disagree about what a
+`DateTime` is, and neither leaks into the other.
+
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
 

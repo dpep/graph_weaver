@@ -21,6 +21,10 @@ class GraphWeaver::Transport
   extend T::Helpers
   abstract!
 
+  # the endpoint this transport talks to — recorded into cached schema
+  # dumps as provenance (see SchemaLoader.introspect)
+  attr_reader :url
+
   def execute(query, variables: {})
     status, body = begin
       post(JSON.generate(query:, variables:))
