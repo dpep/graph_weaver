@@ -120,7 +120,7 @@ gem "graph_weaver"
 
 or
 
-```
+```sh
 gem install graph_weaver
 ```
 

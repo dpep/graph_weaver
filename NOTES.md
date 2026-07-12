@@ -25,7 +25,7 @@ order, each backed by a spec.
 
 The specs are the documentation — each one asserts an observed behavior:
 
-```
+```sh
 bundle exec rspec
 ```
 

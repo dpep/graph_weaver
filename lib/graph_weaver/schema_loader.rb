@@ -66,27 +66,31 @@ module GraphWeaver::SchemaLoader
       # default to the schema dump the generation workflow reads — one
       # file serves both (introspect caches it, rake generate loads it)
       cache = GraphWeaver.schema_path
-      unless cache.end_with?(".json")
-        raise ArgumentError,
-          "cache: true writes introspection JSON to GraphWeaver.schema_path, but it's #{cache} — point it at a .json file or pass an explicit cache: path"
-      end
     end
 
-    if cache && fresh?(cache, ttl)
-      return GraphQL::Schema.from_introspection(JSON.parse(File.read(cache)))
+    if cache && !cache.end_with?(".json", ".graphql", ".gql")
+      raise ArgumentError, "cache: must be a .json or .graphql/.gql path, got #{cache}"
     end
+
+    return load(cache) if cache && fresh?(cache, ttl)
 
     result = executor.execute(GraphQL::Introspection.query, variables: {}).to_h
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
     end
 
+    schema = GraphQL::Schema.from_introspection(result)
+
     if cache
       FileUtils.mkdir_p(File.dirname(cache))
-      File.write(cache, JSON.generate(result))
+      # the extension picks the format: .json is the verbatim wire
+      # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
+      # diffs (both generate byte-identical code)
+      content = cache.end_with?(".json") ? JSON.generate(result) : schema.to_definition
+      File.write(cache, content)
     end
 
-    GraphQL::Schema.from_introspection(result)
+    schema
   end
 
   def self.fresh?(path, ttl)

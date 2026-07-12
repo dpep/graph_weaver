@@ -14,6 +14,8 @@
   reset_scalars! ordering dance) — convertible built-ins take their
   conversion, cast/serialize pairs take parse-style coercion
 - SchemaLoader.introspect cache: true — caches at GraphWeaver.schema_path,
+  in the format the extension picks: .json (verbatim wire artifact) or
+  .graphql/.gql (SDL — human-readable, PR-reviewable diffs);
   the same dump rake graph_weaver:generate reads
 - docs/transports.md: connect, the executor contract, Faraday, retries
 - Cassette workflow: GRAPHWEAVER_RECORD=1 / config.record force

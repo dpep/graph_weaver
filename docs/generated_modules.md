@@ -11,7 +11,7 @@ files (the source of truth), generation writes the Ruby, and verification
 fails when the two drift. The conventional layout (configurable via
 `GraphWeaver.queries_path` / `generated_path` / `schema_path`):
 
-```
+```text
 app/graphql/
   schema.json        # introspection dump (or schema.graphql SDL)
   queries/           # *.graphql — hand-written, reviewed
@@ -21,7 +21,7 @@ app/graphql/
 Rake tasks (add `require "graph_weaver/tasks"` to your Rakefile; register
 custom scalars first — they're baked into generated source):
 
-```
+```sh
 rake graph_weaver:generate    # queries_path -> generated_path
 rake graph_weaver:verify      # fail if anything is stale — run in CI
 ```

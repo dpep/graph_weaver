@@ -100,12 +100,23 @@ describe GraphWeaver::SchemaLoader do
       expect(counting_executor.calls).to eq 1
       expect(File).to exist(path)
 
-      GraphWeaver.schema_path = File.join(@dir, "schema.graphql")
       expect {
-        described_class.introspect(counting_executor, cache: true)
-      }.to raise_error(ArgumentError, /\.json/)
+        described_class.introspect(counting_executor, cache: File.join(@dir, "schema.yaml"))
+      }.to raise_error(ArgumentError, /\.json or \.graphql/)
     ensure
       GraphWeaver.schema_path = nil
+    end
+
+    it "caches as SDL when the path says .graphql — reviewable dumps" do
+      path = File.join(@dir, "schema.graphql")
+
+      first = described_class.introspect(counting_executor, cache: path)
+      expect(File.read(path)).to match(/^type Person/m) # SDL, not JSON
+
+      cached = described_class.introspect(counting_executor, cache: path)
+      expect(counting_executor.calls).to eq 1
+      codegen_parity(first)
+      codegen_parity(cached) # SDL round-trip generates identically
     end
 
     it "refreshes the cache when the ttl has elapsed" do
