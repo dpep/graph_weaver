@@ -57,15 +57,17 @@ needs both a cast and a serialize. Off by default — the strict typed kwarg is 
 a plain method is the whole story — `coerce: :to_f` makes a variable accept
 `5`/`"5"` and `.to_f` it, sending a native number (not `"5.0"`) on the wire. The
 convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`,
-`ID`/`String`→`:to_s`), so rather than re-registering each, flip them all on at
-once:
+`ID`/`String`→`:to_s`), so rather than opting in each, flip the default:
 
 ```ruby
-GraphWeaver.reset_scalars!(coerce: true)   # reload built-ins as coercible
-GraphWeaver.register_scalar("Money", ...)  # then add your own
+GraphWeaver.auto_coerce = true
 ```
 
-`Boolean` and `Date` have no lossless one-method conversion, so they stay strict.
+Resolved lazily at generation time (set it any time before you generate),
+it gives convertible built-ins their conversion and any scalar with a full
+cast/serialize pair (`Date`, your `Money`) parse-style coercion; an explicit
+`coerce:` on a registration always wins. `Boolean` has no lossless
+one-method conversion, so it stays strict.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
@@ -77,32 +79,68 @@ codegen-time concern, baked into the emitted source.
 ## Enums: map onto your own T::Enum
 
 By default each generated module grows its own `T::Enum` per GraphQL
-enum. When your app already owns the enum, register the mapping and
-generated code speaks yours instead — casting wire values in,
-serializing members out:
+enum — `AddPetQuery::Species`, `SearchQuery::Result::...::Species`, one
+per module that touches it. That's fine until your app has its own
+domain enum, and then the boundary shuffle starts:
 
 ```ruby
+# your domain already speaks PetKind — it's in your models, your
+# ActiveRecord enum column, your case statements
 class PetKind < T::Enum
   enums { Cat = new("cat"); Dog = new("dog") }
 end
 
-GraphWeaver.register_enum("Species", PetKind)      # global
-api.register_enums("Species" => PetKind, "Role" => Role)  # or per client, in bulk
-
-pet.species                                # => PetKind::Dog (yours, everywhere)
-AddPetQuery.execute!(species: PetKind::Cat)  # or "CAT" — members and wire values both work
+# without a mapping, every call site converts by hand, in both directions
+kind = PetKind.deserialize(pet.species.serialize.downcase)      # response -> domain
+AddPetQuery.execute!(species: kind.serialize.upcase)            # domain -> wire
 ```
 
+Two enums for one concept, glue at every crossing, and each generated
+module has its *own* incompatible `Species`, so a pet from `SearchQuery`
+and a pet from `AddPetQuery` don't even compare. Register the mapping
+once and the seam disappears — generated code speaks your enum
+everywhere, casting wire values in and serializing members out:
+
+```ruby
+GraphWeaver.register_enum("Species", PetKind)                # global
+api.register_enums("Species" => PetKind, "Role" => Role)     # or per client, in bulk
+
+pet.species                                   # => PetKind::Dog — compare, case, persist directly
+pet.species == other_pet.species              # same type across every query
+AddPetQuery.execute!(species: PetKind::Cat)   # or "CAT" — members and wire values both work
+```
+
+**When to reach for it**: the enum has a life outside the API — it's
+persisted, matched in business logic, or shared across queries. **When
+not to bother**: display-only values you read and forget; the per-module
+generated enums are self-contained and need zero setup.
+
 The mapping is inferred by name (`"CAT"` ↔ `PetKind::Cat`,
-case/underscore-insensitive against each member's serialized value);
-`map: { "CAT" => PetKind::Feline }` pins renames and merges over
-inference. Generation **fails naming any schema value that doesn't
-resolve** — exhaustiveness checked before runtime — unless
-`fallback: PetKind::Unknown` absorbs unknown wire values on cast
-(forward-compat for servers that add members; inputs stay strict, since a
-typo'd input is your bug, not drift). The translation tables are emitted
-into the generated source (`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) —
-reviewable, no runtime registry.
+case/underscore-insensitive against each member's serialized value), so
+aligned enums need only the one line. When names diverge, `map:` pins the
+exceptions and merges over inference:
+
+```ruby
+GraphWeaver.register_enum("Species", PetKind, map: { "FELINE" => PetKind::Cat })
+```
+
+Two safety properties do the real work:
+
+- **Exhaustiveness at generation**: every value the schema declares must
+  resolve to a member, or generation fails naming the gaps
+  (`PetKind has no member for Species value(s) DOG — add them, pin with
+  map:, or absorb with fallback:`). Your enum drifting from the server's
+  is caught at `rake graph_weaver:generate`, not in production.
+- **`fallback:` for forward-compat**: `fallback: PetKind::Unknown` makes
+  *casting* absorb wire values the server added after you generated —
+  responses keep flowing instead of raising. Inputs stay strict either
+  way: a typo'd input is your bug, not drift.
+
+The translation tables are emitted into the generated source
+(`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) — reviewable in the diff, no
+runtime registry. And because registration can be client-scoped, two
+servers with different ideas of `"Species"` can map onto different (or
+the same) domain enums without touching each other.
 
 ## Type helpers: your logic on generated structs
 

@@ -46,14 +46,15 @@ GraphWeaver.client = GraphWeaver.new(
 # custom scalars/enums/type helpers — register globally, so the rake
 # tasks bake them into generated source
 GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
-
-# require every generated module (explicit, factory_bot-style)
-GraphWeaver.load_generated!
 ```
 
 `GraphWeaver.client =` is the load-bearing line: generated modules
 without a baked transport resolve to it at execute time (the full
-[resolution order](transports.md#executor-resolution)).
+[resolution order](transports.md#executor-resolution)). The generated
+modules themselves load at boot automatically (the Railtie requires
+everything under `generated_path`, after your initializers run) —
+outside Rails, call `GraphWeaver.load_generated!` wherever your app
+boots.
 
 ## 4. Rake tasks — nothing to do
 

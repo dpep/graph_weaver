@@ -26,8 +26,11 @@ module BuiltinDemo
 end
 
 describe "built-in scalar coercion" do
-  # reset_scalars! restores the strict built-ins after each example.
-  after { GraphWeaver.reset_scalars! }
+  # restore strict built-ins and the lazy default after each example
+  after do
+    GraphWeaver.auto_coerce = nil
+    GraphWeaver.reset_scalars!
+  end
 
   let(:query) do
     <<~GRAPHQL
@@ -49,8 +52,8 @@ describe "built-in scalar coercion" do
     expect(source).not_to include("amount.to_f")
   end
 
-  it "reset_scalars!(coerce: true) reloads the built-ins as coercible" do
-    GraphWeaver.reset_scalars!(coerce: true)
+  it "auto_coerce gives the convertible built-ins their conversion" do
+    GraphWeaver.auto_coerce = true
 
     float = GraphWeaver::Codegen.scalar("Float")
     expect(float.coerce?).to be true
@@ -59,7 +62,7 @@ describe "built-in scalar coercion" do
   end
 
   it "widens the sig and converts each variable when coercion is on" do
-    GraphWeaver.reset_scalars!(coerce: true)
+    GraphWeaver.auto_coerce = true
 
     source = generate
 
@@ -76,7 +79,7 @@ describe "built-in scalar coercion" do
   end
 
   it "coerces raw inputs end to end, sending native wire values" do
-    GraphWeaver.reset_scalars!(coerce: true)
+    GraphWeaver.auto_coerce = true
 
     mod = GraphWeaver.parse(
       schema: BuiltinDemo::Schema,
@@ -91,11 +94,11 @@ describe "built-in scalar coercion" do
     expect(echo).to eq "Float:5.5 Integer:3 String:42 String:3.5"
   end
 
-  it "leaves Boolean and Date strict even with coerce: true" do
-    GraphWeaver.reset_scalars!(coerce: true)
+  it "auto_coerce: Boolean stays strict (no lossless conversion); Date takes parse-style coercion" do
+    GraphWeaver.auto_coerce = true
 
     expect(GraphWeaver::Codegen.scalar("Boolean").coerce?).to be false
-    expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be false
+    expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be true
   end
 
   it "rejects a non-boolean, non-symbol coerce:" do

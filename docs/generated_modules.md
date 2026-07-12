@@ -50,13 +50,15 @@ GraphWeaver.generate!(schema:)            # write the modules
 GraphWeaver.verify_generated!(schema:)    # the freshness guard, one line in a spec
 ```
 
-Loading is explicit, factory_bot-style — one line, only when you call it:
+In Rails, loading is automatic — the Railtie requires every file under
+`generated_path` at boot, after your initializers (so registrations run
+first). Elsewhere it's explicit, factory_bot-style:
 
 ```ruby
 GraphWeaver.load_generated!   # require every file under generated_path
 ```
 
-(In Rails, prefer this over autoloading: Zeitwerk would expect
+(Plain requires, not Zeitwerk: Zeitwerk would expect
 `Generated::PersonQuery` from `generated/person_query.rb`, and generated
 code only changes on regeneration — restart, like a schema migration.)
 

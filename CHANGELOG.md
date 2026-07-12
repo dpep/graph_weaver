@@ -1,7 +1,12 @@
 ###  unreleased
 - Rails Railtie: the graph_weaver:* rake tasks self-register (no
-  Rakefile edit) and depend on :environment; outside Rails, require
-  "graph_weaver/tasks" as before
+  Rakefile edit) and depend on :environment, and generated modules load
+  at boot (after initializers) when generated_path exists; outside
+  Rails, require "graph_weaver/tasks" and call load_generated! as before
+- BREAKING (vs 0.1.0): reset_scalars! lost its coerce: flavor —
+  GraphWeaver.auto_coerce = true is the one way to default-coerce
+  (broader: convertible built-ins AND full cast/serialize scalars,
+  resolved lazily, per-registration coerce: still wins)
 - GraphWeaver.client= — the blessed global wiring: assign the app's
   default client and generated modules resolve through it (per call ->
   per module -> baked -> executor= -> client). executor= stays as the

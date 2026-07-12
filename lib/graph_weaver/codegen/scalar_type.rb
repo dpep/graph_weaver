@@ -219,14 +219,12 @@ class GraphWeaver::Codegen
     end
 
     # Drop every custom registration and restore the built-in scalars — the
-    # clean slate to reach for between tests, or to undo overrides. Pass
-    # coerce: true to reload the built-ins with input coercion enabled
-    # (Float accepts 5/"5" and .to_f's it, etc.), then register your own
-    # scalars on top — a one-liner alternative to re-registering each
-    # built-in by hand.
-    def reset_scalars!(coerce: false)
+    # clean slate to reach for between tests, or to undo overrides. (Want
+    # the built-ins to coerce loose input? That's GraphWeaver.auto_coerce,
+    # resolved at generation time — no re-registering.)
+    def reset_scalars!
       clear_scalars!
-      register_builtin_scalars!(coerce:)
+      register_builtin_scalars!
       self
     end
 
@@ -236,17 +234,14 @@ class GraphWeaver::Codegen
     # matches nothing and leaves them identity — which is exactly why we
     # can name them with the real class constants. Date deserializes via
     # ISO-8601 (it *does* define .parse, but we want iso8601 specifically,
-    # so it's explicit).
-    #
-    # coerce: true opts the convertible scalars into input coercion via a
-    # plain conversion method (to_f/to_i/to_s); the wire value stays native
-    # (a Float, not "5.0"). Boolean and Date have no lossless one-method
-    # conversion, so they stay strict either way.
-    def register_builtin_scalars!(coerce: false)
-      register_scalar "ID", String, coerce: (:to_s if coerce)
-      register_scalar "String", String, coerce: (:to_s if coerce)
-      register_scalar "Int", Integer, coerce: (:to_i if coerce)
-      register_scalar "Float", Float, coerce: (:to_f if coerce)
+    # so it's explicit). Input coercion is a generation-time concern:
+    # GraphWeaver.auto_coerce gives the convertible built-ins their
+    # conversion (see ScalarType::AUTO_CONVERSIONS).
+    def register_builtin_scalars!
+      register_scalar "ID", String
+      register_scalar "String", String
+      register_scalar "Int", Integer
+      register_scalar "Float", Float
       register_scalar "Boolean", "T::Boolean"
       register_scalar "Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date"
     end
