@@ -134,7 +134,7 @@ describe "error handling" do
       expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
         expect(e.schema_stale?).to be true
         expect(e.message).to match(/schema may have changed since generation/)
-        expect(e.message).to match(%r{bin/generate})
+        expect(e.message).to match(/rake graph_weaver:schema:refresh/)
       end
     end
 

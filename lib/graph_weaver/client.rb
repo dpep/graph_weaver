@@ -38,6 +38,10 @@ class GraphWeaver::Client
       if auth || middleware || retries != false
         raise ArgumentError, "auth:/retries:/middleware apply to a url — got a schema source"
       end
+      if cache || ttl
+        # a schema source never introspects, so a cache would silently no-op
+        raise ArgumentError, "cache:/ttl: apply to url introspection — got a schema source"
+      end
 
       # a live schema class doubles as an in-process executor; a loaded
       # dump has no resolvers, so it is type information only
@@ -116,9 +120,12 @@ class GraphWeaver::Client
   end
 
   # Parse a query (a .graphql path or raw string) into a typed module
-  # bound to this client's schema, scalars, enums, helpers, and transport.
+  # bound to this client's schema, scalars, enums, helpers, and transport
+  # (including a live schema class executing in-process — the module came
+  # from this client, so it runs against it; pass executor: at execute
+  # time to override, e.g. with a fake).
   def parse(query, name: nil)
-    GraphWeaver.parse(schema:, query:, name:, executor: @executor,
+    GraphWeaver.parse(schema:, query:, name:, executor: own_executor,
       scalars: @scalars, enums: @enums, types: @types)
   end
 

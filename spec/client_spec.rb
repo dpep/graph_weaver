@@ -142,6 +142,14 @@ describe GraphWeaver::Client do
 
     it "rejects url-only options" do
       expect { GraphWeaver.new(Demo::Schema, auth: "t0ken") }.to raise_error(ArgumentError, /url/)
+      # a schema source never introspects — a cache would silently no-op
+      expect { GraphWeaver.new(Demo::Schema, cache: true) }.to raise_error(ArgumentError, /introspection/)
+    end
+
+    it "parsed modules run against the client's schema class" do
+      mod = GraphWeaver.new(Demo::Schema).parse("query Who { person(id: 1) { name } }")
+
+      expect(mod.execute!.person&.name).to eq "Daniel" # no global wiring needed
     end
   end
 

@@ -14,15 +14,19 @@
 #      rake graph_weaver:verify     # fail if generated files are stale (CI)
 require_relative "../graph_weaver"
 
+# in Rails, run app config first (initializers register scalars/enums/
+# helpers, and they're baked into generated source)
+GRAPH_WEAVER_DEPS = Rake::Task.task_defined?("environment") ? ["environment"] : []
+
 namespace :graph_weaver do
   desc "Generate typed query modules (#{GraphWeaver.queries_path} -> #{GraphWeaver.generated_path})"
-  task :generate do
+  task generate: GRAPH_WEAVER_DEPS do
     # schema auto-located at GraphWeaver.schema_path, any supported extension
     GraphWeaver.generate!.each { |path| puts "wrote #{path}" }
   end
 
   desc "Verify generated query modules are up to date"
-  task :verify do
+  task verify: GRAPH_WEAVER_DEPS do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
   end

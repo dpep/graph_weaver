@@ -171,8 +171,8 @@ module GraphWeaver
 
     # True when any error looks like the server rejected the query's
     # shape — the schema has likely changed since the module was
-    # generated. Regenerate (bin/generate) and/or refresh the schema
-    # cache (delete the cache: file, or wait out its ttl).
+    # generated. Refresh the schema dump and regenerate (rake
+    # graph_weaver:schema:refresh && rake graph_weaver:generate).
     def schema_stale?
       errors.any?(&:validation?)
     end
@@ -269,7 +269,7 @@ module GraphWeaver
     def summary
       first = errors.first
       more = errors.size > 1 ? " (and #{errors.size - 1} more)" : ""
-      drift = schema_stale? ? " — the server rejected the query shape: the schema may have changed since generation; regenerate modules (bin/generate) and/or refresh the schema cache" : ""
+      drift = schema_stale? ? " — the server rejected the query shape: the schema may have changed since generation; refresh the schema dump and regenerate (rake graph_weaver:schema:refresh && rake graph_weaver:generate)" : ""
       "GraphQL query failed: #{first}#{more}#{drift}"
     end
   end
