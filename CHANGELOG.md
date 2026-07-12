@@ -1,4 +1,11 @@
 ###  unreleased
+- BREAKING: an operation whose only variable is a required input object
+  (the Relay convention) now flattens the input's fields into execute's
+  kwargs — AdoptQuery.execute!(name:, species:) instead of
+  execute!(input: {...}); multi-variable / nullable-input operations
+  keep the input: kwarg (struct or hash)
+- Enum kwargs accept the T::Enum or its wire value (T.any(Enum, String))
+  everywhere — variables now match input-hash fields
 - BREAKING: HttpExecutor / FaradayExecutor are now Transport::HTTP /
   Transport::Faraday, subclasses of the new abstract GraphWeaver::Transport
   base, which owns the shared flow (encode, TransportError reclassify,

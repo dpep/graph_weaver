@@ -130,10 +130,11 @@ module AdoptQuery
     end
   end
 
-  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), executor: T.untyped).returns(GraphWeaver::Response[Result]) }
-  def self.execute(input:, executor: self.executor)
+  # $input's fields, flattened into kwargs (single input-object variable)
+  sig { params(name: String, species: T.any(Species, String), birthday: T.nilable(Date), nickname: T.nilable(String), executor: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(name:, species:, birthday: nil, nickname: nil, executor: self.executor)
     variables = {
-      "input" => AdoptionInput.coerce(input).serialize,
+      "input" => AdoptionInput.coerce({ birthday:, name:, nickname:, species: }).serialize,
     }
 
     raw = executor.execute(QUERY, variables: variables).to_h
@@ -144,8 +145,8 @@ module AdoptQuery
     )
   end
 
-  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), executor: T.untyped).returns(Result) }
-  def self.execute!(input:, executor: self.executor)
-    execute(input: input, executor: executor).data!
+  sig { params(name: String, species: T.any(Species, String), birthday: T.nilable(Date), nickname: T.nilable(String), executor: T.untyped).returns(Result) }
+  def self.execute!(name:, species:, birthday: nil, nickname: nil, executor: self.executor)
+    execute(name: name, species: species, birthday: birthday, nickname: nickname, executor: executor).data!
   end
 end

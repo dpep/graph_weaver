@@ -89,7 +89,7 @@ class GraphWeaver::Codegen
       out << "#{pad}end"
     end
 
-    def emit_execute(out, variables)
+    def emit_execute(out, variables, flatten: nil)
       out << "  @executor = T.let(nil, T.untyped)"
       out << ""
       out << "  class << self"
@@ -106,35 +106,49 @@ class GraphWeaver::Codegen
       out << "  end"
       out << ""
 
-      sig_params = variables.map do |var|
-        bare = var.node.coerce? ? var.node.coerce_input_type : var.node.bare_type
-        kwarg_type = var.required ? bare : "T.nilable(#{bare})"
-        "#{var.kwarg}: #{kwarg_type}"
+      # the kwarg surface: the input's fields when flattened, else one
+      # kwarg per declared variable — typed identically either way
+      params = flatten ? flatten.fields.partition(&:required).flatten : variables
+
+      sig_params = params.map do |param|
+        bare = param.node.coerce? ? param.node.coerce_input_type : param.node.bare_type
+        kwarg_type = param.required ? bare : "T.nilable(#{bare})"
+        "#{kwarg_name(param)}: #{kwarg_type}"
       end
       sig_params << "executor: T.untyped"
 
-      kwargs = variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
+      kwargs = params.map { |param| param.required ? "#{kwarg_name(param)}:" : "#{kwarg_name(param)}: nil" }
       kwargs << "executor: self.executor"
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # `execute(...).data!` — the typed result, or a raised QueryError.
-      forward = (variables.map { |var| "#{var.kwarg}: #{var.kwarg}" } + ["executor: executor"]).join(", ")
+      forward = (params.map { |param| "#{kwarg_name(param)}: #{kwarg_name(param)}" } + ["executor: executor"]).join(", ")
 
+      if flatten
+        out << "  # $#{variables.first.wire}'s fields, flattened into kwargs (single input-object variable)"
+      end
       out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.execute(#{kwargs.join(", ")})"
 
-      required, optional = variables.partition(&:required)
-      if required.empty?
-        out << "    variables = {}"
-      else
+      if flatten
+        fields = flatten.fields.map { |field| "#{field.prop}:" }.join(", ")
         out << "    variables = {"
-        required.each do |var|
-          out << "      #{var.wire.inspect} => #{variable_serialize(var)},"
-        end
+        out << "      #{variables.first.wire.inspect} => #{flatten.class_name}.coerce({ #{fields} }).serialize,"
         out << "    }"
-      end
-      optional.each do |var|
-        out << "    variables[#{var.wire.inspect}] = #{variable_serialize(var)} unless #{var.kwarg}.nil?"
+      else
+        required, optional = variables.partition(&:required)
+        if required.empty?
+          out << "    variables = {}"
+        else
+          out << "    variables = {"
+          required.each do |var|
+            out << "      #{var.wire.inspect} => #{variable_serialize(var)},"
+          end
+          out << "    }"
+        end
+        optional.each do |var|
+          out << "    variables[#{var.wire.inspect}] = #{variable_serialize(var)} unless #{var.kwarg}.nil?"
+        end
       end
 
       out << ""
@@ -150,6 +164,12 @@ class GraphWeaver::Codegen
       out << "  def self.execute!(#{kwargs.join(", ")})"
       out << "    execute(#{forward}).data!"
       out << "  end"
+    end
+
+    # a kwarg surface entry is a VarDef (.kwarg) or, when flattened, an
+    # InputNode::Field (.prop)
+    def kwarg_name(param)
+      param.respond_to?(:kwarg) ? param.kwarg : param.prop
     end
 
     def variable_serialize(var)

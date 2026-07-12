@@ -83,11 +83,11 @@ module AddPetQuery
     end
   end
 
-  sig { params(name: String, species: Species, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
+  sig { params(name: String, species: T.any(Species, String), executor: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.execute(name:, species:, executor: self.executor)
     variables = {
       "name" => name,
-      "species" => species.serialize,
+      "species" => (species.is_a?(Species) ? species : Species.deserialize(species)).serialize,
     }
 
     raw = executor.execute(QUERY, variables: variables).to_h
@@ -98,7 +98,7 @@ module AddPetQuery
     )
   end
 
-  sig { params(name: String, species: Species, executor: T.untyped).returns(Result) }
+  sig { params(name: String, species: T.any(Species, String), executor: T.untyped).returns(Result) }
   def self.execute!(name:, species:, executor: self.executor)
     execute(name: name, species: species, executor: executor).data!
   end

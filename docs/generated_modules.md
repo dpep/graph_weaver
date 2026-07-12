@@ -92,25 +92,37 @@ AddPetQuery.execute!(name: "Rex", species: AddPetQuery::Species::Dog)
 - required vs optional falls out of nullability and defaults: nullable or
   defaulted variables become optional kwargs (nil is omitted from the wire,
   so server-side defaults apply)
-- enum variables generate module-level `T::Enum`s and serialize themselves
+- enum variables generate module-level `T::Enum`s and accept the enum or
+  its wire value (`species: Species::Dog` or `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
 
-**Input objects** generate module-level `T::Struct`s with `serialize`
-(aliased as `to_h`) producing the wire hash — optional fields default nil and
-stay off the wire:
+**Input objects**: when an operation's only variable is a required input
+object (the Relay convention), the input's fields flatten straight into
+`execute`'s kwargs — no wrapper at the call site:
 
-```ruby
-input = AdoptQuery::AdoptionInput.new(name: "Rex", species: AdoptQuery::Species::Dog)
-AdoptQuery.execute!(input:)
-
-# or pass a plain hash straight to execute — .coerce normalizes and type-checks it at
-# the boundary (underscored Symbol/String keys; enums accept wire values;
-# nested inputs accept hashes)
-AdoptQuery.execute!(input: { name: "Rex", species: "DOG" })
+```graphql
+mutation($input: AdoptionInput!) { adopt(input: $input) { ... } }
 ```
 
-Nested inputs work (dependencies emit first); recursive input types are not
-yet supported.
+```ruby
+AdoptQuery.execute!(name: "Rex", species: "DOG", nickname: "Rexy")
+```
+
+The wrapping level is rebuilt on the wire, and each field type-checks
+exactly like a variable would. Operations with more than one variable (or
+a nullable input) keep the variable-per-kwarg surface — there the input
+kwarg accepts the generated `T::Struct` or a plain hash (`.coerce`
+normalizes underscored Symbol/String keys; enums accept wire values;
+nested inputs accept hashes):
+
+```ruby
+AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
+```
+
+The structs themselves are module-level (`AdoptQuery::AdoptionInput`) with
+`serialize` (aliased as `to_h`) producing the wire hash — optional fields
+default nil and stay off the wire. Nested inputs work (dependencies emit
+first); recursive input types are not yet supported.
 
 ## Selections
 

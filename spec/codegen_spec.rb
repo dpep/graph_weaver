@@ -164,43 +164,54 @@ describe GraphWeaver::Codegen do
       expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
     end
 
-    it "passes input objects as generated T::Structs, serializing to the wire" do
-      input = AdoptQuery::AdoptionInput.new(
-        name: "Rex",
-        species: AdoptQuery::Species::Dog,
-      )
-
-      pet = AdoptQuery.execute!(input:).adopt
+    it "flattens a single input-object variable into typed kwargs" do
+      pet = AdoptQuery.execute!(name: "Rex", species: AdoptQuery::Species::Dog).adopt
       expect(pet.name).to eq "Rex"
       expect(pet.species).to eq AdoptQuery::Result::Pet::Species::Dog
 
-      # optional fields ride along when set, stay off the wire when nil
+      # enums accept their wire value; optional fields ride along when
+      # set, stay off the wire when nil
+      expect(AdoptQuery.execute!(name: "Rex", species: "DOG", nickname: "Rexy").adopt.name).to eq "Rexy"
+
+      # bad shapes fail loudly at the boundary
+      expect { AdoptQuery.execute!(species: "DOG") }.to raise_error(ArgumentError)
+      expect { AdoptQuery.execute!(name: "Rex", species: "DRAGON") }.to raise_error(KeyError)
+    end
+
+    it "keeps the input: kwarg when other variables ride along" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: <<~GRAPHQL,
+          mutation($input: AdoptionInput!, $detail: Boolean!) {
+            adopt(input: $input) {
+              name
+              species @include(if: $detail)
+            }
+          }
+        GRAPHQL
+      )
+
+      pet = mod.execute!(input: { name: "Rex", species: "DOG" }, detail: false).adopt
+      expect(pet.name).to eq "Rex"
+      expect(pet.species).to be_nil
+    end
+
+    it "still generates the input struct — nested inputs, building by hand" do
       nicknamed = AdoptQuery::AdoptionInput.new(
         name: "Rex",
         species: AdoptQuery::Species::Dog,
         nickname: "Rexy",
       )
-      expect(AdoptQuery.execute!(input: nicknamed).adopt.name).to eq "Rexy"
-      expect(input.serialize).not_to have_key("nickname")
       expect(nicknamed.serialize).to include("nickname" => "Rexy", "species" => "DOG")
       expect(nicknamed.to_h).to eq nicknamed.serialize
-    end
 
-    it "coerces plain hashes into input structs, type-checked" do
-      # symbol keys, enum as wire value
-      pet = AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }).adopt
-      expect(pet.name).to eq "Rex"
-      expect(pet.species).to eq AdoptQuery::Result::Pet::Species::Dog
+      bare = AdoptQuery::AdoptionInput.new(name: "Rex", species: AdoptQuery::Species::Dog)
+      expect(bare.serialize).not_to have_key("nickname")
 
-      # string keys, enum instance, optional field
-      pet = AdoptQuery.execute!(
-        input: { "name" => "Rex", "species" => AdoptQuery::Species::Cat, "nickname" => "Rexy" },
-      ).adopt
-      expect(pet.name).to eq "Rexy"
-
-      # bad shapes fail loudly at the boundary
-      expect { AdoptQuery.execute!(input: { species: "DOG" }) }.to raise_error(TypeError)
-      expect { AdoptQuery.execute!(input: { name: "Rex", species: "DRAGON" }) }.to raise_error(KeyError)
+      # coerce: underscored Symbol/String keys, enums as wire values
+      coerced = AdoptQuery::AdoptionInput.coerce({ "name" => "Rex", species: "CAT" })
+      expect(coerced.species).to eq AdoptQuery::Species::Cat
     end
 
     it "omits optional variables from the wire when nil" do

@@ -159,13 +159,31 @@ class GraphWeaver::Codegen
     end
     emit_nested(root, out, 1)
     out << ""
-    emit_execute(out, variables)
+    emit_execute(out, variables, flatten: flatten_input(variables))
     out << "end"
 
     out.join("\n") + "\n"
   end
 
   private
+
+  # The Relay convention — an operation whose only variable is a required
+  # input object — reads better flattened: the input's fields become
+  # execute's kwargs directly, and the wrapping level is rebuilt on the
+  # wire. Multi-variable (or nullable-input) operations keep the
+  # variable-per-kwarg surface; "executor" is a reserved kwarg.
+  def flatten_input(variables)
+    return unless variables.size == 1
+
+    var = variables.first
+    return unless var.required && var.node.is_a?(NonNull)
+
+    input = var.node.of
+    return unless input.is_a?(InputNode)
+    return if input.fields.any? { |field| field.prop == "executor" }
+
+    input
+  end
 
   # Selection#each_field, collected by result key (codegen groups
   # repeated selections of one field so it can merge them)

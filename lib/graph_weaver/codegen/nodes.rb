@@ -181,13 +181,17 @@ class GraphWeaver::Codegen
     end
 
     def serialize_identity? = false
-    def coerce? = false
 
-    # enum fields in a plain hash accept the T::Enum or its wire value
-    def hash_coerce(expr, _depth)
+    # enums always coerce: a kwarg or hash field accepts the T::Enum or
+    # its wire value (deserialize raises on anything else)
+    def coerce? = true
+
+    def coerce(expr)
       "(#{expr}.is_a?(#{class_name}) ? #{expr} : #{class_name}.deserialize(#{expr}))"
     end
 
+    def coerce_input_type = "T.any(#{class_name}, String)"
+    def hash_coerce(expr, _depth) = coerce(expr)
     def hash_coerce_identity? = false
     def non_null? = false
     def nested = self
