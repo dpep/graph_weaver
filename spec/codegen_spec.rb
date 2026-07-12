@@ -173,6 +173,13 @@ describe GraphWeaver::Codegen do
       end
     end
 
+    it "suggests the nearest prop for a typo, in either casing" do
+      result = AddPetQuery.execute!(name: "Rex", species: "DOG")
+
+      expect { result.addPt }.to raise_error(NoMethodError, /did you mean 'add_pet'\?/)
+      expect { result.add_pet.nmae }.to raise_error(NoMethodError, /did you mean 'name'\?/)
+    end
+
     it "flattens a single input-object variable into typed kwargs" do
       pet = AdoptQuery.execute!(name: "Rex", species: AdoptQuery::Species::Dog).adopt
       expect(pet.name).to eq "Rex"

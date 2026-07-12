@@ -141,7 +141,9 @@ first); recursive input types are not yet supported.
 Props are always snake_case (`nameWithOwner` → `name_with_owner`). Reaching
 for the wire name is a classic stumble, so it fails helpfully at both
 layers: `srb tc` flags it statically, and at runtime (consoles, dynamic
-mode) the struct raises a NoMethodError naming the prop that does exist.
+mode) the struct raises a NoMethodError naming the prop that does exist —
+`use 'name_with_owner'` for the exact wire name, `did you mean ...?` for
+a near-miss typo in either casing.
 
 ## Naming
 
