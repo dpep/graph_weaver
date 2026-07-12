@@ -199,7 +199,7 @@ describe GraphWeaver::Client do
 
     it "overlays the global registry per client, without leaking" do
       client = GraphWeaver.new(Demo::Schema)
-      client.register_scalar("Date", type: String, cast: :itself, serialize: :itself)
+      client.register_scalar("Date", String, cast: :itself, serialize: :itself)
 
       # this client: Date stays a raw String off the wire
       expect(client.execute!(query).person&.birthday).to be_a String
@@ -216,7 +216,7 @@ describe GraphWeaver::Client do
     let(:mutation) { "mutation($species: Species!) { addPet(name: \"Rex\", species: $species) { species } }" }
 
     it "casts wire values into the registered app enum, and serializes back" do
-      client.register_enum("Species", type: PetKind)
+      client.register_enum("Species", PetKind)
 
       species = client.execute!(query).person&.pets&.map(&:species)
       expect(species).to eq [PetKind::Dog, PetKind::Cat]
@@ -231,14 +231,14 @@ describe GraphWeaver::Client do
     end
 
     it "checks exhaustiveness at generation, naming the gaps" do
-      client.register_enum("Species", type: CatsOnly)
+      client.register_enum("Species", CatsOnly)
 
       expect { client.parse(query) }
         .to raise_error(GraphWeaver::Error, /CatsOnly has no member for Species value\(s\) DOG/)
     end
 
     it "fallback: absorbs unknown wire values on cast; inputs stay strict" do
-      client.register_enum("Species", type: CatsOnly, fallback: CatsOnly::Cat)
+      client.register_enum("Species", CatsOnly, fallback: CatsOnly::Cat)
 
       species = client.execute!(query).person&.pets&.map(&:species)
       expect(species).to eq [CatsOnly::Cat, CatsOnly::Cat] # DOG absorbed
@@ -258,7 +258,7 @@ describe GraphWeaver::Client do
 
     it "includes registered modules into structs generated from the type" do
       client = GraphWeaver.new(Demo::Schema)
-      client.register_type("Pet", include: PetShouting)
+      client.register_type("Pet", PetShouting)
 
       pet = client.execute!(query).person&.pets&.first
       expect(pet&.shout).to eq "Shelby!"
@@ -267,6 +267,23 @@ describe GraphWeaver::Client do
       # scoped: another client's structs don't get the helpers
       other = GraphWeaver.new(Demo::Schema).execute!(query).person&.pets&.first
       expect(other).not_to respond_to(:shout)
+    end
+
+    it "builds a mixin from a block, auto-named for generated source" do
+      client = GraphWeaver.new(Demo::Schema)
+      client.register_type("Pet") do
+        def whisper = "#{name.downcase}..."
+      end
+
+      pet = client.execute!(query).person&.pets&.first
+      expect(pet&.whisper).to eq "shelby..."
+      expect(GraphWeaver::TypeHelpers.const_defined?(:Pet)).to be true
+
+      # a second block registration stacks under a fresh name
+      client.register_type("Pet") { def echo = name * 2 }
+      expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
+
+      expect { client.register_type("Pet") }.to raise_error(ArgumentError, /modules, or a block/)
     end
   end
 end

@@ -160,7 +160,7 @@ module GraphWeaver
     # rich Ruby object (and serializes back onto the wire when used as a
     # variable):
     #
-    #      GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
+    #      GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
     #
     # A field typed `Money` then generates `const :price, T.nilable(Money)`
     # and casts with `Money.parse(...)` in from_h. Pass a real class as
@@ -175,14 +175,14 @@ module GraphWeaver
     # serializing — it raises on bad input, so some safety survives. Built-in
     # scalars are pre-registered the same way, so this also overrides them.
     # Call before generating.
-    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: nil)
-      Codegen.register_scalar(graphql_name, type:, cast:, serialize:, requires:, coerce:)
+    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
+      Codegen.register_scalar(graphql_name, type, cast:, serialize:, requires:, coerce:)
     end
 
     # Map a GraphQL enum onto an app-owned T::Enum, so generated code
     # speaks YOUR enum — casting wire values in, serializing members out:
     #
-    #      GraphWeaver.register_enum("Species", type: PetKind)
+    #      GraphWeaver.register_enum("Species", PetKind)
     #
     # The mapping is inferred by name ("CAT" <-> PetKind::Cat); map: pins
     # renames, fallback: absorbs unknown wire values on cast (inputs stay
@@ -190,8 +190,8 @@ module GraphWeaver
     # Generation fails naming any schema value that doesn't resolve —
     # exhaustiveness checked ahead of runtime. Global; client.register_enum
     # scopes to one client.
-    def register_enum(graphql_name, type:, map: nil, fallback: nil, requires: nil)
-      Codegen.register_enum(graphql_name, type:, map:, fallback:, requires:)
+    def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
+      Codegen.register_enum(graphql_name, type, map:, fallback:, requires:)
     end
 
     # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
@@ -203,12 +203,19 @@ module GraphWeaver
     # GraphQL type — derived values live as methods next to the honest
     # wire data, and srb tc checks them against each query's selection:
     #
-    #      GraphWeaver.register_type("Pet", include: PetHelpers)
+    #      GraphWeaver.register_type("Pet", PetHelpers)
+    #
+    # Or build the mixin inline with a block (module_eval'd into an
+    # auto-named module — quick, but invisible to srb tc):
+    #
+    #      GraphWeaver.register_type("Pet") do
+    #        def display_name = "#{name} the pet"
+    #      end
     #
     # Additive (repeated and client-scoped registrations stack). Global;
     # client.register_type scopes to one client.
-    def register_type(graphql_name, include:, requires: nil)
-      Codegen.register_type(graphql_name, include:, requires:)
+    def register_type(graphql_name, *mixins, requires: nil, &block)
+      Codegen.register_type(graphql_name, *mixins, requires:, &block)
     end
 
     # Restore the built-in scalars, dropping every custom registration —

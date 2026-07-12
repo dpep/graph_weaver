@@ -45,7 +45,7 @@ GraphWeaver.client = GraphWeaver.new(
 
 # custom scalars/enums/type helpers — register globally, so the rake
 # tasks bake them into generated source
-GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
+GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 
 # require every generated module (explicit, factory_bot-style)
 GraphWeaver.load_generated!

@@ -3,17 +3,23 @@
   default client and generated modules resolve through it (per call ->
   per module -> baked -> executor= -> client). executor= stays as the
   low-level override, so test fakes still win
-- Enum mappings: register_enum("Species", type: PetKind) (+ bulk
+- Enum mappings: register_enum("Species", PetKind) (+ bulk
   register_enums, client-scoped variants) — generated code speaks YOUR
   T::Enum, with the wire mapping inferred by name, pinned via map:,
   exhaustiveness-checked at generation (fails naming gaps), and
   fallback: to absorb unknown wire values on cast (inputs stay strict);
   translation tables emitted into the source (X_FROM_WIRE / X_TO_WIRE)
-- Type helpers: register_type("Pet", include: PetHelpers) (global or
+- Type helpers: register_type("Pet", PetHelpers) (global or
   client-scoped, additive) — app-owned modules included into every
   struct generated from that GraphQL type, so derived values live as
   methods beside the honest wire data and srb tc checks them against
-  each query's selection
+  each query's selection. Or build the mixin inline with a block
+  (module_eval'd into an auto-named GraphWeaver::TypeHelpers constant —
+  quick decoration, invisible to srb tc)
+- BREAKING (vs 0.1.0): register_scalar takes the type positionally —
+  register_scalar("Money", Money, requires: ...) — matching the new
+  registrars: the GraphQL name + your Ruby type up front, options as
+  kwargs
 - GraphWeaver::Client — transport, schema, and scalars for one server in
   one object: GraphWeaver.new(url_or_schema) takes a url (transport
   built, schema introspected lazily per cache:/ttl:) or a schema source

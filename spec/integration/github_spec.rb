@@ -36,7 +36,7 @@ describe "GitHub API", :integration do
   end
 
   it "handles variables, nested selections, and custom scalars" do
-    GraphWeaver.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
+    GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 
     repo_query = GraphWeaver.parse(
       schema:,

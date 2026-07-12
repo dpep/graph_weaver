@@ -99,7 +99,7 @@ describe "built-in scalar coercion" do
   end
 
   it "rejects a non-boolean, non-symbol coerce:" do
-    expect { GraphWeaver.register_scalar("X", type: "X", coerce: 42) }
+    expect { GraphWeaver.register_scalar("X", "X", coerce: 42) }
       .to raise_error(ArgumentError, /coerce:/)
   end
 end

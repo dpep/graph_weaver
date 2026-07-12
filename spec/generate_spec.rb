@@ -125,7 +125,7 @@ describe "GraphWeaver.auto_coerce" do
     # VARIABLE would accept "2020-01-01" — output casting is unchanged
     expect(date_mod.execute!.people.first&.birthday).to be_a Date
 
-    GraphWeaver.register_scalar("Date", type: Date, cast: :iso8601, serialize: :iso8601, requires: "date", coerce: false)
+    GraphWeaver.register_scalar("Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date", coerce: false)
     expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be false # explicit false beats auto
   end
 

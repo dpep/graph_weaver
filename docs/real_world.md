@@ -23,7 +23,7 @@ github = GraphWeaver.new("https://api.github.com/graphql", auth: `gh auth token`
 
 # map GitHub's DateTime scalar onto Time (cast inferred from Time.parse) —
 # scoped to this client; GraphWeaver.register_scalar sets the global default
-github.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
+github.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 
 RepoQuery = github.parse(<<~GRAPHQL)
   query($owner: String!, $name: String!) {

@@ -56,7 +56,7 @@ class GraphWeaver::Codegen
 
     attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: nil)
+    def initialize(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
@@ -193,9 +193,9 @@ class GraphWeaver::Codegen
     # the accepted cast:/serialize:/requires: forms. Later registrations
     # win, so an app can override a built-in (e.g. map Date onto its own
     # type).
-    def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: nil)
+    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
       scalar_registry[graphql_name.to_s] =
-        ScalarType.new(graphql_name, type:, cast:, serialize:, requires:, coerce:)
+        ScalarType.new(graphql_name, type, cast:, serialize:, requires:, coerce:)
     end
 
     # The ScalarType for a scalar name; unknown scalars fall back to an
@@ -203,7 +203,7 @@ class GraphWeaver::Codegen
     # scalars outside the table.
     def scalar(graphql_name)
       scalar_registry.fetch(graphql_name.to_s) do
-        ScalarType.new(graphql_name, type: "T.untyped")
+        ScalarType.new(graphql_name, "T.untyped")
       end
     end
 
@@ -243,12 +243,12 @@ class GraphWeaver::Codegen
     # (a Float, not "5.0"). Boolean and Date have no lossless one-method
     # conversion, so they stay strict either way.
     def register_builtin_scalars!(coerce: false)
-      register_scalar "ID", type: String, coerce: (:to_s if coerce)
-      register_scalar "String", type: String, coerce: (:to_s if coerce)
-      register_scalar "Int", type: Integer, coerce: (:to_i if coerce)
-      register_scalar "Float", type: Float, coerce: (:to_f if coerce)
-      register_scalar "Boolean", type: "T::Boolean"
-      register_scalar "Date", type: Date, cast: :iso8601, serialize: :iso8601, requires: "date"
+      register_scalar "ID", String, coerce: (:to_s if coerce)
+      register_scalar "String", String, coerce: (:to_s if coerce)
+      register_scalar "Int", Integer, coerce: (:to_i if coerce)
+      register_scalar "Float", Float, coerce: (:to_f if coerce)
+      register_scalar "Boolean", "T::Boolean"
+      register_scalar "Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date"
     end
   end
 

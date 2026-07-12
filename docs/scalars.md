@@ -6,7 +6,7 @@ Ruby object (and serializes back when used as a variable). A field typed
 `Money.parse(...)` inline — no runtime reflection:
 
 ```ruby
-GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
+GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
 ```
 
 Registrations are global by default. A [client](transports.md) scopes
@@ -44,7 +44,7 @@ Pass `coerce: true` to let a variable of this scalar accept **either** the value
 object **or** its raw input, normalizing the latter through the cast:
 
 ```ruby
-GraphWeaver.register_scalar("Money", type: Money, coerce: true)
+GraphWeaver.register_scalar("Money", Money, coerce: true)
 # generated execute now takes T.any(Money, String); "12.00" is parsed
 StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the hood
 StoreQuery.execute(budget: Money.new(1200))  # passed straight through
@@ -86,7 +86,7 @@ class PetKind < T::Enum
   enums { Cat = new("cat"); Dog = new("dog") }
 end
 
-GraphWeaver.register_enum("Species", type: PetKind)      # global
+GraphWeaver.register_enum("Species", PetKind)      # global
 api.register_enums("Species" => PetKind, "Role" => Role)  # or per client, in bulk
 
 pet.species                                # => PetKind::Dog (yours, everywhere)
@@ -117,7 +117,7 @@ module PetHelpers
   def display_name = adult? ? "#{name} 🦴" : "#{name} 🐶"
 end
 
-GraphWeaver.register_type("Pet", include: PetHelpers)   # or api.register_type(...)
+GraphWeaver.register_type("Pet", PetHelpers)   # or api.register_type(...)
 
 pet.display_name   # => "Shelby 🦴"
 pet.name           # => "Shelby" — the wire value stays honest
@@ -129,3 +129,17 @@ the helpers against each query's actual selection — a helper that calls
 doubles as selection-completeness checking. Registrations are additive
 (global plus client-scoped stack), and fakes/cassettes get the behavior
 automatically since it lives on the struct.
+
+For quick decoration, build the mixin inline — the block is
+`module_eval`'d into a fresh module auto-named under
+`GraphWeaver::TypeHelpers` so generated files can reference it:
+
+```ruby
+api.register_type("Pet") do
+  def display_name = "#{name} 🐶"
+end
+```
+
+Same runtime behavior, one caveat: `srb tc` can't see into block-defined
+methods, so prefer a named module where static checking matters —
+complexity on demand.

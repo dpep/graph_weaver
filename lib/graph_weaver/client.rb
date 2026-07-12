@@ -12,7 +12,7 @@ require_relative "transport/http"
 # generation:
 #
 #      github = GraphWeaver.new("https://api.github.com/graphql", auth: token, cache: true)
-#      github.register_scalar("DateTime", type: Time, serialize: :iso8601, requires: "time")
+#      github.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 #
 #      RepoQuery = github.parse("queries/repo.graphql")   # implicit schema + transport
 #      github.execute!("query { viewer { login } }")      # one-shot
@@ -84,39 +84,31 @@ class GraphWeaver::Client
   # registry when this client generates code, so two clients can map the
   # same scalar name onto different Ruby types. Same signature as
   # GraphWeaver.register_scalar.
-  def register_scalar(graphql_name, type:, cast: nil, serialize: nil, requires: nil, coerce: nil)
+  def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
     @scalars[graphql_name.to_s] =
-      GraphWeaver::Codegen::ScalarType.new(graphql_name, type:, cast:, serialize:, requires:, coerce:)
+      GraphWeaver::Codegen::ScalarType.new(graphql_name, type, cast:, serialize:, requires:, coerce:)
   end
 
   # Client-scoped enum mapping: this client's generated code speaks your
   # T::Enum for the named GraphQL enum (see Codegen::EnumType — inference
   # by name, map: for renames, fallback: to absorb unknown wire values).
-  def register_enum(graphql_name, type:, map: nil, fallback: nil, requires: nil)
+  def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
     @enums[graphql_name.to_s] =
-      GraphWeaver::Codegen::EnumType.new(graphql_name, type:, map:, fallback:, requires:)
+      GraphWeaver::Codegen::EnumType.new(graphql_name, type, map:, fallback:, requires:)
   end
 
   # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
   def register_enums(mappings)
-    mappings.each { |graphql_name, type| register_enum(graphql_name, type:) }
+    mappings.each { |graphql_name, type| register_enum(graphql_name, type) }
   end
 
   # Client-scoped type helpers: include app-owned modules into every
-  # struct this client generates from the named GraphQL type. Additive
-  # with global registrations (GraphWeaver.register_type).
-  def register_type(graphql_name, include:, requires: nil)
-    mixins = Array(include)
-    mixins.each do |mixin|
-      unless mixin.is_a?(Module) && mixin.name
-        raise ArgumentError, "include: must be (an array of) named modules, got #{mixin.inspect}"
-      end
-    end
-
+  # struct this client generates from the named GraphQL type — pass
+  # modules, or a block to build one inline. Additive with global
+  # registrations (see GraphWeaver.register_type).
+  def register_type(graphql_name, *mixins, requires: nil, &block)
     entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [] }
-    entry[:mixins].concat(mixins)
-    entry[:requires].concat(Array(requires))
-    entry
+    GraphWeaver::Codegen.add_type_helpers(entry, graphql_name, mixins, requires, block)
   end
 
   # Parse a query (a .graphql path or raw string) into a typed module

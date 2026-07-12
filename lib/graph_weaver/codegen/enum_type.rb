@@ -9,7 +9,7 @@ class GraphWeaver::Codegen
   #        enums { Cat = new("cat"); Dog = new("dog") }
   #      end
   #
-  #      GraphWeaver.register_enum("Species", type: PetKind)
+  #      GraphWeaver.register_enum("Species", PetKind)
   #
   # The wire mapping is inferred by name ("CAT" <-> PetKind::Cat,
   # case/underscore-insensitive against each member's serialized value);
@@ -20,7 +20,7 @@ class GraphWeaver::Codegen
   class EnumType
     attr_reader :graphql_name, :type, :fallback, :requires
 
-    def initialize(graphql_name, type:, map: nil, fallback: nil, requires: nil)
+    def initialize(graphql_name, type, map: nil, fallback: nil, requires: nil)
       @graphql_name = graphql_name.to_s
       unless type.is_a?(Class) && type < T::Enum
         raise ArgumentError, "type: must be a T::Enum subclass, got #{type.inspect}"
@@ -74,13 +74,13 @@ class GraphWeaver::Codegen
   class << self
     # Map a GraphQL enum onto an app-owned T::Enum (see EnumType); the
     # global default — client.register_enum scopes to one client.
-    def register_enum(graphql_name, type:, map: nil, fallback: nil, requires: nil)
-      enum_registry[graphql_name.to_s] = EnumType.new(graphql_name, type:, map:, fallback:, requires:)
+    def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
+      enum_registry[graphql_name.to_s] = EnumType.new(graphql_name, type, map:, fallback:, requires:)
     end
 
     # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
     def register_enums(mappings)
-      mappings.each { |graphql_name, type| register_enum(graphql_name, type:) }
+      mappings.each { |graphql_name, type| register_enum(graphql_name, type) }
     end
 
     def enum_registry
@@ -90,25 +90,60 @@ class GraphWeaver::Codegen
     # Attach app-owned helper modules to every struct generated from a
     # GraphQL type — the logic stays in your code, generation wires it in:
     #
-    #      GraphWeaver.register_type("Pet", include: PetHelpers)
+    #      GraphWeaver.register_type("Pet", PetHelpers)
+    #
+    # Or build the mixin inline — the block is module_eval'd into a fresh
+    # module auto-named GraphWeaver::TypeHelpers::<Type>. Handy for quick
+    # decoration; srb tc can't see into block-defined methods, so prefer
+    # a named module where static checking matters:
+    #
+    #      GraphWeaver.register_type("Pet") do
+    #        def display_name = "#{name} the pet"
+    #      end
     #
     # Additive: repeated registrations (and client-scoped ones) stack.
-    def register_type(graphql_name, include:, requires: nil)
-      mixins = Array(include)
-      mixins.each do |mixin|
-        unless mixin.is_a?(Module) && mixin.name
-          raise ArgumentError, "include: must be (an array of) named modules, got #{mixin.inspect}"
-        end
-      end
-
+    def register_type(graphql_name, *mixins, requires: nil, &block)
       entry = type_registry[graphql_name.to_s] ||= { mixins: [], requires: [] }
-      entry[:mixins].concat(mixins)
-      entry[:requires].concat(Array(requires))
-      entry
+      add_type_helpers(entry, graphql_name, mixins, requires, block)
     end
 
     def type_registry
       @type_registry ||= {}
     end
+
+    # shared with Client#register_type: build/validate the mixins and
+    # append them to a registry entry
+    def add_type_helpers(entry, graphql_name, mixins, requires, block)
+      mixins = mixins.dup
+      mixins << helper_module(graphql_name, block) if block
+
+      raise ArgumentError, "pass one or more helper modules, or a block" if mixins.empty?
+      mixins.each do |mixin|
+        unless mixin.is_a?(Module) && mixin.name
+          raise ArgumentError, "type helpers must be named modules, got #{mixin.inspect}"
+        end
+      end
+
+      entry[:mixins].concat(mixins)
+      entry[:requires].concat(Array(requires))
+      entry
+    end
+
+    # a block-built mixin needs a name generated files can reference:
+    # GraphWeaver::TypeHelpers::Pet (suffixed on re-registration)
+    def helper_module(graphql_name, block)
+      base = GraphWeaver::Inflect.camelize(graphql_name.to_s)
+      name = base
+      count = 1
+      name = "#{base}V#{count += 1}" while GraphWeaver::TypeHelpers.const_defined?(name, false)
+      GraphWeaver::TypeHelpers.const_set(name, Module.new(&block))
+    end
+    private :helper_module
   end
+end
+
+module GraphWeaver
+  # Home of block-built type helpers (register_type with a block), which
+  # need constant names so generated files can reference them.
+  module TypeHelpers; end
 end

@@ -89,7 +89,7 @@ describe "custom scalar deserialization" do
   end
 
   it "infers cast (.parse) and serialize (#to_s) from a class type" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money)
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money)
 
     scalar = GraphWeaver::Codegen.scalar("Money")
     expect(scalar.type).to eq "MoneyDemo::Money"
@@ -103,7 +103,7 @@ describe "custom scalar deserialization" do
       def self.load(_str) = new
       def self.dump(_obj) = ""
     end
-    GraphWeaver.register_scalar("Blob", type: blob)
+    GraphWeaver.register_scalar("Blob", blob)
 
     scalar = GraphWeaver::Codegen.scalar("Blob")
     expect(scalar.cast("v")).to eq "Blob.load(v)"
@@ -111,7 +111,7 @@ describe "custom scalar deserialization" do
   end
 
   it "does not infer anything for plain types (no spurious #to_s serializer)" do
-    GraphWeaver.register_scalar("Money", type: String) # String has no .parse/.load
+    GraphWeaver.register_scalar("Money", String) # String has no .parse/.load
 
     scalar = GraphWeaver::Codegen.scalar("Money")
     expect(scalar.cast?).to be false
@@ -119,7 +119,7 @@ describe "custom scalar deserialization" do
   end
 
   it "opts out of inference with :itself" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, cast: :itself, serialize: :itself)
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money, cast: :itself, serialize: :itself)
 
     scalar = GraphWeaver::Codegen.scalar("Money")
     expect(scalar.cast?).to be false
@@ -127,7 +127,7 @@ describe "custom scalar deserialization" do
   end
 
   it "generates a Money-typed prop and inlines the inferred cast in from_h" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money)
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money)
 
     source = generate
 
@@ -138,7 +138,7 @@ describe "custom scalar deserialization" do
   end
 
   it "emits requires: atop the generated source, before the module" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "bigdecimal")
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "bigdecimal")
 
     source = generate
 
@@ -147,7 +147,7 @@ describe "custom scalar deserialization" do
   end
 
   it "round-trips a BigDecimal-backed object through serialize and cast" do
-    GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "bigdecimal")
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "bigdecimal")
 
     mod = GraphWeaver.parse(
       schema: MoneyDemo::Schema,
@@ -162,7 +162,7 @@ describe "custom scalar deserialization" do
   end
 
   it "accepts an explicit Proc cast and serialize, overriding inference" do
-    GraphWeaver.register_scalar("Money", type: "MoneyDemo::Money",
+    GraphWeaver.register_scalar("Money", "MoneyDemo::Money",
       cast: ->(expr) { "MoneyDemo::Money.new(#{expr})" },
       serialize: ->(expr) { "#{expr}.amount.to_s" })
 
@@ -172,7 +172,7 @@ describe "custom scalar deserialization" do
   end
 
   it "lets a later registration override an earlier one, including built-ins" do
-    GraphWeaver.register_scalar("Date", type: "MyDate", cast: :load)
+    GraphWeaver.register_scalar("Date", "MyDate", cast: :load)
 
     scalar = GraphWeaver::Codegen.scalar("Date")
     expect(scalar.type).to eq "MyDate"
@@ -197,41 +197,41 @@ describe "custom scalar deserialization" do
   end
 
   it "rejects malformed registrations" do
-    expect { GraphWeaver.register_scalar("X", type: 42) }
+    expect { GraphWeaver.register_scalar("X", 42) }
       .to raise_error(ArgumentError, /type:/)
-    expect { GraphWeaver.register_scalar("X", type: "X", cast: "nope") }
+    expect { GraphWeaver.register_scalar("X", "X", cast: "nope") }
       .to raise_error(ArgumentError, /cast:/)
-    expect { GraphWeaver.register_scalar("X", type: "X", serialize: 99) }
+    expect { GraphWeaver.register_scalar("X", "X", serialize: 99) }
       .to raise_error(ArgumentError, /serialize:/)
   end
 
   it "validates requires: is a String or Array of Strings" do
-    expect { GraphWeaver.register_scalar("X", type: "X", requires: 42) }
+    expect { GraphWeaver.register_scalar("X", "X", requires: 42) }
       .to raise_error(ArgumentError, /requires:/)
-    expect { GraphWeaver.register_scalar("X", type: "X", requires: ["ok", ""]) }
+    expect { GraphWeaver.register_scalar("X", "X", requires: ["ok", ""]) }
       .to raise_error(ArgumentError, /requires:/)
-    expect { GraphWeaver.register_scalar("X", type: "X", requires: ["bigdecimal"]) }
+    expect { GraphWeaver.register_scalar("X", "X", requires: ["bigdecimal"]) }
       .not_to raise_error
   end
 
   it "actually requires the path when a real class is given, catching typos" do
     # a real class means the runtime is loaded, so a bogus require is caught now
-    expect { GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "no_such_lib_zzz") }
+    expect { GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "no_such_lib_zzz") }
       .to raise_error(ArgumentError, /not loadable/)
 
     # a valid one loads (or no-ops if already loaded) without complaint
-    expect { GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, requires: "bigdecimal") }
+    expect { GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "bigdecimal") }
       .not_to raise_error
   end
 
   it "does not attempt the require for a type-name string (dep may be codegen-absent)" do
-    expect { GraphWeaver.register_scalar("Money", type: "MoneyDemo::Money", requires: "no_such_lib_zzz") }
+    expect { GraphWeaver.register_scalar("Money", "MoneyDemo::Money", requires: "no_such_lib_zzz") }
       .not_to raise_error
   end
 
   describe "coerce:" do
     it "accepts the value or its raw input, running the raw one through the cast" do
-      GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, coerce: true)
+      GraphWeaver.register_scalar("Money", MoneyDemo::Money, coerce: true)
 
       source = generate
 
@@ -242,7 +242,7 @@ describe "custom scalar deserialization" do
     end
 
     it "coerces a raw string input end to end, and passes a value through" do
-      GraphWeaver.register_scalar("Money", type: MoneyDemo::Money, coerce: true, requires: "bigdecimal")
+      GraphWeaver.register_scalar("Money", MoneyDemo::Money, coerce: true, requires: "bigdecimal")
 
       mod = GraphWeaver.parse(
         schema: MoneyDemo::Schema,
@@ -258,7 +258,7 @@ describe "custom scalar deserialization" do
     end
 
     it "requires both a cast and a serialize" do
-      expect { GraphWeaver.register_scalar("Money", type: String, coerce: true) } # String: no cast
+      expect { GraphWeaver.register_scalar("Money", String, coerce: true) } # String: no cast
         .to raise_error(ArgumentError, /coerce:/)
     end
   end
