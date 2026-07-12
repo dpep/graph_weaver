@@ -129,8 +129,3 @@ gem install graph_weaver
 
 - `make check` — regenerate spec fixtures, run specs, typecheck
 - `make integration` — one-off checks against the live GitHub and Countries APIs
-
-See `PLAN.md` for roadmap and `NOTES.md` for the research notebook this
-gem grew out of (an exploration of graphql-client internals — GraphWeaver
-is a standalone client, not an extension; it depends only on `graphql`
-and `sorbet-runtime`).
