@@ -1,8 +1,8 @@
 require "socket"
-require "graph_weaver/faraday_executor"
+require "graph_weaver/transport/faraday"
 require_relative "generated/person_query"
 
-describe GraphWeaver::FaradayExecutor do
+describe GraphWeaver::Transport::Faraday do
   include_context "graphql http server"
 
   it "builds a default connection from a url" do

@@ -1,4 +1,4 @@
-.PHONY: check generate test tc integration
+.PHONY: check generate test tc integration docs
 
 # full verify loop: regenerate, test, typecheck
 check: generate test tc
@@ -16,3 +16,8 @@ test:
 
 tc:
 	bundle exec srb tc
+
+# preview what rubydoc.info will render
+docs:
+	bundle exec yard doc
+	open doc/index.html

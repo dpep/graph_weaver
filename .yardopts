@@ -1,0 +1,6 @@
+--markup markdown
+--title GraphWeaver
+-
+docs/*.md
+CHANGELOG.md
+LICENSE

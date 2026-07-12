@@ -6,15 +6,15 @@ require_relative "errors"
 # Wraps any executor with configurable retries — composes like every
 # other executor, so it layers over HTTP, Faraday, or anything else:
 #
-#   executor = GraphWeaver::RetryExecutor.new(
-#     GraphWeaver::HttpExecutor.new(url),
-#     tries: 5,                        # total attempts, first included
-#     on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
-#     backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
-#     base: 0.5, max: 30,              # seconds; delays clamp at max:
-#     jitter: true,                    # randomize each delay by 50-100%
-#     retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
-#   )
+#      executor = GraphWeaver::RetryExecutor.new(
+#        GraphWeaver::Transport::HTTP.new(url),
+#        tries: 5,                        # total attempts, first included
+#        on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
+#        backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
+#        base: 0.5, max: 30,              # seconds; delays clamp at max:
+#        jitter: true,                    # randomize each delay by 50-100%
+#        retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
+#      )
 #
 # What retries, by default:
 #   - TransportError: always (the request never arrived)

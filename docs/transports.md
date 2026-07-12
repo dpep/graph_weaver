@@ -5,6 +5,14 @@ An executor is anything with `execute(query, variables:)` whose result
 implementation of that one contract — as is a schema class (in-process
 execution), a [FakeExecutor](testing.md), or anything you write.
 
+A *transport* is an executor that speaks GraphQL-over-HTTP. The bundled
+two — `Transport::HTTP` (net/http, zero dependencies, loaded by default)
+and `Transport::Faraday` (opt-in) — subclass `GraphWeaver::Transport`,
+which owns the shared flow: encode the request, reclassify network
+failures as `TransportError`, raise `ServerError` on non-2xx, parse the
+body. A subclass only implements `post(body) => [status, body]` — that's
+the whole recipe for bringing your own HTTP client.
+
 ## One-shot setup: connect
 
 Most apps need one line:
@@ -23,9 +31,9 @@ retries, wires the result in as `GraphWeaver.executor`, and returns it.
   or a Hash of its options
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
-**Transport pick**: Faraday when the app already loads it (its
-middleware/proxy/timeout ecosystem comes along), the built-in
-zero-dependency executor otherwise. Detection is `defined?(Faraday)` —
+**Transport pick**: `Transport::Faraday` when the app already loads
+faraday (its middleware/proxy/timeout ecosystem comes along), the
+zero-dependency `Transport::HTTP` otherwise. Detection is `defined?(Faraday)` —
 deliberately *not* a require: faraday rides along transitively in most
 bundles (stripe, octokit, ...), and try-requiring would silently switch
 transports on apps that never chose it. With faraday under
@@ -38,14 +46,14 @@ yourself for full control:
 
 ```ruby
 # zero-dependency Net::HTTP
-GraphWeaver::HttpExecutor.new(url, headers: { ... })
+GraphWeaver::Transport::HTTP.new(url, headers: { ... })
 
 # Faraday: a url (+ optional middleware block), or a ready connection
-GraphWeaver::FaradayExecutor.new(url) do |conn|
+GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.request :authorization, "Bearer", -> { Tokens.fetch }  # dynamic tokens
   conn.response :logger
 end
-GraphWeaver::FaradayExecutor.new(MyApp.faraday_connection)
+GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
 
 GraphWeaver.executor = ...   # the global default
 ```

@@ -3,7 +3,9 @@ require_relative "lib/graph_weaver/version"
 Gem::Specification.new do |s|
   s.authors     = ["Daniel Pepper"]
   s.description = "A typed GraphQL client for Ruby — generate Sorbet T::Structs from queries, with federation, extensibility, and testing in mind"
-  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin'`.split("\n")
+  # ".yardopts" explicitly: `git ls-files *` skips dotfiles, and
+  # rubydoc.info needs it shipped to render docstrings as markdown
+  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin'`.split("\n") + [".yardopts"]
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"
@@ -20,9 +22,11 @@ Gem::Specification.new do |s|
   s.add_development_dependency "faker"
   s.add_development_dependency "faraday"
   s.add_development_dependency "rake"
+  s.add_development_dependency "redcarpet" # yard --markup markdown
   s.add_development_dependency "rspec"
   s.add_development_dependency "simplecov"
   s.add_development_dependency "sorbet"
   s.add_development_dependency "tapioca"
   s.add_development_dependency "webrick"
+  s.add_development_dependency "yard"
 end

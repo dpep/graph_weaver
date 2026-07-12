@@ -7,9 +7,9 @@ require "json"
 # An executor that fabricates schema-correct responses for whatever query
 # arrives — the zero-setup way to test code built on generated modules:
 #
-#   fake = GraphWeaver::Testing::FakeExecutor.new(schema:)
-#   result = PersonQuery.execute!(id: "1", executor: fake)
-#   result.person.name  # => a plausible String, typed and castable
+#      fake = GraphWeaver::Testing::FakeExecutor.new(schema:)
+#      result = PersonQuery.execute!(id: "1", executor: fake)
+#      result.person.name  # => a plausible String, typed and castable
 #
 # Values are type-correct by construction (real enum values, valid
 # __typename members for unions/interfaces, iso8601 for date scalars), so
@@ -22,10 +22,10 @@ require "json"
 # also the way to simulate a corrupt payload — casting raises
 # GraphWeaver::TypeError.)
 #
-#   FakeExecutor.new(schema:, overrides: {
-#     "Person.name" => "Daniel",
-#     "email" => -> { "test@example.com" },
-#   })
+#      FakeExecutor.new(schema:, overrides: {
+#        "Person.name" => "Daniel",
+#        "email" => -> { "test@example.com" },
+#      })
 #
 # Partial failures: fail_at simulates a field-level error with
 # spec-correct null propagation — the field's error lands in the errors
@@ -33,8 +33,8 @@ require "json"
 # bubble past non-null positions to the nearest nullable ancestor, just
 # like a real server:
 #
-#   FakeExecutor.new(schema:, fail_at: "person.pets.name")
-#   FakeExecutor.new(schema:, fail_at: { path: "person.email", message: "hidden", code: "PRIVATE" })
+#      FakeExecutor.new(schema:, fail_at: "person.pets.name")
+#      FakeExecutor.new(schema:, fail_at: { path: "person.email", message: "hidden", code: "PRIVATE" })
 #
 # errors: appends verbatim top-level errors alongside the fake data.
 #
@@ -43,7 +43,7 @@ require "json"
 # so casting raises GraphWeaver::TypeError. One spec checks the failure
 # path; every other spec gets working data:
 #
-#   FakeExecutor.new(schema:, corrupt: "Person.birthday")
+#      FakeExecutor.new(schema:, corrupt: "Person.birthday")
 #
 # seed: makes a run reproducible (also seeds faker). Per-executor options
 # fall back to GraphWeaver::Testing.config.

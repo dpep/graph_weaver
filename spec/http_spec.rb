@@ -3,7 +3,7 @@ require_relative "generated/person_query"
 
 # Generated modules run against a remote server by swapping the executor:
 # same structs, same casting, HTTP transport.
-describe GraphWeaver::HttpExecutor do
+describe GraphWeaver::Transport::HTTP do
   include_context "graphql http server"
 
   let(:executor) { described_class.new(url) }

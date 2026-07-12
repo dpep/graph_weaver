@@ -119,6 +119,36 @@ describe GraphWeaver::SchemaLoader do
       codegen_parity(cached) # SDL round-trip generates identically
     end
 
+    it "cache: :graphql picks the format, anchored at GraphWeaver.schema_path" do
+      GraphWeaver.schema_path = File.join(@dir, "schema.json")
+
+      described_class.introspect(counting_executor, cache: :graphql)
+
+      expect(File).to exist(File.join(@dir, "schema.graphql"))
+      expect(File).not_to exist(File.join(@dir, "schema.json"))
+
+      expect {
+        described_class.introspect(counting_executor, cache: :yaml)
+      }.to raise_error(ArgumentError, /:json, :graphql, or :gql/)
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+
+    it "reuses a fresh dump in any format instead of re-introspecting" do
+      # a reviewed schema.graphql is already checked in; cache: true
+      # (defaulting to schema.json) uses it rather than writing json
+      GraphWeaver.schema_path = File.join(@dir, "schema.json")
+      File.write(File.join(@dir, "schema.graphql"), Demo::Schema.to_definition)
+
+      schema = described_class.introspect(counting_executor, cache: true)
+
+      expect(counting_executor.calls).to eq 0
+      expect(File).not_to exist(File.join(@dir, "schema.json"))
+      codegen_parity(schema)
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+
     it "refreshes the cache when the ttl has elapsed" do
       path = File.join(@dir, "schema-cache.json")
 

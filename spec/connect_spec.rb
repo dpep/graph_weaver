@@ -1,4 +1,4 @@
-require "graph_weaver/faraday_executor"
+require "graph_weaver/transport/faraday"
 require "graph_weaver/testing"
 
 
@@ -16,7 +16,7 @@ describe "GraphWeaver.connect" do
   it "wires up transport + global executor in one call; retries are opt-in" do
     executor = GraphWeaver.connect(url)
 
-    expect(executor).to be_a GraphWeaver::FaradayExecutor # no retry wrapper by default
+    expect(executor).to be_a GraphWeaver::Transport::Faraday # no retry wrapper by default
     expect(GraphWeaver.executor).to equal executor
     expect(mod.execute!.person&.name).to eq "Daniel" # no executor: needed
 
@@ -40,13 +40,13 @@ describe "GraphWeaver.connect" do
   it "prefers Faraday when loaded, with middleware pass-through" do
     executor = GraphWeaver.connect(url, retries: false) { |conn| conn.options.timeout = 3 }
 
-    expect(executor).to be_a GraphWeaver::FaradayExecutor
+    expect(executor).to be_a GraphWeaver::Transport::Faraday
   end
 
   it "falls back to the built-in transport without faraday, rejecting middleware" do
     hide_const("Faraday")
 
-    expect(GraphWeaver.connect(url, retries: false)).to be_a GraphWeaver::HttpExecutor
+    expect(GraphWeaver.connect(url, retries: false)).to be_a GraphWeaver::Transport::HTTP
     expect {
       GraphWeaver.connect(url) { |conn| conn }
     }.to raise_error(ArgumentError, /faraday/)
@@ -60,6 +60,6 @@ describe "GraphWeaver.connect" do
     expect { mod.execute! }.to raise_error(GraphWeaver::TransportError)
     expect(slept.size).to eq 2 # the Hash reached the RetryExecutor
 
-    expect(GraphWeaver.connect(url, retries: false)).to be_a GraphWeaver::FaradayExecutor
+    expect(GraphWeaver.connect(url, retries: false)).to be_a GraphWeaver::Transport::Faraday
   end
 end

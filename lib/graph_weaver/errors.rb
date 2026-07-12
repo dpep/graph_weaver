@@ -9,7 +9,12 @@ module GraphWeaver
   # Base for every error GraphWeaver raises — rescue this to catch them
   # all. #message is the human-friendly side; #to_h is the machine side —
   # a JSON-ready Hash (string keys) for logging, agents, or surfacing
-  # structured failures to users. Subclasses merge in their specifics.
+  # structured failures to users. One subclass per failure site —
+  # {TransportError} (never reached the server), {ServerError} (non-2xx),
+  # {QueryError} (GraphQL-level errors), {TypeError} (response wouldn't
+  # cast) — each merging its specifics into #to_h. ({ValidationError} is
+  # the build-time outlier: an ArgumentError, so query-validation raises
+  # stay rescuable as ArgumentError.)
   class Error < StandardError
     def to_h
       { "error" => self.class.name, "message" => message }
@@ -32,8 +37,8 @@ module GraphWeaver
     # on load (net/http adds Timeout/SSL, Faraday adds its ConnectionFailed,
     # …), and you can add more so they get the same handling:
     #
-    #   GraphWeaver.transport_errors << MyPool::TimeoutError
-    #   GraphWeaver.register_transport_error(Adapter::ResetError)
+    #      GraphWeaver.transport_errors << MyPool::TimeoutError
+    #      GraphWeaver.register_transport_error(Adapter::ResetError)
     #
     # SystemCallError covers every Errno::* (connection refused/reset, host
     # unreachable); SocketError covers DNS.
@@ -175,9 +180,9 @@ module GraphWeaver
     # Errors grouped by the field they point at (index-stripped dotted
     # path; nil key for global errors) — iterate with each_error:
     #
-    #   response.each_error do |field, errors|
-    #     form.add_error(field, errors.map(&:message))
-    #   end
+    #      response.each_error do |field, errors|
+    #        form.add_error(field, errors.map(&:message))
+    #      end
     def errors_by_field
       errors.group_by(&:field)
     end
@@ -213,8 +218,8 @@ module GraphWeaver
     # actual records that failed inlined — "the 3 in people.3.email is
     # useless to a user; people.email plus which people is the answer".
     #
-    #   { "people.email" => { "messages" => [...], "codes" => [...],
-    #     "entity_ids" => ["7", "9"], "errors" => [full to_h...] } }
+    #      { "people.email" => { "messages" => [...], "codes" => [...],
+    #        "entity_ids" => ["7", "9"], "errors" => [full to_h...] } }
     def report
       errors_by_field.to_h do |field, field_errors|
         [field, {

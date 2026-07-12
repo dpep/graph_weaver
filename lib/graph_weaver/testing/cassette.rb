@@ -23,12 +23,12 @@ module GraphWeaver
     # cassette is a YAML file of {query, variables, response} entries,
     # keyed on the normalized query + variables.
     #
-    #   # record against a real executor, replay when the file exists:
-    #   executor = GraphWeaver::Testing::Cassette.use("github", executor: real)
+    #      # record against a real executor, replay when the file exists:
+    #      executor = GraphWeaver::Testing::Cassette.use("github", executor: real)
     #
     # Cassettes hold real responses — anonymize before committing:
     #
-    #   Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
+    #      Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
     #
     # keeps every shape (list lengths, null positions, enums, __typename,
     # id relationships via a consistent mapping) while replacing values

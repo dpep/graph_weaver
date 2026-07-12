@@ -9,13 +9,13 @@ module GraphWeaver
     # transports produce, so error-handling paths are testable without a
     # server that misbehaves on cue:
     #
-    #   PersonQuery.execute(id: "1", executor: Failure.transport)   # TransportError
-    #   PersonQuery.execute(id: "1", executor: Failure.server(status: 502))
-    #   PersonQuery.execute(id: "1", executor: Failure.throttled)   # QueryError, code THROTTLED
-    #   PersonQuery.execute(id: "1", executor: Failure.stale_schema) # schema_stale? => true
+    #      PersonQuery.execute(id: "1", executor: Failure.transport)   # TransportError
+    #      PersonQuery.execute(id: "1", executor: Failure.server(status: 502))
+    #      PersonQuery.execute(id: "1", executor: Failure.throttled)   # QueryError, code THROTTLED
+    #      PersonQuery.execute(id: "1", executor: Failure.stale_schema) # schema_stale? => true
     #
     # For type mismatches, corrupt the wire with a FakeExecutor override:
-    #   FakeExecutor.new(schema:, overrides: { "Person.birthday" => 123 })
+    #      FakeExecutor.new(schema:, overrides: { "Person.birthday" => 123 })
     # casting then raises GraphWeaver::TypeError, exactly as a bad server
     # payload would. For partial failures, see FakeExecutor's fail_at:.
     module Failure
@@ -60,9 +60,9 @@ module GraphWeaver
       # the casualty explicitly, or pass schema: to sample a real
       # type/field (as if the server just dropped it):
       #
-      #   Failure.stale_schema(type: "Person", field: "name")
-      #   Failure.stale_schema(schema: MySchema)             # random real field
-      #   Failure.stale_schema(schema: MySchema, seed: 42)   # reproducibly random
+      #      Failure.stale_schema(type: "Person", field: "name")
+      #      Failure.stale_schema(schema: MySchema)             # random real field
+      #      Failure.stale_schema(schema: MySchema, seed: 42)   # reproducibly random
       def stale_schema(field: nil, type: nil, schema: nil, seed: nil)
         if schema && (field.nil? || type.nil?)
           rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
@@ -92,7 +92,7 @@ module GraphWeaver
     # Delegates each call to the next executor in line (the last one
     # repeats) — fail N times, then succeed, for retry/backoff testing:
     #
-    #   SequenceExecutor.new(Failure.transport, Failure.transport, fake)
+    #      SequenceExecutor.new(Failure.transport, Failure.transport, fake)
     class SequenceExecutor
       def initialize(*executors)
         @executors = executors.flatten

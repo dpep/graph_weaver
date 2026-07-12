@@ -30,6 +30,7 @@ it failed:
 | `TransportError` | never reached the server — DNS, connection refused, TLS, timeout |
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
+| `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `ValidationError` | build time: the query didn't validate against the schema (also an `ArgumentError`) |
 
 ```ruby
@@ -49,7 +50,7 @@ configurable retries:
 
 ```ruby
 executor = GraphWeaver::RetryExecutor.new(
-  GraphWeaver::HttpExecutor.new(url),
+  GraphWeaver::Transport::HTTP.new(url),
   tries: 5,                        # total attempts
   backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
   base: 0.5, max: 30,              # seconds, clamped at max:
@@ -65,7 +66,7 @@ override with `retry_if:`), and GraphQL-level codes only when listed in
 
 What counts as a `TransportError` is an **extensible set** — each transport
 seeds its own network exceptions (`Errno::*`, `SocketError`, timeouts, TLS; the
-Faraday executor adds its own), and you can register more so a custom adapter's
+Faraday transport adds its own), and you can register more so a custom adapter's
 or connection pool's failure gets the same treatment:
 
 ```ruby

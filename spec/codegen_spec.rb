@@ -45,7 +45,7 @@ describe GraphWeaver::Codegen do
     expect {
       described_class.generate(
         schema: Demo::Schema,
-        executor: GraphWeaver::HttpExecutor.new("http://example.com"),
+        executor: GraphWeaver::Transport::HTTP.new("http://example.com"),
         query: "query People { people { name } }",
       )
     }.to raise_error(ArgumentError, /named constant/)

@@ -67,16 +67,16 @@ constant) to bake a default transport into the generated module.
 Prefer Faraday? It's opt-in (`gem "faraday"` in your Gemfile):
 
 ```ruby
-require "graph_weaver/faraday_executor"
+require "graph_weaver/transport/faraday"
 
 # from a url, with optional middleware customization
-executor = GraphWeaver::FaradayExecutor.new("https://api.example.com/graphql") do |conn|
+executor = GraphWeaver::Transport::Faraday.new("https://api.example.com/graphql") do |conn|
   conn.request :authorization, "Bearer", -> { Tokens.fetch }
   conn.response :logger
 end
 
 # or bring a fully configured Faraday connection
-executor = GraphWeaver::FaradayExecutor.new(MyApp.faraday_connection)
+executor = GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
 ```
 
 In development, skip the build step entirely:

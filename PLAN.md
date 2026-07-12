@@ -26,7 +26,7 @@ requires:, opt-in input coercion incl. built-ins).
 Sources: live schema / introspection JSON / SDL — byte-identical output
 (enum values + abstract-type members sorted for determinism).
 Transport: executor precedence per call → per module → baked const →
-GraphWeaver.executor; HttpExecutor (zero-dep) + opt-in FaradayExecutor
+GraphWeaver.executor; Transport::HTTP (zero-dep) + opt-in Transport::Faraday
 (url / block middleware / ready connection), e2e specs against WEBrick.
 Errors: typed Response envelope (partial data + extensions survive) and
 a GraphWeaver::Error hierarchy (Transport/Server/Query/Validation/Type)

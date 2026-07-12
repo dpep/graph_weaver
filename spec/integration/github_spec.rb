@@ -15,7 +15,7 @@ describe "GitHub API", :integration do
   end
 
   let(:executor) do
-    GraphWeaver::HttpExecutor.new(
+    GraphWeaver::Transport::HTTP.new(
       "https://api.github.com/graphql",
       headers: { "Authorization" => "Bearer #{self.class.token}" },
     )

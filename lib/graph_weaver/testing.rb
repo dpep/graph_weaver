@@ -14,20 +14,20 @@ end
 # Opt-in test tooling: require "graph_weaver/testing" from your spec
 # helper (never from production code). Configure once, initializer-style:
 #
-#   GraphWeaver::Testing.configure do |config|
-#     config.schema = MySchema                  # for auto_fake / cassettes
-#     config.seed = 42                          # reproducible fakes
-#     config.mode = :faker                      # or :literal; nil = auto
-#     config.overrides = { "Person.name" => "Daniel" }
-#     config.list_size = 2..4
-#     config.null_chance = 0.1                  # nullable fields go nil sometimes
-#     config.cassette_dir = "spec/cassettes"
-#   end
+#      GraphWeaver::Testing.configure do |config|
+#        config.schema = MySchema                  # for auto_fake / cassettes
+#        config.seed = 42                          # reproducible fakes
+#        config.mode = :faker                      # or :literal; nil = auto
+#        config.overrides = { "Person.name" => "Daniel" }
+#        config.list_size = 2..4
+#        config.null_chance = 0.1                  # nullable fields go nil sometimes
+#        config.cassette_dir = "spec/cassettes"
+#      end
 #
 # mode picks how values are fabricated:
-#   :faker   — semantic, field-name matched (requires the faker gem)
-#   :literal — plain type-derived values ("name-1", seeded numbers)
-#   nil      — auto: :faker when the gem is loaded, else :literal
+#      :faker   — semantic, field-name matched (requires the faker gem)
+#      :literal — plain type-derived values ("name-1", seeded numbers)
+#      nil      — auto: :faker when the gem is loaded, else :literal
 #
 # rspec users: require "graph_weaver/rspec" instead — it hooks the suite
 # (seed from rspec, optional auto-faked executor per example).

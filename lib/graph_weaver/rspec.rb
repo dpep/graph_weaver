@@ -6,12 +6,12 @@ require_relative "testing"
 # RSpec integration — require from your spec helper instead of
 # "graph_weaver/testing":
 #
-#   require "graph_weaver/rspec"
+#      require "graph_weaver/rspec"
 #
-#   GraphWeaver::Testing.configure do |config|
-#     config.schema = MySchema
-#     config.auto_fake = true   # every example runs against a FakeExecutor
-#   end
+#      GraphWeaver::Testing.configure do |config|
+#        config.schema = MySchema
+#        config.auto_fake = true   # every example runs against a FakeExecutor
+#      end
 #
 # What it wires up:
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces

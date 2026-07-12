@@ -11,10 +11,13 @@ require "graph_weaver"
 # for retries and advanced setup)
 executor = GraphWeaver.connect("https://api.github.com/graphql", auth: `gh auth token`.strip)
 
-# introspecting a big API takes seconds — cache: true stores the
-# introspection JSON at GraphWeaver.schema_path (the same file rake
-# graph_weaver:generate reads); pass a path/ttl: for finer control, or
-# cache introspect(executor).to_json in Rails.cache and SchemaLoader.load it
+# introspecting a big API takes seconds — cache: true dumps the schema
+# at GraphWeaver.schema_path (the same file rake graph_weaver:generate
+# reads), and any fresh dump already present is reused regardless of
+# format. The extension picks the format: .json verbatim, .graphql SDL
+# (reviewable diffs) — or say cache: :graphql. Pass a path/ttl: for finer
+# control, or cache introspect(executor).to_json in Rails.cache and
+# SchemaLoader.load it
 schema = GraphWeaver::SchemaLoader.introspect(executor, cache: true)
 
 # map GitHub's DateTime scalar onto Time (cast inferred from Time.parse)

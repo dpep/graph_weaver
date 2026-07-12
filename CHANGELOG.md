@@ -1,4 +1,17 @@
 ###  unreleased
+- BREAKING: HttpExecutor / FaradayExecutor are now Transport::HTTP /
+  Transport::Faraday, subclasses of the new abstract GraphWeaver::Transport
+  base, which owns the shared flow (encode, TransportError reclassify,
+  non-2xx ServerError, parse) — a custom transport just implements
+  post(body) => [status, body]. Opt-in require moved:
+  "graph_weaver/faraday_executor" -> "graph_weaver/transport/faraday"
+- SchemaLoader.introspect cache: reuses a fresh dump in ANY supported
+  format before re-introspecting (an existing schema.graphql wins over
+  writing schema.json), and accepts :json / :graphql / :gql to pick the
+  format at GraphWeaver.schema_path's location
+- rubydoc.info rendering: ship .yardopts (markdown markup, docs/ guides
+  as extra files) and re-indent docstring examples so code blocks and
+  backticks render; make docs previews locally
 - GraphWeaver.connect(url, auth:, headers:, retries:): one-shot setup —
   best transport (Faraday when the app loads it; detection is defined?,
   never a require), bearer/verbatim auth, opt-in RetryExecutor wrapping

@@ -3,15 +3,15 @@
 
 # Rake tasks — add to your Rakefile:
 #
-#   require "graph_weaver/tasks"
+#      require "graph_weaver/tasks"
 #
 # The tasks use the conventional paths (GraphWeaver.queries_path /
 # generated_path / schema_path — override in your Rakefile or an
 # initializer). Register custom scalars before the tasks run — they're
 # baked into generated source.
 #
-#   rake graph_weaver:generate   # queries_path -> generated_path
-#   rake graph_weaver:verify     # fail if generated files are stale (CI)
+#      rake graph_weaver:generate   # queries_path -> generated_path
+#      rake graph_weaver:verify     # fail if generated files are stale (CI)
 require_relative "../graph_weaver"
 
 namespace :graph_weaver do

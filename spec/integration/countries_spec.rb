@@ -3,7 +3,7 @@
 #
 #   make integration
 describe "Countries API", :integration do
-  let(:executor) { GraphWeaver::HttpExecutor.new("https://countries.trevorblades.com/") }
+  let(:executor) { GraphWeaver::Transport::HTTP.new("https://countries.trevorblades.com/") }
 
   let(:schema) { integration_schema(:countries, executor) }
 

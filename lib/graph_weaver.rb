@@ -5,16 +5,16 @@ require_relative "graph_weaver/errors"
 require_relative "graph_weaver/response"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
-require_relative "graph_weaver/http_executor"
+require_relative "graph_weaver/transport/http"
 require_relative "graph_weaver/retry_executor"
 require_relative "graph_weaver/schema_loader"
 require_relative "graph_weaver/version"
 
 # opt-in extras:
-#   require "graph_weaver/faraday_executor"        # Faraday transport
-#   require "graph_weaver/directive_defaults_patch" # fix graphql-ruby
-#     dropping directive argument defaults when loading SDL (needed for
-#     Apollo supergraph SDL until rmosolgo/graphql-ruby#5659 ships)
+#      require "graph_weaver/transport/faraday"        # Faraday transport
+#      require "graph_weaver/directive_defaults_patch" # fix graphql-ruby
+#        dropping directive argument defaults when loading SDL (needed for
+#        Apollo supergraph SDL until rmosolgo/graphql-ruby#5659 ships)
 module GraphWeaver
   class << self
     # global default transport; generated modules fall back to this
@@ -30,7 +30,7 @@ module GraphWeaver
     # retries, and wire it in as the global executor. Most apps need
     # exactly one line:
     #
-    #   GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
+    #      GraphWeaver.connect("https://api.example.com/graphql", auth: ENV["API_TOKEN"])
     #
     # auth: is a token — "Bearer" is assumed unless the string carries
     # its own scheme ("Basic dXNlcjpwYXNz..."); headers: covers anything
@@ -39,14 +39,14 @@ module GraphWeaver
     # tune. A block customizes the Faraday connection (faraday only).
     # Returns the executor it wired in.
     #
-    # Transport pick: Faraday when the app already loads it (its
-    # middleware/proxy/timeout ecosystem comes along), the built-in
-    # zero-dependency executor otherwise. Detection is `defined?(Faraday)`
+    # Transport pick: Transport::Faraday when the app already loads
+    # faraday (its middleware/proxy/timeout ecosystem comes along), the
+    # zero-dependency Transport::HTTP otherwise. Detection is `defined?(Faraday)`
     # — deliberately NOT a require: faraday rides along transitively in
     # most bundles (stripe, octokit, ...), and try-requiring would switch
     # transports on apps that never chose it. With faraday under
     # `require: false`, load it before calling connect — or construct
-    # FaradayExecutor / HttpExecutor / RetryExecutor directly and assign
+    # Transport::Faraday / Transport::HTTP / RetryExecutor directly and assign
     # GraphWeaver.executor= yourself; connect is convenience, not the
     # only door.
     def connect(url, auth: nil, headers: {}, retries: false, &middleware)
@@ -65,12 +65,12 @@ module GraphWeaver
 
     def build_transport(url, headers:, &middleware)
       if defined?(::Faraday)
-        require_relative "graph_weaver/faraday_executor"
-        FaradayExecutor.new(url, headers:, &middleware)
+        require_relative "graph_weaver/transport/faraday"
+        Transport::Faraday.new(url, headers:, &middleware)
       elsif middleware
         raise ArgumentError, "middleware blocks require the faraday gem"
       else
-        HttpExecutor.new(url, headers:)
+        Transport::HTTP.new(url, headers:)
       end
     end
     private :build_transport
@@ -88,7 +88,7 @@ module GraphWeaver
     # files. Paths default to the conventions above; nothing scans or
     # loads implicitly:
     #
-    #   GraphWeaver.generate!(schema:)   # queries_path -> generated_path
+    #      GraphWeaver.generate!(schema:)   # queries_path -> generated_path
     #
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
@@ -107,9 +107,9 @@ module GraphWeaver
     # the current schema + queries + scalar registrations would produce.
     # One line in a spec, or `rake graph_weaver:verify` in CI:
     #
-    #   it "generated queries are current" do
-    #     GraphWeaver.verify_generated!(schema:)
-    #   end
+    #      it "generated queries are current" do
+    #        GraphWeaver.verify_generated!(schema:)
+    #      end
     def verify_generated!(schema:, queries: queries_path, output: generated_path, executor: nil)
       stale = each_query(queries, schema:, executor:).filter_map do |base, source|
         target = File.join(output, "#{base}_query.rb")
@@ -127,7 +127,7 @@ module GraphWeaver
     # helper (loading happens only when you call this; skip it and
     # require files yourself if you'd rather):
     #
-    #   GraphWeaver.load_generated!
+    #      GraphWeaver.load_generated!
     #
     # In Rails, prefer this over autoloading: Zeitwerk would expect
     # Generated::PersonQuery from generated/person_query.rb, and
@@ -156,7 +156,7 @@ module GraphWeaver
     # resolved lazily at generation time (so set it any time before you
     # generate — no reset_scalars! ordering dance):
     #
-    #   GraphWeaver.auto_coerce = true
+    #      GraphWeaver.auto_coerce = true
     #
     # Convertible built-ins take their conversion (Int accepts 5/"5"),
     # and any scalar with a full cast/serialize pair (Date, your Money)
@@ -168,7 +168,7 @@ module GraphWeaver
     # rich Ruby object (and serializes back onto the wire when used as a
     # variable):
     #
-    #   GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
+    #      GraphWeaver.register_scalar("Money", type: Money, requires: "bigdecimal")
     #
     # A field typed `Money` then generates `const :price, T.nilable(Money)`
     # and casts with `Money.parse(...)` in from_h. Pass a real class as
@@ -203,7 +203,7 @@ module GraphWeaver
 
     # Parse a query into a typed query module:
     #
-    #   PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
+    #      PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
     #
     # query is a .graphql/.gql path (module name derived from the file
     # name) or a raw query string (name derived from the operation name,
@@ -221,8 +221,8 @@ module GraphWeaver
 
     # One-shot dynamic execution — no module handling, no build step:
     #
-    #   GraphWeaver.execute(schema:, query:, variables: { id: "1" })   # => Response
-    #   GraphWeaver.execute!(schema:, query:, variables: { id: "1" })  # => Result (or raise)
+    #      GraphWeaver.execute(schema:, query:, variables: { id: "1" })   # => Response
+    #      GraphWeaver.execute!(schema:, query:, variables: { id: "1" })  # => Result (or raise)
     #
     # Mirrors a generated module: execute returns the Response envelope,
     # execute! returns the typed result directly and raises QueryError on

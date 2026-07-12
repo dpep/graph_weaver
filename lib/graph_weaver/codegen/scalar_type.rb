@@ -15,17 +15,17 @@ class GraphWeaver::Codegen
   # from the Ruby type when it is a real class, by probing for a known
   # deserializer and pairing its serializer (see CODECS) — so the common
   # case needs no more than a class:
-  #   type: Money   (defines .parse)   => Money.parse(expr) / expr.to_s
-  #   type: Blob    (defines .load)    => Blob.load(expr)   / Blob.dump(expr)
+  #      type: Money   (defines .parse)   => Money.parse(expr) / expr.to_s
+  #      type: Blob    (defines .load)    => Blob.load(expr)   / Blob.dump(expr)
   # Probing the *deserialize* side is deliberate: every object has #to_s,
   # so inferring a serializer off it would wrongly wrap plain types (String,
   # Integer) — pairing off a deserializer the type actually defines avoids
   # that. Override with an explicit value:
   #   - a Symbol names a method, so there is no string to misspell:
-  #       cast: :load        => "Blob.load(expr)"    (class method on type)
-  #       serialize: :to_json => "expr.to_json"      (instance method)
+  #           cast: :load        => "Blob.load(expr)"    (class method on type)
+  #           serialize: :to_json => "expr.to_json"      (instance method)
   #   - a Proc handles anything a Symbol can't express:
-  #       cast: ->(e) { "Money.new(#{e})" }
+  #           cast: ->(e) { "Money.new(#{e})" }
   #   - :itself opts out — force identity pass-through even when a codec
   #     would otherwise match (rare)
   # requires: a String or Array of paths emitted as `require`s atop the
