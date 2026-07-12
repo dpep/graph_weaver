@@ -199,21 +199,23 @@ module GraphWeaver
 
     # One-shot dynamic execution — a throwaway client, no build step:
     #
-    #      GraphWeaver.execute(schema, "query($id: ID!) { ... }", variables: { id: "1" })  # => Response
-    #      GraphWeaver.execute!(url, "query { viewer { login } }")   # => Result (or raise)
+    #      GraphWeaver.execute(schema, "query($id: ID!) { ... }", id: "1")   # => Response
+    #      GraphWeaver.execute!(url, "query { viewer { login } }")           # => Result (or raise)
     #
     # The first argument is a url or schema source, exactly as
     # GraphWeaver.new; this is Client#execute on a client you don't keep.
     # (A url source introspects the schema on every call — keep a client
-    # for more than one query.) execute returns the Response envelope,
-    # execute! the typed result, raising QueryError on top-level errors.
-    def execute(source, query, variables: {}, executor: nil)
-      Client.new(source, executor:).execute(query, variables:)
+    # for more than one query.) Variables are plain kwargs, as on a
+    # generated module ("executor" is reserved). execute returns the
+    # Response envelope, execute! the typed result, raising QueryError on
+    # top-level errors.
+    def execute(source, query, executor: nil, **variables)
+      Client.new(source, executor:).execute(query, **variables)
     end
 
     # execute + data! — the typed result, or a raised QueryError. See execute.
-    def execute!(source, query, variables: {}, executor: nil)
-      execute(source, query, variables:, executor:).data!
+    def execute!(source, query, executor: nil, **variables)
+      execute(source, query, executor:, **variables).data!
     end
   end
 end

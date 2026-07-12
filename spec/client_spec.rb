@@ -59,6 +59,23 @@ describe GraphWeaver::Client do
       expect(mod.execute!.person&.name).to eq "Daniel"
     end
 
+    it "load_queries! defines a module per query file, reloadably" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
+        File.write(File.join(dir, "people.graphql"), "query { people { name } }")
+        namespace = Module.new
+
+        mods = GraphWeaver.new(url).load_queries!(dir, namespace:)
+
+        expect(mods.size).to eq 2
+        expect(namespace::PersonQuery.execute!(id: "1").person&.name).to eq "Daniel"
+        expect(namespace::PeopleQuery.execute!.people.map(&:name)).to include "Daniel"
+
+        # reloadable: a second pass replaces the constants without warning
+        expect { GraphWeaver.new(url).load_queries!(dir, namespace:) }.not_to output.to_stderr
+      end
+    end
+
     it "rejects a url plus executor:" do
       expect { GraphWeaver.new(url, executor: Demo::Schema) }.to raise_error(ArgumentError, /not both/)
     end

@@ -177,6 +177,7 @@ describe GraphWeaver::Codegen do
       result = AddPetQuery.execute!(name: "Rex", species: "DOG")
 
       expect { result.addPt }.to raise_error(NoMethodError, /did you mean 'add_pet'\?/)
+      expect { result.add_pt }.to raise_error(NoMethodError, /did you mean 'add_pet'\?/)
       expect { result.add_pet.nmae }.to raise_error(NoMethodError, /did you mean 'name'\?/)
     end
 
@@ -355,7 +356,7 @@ describe GraphWeaver::Codegen do
       result = GraphWeaver.execute!(
         Demo::Schema,
         "query($id: ID!) { person(id: $id) { name } }",
-        variables: { id: "1" },
+        id: "1",
       )
 
       expect(result.person&.name).to eq "Daniel"
@@ -364,15 +365,15 @@ describe GraphWeaver::Codegen do
     it "execute returns the envelope, execute! the result" do
       query = "query($id: ID!) { person(id: $id) { name } }"
 
-      expect(GraphWeaver.execute(Demo::Schema, query, variables: { id: "1" })).to be_a GraphWeaver::Response
-      expect(GraphWeaver.execute!(Demo::Schema, query, variables: { id: "1" }).person&.name).to eq "Daniel"
+      expect(GraphWeaver.execute(Demo::Schema, query, id: "1")).to be_a GraphWeaver::Response
+      expect(GraphWeaver.execute!(Demo::Schema, query, id: "1").person&.name).to eq "Daniel"
     end
 
     it "accepts graphql-cased variable keys" do
       result = GraphWeaver.execute!(
         Demo::Schema,
         'query($term: String!) { search(term: $term) { __typename ... on Named { name } } }',
-        variables: { "term" => "el" },
+        "term" => "el",
       )
 
       expect(result.search.map(&:name)).to eq %w[Daniel Shelby]
@@ -393,7 +394,7 @@ describe GraphWeaver::Codegen do
         result = GraphWeaver.execute!(
           Demo::Schema,
           "query($id: ID!) { person(id: $id) { name } }",
-          variables: { id: "1" },
+          id: "1",
         )
 
         expect(result.person&.name).to eq "Daniel"
@@ -415,7 +416,7 @@ describe GraphWeaver::Codegen do
         result = GraphWeaver.execute!(
           Demo::Schema,
           "query($id: ID!) { person(id: $id) { name } }",
-          variables: { id: "1" },
+          id: "1",
           executor: Demo::Schema,
         )
 

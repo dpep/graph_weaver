@@ -9,9 +9,16 @@
 - BREAKING: GraphWeaver.connect removed — GraphWeaver.new(url) replaces
   it (wire generated modules with GraphWeaver.executor = client.executor)
 - BREAKING: the one-shots are now GraphWeaver.execute(url_or_schema,
-  query, variables:) / execute! — Client#execute on a throwaway client
+  query, **variables) / execute! — Client#execute on a throwaway client;
+  variables are plain kwargs, as on a generated module
+- Client#load_queries! — parse every query file into modules named like
+  generation would name them (reloadable; namespace: to scope): the
+  no-build-step analog of generate! + load_generated!
 - Introspected schema dumps record provenance (source url + timestamp):
-  an SDL header comment, a "graph_weaver" sibling key in JSON
+  a parsable SDL header comment, a "graph_weaver" sibling key in JSON —
+  read it back with SchemaLoader.provenance(path), check drift with
+  SchemaLoader.stale?(path) or rake graph_weaver:schema:verify, rewrite
+  with rake graph_weaver:schema:refresh (GRAPHWEAVER_AUTH for tokens)
 - generate!/verify_generated!/rake auto-locate the schema dump at
   schema_path in any supported format; SchemaLoader.locate is public
 - Calling a result field by its camelCase wire name raises a pointed

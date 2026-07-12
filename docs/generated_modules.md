@@ -50,6 +50,16 @@ the schema dump and regenerate), a scalar registration changes, or GraphWeaver
 itself upgrades (emission may differ across versions; `verify_generated!`
 catches it).
 
+Introspected dumps record their source url, so drift is checkable ahead
+of the late signal: `rake graph_weaver:schema:verify` re-introspects the
+recorded url and fails when the server has moved;
+`rake graph_weaver:schema:refresh` rewrites the dump
+(`GRAPHWEAVER_AUTH` supplies a token for private APIs).
+
+In development, skip the build entirely — `client.load_queries!` parses
+every query file into modules with the same names generation would use
+(see [dynamic mode](#dynamic-mode)).
+
 ## Anatomy
 
 ```ruby

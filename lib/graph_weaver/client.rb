@@ -83,17 +83,35 @@ class GraphWeaver::Client
     GraphWeaver.parse(schema:, query:, name:, executor: @executor, scalars: @scalars)
   end
 
+  # Parse every .graphql query in a directory into typed modules, named
+  # like generation would name them — the no-build-step analog of
+  # generate! + load_generated!:
+  #
+  #      github.load_queries!                        # queries/person.graphql => ::PersonQuery
+  #      github.load_queries!(namespace: Github)     # => Github::PersonQuery
+  #
+  # Reloadable (constants are replaced), so it suits consoles and dev.
+  # Returns the modules.
+  def load_queries!(dir = GraphWeaver.queries_path, namespace: Object)
+    Dir[File.join(dir, "*.graphql")].sort.map do |path|
+      name = "#{GraphWeaver::Inflect.camelize(File.basename(path, ".graphql"))}Query"
+      namespace.send(:remove_const, name) if namespace.const_defined?(name, false)
+      namespace.const_set(name, parse(path))
+    end
+  end
+
   # One-shot dynamic execution — parse + execute, returning the typed
-  # Response envelope (execute! returns the result or raises). Variable
-  # keys may be graphql-cased strings or ruby symbols.
-  def execute(query, variables: {})
+  # Response envelope (execute! returns the result or raises). Variables
+  # are plain kwargs, exactly as on a generated module ("executor" is
+  # reserved); graphql-cased string keys work too.
+  def execute(query, **variables)
     mod = parse(query)
     kwargs = variables.to_h { |key, value| [GraphWeaver::Inflect.underscore(key.to_s).to_sym, value] }
     mod.execute(**kwargs, executor:)
   end
 
-  def execute!(query, variables: {})
-    execute(query, variables:).data!
+  def execute!(query, **variables)
+    execute(query, **variables).data!
   end
 
   private

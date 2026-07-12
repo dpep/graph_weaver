@@ -27,6 +27,31 @@ namespace :graph_weaver do
     puts "generated queries up to date"
   end
 
+  namespace :schema do
+    # both tasks re-introspect from the url recorded in the dump
+    # (GRAPHWEAVER_AUTH supplies a token for private APIs)
+
+    desc "Fail when the server's schema has drifted from the local dump"
+    task :verify do
+      path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
+      if GraphWeaver::SchemaLoader.stale?(path)
+        abort "#{path} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
+      end
+
+      puts "#{path} matches the server"
+    end
+
+    desc "Re-introspect the recorded url and rewrite the local dump"
+    task :refresh do
+      path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
+      meta = GraphWeaver::SchemaLoader.provenance(path) or abort "#{path} records no source url"
+
+      executor = GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).executor
+      GraphWeaver::SchemaLoader.introspect(executor, cache: path, ttl: 0)
+      puts "refreshed #{path} from #{meta["url"]}"
+    end
+  end
+
   namespace :cassettes do
     desc "Anonymize every cassette in Testing.config.cassette_dir (PII-safe to commit)"
     task :anonymize do

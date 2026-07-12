@@ -93,12 +93,11 @@ module GraphWeaver::SchemaLoader
       # the extension picks the format: .json is the verbatim wire
       # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
       # diffs (both generate byte-identical code)
+      meta = stamp(executor)
       content = if cache.end_with?(".json")
-        JSON.generate(provenance(executor) ? result.merge("graph_weaver" => provenance(executor)) : result)
+        JSON.generate(meta ? result.merge("graph_weaver" => meta) : result)
       else
-        header = provenance(executor)&.then do |meta|
-          "# Introspected from #{meta["url"]} at #{meta["introspected_at"]}\n\n"
-        end
+        header = meta && "# graph_weaver: #{JSON.generate(meta)}\n\n"
         "#{header}#{schema.to_definition}"
       end
       File.write(cache, content)
@@ -108,23 +107,63 @@ module GraphWeaver::SchemaLoader
   end
 
   # The conventional schema dump, whatever its format: schema_path or the
-  # first sibling extension that exists, loaded. nil when none is on disk.
+  # first sibling extension that exists. nil when none is on disk.
+  def self.locate_path(path = GraphWeaver.schema_path)
+    cache_candidates(path).find { |candidate| File.exist?(candidate) }
+  end
+
+  # locate_path, loaded.
   def self.locate(path = GraphWeaver.schema_path)
-    found = cache_candidates(path).find { |candidate| File.exist?(candidate) }
+    found = locate_path(path)
     found && load(found)
   end
 
+  # The provenance recorded in a dump ({"url" => ..., "introspected_at"
+  # => ...}), whichever format holds it; nil for local/unannotated dumps.
+  def self.provenance(path)
+    content = File.read(path)
+    if path.end_with?(".json")
+      JSON.parse(content)["graph_weaver"]
+    elsif (meta = content[/\A# graph_weaver: (\{.*\})$/, 1])
+      JSON.parse(meta)
+    end
+  end
+
+  # Re-introspect a dump's source and compare — true when the server has
+  # drifted from what's on disk. executor: overrides the transport (auth
+  # etc); by default one is built from the dump's recorded url. Wired up
+  # as `rake graph_weaver:schema:verify` / `:refresh`.
+  def self.stale?(path, executor: nil)
+    executor ||= source_executor(path)
+    fresh = introspect(executor)
+
+    fresh.to_definition != load(path).to_definition
+  end
+
+  # a transport to the dump's recorded url (GRAPHWEAVER_AUTH supplies a
+  # token when set)
+  def self.source_executor(path)
+    meta = provenance(path)
+    unless meta&.key?("url")
+      raise GraphWeaver::Error, "#{path} records no source url — pass executor:"
+    end
+
+    GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).executor
+  end
+  private_class_method :source_executor
+
   # Where a dump came from, recorded into the file so it can be
-  # re-verified later — a header comment in SDL, a "graph_weaver" sibling
-  # key in introspection JSON (from_introspection reads only "data").
-  # nil when the executor has no url (schema classes, fakes).
-  def self.provenance(executor)
+  # re-verified later — a parsable header comment in SDL, a
+  # "graph_weaver" sibling key in introspection JSON (from_introspection
+  # reads only "data"). nil when the executor has no url (schema
+  # classes, fakes).
+  def self.stamp(executor)
     return unless executor.respond_to?(:url) && executor.url
 
     require "time"
     { "url" => executor.url, "introspected_at" => Time.now.utc.iso8601 }
   end
-  private_class_method :provenance
+  private_class_method :stamp
 
   CACHE_EXTENSIONS = %w[.json .graphql .gql].freeze
 

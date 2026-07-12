@@ -171,19 +171,35 @@ describe GraphWeaver::SchemaLoader do
       # otherwise satisfy the cache and skip the write
       sdl_path = File.join(@dir, "sdl.graphql")
       described_class.introspect(with_url.new, cache: sdl_path)
-      expect(File.read(sdl_path)).to match(%r{\A# Introspected from https://api.example.com/graphql at \d{4}-})
+      meta = described_class.provenance(sdl_path)
+      expect(meta["url"]).to eq "https://api.example.com/graphql"
+      expect(meta["introspected_at"]).to match(/\A\d{4}-/)
       codegen_parity(described_class.load(sdl_path)) # the header comment is valid SDL
 
       json_path = File.join(@dir, "wire.json")
       described_class.introspect(with_url.new, cache: json_path)
-      meta = JSON.parse(File.read(json_path))["graph_weaver"]
-      expect(meta["url"]).to eq "https://api.example.com/graphql"
+      expect(described_class.provenance(json_path)["url"]).to eq "https://api.example.com/graphql"
       codegen_parity(described_class.load(json_path)) # the sibling key is ignored on load
 
       # executors without a url (schema classes, fakes) stay unannotated
       plain_path = File.join(@dir, "plain.json")
       described_class.introspect(counting_executor, cache: plain_path)
-      expect(JSON.parse(File.read(plain_path))).not_to have_key "graph_weaver"
+      expect(described_class.provenance(plain_path)).to be_nil
+    end
+
+    it "stale? re-introspects and reports drift" do
+      path = File.join(@dir, "schema.graphql")
+      described_class.introspect(counting_executor, cache: path)
+
+      expect(described_class.stale?(path, executor: counting_executor)).to be false
+
+      drifted = GraphQL::Schema.from_definition("type Query { renamed: String }")
+      expect(described_class.stale?(path, executor: drifted)).to be true
+
+      # without executor: it needs a recorded url to rebuild the transport
+      expect {
+        described_class.stale?(path)
+      }.to raise_error(GraphWeaver::Error, /no source url/)
     end
 
     it "refreshes the cache when the ttl has elapsed" do

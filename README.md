@@ -84,11 +84,13 @@ In development, skip the build step entirely:
 ```ruby
 # parse a query into a typed module on the fly — a .graphql path or a raw string
 PersonQuery = api.parse("queries/person.graphql")
-PeopleQuery = api.parse("query { people { name } }")
 PersonQuery.execute(id: "1")
 
-# or one-shot, no module at all
-api.execute!("query($id: ID!) { person(id: $id) { name } }", variables: { id: "1" })
+# or every query file at once (queries_path convention), named like generation would
+api.load_queries!
+
+# or one-shot, no module at all — variables are plain kwargs
+api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 ```
 
 
