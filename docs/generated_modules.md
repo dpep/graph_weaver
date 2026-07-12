@@ -161,10 +161,16 @@ first); recursive input types are not yet supported.
 - **Fragments** — inline fragments and named spreads flatten into the
   selection; type conditions match exact names or interfaces/unions the type
   belongs to.
-- **Unions and interfaces** — each abstract selection site emits a module:
-  one member struct per possible type, `Type = T.type_alias { T.any(...) }`,
-  and a `from_h` dispatching on `__typename`. Generation *requires*
-  `__typename` in the selection so dispatch is possible.
+- **Unions and interfaces** — when the selection *varies by concrete
+  type*, each abstract site emits a module: one member struct per
+  possible type, `Type = T.type_alias { T.any(...) }`, and a `from_h`
+  dispatching on `__typename` — which generation therefore *requires* in
+  the selection (the wire response carries no type tag unless you ask).
+  Two narrower shapes skip the dispatch (and the `__typename`) entirely:
+  interface-level fields only → one shared struct; a single `... on X`
+  condition and nothing else → `X`'s struct, always nilable — a
+  non-matching runtime type comes back as `nil`, so narrowing doubles as
+  filtering.
 - **`@skip` / `@include`** — a directive-conditional field may be absent from
   the response regardless of schema nullability, so its generated type is
   always nilable.

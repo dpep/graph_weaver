@@ -1,7 +1,6 @@
 mutation($id: ID!) {
   addStar(input: { starrableId: $id }) {
     starrable {
-      __typename
       stargazerCount
       viewerHasStarred
     }

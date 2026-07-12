@@ -131,15 +131,41 @@ describe GraphWeaver::Codegen do
       expect(species::Dog.serialize).to eq "DOG"
     end
 
-    it "requires __typename on union selections" do
+    it "requires __typename when the selection varies by concrete type" do
       codegen = described_class.new(
         schema: Demo::Schema,
         executor: Demo::Schema,
-        query: 'query { search(term: "x") { ... on Pet { name } } }',
+        query: 'query { search(term: "x") { ... on Pet { species } ... on Person { email } } }',
         module_name: "Bad",
       )
 
       expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
+    end
+  end
+
+  describe "narrowed abstract selections" do
+    it "interface-level fields need no __typename — one struct, no dispatch" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: 'query { named(name: "Shelby") { name } }',
+      )
+
+      named = mod.execute!.named
+      expect(named&.name).to eq "Shelby"
+      expect(named).not_to respond_to(:species) # one shared struct, not a Pet member
+    end
+
+    it "a single `... on Type` condition narrows: matches cast, mismatches are nil" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        executor: Demo::Schema,
+        query: 'query { search(term: "el") { ... on Pet { name species } } }',
+      )
+
+      results = mod.execute!.search
+      expect(results&.first).to be_nil # Daniel is a Person — narrowed away
+      expect(results&.last&.name).to eq "Shelby"
     end
   end
 

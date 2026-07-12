@@ -228,8 +228,24 @@ class GraphWeaver::Codegen
           name = pick_name(core.graphql_name, key, taken)
           type_ref(field_type) { object_node(core, sub_selections, name) }
         when "UNION", "INTERFACE"
-          name = pick_name(core.graphql_name, key, taken)
-          type_ref(field_type) { union_node(core, sub_selections, name) }
+          conditions = concrete_conditions(core, sub_selections)
+          bare = bare_fields(sub_selections) - ["__typename"]
+
+          if conditions.empty? && core.kind.name == "INTERFACE"
+            # interface-level fields only — every member shares them, so
+            # one struct suffices and no __typename dispatch is needed
+            name = pick_name(core.graphql_name, key, taken)
+            type_ref(field_type) { object_node(core, sub_selections, name) }
+          elsif conditions.size == 1 && bare.empty? &&
+              (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
+            # a single `... on X` condition: narrow to X's struct — nil
+            # when the runtime type doesn't match (narrowing filters)
+            name = pick_name(member.graphql_name, key, taken)
+            nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name)) }
+          else
+            name = pick_name(core.graphql_name, key, taken)
+            type_ref(field_type) { union_node(core, sub_selections, name) }
+          end
         when "ENUM"
           if (mapped = mapped_enum_node(core))
             type_ref(field_type) { mapped }
@@ -258,13 +274,46 @@ class GraphWeaver::Codegen
     node
   end
 
-  # Abstract types (unions AND interfaces): one member struct per
-  # possible type; wire dispatch reads __typename, so the query must
-  # select it. For interfaces, the interface's own field selections
-  # gather into every member.
+  # The concrete type conditions a selection mentions (inline fragments
+  # and named spreads), minus conditions naming the abstract type itself.
+  def concrete_conditions(core, selections)
+    selections.filter_map do |selection|
+      case selection
+      when GraphQL::Language::Nodes::InlineFragment
+        selection.type&.name
+      when GraphQL::Language::Nodes::FragmentSpread
+        @fragments.fetch(selection.name).type.name
+      end
+    end.uniq - [core.graphql_name]
+  end
+
+  # result keys selected as plain fields (outside any type condition)
+  def bare_fields(selections)
+    selections.grep(GraphQL::Language::Nodes::Field).map { |field| field.alias || field.name }
+  end
+
+  # rebuild LIST wrappers but drop NON_NULLs — a narrowed member is nil
+  # whenever the runtime type doesn't match, whatever the schema promises
+  def nilable_type_ref(type, &core)
+    case type.kind.name
+    when "NON_NULL"
+      nilable_type_ref(type.of_type, &core)
+    when "LIST"
+      List.new(nilable_type_ref(type.of_type, &core))
+    else
+      core.call
+    end
+  end
+
+  # Abstract types (unions AND interfaces) whose selections vary by
+  # concrete type: one member struct per possible type; wire dispatch
+  # reads __typename, so the query must select it. For interfaces, the
+  # interface's own field selections gather into every member.
   def union_node(type, selections, class_name)
     unless gather(type, selections).key?("__typename")
-      raise ArgumentError, "select __typename on #{type.graphql_name} so #{class_name} can dispatch"
+      raise ArgumentError,
+        "select __typename on #{type.graphql_name} so #{class_name} can dispatch — " \
+        "or narrow to a single `... on Type` condition (no dispatch needed)"
     end
 
     # sorted so output is deterministic across schema sources

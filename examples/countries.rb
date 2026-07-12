@@ -24,7 +24,7 @@ CountryQuery = api.parse(<<~GRAPHQL)
   }
 GRAPHQL
 
-codes = ARGV.empty? ? %w[JP] : ARGV
+codes = ARGV.empty? ? %w[US JP] : ARGV
 codes.each do |code|
   country = CountryQuery.execute!(code: code.upcase).country
   abort "unknown country code: #{code}" unless country

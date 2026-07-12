@@ -1,4 +1,10 @@
 ###  unreleased
+- Abstract selections narrow: __typename is only required when the
+  selection varies by concrete type. Interface-level-fields-only
+  selections generate one shared struct (no dispatch); a single
+  `... on X` condition generates X's struct, always nilable — a
+  non-matching runtime type casts to nil, so narrowing doubles as
+  filtering
 - Zero-config rspec: require "graph_weaver/rspec" now defaults
   auto_fake on and auto-locates the schema from the committed dump
   (config.schema= / config.auto_fake = false to override) — one line is

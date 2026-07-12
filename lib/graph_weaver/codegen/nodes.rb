@@ -258,6 +258,32 @@ class GraphWeaver::Codegen
     def nested = nil
   end
 
+  # A single-condition narrowing of an abstract field (`... on Pet { ... }`
+  # and nothing else): the member struct when the runtime type matches,
+  # nil when it doesn't — a non-match's response object carries no
+  # matching fields, so the hash arrives empty. Always nilable, whatever
+  # the schema's nullability, because narrowing filters.
+  class NarrowedNode
+    def initialize(of)
+      @of = of
+    end
+
+    def class_name = @of.class_name
+    def bare_type = @of.bare_type
+
+    def prop_type
+      "T.nilable(#{bare_type})"
+    end
+
+    def cast(expr, depth)
+      "(#{expr}.empty? ? nil : #{@of.cast(expr, depth)})"
+    end
+
+    def identity? = false
+    def non_null? = false
+    def nested = @of
+  end
+
   class UnionNode
     attr_reader :class_name, :members # graphql type name => ObjectNode
 

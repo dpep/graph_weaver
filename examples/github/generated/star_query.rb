@@ -10,7 +10,6 @@ module StarQuery
     mutation($id: ID!) {
       addStar(input: { starrableId: $id }) {
         starrable {
-          __typename
           stargazerCount
           viewerHasStarred
         }
@@ -26,89 +25,27 @@ module StarQuery
       extend T::Sig
       include GraphWeaver::Hints
 
-      module Starrable
+      class Starrable < T::Struct
         extend T::Sig
+        include GraphWeaver::Hints
 
-        class Gist < T::Struct
-          extend T::Sig
-          include GraphWeaver::Hints
+        const :stargazer_count, Integer
+        const :viewer_has_starred, T::Boolean
 
-          const :__typename, String
-          const :stargazer_count, Integer
-          const :viewer_has_starred, T::Boolean
-
-          sig { params(data: T::Hash[String, T.untyped]).returns(Gist) }
-          def self.from_h(data)
-            new(
-              __typename: data.fetch("__typename"),
-              stargazer_count: data.fetch("stargazerCount"),
-              viewer_has_starred: data.fetch("viewerHasStarred"),
-            )
-          rescue GraphWeaver::TypeError
-            raise # already wrapped by a nested struct — keep the innermost context
-          rescue TypeError, ArgumentError, KeyError => e
-            raise GraphWeaver::TypeError.new(struct: self, error: e)
-          end
-        end
-
-        class Repository < T::Struct
-          extend T::Sig
-          include GraphWeaver::Hints
-
-          const :__typename, String
-          const :stargazer_count, Integer
-          const :viewer_has_starred, T::Boolean
-
-          sig { params(data: T::Hash[String, T.untyped]).returns(Repository) }
-          def self.from_h(data)
-            new(
-              __typename: data.fetch("__typename"),
-              stargazer_count: data.fetch("stargazerCount"),
-              viewer_has_starred: data.fetch("viewerHasStarred"),
-            )
-          rescue GraphWeaver::TypeError
-            raise # already wrapped by a nested struct — keep the innermost context
-          rescue TypeError, ArgumentError, KeyError => e
-            raise GraphWeaver::TypeError.new(struct: self, error: e)
-          end
-        end
-
-        class Topic < T::Struct
-          extend T::Sig
-          include GraphWeaver::Hints
-
-          const :__typename, String
-          const :stargazer_count, Integer
-          const :viewer_has_starred, T::Boolean
-
-          sig { params(data: T::Hash[String, T.untyped]).returns(Topic) }
-          def self.from_h(data)
-            new(
-              __typename: data.fetch("__typename"),
-              stargazer_count: data.fetch("stargazerCount"),
-              viewer_has_starred: data.fetch("viewerHasStarred"),
-            )
-          rescue GraphWeaver::TypeError
-            raise # already wrapped by a nested struct — keep the innermost context
-          rescue TypeError, ArgumentError, KeyError => e
-            raise GraphWeaver::TypeError.new(struct: self, error: e)
-          end
-        end
-
-        Type = T.type_alias { T.any(Gist, Repository, Topic) }
-
-        sig { params(data: T::Hash[String, T.untyped]).returns(Type) }
+        sig { params(data: T::Hash[String, T.untyped]).returns(Starrable) }
         def self.from_h(data)
-          case (typename = data.fetch("__typename"))
-          when "Gist" then Gist.from_h(data)
-          when "Repository" then Repository.from_h(data)
-          when "Topic" then Topic.from_h(data)
-          else raise GraphWeaver::TypeError.new(struct: self, message: "unexpected __typename: #{typename}")
-          end
+          new(
+            stargazer_count: data.fetch("stargazerCount"),
+            viewer_has_starred: data.fetch("viewerHasStarred"),
+          )
+        rescue GraphWeaver::TypeError
+          raise # already wrapped by a nested struct — keep the innermost context
+        rescue TypeError, ArgumentError, KeyError => e
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
 
-      const :starrable, T.nilable(Starrable::Type)
+      const :starrable, T.nilable(Starrable)
 
       sig { params(data: T::Hash[String, T.untyped]).returns(AddStarPayload) }
       def self.from_h(data)
