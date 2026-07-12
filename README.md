@@ -26,8 +26,11 @@ result.person&.birthday   # => Date (custom scalars deserialize)
 result.person&.nmae       # => srb tc: Method `nmae` does not exist
 ```
 
-New here? The **[quickstart](docs/quickstart.md)** walks the production
-setup end to end — initializer, codegen, fakes, CI.
+New here? The **[getting started](docs/getting_started.md)** guide walks the
+production setup end to end — initializer, codegen, fakes, CI. Or run the
+**[examples](examples/)**: `ruby examples/countries.rb` (public API, no auth,
+all dynamic) and `ruby examples/github/run.rb` (auth + checked-in generated
+modules — and `--star` if you're feeling generous ⭐).
 
 #### Features
 
@@ -49,7 +52,7 @@ Three ways to run a query — pick by context:
 | Development, consoles | `client.parse` / `client.load_queries!` — no build step |
 | Scripts, one-offs | `client.execute!` — no module at all |
 
-The production path assembled is the [quickstart](docs/quickstart.md);
+The production path assembled is the [getting started](docs/getting_started.md);
 the pieces:
 
 ```ruby
@@ -101,7 +104,7 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 
 #### Dig deeper
 
-- **[Quickstart](docs/quickstart.md)** — the production path in Rails,
+- **[Getting started](docs/getting_started.md)** — the production path in Rails,
   step by step: initializer, rake tasks, fakes, CI, Sorbet or not
 - **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
   variables (enums, input objects), fragments/unions/interfaces,

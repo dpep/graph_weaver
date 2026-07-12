@@ -36,8 +36,9 @@ module GraphWeaver
     MODES = [:faker, :literal].freeze
 
     class Config
-      attr_accessor :overrides, :seed, :list_size, :null_chance, :schema, :cassette_dir, :auto_fake,
+      attr_accessor :overrides, :seed, :list_size, :null_chance, :cassette_dir, :auto_fake,
         :record, :anonymize
+      attr_writer :schema
       attr_reader :mode
 
       def initialize
@@ -48,11 +49,21 @@ module GraphWeaver
         @mode = nil # auto
         @schema = nil
         @cassette_dir = "spec/cassettes"
-        @auto_fake = false
+        # on by default — engages only when a schema resolves (below), so
+        # requiring graph_weaver/rspec in a conventional app is
+        # zero-config; config.auto_fake = false opts out
+        @auto_fake = true
         # GRAPHWEAVER_RECORD=1 rspec ...  -> Cassette.use re-records
         @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
         # anonymize responses as they're recorded (needs config.schema)
         @anonymize = false
+      end
+
+      # the explicitly configured schema, else the conventional dump
+      # (SchemaLoader.locate at GraphWeaver.schema_path) — nil when
+      # neither exists, which quietly disables auto_fake
+      def schema
+        @schema ||= GraphWeaver::SchemaLoader.locate
       end
 
       def mode=(mode)

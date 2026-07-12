@@ -167,10 +167,31 @@ describe GraphWeaver::Testing do
       expect { GraphWeaver.executor }.to raise_error(GraphWeaver::Error, /no executor/)
     end
 
-    it "stays out of the way when auto_fake is off" do
+    it "stays out of the way when auto_fake is opted out" do
+      GraphWeaver::Testing.configure do |config|
+        config.schema = Demo::Schema
+        config.auto_fake = false
+      end
+
       run([:before, :each])
 
       expect { GraphWeaver.executor }.to raise_error(GraphWeaver::Error, /no executor/)
+    end
+
+    it "defaults on: schema auto-locates from the conventional dump" do
+      Dir.mktmpdir do |dir|
+        GraphWeaver.schema_path = File.join(dir, "schema.graphql")
+        File.write(GraphWeaver.schema_path, Demo::Schema.to_definition)
+
+        # untouched config: auto_fake defaults true, schema locates
+        expect(GraphWeaver::Testing.config.auto_fake).to be true
+
+        run([:before, :each])
+        expect(GraphWeaver.executor).to be_a GraphWeaver::Testing::FakeExecutor
+        run([:after, :each])
+      ensure
+        GraphWeaver.schema_path = nil
+      end
     end
   end
 

@@ -1,4 +1,4 @@
-# Quickstart: the production path (Rails)
+# Getting started: the production path (Rails)
 
 The setup that ships: queries live as `.graphql` files, generation writes
 `# typed: strict` Ruby you check in, and CI fails when anything drifts.
@@ -91,17 +91,14 @@ PersonQuery.execute!(id: "1").person&.name   # typed, via GraphWeaver.client
 ```ruby
 # spec/support/graph_weaver.rb
 require "graph_weaver/rspec"
-
-GraphWeaver::Testing.configure do |config|
-  config.schema = GraphWeaver::SchemaLoader.locate   # the committed dump
-  config.auto_fake = true   # every example runs against a schema-correct fake
-end
 ```
 
-Every query now executes against a seeded `FakeExecutor` — no server, no
-stubs, and `rspec --seed 1234` reproduces the fake data. Pin values with
-`overrides:`, simulate failures with `Failure.*` — see
-[testing](testing.md).
+That's the whole setup: the schema auto-locates from the committed dump
+and `auto_fake` defaults on, so every query in every example executes
+against a seeded, schema-correct `FakeExecutor` — no server, no stubs,
+and `rspec --seed 1234` reproduces the fake data along with test order.
+Pin values with `overrides:`, simulate failures with `Failure.*`, opt
+out with `config.auto_fake = false` — see [testing](testing.md).
 
 ## 7. Verify in CI
 

@@ -31,15 +31,20 @@ GraphWeaver::Testing::FakeExecutor.new(schema:, overrides: {
 })
 ```
 
-Or configure once, initializer-style (e.g. in `spec/support/graph_weaver.rb`):
+With rspec, one line in `spec/support/graph_weaver.rb` is the whole
+default setup — the schema auto-locates from the committed dump at
+`GraphWeaver.schema_path`, and `auto_fake` defaults on:
 
 ```ruby
-require "graph_weaver/rspec"   # rspec: seed follows --seed
+require "graph_weaver/rspec"   # seed follows --seed; every example auto-fakes
+```
 
+Configure to override any of it:
+
+```ruby
 GraphWeaver::Testing.configure do |config|
-  config.schema = MySchema                             # an in-process schema class,
-  # config.schema = GraphWeaver::SchemaLoader.locate   # or the committed dump (remote APIs)
-  config.auto_fake = true              # every example runs against a fresh FakeExecutor
+  config.schema = MySchema             # an in-process class instead of the located dump
+  config.auto_fake = false             # opt out of per-example fakes
   config.mode = :faker                 # or :literal (plain typed values); nil = auto
   config.overrides = { "Person.name" => "Daniel" }
   config.list_size = 1..3

@@ -8,18 +8,23 @@ require_relative "testing"
 #
 #      require "graph_weaver/rspec"
 #
+# That one line is the whole setup in a conventional app: the schema
+# auto-locates from the committed dump (GraphWeaver.schema_path) and
+# auto_fake defaults on, so every example runs against a schema-correct
+# fake. Configure to override:
+#
 #      GraphWeaver::Testing.configure do |config|
-#        config.schema = MySchema
-#        config.auto_fake = true   # every example runs against a FakeExecutor
+#        config.schema = MySchema     # instead of the located dump
+#        config.auto_fake = false     # opt out of per-example fakes
 #      end
 #
 # What it wires up:
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces
 #     fake data along with test order
-#   - auto_fake: when on (and schema is set), each example gets a fresh
-#     seeded FakeExecutor installed as GraphWeaver.executor — generated
-#     modules run in test mode with zero per-test setup. The prior
-#     executor is restored after each example.
+#   - auto_fake: when on (and a schema resolves), each example gets a
+#     fresh seeded FakeExecutor installed as GraphWeaver.executor —
+#     generated modules run in test mode with zero per-test setup. The
+#     prior executor is restored after each example.
 #
 # note: modules generated with a baked-in executor: constant don't consult
 # GraphWeaver.executor — generate without executor: to make them fakeable.

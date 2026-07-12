@@ -1,4 +1,12 @@
 ###  unreleased
+- Zero-config rspec: require "graph_weaver/rspec" now defaults
+  auto_fake on and auto-locates the schema from the committed dump
+  (config.schema= / config.auto_fake = false to override) — one line is
+  the whole test setup in a conventional app
+- examples/: runnable demos — countries.rb (public API, no auth, all
+  dynamic) and github/ (auth, checked-in generated modules, stargazers
+  query, and a --star easter egg); excluded from the gem package
+- docs/quickstart.md renamed to docs/getting_started.md
 - Rails Railtie: the graph_weaver:* rake tasks self-register (no
   Rakefile edit) and depend on :environment, and generated modules load
   at boot (after initializers) when generated_path exists; outside

@@ -5,8 +5,8 @@ Ruby module. Everything `srb tc` knows about your query results comes from this
 file — there is no runtime schema, no lazy wrapper, no reflection.
 
 This is the production path — checked in, reviewed, statically checked
-(assembled step by step in the [quickstart](quickstart.md), including
-[what Sorbet does and doesn't require](quickstart.md#sorbet-with-or-without)).
+(assembled step by step in the [getting started](getting_started.md), including
+[what Sorbet does and doesn't require](getting_started.md#sorbet-with-or-without)).
 For consoles and dev there's [dynamic mode](#dynamic-mode); for one-off
 scripts, `client.execute!` skips modules entirely.
 
