@@ -34,6 +34,7 @@ class GraphWeaver::Codegen
 
       out << "#{pad}class #{node.class_name} < T::Struct"
       out << "#{pad}  extend T::Sig"
+      out << "#{pad}  include GraphWeaver::Hints"
       out << ""
 
       node.fields.filter_map { |field| field.node.nested }.each do |child|

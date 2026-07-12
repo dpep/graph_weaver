@@ -164,6 +164,15 @@ describe GraphWeaver::Codegen do
       expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
     end
 
+    it "hints when a result field is called by its camelCase wire name" do
+      result = AddPetQuery.execute!(name: "Rex", species: "DOG")
+
+      expect { result.addPet }.to raise_error(NoMethodError, /use 'add_pet'/)
+      expect { result.add_pet.bogusField }.to raise_error(NoMethodError) do |e|
+        expect(e.message).not_to include("use") # nothing to hint at
+      end
+    end
+
     it "flattens a single input-object variable into typed kwargs" do
       pet = AdoptQuery.execute!(name: "Rex", species: AdoptQuery::Species::Dog).adopt
       expect(pet.name).to eq "Rex"

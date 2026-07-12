@@ -19,6 +19,7 @@ require "sorbet-runtime"
 # Split across: codegen/scalar_type.rb (the scalar registry),
 # codegen/nodes.rb (the typed IR), codegen/emit.rb (source emission);
 # this file holds the public API and the query walk.
+require_relative "hints"
 require_relative "inflect"
 require_relative "selection"
 require_relative "codegen/scalar_type"

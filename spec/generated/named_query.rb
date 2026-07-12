@@ -20,12 +20,14 @@ module NamedQuery
 
   class Result < T::Struct
     extend T::Sig
+    include GraphWeaver::Hints
 
     module Named
       extend T::Sig
 
       class Person < T::Struct
         extend T::Sig
+        include GraphWeaver::Hints
 
         const :__typename, String
         const :name, String
@@ -45,6 +47,7 @@ module NamedQuery
 
       class Pet < T::Struct
         extend T::Sig
+        include GraphWeaver::Hints
 
         class Species < T::Enum
           enums do

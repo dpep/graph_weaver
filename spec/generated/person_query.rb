@@ -23,12 +23,15 @@ module PersonQuery
 
   class Result < T::Struct
     extend T::Sig
+    include GraphWeaver::Hints
 
     class Person < T::Struct
       extend T::Sig
+      include GraphWeaver::Hints
 
       class Pet < T::Struct
         extend T::Sig
+        include GraphWeaver::Hints
 
         const :name, String
 

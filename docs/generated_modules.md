@@ -138,6 +138,11 @@ first); recursive input types are not yet supported.
   always nilable.
 - **Aliases** — result keys follow aliases; props are the underscored alias.
 
+Props are always snake_case (`nameWithOwner` → `name_with_owner`). Reaching
+for the wire name is a classic stumble, so it fails helpfully at both
+layers: `srb tc` flags it statically, and at runtime (consoles, dynamic
+mode) the struct raises a NoMethodError naming the prop that does exist.
+
 ## Naming
 
 Module names derive from the operation name (`query GetPerson` → `GetPerson`);

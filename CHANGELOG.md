@@ -1,4 +1,8 @@
 ###  unreleased
+- Calling a result field by its camelCase wire name raises a pointed
+  NoMethodError naming the snake_case prop that does exist
+  (result.addPet => "use 'add_pet'") — the runtime companion to srb tc's
+  static flag
 - BREAKING: an operation whose only variable is a required input object
   (the Relay convention) now flattens the input's fields into execute's
   kwargs — AdoptQuery.execute!(name:, species:) instead of

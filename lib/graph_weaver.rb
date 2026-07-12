@@ -2,6 +2,7 @@ require "graphql"
 require "sorbet-runtime"
 
 require_relative "graph_weaver/errors"
+require_relative "graph_weaver/hints"
 require_relative "graph_weaver/response"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"

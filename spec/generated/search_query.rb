@@ -31,12 +31,14 @@ module SearchQuery
 
   class Result < T::Struct
     extend T::Sig
+    include GraphWeaver::Hints
 
     module SearchResult
       extend T::Sig
 
       class Person < T::Struct
         extend T::Sig
+        include GraphWeaver::Hints
 
         const :__typename, String
         const :name, String
@@ -58,6 +60,7 @@ module SearchQuery
 
       class Pet < T::Struct
         extend T::Sig
+        include GraphWeaver::Hints
 
         class Species < T::Enum
           enums do
