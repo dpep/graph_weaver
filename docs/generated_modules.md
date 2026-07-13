@@ -61,8 +61,10 @@ first). Elsewhere it's explicit, factory_bot-style:
 GraphWeaver.load_generated!   # require every file under generated_path
 ```
 
-The conventional paths are lists — append extra locations (a test-only
-schema, an engine's queries) and every loader walks them all:
+The conventional paths are lists (entries may be globs — the default
+includes `app/graphql/*/generated`, so per-schema layouts load too).
+Append extra locations (a test-only schema, an engine's queries) and
+every loader walks them all:
 
 ```ruby
 # e.g. in spec/support/graph_weaver.rb

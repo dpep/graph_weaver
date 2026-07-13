@@ -24,6 +24,7 @@ class GraphWeaver::Railtie < Rails::Railtie
   end
 
   initializer "graph_weaver.load_generated", after: :load_config_initializers do
-    GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir.exist?(path) }
+    # entries may be globs, so Dir[] rather than Dir.exist?
+    GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir[path].any? }
   end
 end

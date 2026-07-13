@@ -1,9 +1,11 @@
 ###  unreleased
 - Conventional paths are appendable lists: queries_paths /
-  generated_paths (singular accessors read/replace the first entry, so
-  existing config keeps working); load_generated!, Client#load_queries!,
-  and the Railtie walk every entry — append spec/support/graphql/* from
-  a spec helper to load test-only queries
+  generated_paths (singular accessors read the first entry, so existing
+  config keeps working); load_generated!, Client#load_queries!, and the
+  Railtie walk every entry — append spec/support/graphql/* from a spec
+  helper to load test-only queries. Entries may be globs, and the
+  generated default includes app/graphql/*/generated so per-schema
+  layouts auto-load
 - inputs_module derives from the output path: multi-schema layouts name
   each schema's module after its directory
   (app/graphql/github/generated -> GithubInputs), the conventional

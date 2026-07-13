@@ -65,12 +65,15 @@ module GraphWeaver
     #      GraphWeaver.generated_paths << "spec/support/graphql/generated"
     #      GraphWeaver.queries_paths << "spec/support/graphql/queries"
     #
-    # The singular accessors read/replace the first entry (the default
-    # target for generate! and the rake tasks).
+    # The singular accessors read the first entry (the default target
+    # for generate! and the rake tasks); assigning one replaces the list.
     attr_writer :queries_paths, :generated_paths, :schema_path
 
+    # Entries may be glob patterns — the generated default also matches
+    # per-schema layouts (app/graphql/github/generated). Queries stay
+    # single-schema: load_queries! parses everything against one client.
     def queries_paths = @queries_paths ||= ["app/graphql/queries"]
-    def generated_paths = @generated_paths ||= ["app/graphql/generated"]
+    def generated_paths = @generated_paths ||= ["app/graphql/generated", "app/graphql/*/generated"]
 
     def queries_path = queries_paths.first
     def generated_path = generated_paths.first
@@ -176,7 +179,7 @@ module GraphWeaver
     # a schema migration).
     def load_generated!(path = nil)
       paths = path ? [path] : generated_paths
-      files = paths.flat_map { |dir| Dir[File.join(dir, "**/*.rb")].sort }
+      files = paths.flat_map { |dir| Dir[File.join(dir, "**/*.rb")].sort }.uniq
       files.each { |file| require File.expand_path(file) }
       log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
       files

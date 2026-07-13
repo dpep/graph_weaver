@@ -39,6 +39,26 @@ describe "GraphWeaver.generate!" do
     expect(File.read(File.join(output, "adopt_query.rb"))).to include "GithubInputs::AdoptionInput"
   end
 
+  it "loads per-schema layouts via glob path entries" do
+    # the default list covers both the generic and per-schema layouts
+    expect(GraphWeaver.generated_paths).to eq ["app/graphql/generated", "app/graphql/*/generated"]
+
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "glob_people.graphql"), "query { people { name } }")
+    GraphWeaver.generate!(
+      schema: Demo::Schema, queries:, output: File.join(@dir, "github/generated"), client: Demo::Schema,
+    )
+
+    begin
+      GraphWeaver.generated_paths = [File.join(@dir, "*/generated")]
+      GraphWeaver.load_generated!
+      expect(defined?(::GlobPeopleQuery)).to eq "constant"
+    ensure
+      GraphWeaver.generated_paths = nil
+    end
+  end
+
   it "loads appended generated_paths — the spec-support pattern" do
     queries = File.join(@dir, "support/graphql/queries")
     output = File.join(@dir, "support/graphql/generated")
