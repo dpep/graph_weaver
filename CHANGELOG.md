@@ -1,4 +1,4 @@
-###  unreleased
+###  v0.2.0  (2026-07-12)
 - Cleanup pass (staff-engineer review): scalar registrations get the
   same typo validation as enums/types; cassette replay stops recomputing
   its key per entry; dependency-order DFS uses hash bookkeeping (big
