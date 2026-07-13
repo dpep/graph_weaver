@@ -71,8 +71,38 @@ module Demo
     end
   end
 
+  # A self-referential filter input, Hasura bool_exp-style — exercises
+  # recursive input support end to end (generation, srb tc, runtime).
+  class PetFilterType < GraphQL::Schema::InputObject
+    graphql_name "PetFilter"
+
+    argument :_and, [PetFilterType], required: false, camelize: false
+    argument :_not, PetFilterType, required: false, camelize: false
+    argument :name, String, required: false
+    argument :species, SpeciesType, required: false
+  end
+
+  def self.pet_matches?(pet, filter)
+    return true if filter.nil?
+
+    checks = []
+    checks << (pet.name == filter[:name]) if filter[:name]
+    checks << (pet.species == filter[:species]) if filter[:species]
+    checks << filter[:_and].all? { |f| pet_matches?(pet, f) } if filter[:_and]
+    checks << !pet_matches?(pet, filter[:_not]) if filter[:_not]
+    checks.all?
+  end
+
   class QueryType < GraphQL::Schema::Object
     graphql_name "Query"
+
+    field :find_pets, [PetType], null: false do
+      argument :where, PetFilterType, required: false
+    end
+
+    def find_pets(where: nil)
+      PETS.select { |pet| Demo.pet_matches?(pet, where) }
+    end
 
     field :person, PersonType do
       argument :id, ID, required: true

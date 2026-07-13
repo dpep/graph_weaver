@@ -1,4 +1,8 @@
 ###  unreleased
+- Recursive input types generate — self- and mutually-referential inputs
+  (Hasura's bool_exp filter surface) emit dependency-ordered structs with
+  runtime forward declarations for cycles, so variable-driven Hasura
+  filtering works; previously raised "recursive input type"
 - Fix: snake_case GraphQL type names (Hasura, PostGraphile) camelize
   into valid Ruby constants — pokemon_v2_pokemon => PokemonV2Pokemon
   (previously generated a SyntaxError); wire names (__typename dispatch,

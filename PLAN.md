@@ -112,9 +112,12 @@ Fixed same-day: snake_case type names generated invalid constants
 umbrella, HttpExecutor timeouts, GitHub's top-level "type" error codes,
 typo'd client registrations silently no-oping. Still open:
 
-- Recursive input types (Hasura's bool_exp filter surface is entirely
-  self-referential — variable-driven filtering there is impossible;
-  literal arguments in the document work). Needs forward-declared
-  structs or lazy prop types.
+~~Recursive input types~~ DONE 2026-07-12: register-before-walk breaks
+the recursion; emission dependency-orders the structs and, for cycles,
+forward-declares the classes in an eval (srb rejects reopening a
+T::Struct statically, but adding props at runtime works — the full
+bodies below the eval are all srb sees). Verified live against Hasura
+bool_exp.
+
 - Subscriptions.
 - Connection reuse in Transport::HTTP (Faraday covers it today).

@@ -154,7 +154,16 @@ AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 The structs themselves are module-level (`AdoptQuery::AdoptionInput`) with
 `serialize` (aliased as `to_h`) producing the wire hash — optional fields
 default nil and stay off the wire. Nested inputs work (dependencies emit
-first); recursive input types are not yet supported.
+first), including recursive ones — Hasura's self-referential `bool_exp`
+filters generate cleanly (`_and:`/`_not:` fields typed as the struct
+itself), so variable-driven filtering works:
+
+```ruby
+where = mod::PokemonBoolExp.coerce(
+  _and: [{ name: { _like: "%chu" } }, { _not: { name: { _eq: "raichu" } } }],
+)
+mod.execute!(where:)
+```
 
 ## Selections
 

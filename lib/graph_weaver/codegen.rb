@@ -117,7 +117,6 @@ class GraphWeaver::Codegen
     @variable_enums = {}
     @variable_inputs = {}
     @mapped_enums = {}
-    @inputs_in_progress = []
     # requires contributed by the custom scalars this query actually uses
     @scalar_requires = []
 
@@ -175,7 +174,21 @@ class GraphWeaver::Codegen
       emit_enum(enum, out, 1)
       out << ""
     end
-    @variable_inputs.each_value do |input|
+    inputs, cyclic = ordered_inputs
+    if cyclic
+      # Recursive input types (Hasura bool_exp et al) reference each other,
+      # so no definition order satisfies the runtime — forward-declare every
+      # class empty, then let the full definitions below reopen with props.
+      # eval'd so srb sees only the full bodies (reopening a T::Struct to
+      # add props is a static error; adding them at runtime is fine).
+      out << "  # runtime-only forward declarations: these input types reference"
+      out << "  # each other, so the full definitions below need the constants"
+      out << "  eval(<<~RUBY, binding, __FILE__, __LINE__ + 1)"
+      inputs.each { |input| out << "    class #{input.class_name} < T::Struct; end" }
+      out << "  RUBY"
+      out << ""
+    end
+    inputs.each do |input|
       emit_input(input, out, 1)
       out << ""
     end
@@ -380,17 +393,13 @@ class GraphWeaver::Codegen
   end
 
   # A module-level T::Struct per input type, with a serialize method
-  # producing the wire hash. Registered once per type; nested inputs
-  # register their dependencies first (insertion order = emission order).
+  # producing the wire hash. Registered once per type — and registered
+  # BEFORE its fields walk, so recursive references (Hasura's bool_exp
+  # _and/_or/_not) resolve to the same node instead of looping.
   def input_node(core)
     return @variable_inputs[core.graphql_name] if @variable_inputs.key?(core.graphql_name)
 
-    if @inputs_in_progress.include?(core.graphql_name)
-      raise GraphWeaver::Error, "recursive input type: #{core.graphql_name}"
-    end
-    @inputs_in_progress << core.graphql_name
-
-    node = InputNode.new(camelize(core.graphql_name))
+    node = @variable_inputs[core.graphql_name] = InputNode.new(camelize(core.graphql_name))
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
       child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
@@ -399,9 +408,44 @@ class GraphWeaver::Codegen
         underscore(argument.graphql_name), argument.graphql_name, child, required
       )
     end
+    node
+  end
 
-    @inputs_in_progress.delete(core.graphql_name)
-    @variable_inputs[core.graphql_name] = node
+  # The InputNodes a struct's fields reference, through NON_NULL/LIST
+  # wrappers — the edges of the input dependency graph.
+  def input_references(node)
+    node.fields.filter_map do |field|
+      child = field.node
+      child = child.of while child.respond_to?(:of)
+      child if child.is_a?(InputNode)
+    end
+  end
+
+  # Input structs in dependency order (referenced types before their
+  # referrers) so each emitted const names an already-defined class.
+  # Cycles make that impossible — flagged so emission can forward-declare
+  # every input class first, then reopen each to add its props.
+  def ordered_inputs
+    ordered = []
+    visiting = []
+    cyclic = T.let(false, T::Boolean)
+
+    visit = lambda do |node|
+      next if ordered.include?(node)
+
+      if visiting.include?(node)
+        cyclic = true
+        next
+      end
+
+      visiting << node
+      input_references(node).each(&visit)
+      visiting.delete(node)
+      ordered << node
+    end
+    @variable_inputs.each_value(&visit)
+
+    [ordered, cyclic]
   end
 
   # Registered helper-module names for a GraphQL type (additive: global

@@ -12,7 +12,8 @@ module GraphWeaver
     end
 
     def camelize(name)
-      name.split("_").map { |part| "#{part[0].upcase}#{part[1..]}" }.join
+      # reject: leading underscores split into empty parts (_Service, _and)
+      name.split("_").reject(&:empty?).map { |part| "#{part[0].upcase}#{part[1..]}" }.join
     end
   end
 end

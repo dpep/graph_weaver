@@ -78,6 +78,8 @@ class GraphWeaver::Codegen
   end
 
   class List
+    attr_reader :of
+
     def initialize(of)
       @of = of
     end

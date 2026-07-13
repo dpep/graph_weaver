@@ -1,6 +1,7 @@
 
 require_relative "generated/add_pet_query"
 require_relative "generated/adopt_query"
+require_relative "generated/find_pets_query"
 require_relative "generated/named_query"
 require_relative "generated/person_query"
 require_relative "generated/search_query"
@@ -9,7 +10,7 @@ describe GraphWeaver::Codegen do
   it "keeps the checked-in generated files up to date" do
     root = File.expand_path("..", __dir__)
 
-    %w[add_pet adopt named person search].each do |base|
+    %w[add_pet adopt find_pets named person search].each do |base|
       source = described_class.new(
         schema: Demo::Schema,
         executor: Demo::Schema,
@@ -279,6 +280,70 @@ describe GraphWeaver::Codegen do
       # coerce: underscored Symbol/String keys, enums as wire values
       coerced = AdoptQuery::AdoptionInput.coerce({ "name" => "Rex", species: "CAT" })
       expect(coerced.species).to eq AdoptQuery::Species::Cat
+    end
+
+    it "supports recursive input types (Hasura-style bool_exp filters)" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { pokemon(where: pokemon_bool_exp): [pokemon!]! }
+        type pokemon { id: Int! name: String! }
+        input pokemon_bool_exp {
+          _and: [pokemon_bool_exp!]
+          _not: pokemon_bool_exp
+          name: String_comparison_exp
+          species: species_bool_exp
+        }
+        input species_bool_exp {
+          name: String_comparison_exp
+          pokemons: pokemon_bool_exp
+        }
+        input String_comparison_exp { _eq: String }
+      GRAPHQL
+
+      executor = Class.new do
+        attr_reader :variables
+
+        def execute(_query, variables:)
+          @variables = variables
+          { "data" => { "pokemon" => [{ "id" => 25, "name" => "pikachu" }] } }
+        end
+      end.new
+
+      mod = GraphWeaver.parse(
+        schema:,
+        executor:,
+        query: "query($where: pokemon_bool_exp) { pokemon(where: $where) { id name } }",
+      )
+
+      # self-recursion and a cross-type cycle, built by hand
+      where = mod::PokemonBoolExp.new(
+        _and: [mod::PokemonBoolExp.new(name: mod::StringComparisonExp.new(_eq: "pikachu"))],
+        _not: mod::PokemonBoolExp.new(species: mod::SpeciesBoolExp.new(
+          pokemons: mod::PokemonBoolExp.new(name: mod::StringComparisonExp.new(_eq: "ditto")),
+        )),
+      )
+
+      expect(mod.execute!(where:).pokemon.first.name).to eq "pikachu"
+      expect(executor.variables).to eq(
+        "where" => {
+          "_and" => [{ "name" => { "_eq" => "pikachu" } }],
+          "_not" => { "species" => { "pokemons" => { "name" => { "_eq" => "ditto" } } } },
+        },
+      )
+
+      # plain hashes coerce through the same cycle
+      mod.execute!(where: { _not: { name: { _eq: "mew" } } })
+      expect(executor.variables).to eq("where" => { "_not" => { "name" => { "_eq" => "mew" } } })
+    end
+
+    it "executes a checked-in recursive filter end to end" do
+      # the generated module is srb tc'd; the schema applies the filter
+      where = FindPetsQuery::PetFilter.coerce(
+        _and: [{ species: "DOG" }],
+        _not: { name: "Brownie" },
+      )
+
+      expect(FindPetsQuery.execute!(where:).find_pets.map(&:name)).to eq %w[Shelby]
+      expect(FindPetsQuery.execute!.find_pets.size).to eq 2 # no filter
     end
 
     it "omits optional variables from the wire when nil" do
