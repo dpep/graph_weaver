@@ -119,6 +119,8 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
   requires, input coercion
 - **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy,
   field-level reports with entity ids, stale-schema detection
+- **[Logging](docs/logging.md)** — point `GraphWeaver.logger` at any Logger:
+  wire traffic at debug, introspection/cache/codegen at info, errors at warn
 - **[Testing](docs/testing.md)** — schema-correct fakes, failure simulation,
   rspec integration
 - **[Cassettes](docs/cassettes.md)** — capture and replay real API

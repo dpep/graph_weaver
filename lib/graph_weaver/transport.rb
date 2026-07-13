@@ -26,12 +26,19 @@ class GraphWeaver::Transport
   attr_reader :url
 
   def execute(query, variables: {})
+    # full query + variables at debug only — they can carry PII
+    GraphWeaver.log(:debug) { "POST #{url} variables=#{JSON.generate(variables)}\n#{query}" }
+
     status, body = begin
-      post(JSON.generate(query:, variables:))
+      GraphWeaver.log_timed(:debug, "POST #{url}") do
+        post(JSON.generate(query:, variables:))
+      end
     rescue *GraphWeaver.transport_errors.to_a => e
       # never got a response — DNS, connection refused/reset, TLS, timeout
       raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end
+
+    GraphWeaver.log(:debug) { "HTTP #{status} from #{url} (#{body.to_s.bytesize} bytes)" }
 
     # reached the server, but it returned a non-2xx status
     unless (200..299).cover?(status)

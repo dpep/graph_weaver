@@ -17,6 +17,12 @@ class GraphWeaver::Railtie < Rails::Railtie
     require "graph_weaver/tasks"
   end
 
+  # Rails.logger, unless the app already chose one (set
+  # GraphWeaver.logger = nil in an initializer to silence)
+  initializer "graph_weaver.logger" do
+    GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
+  end
+
   initializer "graph_weaver.load_generated", after: :load_config_initializers do
     GraphWeaver.load_generated! if Dir.exist?(GraphWeaver.generated_path)
   end

@@ -60,17 +60,23 @@ module GraphWeaver
       # idle past keep_alive_timeout, so a server-closed keep-alive
       # socket doesn't produce spurious failures.
       def connection
-        @http ||= Net::HTTP.start(
-          @uri.hostname, @uri.port,
-          use_ssl: @uri.scheme == "https",
-          open_timeout: @open_timeout, read_timeout: @read_timeout,
-          keep_alive_timeout: @keep_alive_timeout,
-        )
+        @http ||= begin
+          GraphWeaver.log(:debug) { "connecting to #{@uri.hostname}:#{@uri.port}" }
+          Net::HTTP.start(
+            @uri.hostname, @uri.port,
+            use_ssl: @uri.scheme == "https",
+            open_timeout: @open_timeout, read_timeout: @read_timeout,
+            keep_alive_timeout: @keep_alive_timeout,
+          )
+        end
       end
 
       def disconnect
         http = @http
-        http.finish if http&.started?
+        return unless http
+
+        GraphWeaver.log(:debug) { "dropping connection to #{@uri.hostname}:#{@uri.port}" }
+        http.finish if http.started?
       rescue IOError
         # already closed
       ensure

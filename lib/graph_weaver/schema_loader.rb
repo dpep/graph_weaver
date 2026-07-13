@@ -78,10 +78,17 @@ module GraphWeaver::SchemaLoader
       # don't re-introspect to write schema.json when a usable
       # schema.graphql already sits there
       existing = cache_candidates(cache).find { |candidate| fresh?(candidate, ttl) }
-      return load(existing) if existing
+      if existing
+        GraphWeaver.log(:info) { "schema cache hit: #{existing}#{" (ttl #{ttl}s)" if ttl}" }
+        return load(existing)
+      end
+
+      GraphWeaver.log(:info) { "schema cache miss: #{cache}" }
     end
 
-    result = executor.execute(GraphQL::Introspection.query, variables: {}).to_h
+    result = GraphWeaver.log_timed(:info, "introspected #{executor.respond_to?(:url) ? executor.url : executor.class}") do
+      executor.execute(GraphQL::Introspection.query, variables: {}).to_h
+    end
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
     end
@@ -101,6 +108,7 @@ module GraphWeaver::SchemaLoader
         "#{header}#{schema.to_definition}"
       end
       File.write(cache, content)
+      GraphWeaver.log(:info) { "wrote schema cache: #{cache} (#{content.bytesize} bytes)" }
     end
 
     schema

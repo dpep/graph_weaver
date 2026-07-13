@@ -1,6 +1,7 @@
 require "graphql"
 require "sorbet-runtime"
 
+require_relative "graph_weaver/logging"
 require_relative "graph_weaver/errors"
 require_relative "graph_weaver/hints"
 require_relative "graph_weaver/response"
@@ -84,6 +85,7 @@ module GraphWeaver
       each_query(queries, schema:, executor:).map do |base, source|
         target = File.join(output, "#{base}_query.rb")
         File.write(target, source)
+        log(:info) { "generated #{target}" }
         target
       end
     end
@@ -120,7 +122,10 @@ module GraphWeaver
     # generated code only changes on regeneration anyway (restart, like
     # a schema migration).
     def load_generated!(path = generated_path)
-      Dir[File.join(path, "**/*.rb")].sort.each { |file| require File.expand_path(file) }
+      files = Dir[File.join(path, "**/*.rb")].sort
+      files.each { |file| require File.expand_path(file) }
+      log(:info) { "loaded #{files.size} generated module(s) from #{path}" }
+      files
     end
 
     # the conventional schema dump, required

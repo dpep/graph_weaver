@@ -134,6 +134,7 @@ class GraphWeaver::Client
     Dir[File.join(dir, "*.graphql")].sort.map do |path|
       name = "#{GraphWeaver::Inflect.camelize(File.basename(path, ".graphql"))}Query"
       namespace.send(:remove_const, name) if namespace.const_defined?(name, false)
+      GraphWeaver.log(:info) { "loaded #{name} from #{path}" }
       namespace.const_set(name, parse(path))
     end
   end

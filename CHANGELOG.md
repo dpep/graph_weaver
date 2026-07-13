@@ -1,4 +1,7 @@
 ###  unreleased
+- Logging: GraphWeaver.logger (any stdlib-compatible Logger; Rails.logger
+  auto-wired by the railtie) — wire traffic + timings at debug,
+  introspection/cache/codegen at info, every raised error at warn
 - Recursive input types generate — self- and mutually-referential inputs
   (Hasura's bool_exp filter surface) emit dependency-ordered structs with
   runtime forward declarations for cycles, so variable-driven Hasura

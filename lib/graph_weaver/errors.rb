@@ -4,6 +4,7 @@
 require "set"
 require "sorbet-runtime"
 require_relative "inflect"
+require_relative "logging"
 
 module GraphWeaver
   # Base for every error GraphWeaver raises — rescue this to catch them
@@ -16,6 +17,13 @@ module GraphWeaver
   # the build-time outlier: an ArgumentError, so query-validation raises
   # stay rescuable as ArgumentError.)
   class Error < StandardError
+    # every GraphWeaver error surfaces on the logger too (see
+    # GraphWeaver.logger) — construction here means a raise
+    def initialize(*args)
+      super
+      GraphWeaver.log(:warn) { "#{self.class.name}: #{message}" }
+    end
+
     def to_h
       { "error" => self.class.name, "message" => message }
     end
@@ -306,6 +314,7 @@ module GraphWeaver
     def initialize(errors)
       @errors = errors
       super("invalid query: #{errors.map { |e| e[:message] }.join("; ")}")
+      GraphWeaver.log(:warn) { "#{self.class.name}: #{message}" }
     end
 
     def to_h

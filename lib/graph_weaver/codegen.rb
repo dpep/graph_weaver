@@ -92,6 +92,7 @@ class GraphWeaver::Codegen
     container = Module.new
     container.module_eval(source, "(graph_weaver)", 1)
     mod = container.const_get(codegen.module_name)
+    GraphWeaver.log(:debug) { "parsed #{codegen.module_name} (dynamic module, #{source.bytesize} bytes)" }
     # live objects (or anonymous modules) can't be referenced from
     # generated source — set them via the module's writer instead
     mod.executor = executor if executor && executor_const.nil?
