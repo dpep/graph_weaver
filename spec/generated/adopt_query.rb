@@ -35,14 +35,14 @@ module AdoptQuery
 
     sig { returns(T::Hash[String, T.untyped]) }
     def serialize
-      result = T.let({}, T::Hash[String, T.untyped])
-      unless (value = birthday).nil?
-        result["birthday"] = value.iso8601
+      __gw_result = T.let({}, T::Hash[String, T.untyped])
+      unless (__gw_value = birthday).nil?
+        __gw_result["birthday"] = __gw_value.iso8601
       end
-      result["name"] = name
-      result["nickname"] = nickname unless nickname.nil?
-      result["species"] = species.serialize
-      result
+      __gw_result["name"] = name
+      __gw_result["nickname"] = nickname unless nickname.nil?
+      __gw_result["species"] = species.serialize
+      __gw_result
     end
 
     # serialize, under the conventional name

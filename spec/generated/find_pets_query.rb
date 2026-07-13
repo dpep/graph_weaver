@@ -40,19 +40,19 @@ module FindPetsQuery
 
     sig { returns(T::Hash[String, T.untyped]) }
     def serialize
-      result = T.let({}, T::Hash[String, T.untyped])
-      unless (value = _and).nil?
-        result["_and"] = value.map { |v1| v1.serialize }
+      __gw_result = T.let({}, T::Hash[String, T.untyped])
+      unless (__gw_value = _and).nil?
+        __gw_result["_and"] = __gw_value.map { |v1| v1.serialize }
       end
-      unless (value = _not).nil?
-        result["_not"] = value.serialize
+      unless (__gw_value = _not).nil?
+        __gw_result["_not"] = __gw_value.serialize
       end
-      result["metadata"] = metadata unless metadata.nil?
-      result["name"] = name unless name.nil?
-      unless (value = species).nil?
-        result["species"] = value.serialize
+      __gw_result["metadata"] = metadata unless metadata.nil?
+      __gw_result["name"] = name unless name.nil?
+      unless (__gw_value = species).nil?
+        __gw_result["species"] = __gw_value.serialize
       end
-      result
+      __gw_result
     end
 
     # serialize, under the conventional name

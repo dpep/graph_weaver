@@ -71,6 +71,48 @@ describe GraphWeaver::Codegen do
     expect(pokemon&.name).to eq "bulbasaur"
   end
 
+  describe "hostile prop names" do
+    def schema_with_input(fields)
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { ok: Boolean }
+        type Mutation { save(input: Tricky!): Boolean }
+        input Tricky { #{fields} }
+      GRAPHQL
+    end
+
+    it "a field named result/value serializes correctly despite the generated locals" do
+      schema = schema_with_input("result: String value: String other: String")
+      mod = GraphWeaver.parse(
+        schema:,
+        query: "mutation Save($input: Tricky!) { save(input: $input) }",
+        executor: Demo::Schema, # never called; serialize is pure
+      )
+
+      wire = mod::Tricky.new(result: "kept", value: "also kept").serialize
+      expect(wire).to eq({ "result" => "kept", "value" => "also kept" })
+    end
+
+    it "refuses input fields that collide with keywords or generated methods" do
+      expect {
+        GraphWeaver.parse(schema: schema_with_input("nil: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T1")
+      }.to raise_error(GraphWeaver::Error, /Tricky\.nil.*Ruby keyword/)
+
+      expect {
+        GraphWeaver.parse(schema: schema_with_input("serialize: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T2")
+      }.to raise_error(GraphWeaver::Error, /generated #serialize/)
+    end
+
+    it "refuses variables whose kwarg would be a keyword or the reserved executor" do
+      expect {
+        GraphWeaver.parse(schema: Demo::Schema, query: "query($end: ID!) { person(id: $end) { id } }")
+      }.to raise_error(GraphWeaver::Error, /\$end.*Ruby keyword/)
+
+      expect {
+        GraphWeaver.parse(schema: Demo::Schema, query: "query($executor: ID!) { person(id: $executor) { id } }")
+      }.to raise_error(GraphWeaver::Error, /\$executor.*reserved/)
+    end
+  end
+
   it "wraps unparseable queries as ValidationError, not GraphQL::ParseError" do
     expect { GraphWeaver.parse(schema: Demo::Schema, query: "query {") }
       .to raise_error(GraphWeaver::ValidationError)

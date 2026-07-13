@@ -62,4 +62,26 @@ describe GraphWeaver::Transport::HTTP do
   ensure
     GraphWeaver.transport_errors.delete(pool_error)
   end
+
+  it "classifies a non-JSON 200 body as ServerError (proxy pages, captive portals)" do
+    html = Class.new(described_class) do
+      def post(_body) = [200, "<html>Service Temporarily Unavailable</html>"]
+    end
+
+    expect { html.new(url).execute("query { x }") }
+      .to raise_error(GraphWeaver::ServerError, /non-JSON response: <html>/)
+  end
+
+  it "wraps unserializable variables (NaN) instead of leaking JSON errors" do
+    expect { executor.execute("query", variables: { "amount" => Float::NAN }) }
+      .to raise_error(GraphWeaver::Error, /not JSON-serializable/)
+  end
+
+  it "never leaks auth headers through inspect/to_s" do
+    secretive = described_class.new(url, headers: { "Authorization" => "Bearer s3cret" })
+
+    expect(secretive.inspect).not_to include("s3cret")
+    expect(secretive.to_s).not_to include("s3cret")
+    expect(secretive.inspect).to include(url)
+  end
 end

@@ -35,9 +35,17 @@ class GraphWeaver::Transport
       "POST #{url} #{tag} variables=#{JSON.generate(variables)}\n#{GraphWeaver::Transport.truncate_for_log(query)}"
     end
 
+    encoded = begin
+      JSON.generate(query:, variables:)
+    rescue JSON::GeneratorError => e
+      # a value with no JSON form (NaN, Infinity, binary) — the caller's
+      # bug, surfaced under the umbrella instead of a raw JSON:: error
+      raise GraphWeaver::Error, "variables are not JSON-serializable: #{e.message}"
+    end
+
     status, body = begin
       GraphWeaver.log_timed(:debug, "POST #{url} #{tag} completed") do
-        post(JSON.generate(query:, variables:))
+        post(encoded)
       end
     rescue *GraphWeaver.transport_errors.to_a => e
       # never got a response — DNS, connection refused/reset, TLS, timeout
@@ -52,8 +60,23 @@ class GraphWeaver::Transport
     end
 
     # a caller's connection may already parse json via middleware
-    body.is_a?(String) ? JSON.parse(body) : body
+    return body unless body.is_a?(String)
+
+    begin
+      JSON.parse(body)
+    rescue JSON::ParserError
+      # a 200 that isn't GraphQL — an HTML error page from a proxy, a
+      # captive portal: the server misbehaved, classify it that way
+      raise GraphWeaver::ServerError.new(status:, body: "non-JSON response: #{body[0, 500]}")
+    end
   end
+
+  # never leak Authorization headers through logs/exceptions — a
+  # transport inspects as its class + endpoint, nothing more
+  def inspect
+    "#<#{self.class.name} url=#{url.inspect}>"
+  end
+  alias to_s inspect
 
   # "[req 3 FilteredPokemon]" — a per-process request id plus the
   # operation name (when the document declares one)

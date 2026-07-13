@@ -228,23 +228,26 @@ class GraphWeaver::Codegen
         out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}#{default}"
       end
       out << ""
+      # locals wear the reserved __gw prefix: prop readers are bare method
+      # calls here, and a prop named "result" or "value" would otherwise
+      # be shadowed — GraphQL reserves __-names, so no field can collide
       out << "#{pad}  sig { returns(T::Hash[String, T.untyped]) }"
       out << "#{pad}  def serialize"
-      out << "#{pad}    result = T.let({}, T::Hash[String, T.untyped])"
+      out << "#{pad}    __gw_result = T.let({}, T::Hash[String, T.untyped])"
       node.fields.each do |field|
         if field.required || field.node.serialize_identity?
           value = field.node.serialize_identity? ? field.prop.to_s : field.node.serialize(field.prop.to_s, 1)
-          line = "result[#{field.wire.inspect}] = #{value}"
+          line = "__gw_result[#{field.wire.inspect}] = #{value}"
           line += " unless #{field.prop}.nil?" unless field.required
           out << "#{pad}    #{line}"
         else
           # bind a local so sorbet's flow-sensitivity narrows the nilable
-          out << "#{pad}    unless (value = #{field.prop}).nil?"
-          out << "#{pad}      result[#{field.wire.inspect}] = #{field.node.serialize("value", 1)}"
+          out << "#{pad}    unless (__gw_value = #{field.prop}).nil?"
+          out << "#{pad}      __gw_result[#{field.wire.inspect}] = #{field.node.serialize("__gw_value", 1)}"
           out << "#{pad}    end"
         end
       end
-      out << "#{pad}    result"
+      out << "#{pad}    __gw_result"
       out << "#{pad}  end"
       out << ""
       out << "#{pad}  # serialize, under the conventional name"

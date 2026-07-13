@@ -101,6 +101,17 @@ class GraphWeaver::Codegen
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
 
+  # Names that cannot appear bare in generated Ruby: keywords aren't
+  # valid identifiers, and the struct's own generated methods would be
+  # silently replaced by a same-named prop reader.
+  RUBY_KEYWORDS = %w[
+    alias and begin break case class def defined? do else elsif end
+    ensure false for if in module next nil not or redo rescue retry
+    return self super then true undef unless until when while yield
+    BEGIN END __FILE__ __LINE__ __ENCODING__
+  ].to_set.freeze
+  GENERATED_METHODS = %w[serialize to_h].to_set.freeze
+
   def generate
     begin
       errors = @schema.validate(@query)
@@ -139,7 +150,14 @@ class GraphWeaver::Codegen
       # a variable is optional when nullable or defaulted; optional kwargs
       # default to nil and are omitted from the wire
       required = node.non_null? && var.default_value.nil?
-      VarDef.new(underscore(var.name), var.name, node, required)
+      kwarg = underscore(var.name)
+      # kwargs are declared and forwarded bare in generated source
+      if RUBY_KEYWORDS.include?(kwarg) || kwarg == "executor"
+        raise GraphWeaver::Error,
+          "variable $#{var.name} would become the kwarg '#{kwarg}:', which generated code can't declare " \
+          "(#{kwarg == "executor" ? "reserved" : "a Ruby keyword"}) — rename the variable"
+      end
+      VarDef.new(kwarg, var.name, node, required)
     end
 
     root = object_node(root_type, operation.selections, "Result")
@@ -426,11 +444,17 @@ class GraphWeaver::Codegen
     node = @variable_inputs[core.graphql_name] = InputNode.new(camelize(core.graphql_name))
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
+      prop = underscore(argument.graphql_name)
+      # prop readers are bare method calls in the generated struct
+      if RUBY_KEYWORDS.include?(prop) || GENERATED_METHODS.include?(prop)
+        raise GraphWeaver::Error,
+          "input field #{core.graphql_name}.#{argument.graphql_name} would become prop '#{prop}', " \
+          "which collides with #{RUBY_KEYWORDS.include?(prop) ? "a Ruby keyword" : "the struct's generated ##{prop}"}"
+      end
+
       child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
       required = child.non_null? && !argument.default_value?
-      node.fields << InputNode::Field.new(
-        underscore(argument.graphql_name), argument.graphql_name, child, required
-      )
+      node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
     end
     node
   end

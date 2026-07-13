@@ -1,4 +1,18 @@
 ###  unreleased
+- Fix: input-struct serialize used bare locals (result/value) that a
+  same-named prop silently shadowed — a field named "result" dropped
+  its value onto the wrong target; generated locals now wear the
+  reserved __gw prefix (GraphQL reserves __-names, so no collision is
+  possible)
+- Input fields and variables whose Ruby name would be a keyword
+  (nil/def/end/...), a generated method (serialize/to_h), or the
+  reserved executor kwarg now refuse at generation with a pointed
+  error instead of emitting broken code
+- Non-JSON 200 bodies (proxy error pages) classify as ServerError, and
+  unserializable variables (NaN/Infinity) raise GraphWeaver::Error —
+  raw JSON::* errors no longer escape the umbrella
+- Transports redact on inspect/to_s (class + url only) — Authorization
+  headers can't leak through logs or exception dumps
 - Narrowed `... on X` selections require at least one unconditional
   field: with every field behind @skip/@include, a matching response is
   {} — byte-identical to a non-match — so generation refuses rather
