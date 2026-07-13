@@ -204,6 +204,13 @@ describe GraphWeaver::Client do
       expect(GraphWeaver.new(Demo::Schema).execute!(query).person&.birthday).to be_a Date
       expect(GraphWeaver::Codegen.scalar("Date").type).to eq "Date"
     end
+
+    it "catches typo'd scalar names like the other registrars" do
+      client = GraphWeaver.new(Demo::Schema)
+
+      expect { client.register_scalar("Dtae", String) }
+        .to raise_error(GraphWeaver::Error, /register_scalar\("Dtae"\).*did you mean 'Date'/)
+    end
   end
 
   describe "enum mappings" do

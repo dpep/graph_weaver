@@ -75,7 +75,6 @@ module GraphWeaver
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
     def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil)
       schema ||= locate_schema!
-      require "fileutils"
       FileUtils.mkdir_p(output)
 
       each_query(queries, schema:, client:).map do |base, source|

@@ -5,7 +5,7 @@ require "json"
 
 module GraphWeaver
   module Testing
-    # Canned failure executors — each produces exactly what the real
+    # Canned failure clients — each produces exactly what the real
     # transports produce, so error-handling paths are testable without a
     # server that misbehaves on cue:
     #
@@ -89,20 +89,20 @@ module GraphWeaver
       end
     end
 
-    # Delegates each call to the next executor in line (the last one
+    # Delegates each call to the next client in line (the last one
     # repeats) — fail N times, then succeed, for retry/backoff testing:
     #
     #      Sequence.new(Failure.transport, Failure.transport, fake)
     class Sequence
-      def initialize(*executors)
-        @executors = executors.flatten
+      def initialize(*clients)
+        @clients = clients.flatten
         @calls = 0
       end
 
       def execute(query, variables: {})
-        executor = @executors[[@calls, @executors.size - 1].min]
+        client = @clients[[@calls, @clients.size - 1].min]
         @calls += 1
-        executor.execute(query, variables:)
+        client.execute(query, variables:)
       end
     end
   end

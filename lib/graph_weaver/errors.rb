@@ -1,7 +1,6 @@
 # typed: true
 # frozen_string_literal: true
 
-require "set"
 require "sorbet-runtime"
 require_relative "inflect"
 require_relative "logging"
@@ -317,11 +316,7 @@ module GraphWeaver
     end
 
     def to_h
-      {
-        "error" => self.class.name,
-        "message" => message,
-        "errors" => errors.map { |e| e.transform_keys(&:to_s) },
-      }
+      super.merge("errors" => errors.map { |e| e.transform_keys(&:to_s) })
     end
   end
 end

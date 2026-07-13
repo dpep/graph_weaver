@@ -200,13 +200,6 @@ class GraphWeaver::Codegen
       var.node.serialize_identity? ? value : var.node.serialize(value, 1)
     end
 
-    # Structured shape for a schema-validation error: message plus its first
-    # source location, so ValidationError#errors is inspectable.
-    def validation_detail(error)
-      loc = (error.to_h["locations"]&.first if error.respond_to?(:to_h))
-      { message: error.message, line: loc && loc["line"], column: loc && loc["column"] }
-    end
-
     def field_cast(field)
       node = field.node
 

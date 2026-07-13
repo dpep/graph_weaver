@@ -7,7 +7,7 @@ require_relative "errors"
 # the same execute contract, so it layers over HTTP, Faraday, or
 # anything else:
 #
-#      executor = GraphWeaver::Retry.new(
+#      client = GraphWeaver::Retry.new(
 #        GraphWeaver::Transport::HTTP.new(url),
 #        tries: 5,                        # total attempts, first included
 #        on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
@@ -37,12 +37,12 @@ class GraphWeaver::Retry
     !error.is_a?(GraphWeaver::ServerError) || error.status >= 500
   end
 
-  def initialize(executor, tries: 3, on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
+  def initialize(client, tries: 3, on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
     backoff: :exponential, base: 0.5, max: 30, jitter: true, retry_if: DEFAULT_RETRY_IF,
     retry_codes: [], sleeper: nil)
     raise ArgumentError, "tries: must be >= 1" unless tries >= 1
 
-    @executor = executor
+    @client = client
     @tries = tries
     @on = on
     @backoff = if backoff.is_a?(Proc)
@@ -62,7 +62,7 @@ class GraphWeaver::Retry
 
   # surface the wrapped transport's endpoint (schema-dump provenance)
   def url
-    @executor.url if @executor.respond_to?(:url)
+    @client.url if @client.respond_to?(:url)
   end
 
   def execute(query, variables: {})
@@ -71,7 +71,7 @@ class GraphWeaver::Retry
     loop do
       attempt += 1
       begin
-        response = @executor.execute(query, variables:)
+        response = @client.execute(query, variables:)
         return response unless attempt < @tries && retryable_response?(response)
       rescue *@on => e
         raise if attempt >= @tries || !@retry_if.call(e)

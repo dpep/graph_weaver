@@ -62,7 +62,8 @@ module GraphWeaver
       end
 
       def lookup(query, variables)
-        @entries.find { |entry| entry["key"] == self.class.key(query, variables) }
+        wanted = self.class.key(query, variables)
+      @entries.find { |entry| entry["key"] == wanted }
       end
 
       def record(query, variables, response)

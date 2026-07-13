@@ -79,6 +79,7 @@ class GraphWeaver::Client
   # same scalar name onto different Ruby types. Same signature as
   # GraphWeaver.register_scalar.
   def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
+    validate_registration!("scalar", graphql_name.to_s)
     @scalars[graphql_name.to_s] =
       GraphWeaver::Codegen::ScalarType.new(graphql_name, type, cast:, serialize:, requires:, coerce:)
   end

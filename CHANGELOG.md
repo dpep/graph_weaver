@@ -1,4 +1,9 @@
 ###  unreleased
+- Cleanup pass (staff-engineer review): scalar registrations get the
+  same typo validation as enums/types; cassette replay stops recomputing
+  its key per entry; dependency-order DFS uses hash bookkeeping (big
+  bool_exp graphs); require/vocabulary residue swept; the vestigial
+  graph_weaver/testing/rspec shim removed
 - BREAKING: "client" replaces "executor" across the whole surface.
   Generated modules: the per-call override is an optional POSITIONAL
   first argument — PersonQuery.execute(github, id: "1") — so variables

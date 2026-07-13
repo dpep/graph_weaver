@@ -1,6 +1,8 @@
 # typed: true
 # frozen_string_literal: true
 
+require "date"
+
 class GraphWeaver::Codegen
 
   # How one GraphQL scalar maps to Ruby: the Sorbet prop type, the

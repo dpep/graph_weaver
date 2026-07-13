@@ -126,7 +126,7 @@ class GraphWeaver::Codegen
       inner = if @of.non_null? || @of.hash_coerce_identity?
         @of.hash_coerce_identity? ? var : @of.hash_coerce(var, depth + 1)
       else
-        "#{var}.nil? ? nil : #{@of.hash_coerce(var, depth + 1)}"
+        "#{var}&.then { |v#{depth + 1}| #{@of.hash_coerce("v#{depth + 1}", depth + 2)} }"
       end
 
       "#{expr}.map { |#{var}| #{inner} }"
