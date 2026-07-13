@@ -16,6 +16,24 @@ describe GraphWeaver::Transport::HTTP do
     expect(person&.pets&.map(&:name)).to eq %w[Shelby Brownie]
   end
 
+  it "reuses one connection across calls (keep-alive)" do
+    expect(Net::HTTP).to receive(:start).once.and_call_original
+
+    2.times do
+      expect(PersonQuery.execute(id: "1", executor:).data!.person&.name).to eq "Daniel"
+    end
+  end
+
+  it "drops a failed connection and reconnects on the next call" do
+    PersonQuery.execute(id: "1", executor:)
+    http = executor.instance_variable_get(:@http)
+    expect(http).to receive(:request).and_raise(Errno::ECONNRESET)
+
+    expect { PersonQuery.execute(id: "1", executor:) }
+      .to raise_error(GraphWeaver::TransportError)
+    expect(PersonQuery.execute(id: "1", executor:).data!.person&.name).to eq "Daniel"
+  end
+
   it "raises ServerError on a non-2xx response (reached the server)" do
     bad = described_class.new("http://127.0.0.1:#{@port}/nope")
 

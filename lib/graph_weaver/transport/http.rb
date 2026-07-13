@@ -13,20 +13,26 @@ module GraphWeaver
     #
     #      GraphWeaver::Transport::HTTP.new(url, headers: { ... }, read_timeout: 10)
     #
-    # Timeouts surface as TransportError (retriable). For connection
-    # pooling and a middleware ecosystem, use Transport::Faraday.
+    # Timeouts surface as TransportError (retriable). The connection is
+    # persistent (keep-alive), serialized behind a mutex — one socket per
+    # transport, dropped on any failure so the next call starts fresh.
+    # For real connection pooling and a middleware ecosystem, use
+    # Transport::Faraday.
     class HTTP < Transport
       # net/http's own network-level failures (Errno/SocketError/IOError
       # are already seeded) — added to the shared, extensible
       # transport-error set.
       GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
 
-      def initialize(url, headers: {}, open_timeout: 10, read_timeout: 30)
+      def initialize(url, headers: {}, open_timeout: 10, read_timeout: 30, keep_alive_timeout: 2)
         @url = url
         @uri = URI(url)
         @headers = headers
         @open_timeout = open_timeout
         @read_timeout = read_timeout
+        @keep_alive_timeout = keep_alive_timeout
+        @mutex = Mutex.new
+        @http = T.let(nil, T.nilable(Net::HTTP))
       end
 
       private
@@ -36,15 +42,39 @@ module GraphWeaver
         request = Net::HTTP::Post.new(@uri, { "Content-Type" => "application/json" }.merge(@headers))
         request.body = body
 
-        response = Net::HTTP.start(
-          @uri.hostname, @uri.port,
-          use_ssl: @uri.scheme == "https",
-          open_timeout: @open_timeout, read_timeout: @read_timeout,
-        ) do |http|
-          http.request(request)
+        response = @mutex.synchronize do
+          begin
+            connection.request(request)
+          rescue => e
+            # socket state is unknown — drop it so the next call starts
+            # fresh (retry policy belongs to RetryExecutor, not here)
+            disconnect
+            raise e
+          end
         end
 
         [response.code.to_i, response.body]
+      end
+
+      # The persistent connection. net/http proactively reconnects when
+      # idle past keep_alive_timeout, so a server-closed keep-alive
+      # socket doesn't produce spurious failures.
+      def connection
+        @http ||= Net::HTTP.start(
+          @uri.hostname, @uri.port,
+          use_ssl: @uri.scheme == "https",
+          open_timeout: @open_timeout, read_timeout: @read_timeout,
+          keep_alive_timeout: @keep_alive_timeout,
+        )
+      end
+
+      def disconnect
+        http = @http
+        http.finish if http&.started?
+      rescue IOError
+        # already closed
+      ensure
+        @http = nil
       end
     end
   end

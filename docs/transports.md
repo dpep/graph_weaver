@@ -54,8 +54,14 @@ The client is convenience, not the only door — construct and assign
 yourself for full control:
 
 ```ruby
-# zero-dependency Net::HTTP
-GraphWeaver::Transport::HTTP.new(url, headers: { ... })
+# zero-dependency Net::HTTP — persistent (keep-alive) connection,
+# mutex-serialized; timeouts raise retriable TransportError
+GraphWeaver::Transport::HTTP.new(
+  url,
+  headers: { ... },
+  open_timeout: 10, read_timeout: 30,  # seconds (the defaults)
+  keep_alive_timeout: 2,               # idle window before reconnecting
+)
 
 # Faraday: a url (+ optional middleware block), or a ready connection
 GraphWeaver::Transport::Faraday.new(url) do |conn|

@@ -13,6 +13,9 @@
   subscriptions) became GraphWeaver::Error
 - Transport::HTTP takes open_timeout:/read_timeout: (defaults 10s/30s);
   timeouts surface as retriable TransportError
+- Transport::HTTP reuses its connection (keep-alive, mutex-serialized,
+  keep_alive_timeout: for the idle window); any failure drops the socket
+  so the next call starts fresh
 - GraphQLError#code also reads a top-level "type" (GitHub's dialect:
   NOT_FOUND, FORBIDDEN) when extensions.code is absent
 - Typo'd client-scoped registrations raise at generation with a

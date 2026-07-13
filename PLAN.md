@@ -119,5 +119,9 @@ T::Struct statically, but adding props at runtime works — the full
 bodies below the eval are all srb sees). Verified live against Hasura
 bool_exp.
 
+~~Connection reuse in Transport::HTTP~~ DONE 2026-07-12: persistent
+keep-alive connection behind a mutex, dropped on any failure; net/http's
+keep_alive_timeout handles idle expiry. Faraday remains the pooling
+answer.
+
 - Subscriptions.
-- Connection reuse in Transport::HTTP (Faraday covers it today).
