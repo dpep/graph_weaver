@@ -1,4 +1,14 @@
 ###  unreleased
+- Conventional paths are appendable lists: queries_paths /
+  generated_paths (singular accessors read/replace the first entry, so
+  existing config keeps working); load_generated!, Client#load_queries!,
+  and the Railtie walk every entry — append spec/support/graphql/* from
+  a spec helper to load test-only queries
+- inputs_module derives from the output path: multi-schema layouts name
+  each schema's module after its directory
+  (app/graphql/github/generated -> GithubInputs), the conventional
+  layout keeps GraphQLInputs; GraphWeaver.inputs_module= and
+  generate!(inputs_module:) still override
 - Shared types split one-file-per-type: generated/inputs/ holds each
   input struct/enum in its own small file (PokeAPI: 573 files, median
   24 lines vs one 11.5k-line blob) with inputs.rb as the manifest

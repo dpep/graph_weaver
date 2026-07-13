@@ -127,8 +127,9 @@ class GraphWeaver::Client
   #
   # Reloadable (constants are replaced), so it suits consoles and dev.
   # Returns the modules.
-  def load_queries!(dir = GraphWeaver.queries_path, namespace: Object)
-    Dir[File.join(dir, "*.graphql")].sort.map do |path|
+  def load_queries!(dir = nil, namespace: Object)
+    dirs = dir ? [dir] : GraphWeaver.queries_paths
+    dirs.flat_map { |d| Dir[File.join(d, "*.graphql")].sort }.map do |path|
       name = "#{GraphWeaver::Inflect.camelize(File.basename(path, ".graphql"))}Query"
       namespace.send(:remove_const, name) if namespace.const_defined?(name, false)
       GraphWeaver.log(:info) { "loaded #{name} from #{path}" }

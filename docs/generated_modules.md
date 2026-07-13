@@ -61,6 +61,18 @@ first). Elsewhere it's explicit, factory_bot-style:
 GraphWeaver.load_generated!   # require every file under generated_path
 ```
 
+The conventional paths are lists — append extra locations (a test-only
+schema, an engine's queries) and every loader walks them all:
+
+```ruby
+# e.g. in spec/support/graph_weaver.rb
+GraphWeaver.generated_paths << "spec/support/graphql/generated"
+GraphWeaver.queries_paths << "spec/support/graphql/queries"
+```
+
+The singular accessors (`generated_path` etc.) read and replace the
+first entry — the default target for `generate!` and the rake tasks.
+
 (Plain requires, not Zeitwerk: Zeitwerk would expect
 `Generated::PersonQuery` from `generated/person_query.rb`, and generated
 code only changes on regeneration — restart, like a schema migration.)
@@ -157,9 +169,13 @@ AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 
 In the generate! workflow, input types (and the enums they use) are
 emitted **once per schema** — one file per type under
-`generated/inputs/`, with `inputs.rb` as the manifest (module
-`GraphQLInputs` — rename via `GraphWeaver.inputs_module=`; opt out with
-`generate!(shared_inputs: false)`). Per-type files keep schema drift
+`generated/inputs/`, with `inputs.rb` as the manifest. The module is
+named from the output path: the conventional layout gets
+`GraphQLInputs`, while a multi-schema layout names each schema's module
+after its directory (`app/graphql/github/generated` → `GithubInputs`).
+Override globally with `GraphWeaver.inputs_module=` or per run with
+`generate!(inputs_module:)`; opt out with
+`generate!(shared_inputs: false)`. Per-type files keep schema drift
 reviewable: a migration diffs exactly the types it touched, and types
 the schema drops are pruned on regeneration (`verify` flags strays).
 Query modules alias what they touch,

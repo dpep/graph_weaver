@@ -94,6 +94,21 @@ describe GraphWeaver::Client do
       end
     end
 
+    it "load_queries! walks every configured queries_path" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
+        namespace = Module.new
+
+        GraphWeaver.queries_paths << dir
+        mods = GraphWeaver.new(url).load_queries!(namespace:)
+
+        expect(mods.size).to eq 1
+        expect(namespace::PersonQuery.execute!(id: "1").person&.name).to eq "Daniel"
+      ensure
+        GraphWeaver.queries_paths = nil
+      end
+    end
+
     it "rejects a url plus transport:" do
       expect { GraphWeaver.new(url, transport: Demo::Schema) }.to raise_error(ArgumentError, /not both/)
     end

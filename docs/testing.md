@@ -57,6 +57,15 @@ they consult `GraphWeaver.client`). `mode:` picks value fabrication: `:faker`
 (semantic, field-name matched — raises if the gem is missing),
 `:literal` (plain type-derived), or nil to auto-detect faker.
 
+Test-only queries don't have to live in `app/` — the conventional paths
+are appendable lists, so the same support file can register a
+spec-local set that `load_generated!` (and the Railtie) pick up:
+
+```ruby
+GraphWeaver.generated_paths << "spec/support/graphql/generated"
+GraphWeaver.queries_paths << "spec/support/graphql/queries"
+```
+
 **Simulating failures** — every failure mode is just a client, so
 error-handling paths are testable without a server that misbehaves on cue:
 

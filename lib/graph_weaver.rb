@@ -57,19 +57,54 @@ module GraphWeaver
       target.is_a?(Client) ? target.transport! : target
     end
 
-    # Conventional locations, factory_bot-style: used as defaults by
-    # generate!, verify_generated!, load_generated!, and the rake tasks;
-    # override the accessors or pass paths.
-    attr_writer :queries_path, :generated_path, :schema_path
+    # Conventional locations, factory_bot-style — LISTS, so extra
+    # locations (a test-only dir, an engine's) can be appended and every
+    # loader walks them all:
+    #
+    #      # e.g. in spec/support/graph_weaver.rb
+    #      GraphWeaver.generated_paths << "spec/support/graphql/generated"
+    #      GraphWeaver.queries_paths << "spec/support/graphql/queries"
+    #
+    # The singular accessors read/replace the first entry (the default
+    # target for generate! and the rake tasks).
+    attr_writer :queries_paths, :generated_paths, :schema_path
 
-    # the shared-inputs module name (see generate!)
+    def queries_paths = @queries_paths ||= ["app/graphql/queries"]
+    def generated_paths = @generated_paths ||= ["app/graphql/generated"]
+
+    def queries_path = queries_paths.first
+    def generated_path = generated_paths.first
+
+    def queries_path=(path)
+      @queries_paths = path.nil? ? nil : [path]
+    end
+
+    def generated_path=(path)
+      @generated_paths = path.nil? ? nil : [path]
+    end
+
+    def schema_path = @schema_path || "app/graphql/schema.json"
+
+    # The shared-inputs module name: set it globally, pass inputs_module:
+    # per generate!, or let it derive from the output path — the
+    # directory above generated/ names the schema in multi-schema
+    # layouts (app/graphql/github/generated => GithubInputs); the
+    # conventional layout (and anything unrecognizable) stays
+    # GraphQLInputs.
     attr_writer :inputs_module
 
-    def inputs_module = @inputs_module || "GraphQLInputs"
+    def inputs_module(output = generated_path)
+      return @inputs_module if @inputs_module
 
-    def queries_path = @queries_path || "app/graphql/queries"
-    def generated_path = @generated_path || "app/graphql/generated"
-    def schema_path = @schema_path || "app/graphql/schema.json"
+      segments = File.expand_path(output.to_s).split(File::SEPARATOR)
+      segments.pop if segments.last == "generated"
+      parent = segments.last.to_s
+      if parent.match?(/\A[a-zA-Z]\w*\z/) && !%w[graphql app lib spec support test].include?(parent)
+        "#{Inflect.camelize(parent)}Inputs"
+      else
+        "GraphQLInputs"
+      end
+    end
 
     # Generate every .graphql query in a directory into checked-in Ruby
     # files. Paths default to the conventions above; schema: defaults to
@@ -80,8 +115,9 @@ module GraphWeaver
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
     def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil,
-      shared_inputs: true, inputs_module: self.inputs_module)
+      shared_inputs: true, inputs_module: nil)
       schema ||= locate_schema!
+      inputs_module ||= self.inputs_module(output)
 
       plan = generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module:)
       written = plan.map do |filename, source|
@@ -110,8 +146,9 @@ module GraphWeaver
     #        GraphWeaver.verify_generated!
     #      end
     def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil,
-      shared_inputs: true, inputs_module: self.inputs_module)
+      shared_inputs: true, inputs_module: nil)
       schema ||= locate_schema!
+      inputs_module ||= self.inputs_module(output)
       plan = generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module:)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
@@ -137,10 +174,11 @@ module GraphWeaver
     # Generated::PersonQuery from generated/person_query.rb, and
     # generated code only changes on regeneration anyway (restart, like
     # a schema migration).
-    def load_generated!(path = generated_path)
-      files = Dir[File.join(path, "**/*.rb")].sort
+    def load_generated!(path = nil)
+      paths = path ? [path] : generated_paths
+      files = paths.flat_map { |dir| Dir[File.join(dir, "**/*.rb")].sort }
       files.each { |file| require File.expand_path(file) }
-      log(:info) { "loaded #{files.size} generated module(s) from #{path}" }
+      log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
       files
     end
 

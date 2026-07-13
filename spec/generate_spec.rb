@@ -24,6 +24,40 @@ describe "GraphWeaver.generate!" do
       .to eq File.read(File.join(root, "spec/generated/person_query.rb"))
   end
 
+  it "derives the shared-inputs module from a multi-schema output path" do
+    root = File.expand_path("..", __dir__)
+    output = File.join(@dir, "github", "generated")
+    GraphWeaver.generate!(
+      schema: Demo::Schema,
+      queries: File.join(root, "spec/queries"),
+      output:,
+      client: Demo::Schema,
+    )
+
+    manifest = File.read(File.join(output, "inputs.rb"))
+    expect(manifest).to include "module GithubInputs"
+    expect(File.read(File.join(output, "adopt_query.rb"))).to include "GithubInputs::AdoptionInput"
+  end
+
+  it "loads appended generated_paths — the spec-support pattern" do
+    queries = File.join(@dir, "support/graphql/queries")
+    output = File.join(@dir, "support/graphql/generated")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "appended_people.graphql"), "query { people { name } }")
+    GraphWeaver.generate!(schema: Demo::Schema, queries:, output:, client: Demo::Schema)
+
+    begin
+      GraphWeaver.generated_paths << output
+      expect(GraphWeaver.generated_path).to eq "app/graphql/generated" # default untouched
+
+      GraphWeaver.load_generated!
+      expect(defined?(::AppendedPeopleQuery)).to eq "constant"
+      expect(AppendedPeopleQuery.execute!.people.map(&:name)).to eq ["Daniel"]
+    ensure
+      GraphWeaver.generated_paths = nil
+    end
+  end
+
   it "defaults to the configured conventional paths" do
     queries = File.join(@dir, "queries")
     output = File.join(@dir, "generated")
@@ -45,6 +79,26 @@ describe "GraphWeaver.generate!" do
       GraphWeaver.queries_path = nil
       GraphWeaver.generated_path = nil
     end
+  end
+end
+
+describe "GraphWeaver.inputs_module" do
+  it "derives the module name from the output path" do
+    expect(GraphWeaver.inputs_module("app/graphql/github/generated")).to eq "GithubInputs"
+    expect(GraphWeaver.inputs_module("app/graphql/pet_shop/generated")).to eq "PetShopInputs"
+
+    # the conventional single-schema layout (and anything unrecognizable)
+    # shares the default module
+    expect(GraphWeaver.inputs_module("app/graphql/generated")).to eq "GraphQLInputs"
+    expect(GraphWeaver.inputs_module("spec/generated")).to eq "GraphQLInputs"
+    expect(GraphWeaver.inputs_module("/tmp/d20260713-91-x2x")).to eq "GraphQLInputs"
+  end
+
+  it "prefers an explicit global override" do
+    GraphWeaver.inputs_module = "MyInputs"
+    expect(GraphWeaver.inputs_module("app/graphql/github/generated")).to eq "MyInputs"
+  ensure
+    GraphWeaver.inputs_module = nil
   end
 end
 
