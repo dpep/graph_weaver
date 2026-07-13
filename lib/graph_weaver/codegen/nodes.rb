@@ -17,7 +17,9 @@ class GraphWeaver::Codegen
     end
 
     def prop_type
-      "T.nilable(#{bare_type})"
+      # unregistered scalars are already T.untyped — wrapping in
+      # T.nilable is redundant and an srb tc error under typed: strict
+      bare_type == "T.untyped" ? bare_type : "T.nilable(#{bare_type})"
     end
 
     def cast(expr, _depth)

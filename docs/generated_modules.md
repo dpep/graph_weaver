@@ -145,7 +145,8 @@ exactly like a variable would. Operations with more than one variable (or
 a nullable input) keep the variable-per-kwarg surface — there the input
 kwarg accepts the generated `T::Struct` or a plain hash (`.coerce`
 normalizes underscored Symbol/String keys; enums accept wire values;
-nested inputs accept hashes):
+nested inputs accept hashes; unknown keys raise with a spellchecked
+hint rather than silently dropping):
 
 ```ruby
 AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)

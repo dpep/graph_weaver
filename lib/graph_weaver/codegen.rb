@@ -106,7 +106,7 @@ class GraphWeaver::Codegen
       errors = @schema.validate(@query)
     rescue GraphQL::ParseError => e
       # unparseable queries wrap like invalid ones — everything raised
-      # here descends from GraphWeaver::Error (or ArgumentError)
+      # here descends from GraphWeaver::Error
       raise GraphWeaver::ValidationError.new([{ message: e.message, line: nil, column: nil }])
     end
     if errors.any?
@@ -203,20 +203,24 @@ class GraphWeaver::Codegen
 
   private
 
-  # Client-scoped registrations name types in THIS schema — a typo'd
-  # name would otherwise be a silent no-op, the most confusing failure
-  # mode available. (Global registrations skip this: they may target a
-  # different client's server.)
+  # A client-scoped registration names a type in a specific schema — a
+  # typo'd name would otherwise be a silent no-op, the most confusing
+  # failure mode available. Called eagerly by Client#register_* when the
+  # schema is already loaded, and again at generation (covers clients
+  # whose schema introspects lazily). Global registrations skip this:
+  # they may target a different client's server.
+  def self.validate_registration!(schema, kind, name)
+    return if schema.get_type(name)
+
+    suggestion = defined?(DidYouMean::SpellChecker) &&
+      DidYouMean::SpellChecker.new(dictionary: schema.types.keys).correct(name).first
+    hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
+    raise GraphWeaver::Error, "register_#{kind}(#{name.inspect}) matches no type in this schema#{hint}"
+  end
+
   def validate_registrations!
     { "enum" => @enums, "type" => @types }.each do |kind, registry|
-      registry.each_key do |name|
-        next if @schema.get_type(name)
-
-        suggestion = defined?(DidYouMean::SpellChecker) &&
-          DidYouMean::SpellChecker.new(dictionary: @schema.types.keys).correct(name).first
-        hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
-        raise GraphWeaver::Error, "register_#{kind}(#{name.inspect}) matches no type in this schema#{hint}"
-      end
+      registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
     end
   end
 

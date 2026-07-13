@@ -13,9 +13,8 @@ module GraphWeaver
   # structured failures to users. One subclass per failure site —
   # {TransportError} (never reached the server), {ServerError} (non-2xx),
   # {QueryError} (GraphQL-level errors), {TypeError} (response wouldn't
-  # cast) — each merging its specifics into #to_h. ({ValidationError} is
-  # the build-time outlier: an ArgumentError, so query-validation raises
-  # stay rescuable as ArgumentError.)
+  # cast), {ValidationError} (build time) — each merging its specifics
+  # into #to_h.
   class Error < StandardError
     # every GraphWeaver error surfaces on the logger too (see
     # GraphWeaver.logger) — construction here means a raise
@@ -305,16 +304,16 @@ module GraphWeaver
     end
   end
 
-  # Build-time: the query didn't validate against the schema. Kept an
-  # ArgumentError for source compatibility, but carries the structured
-  # validation errors (message + line/column) rather than a joined string.
-  class ValidationError < ArgumentError
+  # Build-time: the query didn't validate against the schema. Carries the
+  # structured validation errors (message + line/column) rather than a
+  # joined string. Under the Error umbrella like everything else raised
+  # here (through 0.1.0 it was an ArgumentError instead).
+  class ValidationError < Error
     attr_reader :errors
 
     def initialize(errors)
       @errors = errors
       super("invalid query: #{errors.map { |e| e[:message] }.join("; ")}")
-      GraphWeaver.log(:warn) { "#{self.class.name}: #{message}" }
     end
 
     def to_h

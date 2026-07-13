@@ -21,8 +21,23 @@ describe "GraphWeaver.logger" do
     expect(io.string).to include("connecting to 127.0.0.1")
     expect(io.string).to include("POST #{url}")
     expect(io.string).to include("query { people { name } }")
-    expect(io.string).to match(/POST .* \(\d+ms\)/)
+    expect(io.string).to match(/POST .* completed \(\d+ms\)/)
     expect(io.string).to match(/HTTP 200 .* \(\d+ bytes\)/)
+  end
+
+  it "tags each request's lines with an id and the operation name" do
+    executor.execute("query LoggedPeople { people { name } }", variables: {})
+
+    tag = io.string[/\[req \d+ LoggedPeople\]/]
+    expect(tag).not_to be_nil
+    expect(io.string.scan(tag).size).to eq 3 # request, timing, status
+  end
+
+  it "truncates long queries at debug (introspection dumps)" do
+    executor.execute("query Big { people { #{"name " * 300}} }", variables: {})
+
+    expect(io.string).to match(/truncated, \d+ bytes total/)
+    expect(io.string).not_to include("name " * 300)
   end
 
   it "logs schema introspection and cache decisions at info" do

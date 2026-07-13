@@ -4,11 +4,11 @@ require "graphql"
 # A small in-process schema to query against, including a custom scalar
 # (Date) to explore how graphql-client handles deserialization.
 module Demo
-  Pet = Struct.new(:id, :name, :species, keyword_init: true)
+  Pet = Struct.new(:id, :name, :species, :metadata, keyword_init: true)
   Person = Struct.new(:id, :name, :birthday, :pets, keyword_init: true)
 
   PETS = [
-    Pet.new(id: "1", name: "Shelby", species: "DOG"),
+    Pet.new(id: "1", name: "Shelby", species: "DOG", metadata: { "color" => "brown" }),
     Pet.new(id: "2", name: "Brownie", species: "CAT"),
   ]
 
@@ -25,6 +25,20 @@ module Demo
 
     def self.coerce_input(value, _ctx)
       Date.iso8601(value)
+    end
+  end
+
+  # Deliberately NOT registered with GraphWeaver — exercises the
+  # unregistered-scalar path: T.untyped props, pass-through casting.
+  class MetadataType < GraphQL::Schema::Scalar
+    graphql_name "Metadata"
+
+    def self.coerce_result(value, _ctx)
+      value
+    end
+
+    def self.coerce_input(value, _ctx)
+      value
     end
   end
 
@@ -49,6 +63,7 @@ module Demo
     field :id, ID, null: false
     field :name, String, null: false
     field :species, SpeciesType, null: false
+    field :metadata, MetadataType
   end
 
   class PersonType < GraphQL::Schema::Object
@@ -80,6 +95,7 @@ module Demo
     argument :_not, PetFilterType, required: false, camelize: false
     argument :name, String, required: false
     argument :species, SpeciesType, required: false
+    argument :metadata, MetadataType, required: false
   end
 
   def self.pet_matches?(pet, filter)
@@ -88,6 +104,7 @@ module Demo
     checks = []
     checks << (pet.name == filter[:name]) if filter[:name]
     checks << (pet.species == filter[:species]) if filter[:species]
+    checks << (pet.metadata == filter[:metadata]) if filter[:metadata]
     checks << filter[:_and].all? { |f| pet_matches?(pet, f) } if filter[:_and]
     checks << !pet_matches?(pet, filter[:_not]) if filter[:_not]
     checks.all?

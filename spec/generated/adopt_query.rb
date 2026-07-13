@@ -56,6 +56,9 @@ module AdoptQuery
     def self.coerce(value)
       return value if value.is_a?(AdoptionInput)
 
+      # a typo'd key must not silently drop off the wire
+      GraphWeaver::Hints.validate_keys!(self, value)
+
       new(
         birthday: value_at(value, :birthday),
         name: value_at(value, :name),

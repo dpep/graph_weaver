@@ -11,6 +11,7 @@ module FindPetsQuery
       findPets(where: $where) {
         name
         species
+        metadata
       }
     }
   GRAPHQL
@@ -33,6 +34,7 @@ module FindPetsQuery
 
     const :_and, T.nilable(T::Array[PetFilter]), default: nil
     const :_not, T.nilable(PetFilter), default: nil
+    const :metadata, T.untyped, default: nil
     const :name, T.nilable(String), default: nil
     const :species, T.nilable(Species), default: nil
 
@@ -45,6 +47,7 @@ module FindPetsQuery
       unless (value = _not).nil?
         result["_not"] = value.serialize
       end
+      result["metadata"] = metadata unless metadata.nil?
       result["name"] = name unless name.nil?
       unless (value = species).nil?
         result["species"] = value.serialize
@@ -63,9 +66,13 @@ module FindPetsQuery
     def self.coerce(value)
       return value if value.is_a?(PetFilter)
 
+      # a typo'd key must not silently drop off the wire
+      GraphWeaver::Hints.validate_keys!(self, value)
+
       new(
         _and: value_at(value, :_and)&.then { |v1| v1.map { |v2| PetFilter.coerce(v2) } },
         _not: value_at(value, :_not)&.then { |v1| PetFilter.coerce(v1) },
+        metadata: value_at(value, :metadata),
         name: value_at(value, :name),
         species: value_at(value, :species)&.then { |v1| (v1.is_a?(Species) ? v1 : Species.deserialize(v1)) },
       )
@@ -94,12 +101,14 @@ module FindPetsQuery
 
       const :name, String
       const :species, Species
+      const :metadata, T.untyped
 
       sig { params(data: T::Hash[String, T.untyped]).returns(Pet) }
       def self.from_h(data)
         new(
           name: data.fetch("name"),
           species: Species.deserialize(data.fetch("species")),
+          metadata: data["metadata"],
         )
       rescue GraphWeaver::TypeError
         raise # already wrapped by a nested struct — keep the innermost context

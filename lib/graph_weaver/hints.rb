@@ -15,6 +15,26 @@ module GraphWeaver
   module Hints
     include Kernel # for sorbet: hosts are Objects
 
+    # Guard for generated input-struct .coerce: a hash key that matches
+    # no prop raises (spellchecked) instead of silently dropping — a
+    # typo'd filter key must not become "match everything" on the wire.
+    def self.validate_keys!(struct, hash)
+      known = struct.props.keys.map(&:to_s)
+      unknown = hash.keys.map(&:to_s) - known
+      return if unknown.empty?
+
+      hints = unknown.map do |key|
+        prop = GraphWeaver::Inflect.underscore(key)
+        suggestion = if known.include?(prop)
+          prop # a wire-cased key — the exact snake_case prop exists
+        elsif defined?(DidYouMean::SpellChecker)
+          DidYouMean::SpellChecker.new(dictionary: known).correct(prop).first
+        end
+        suggestion ? "#{key} (did you mean '#{suggestion}'?)" : key
+      end
+      raise ArgumentError, "unknown key(s) for #{struct}: #{hints.join(", ")}"
+    end
+
     def method_missing(name, *args, &block)
       if args.empty? && (hint = prop_hint(name.to_s))
         raise NoMethodError, "undefined method '#{name}' for #{self.class} — #{hint}"

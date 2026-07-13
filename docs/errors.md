@@ -31,7 +31,7 @@ it failed:
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
-| `ValidationError` | build time: the query didn't validate against the schema (also an `ArgumentError`) |
+| `ValidationError` | build time: the query didn't validate against the schema |
 
 ```ruby
 begin
@@ -63,6 +63,12 @@ Defaults match the rescue block above: transport failures always retry,
 `ServerError` only on 5xx (a 4xx is your bug — retrying won't fix it;
 override with `retry_if:`), and GraphQL-level codes only when listed in
 `retry_codes:`. Exhausting `tries:` re-raises the last error.
+
+Two deliberate exceptions live *outside* the hierarchy, because typed
+kwargs should fail like any Ruby method call: a wrong-typed variable
+raises sorbet-runtime's `TypeError` ("Parameter 'page': Expected type
+T.nilable(Integer), got type String"), and a missing required variable
+raises a plain `ArgumentError` ("missing keyword: :id").
 
 Business/validation failures returned *as data* (Shopify-style `userErrors { field
 message code }`) aren't errors here — they're just fields you selected, so they

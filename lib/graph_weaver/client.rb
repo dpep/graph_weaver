@@ -93,6 +93,7 @@ class GraphWeaver::Client
   # T::Enum for the named GraphQL enum (see Codegen::EnumType — inference
   # by name, map: for renames, fallback: to absorb unknown wire values).
   def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
+    validate_registration!("enum", graphql_name.to_s)
     @enums[graphql_name.to_s] =
       GraphWeaver::Codegen::EnumType.new(graphql_name, type, map:, fallback:, requires:)
   end
@@ -107,6 +108,7 @@ class GraphWeaver::Client
   # modules, or a block to build one inline. Additive with global
   # registrations (see GraphWeaver.register_type).
   def register_type(graphql_name, *mixins, requires: nil, &block)
+    validate_registration!("type", graphql_name.to_s)
     entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [] }
     GraphWeaver::Codegen.add_type_helpers(entry, graphql_name, mixins, requires, block)
   end
@@ -154,6 +156,17 @@ class GraphWeaver::Client
   end
 
   private
+
+  # Fail a typo'd registration at the call site when the schema is
+  # already in hand (a schema-source client, or a url client after first
+  # use) — immediate feedback in consoles. Lazily-introspecting clients
+  # get the same check at generation time instead; never trigger an
+  # introspection just to validate a name.
+  def validate_registration!(kind, name)
+    return unless @schema
+
+    GraphWeaver::Codegen.validate_registration!(@schema, kind, name)
+  end
 
   # auth: is a token — "Bearer" is assumed unless the string carries its
   # own scheme ("Basic dXNlcjpwYXNz..."). Transport pick: Faraday when

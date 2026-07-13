@@ -131,7 +131,7 @@ class GraphWeaver::Codegen
 
       sig_params = params.map do |param|
         bare = param.node.coerce? ? param.node.coerce_input_type : param.node.bare_type
-        kwarg_type = param.required ? bare : "T.nilable(#{bare})"
+        kwarg_type = param.required || bare == "T.untyped" ? bare : "T.nilable(#{bare})"
         "#{kwarg_name(param)}: #{kwarg_type}"
       end
       sig_params << "executor: T.untyped"
@@ -257,6 +257,9 @@ class GraphWeaver::Codegen
       out << "#{pad}  sig { params(value: T.any(#{node.class_name}, T::Hash[T.untyped, T.untyped])).returns(#{node.class_name}) }"
       out << "#{pad}  def self.coerce(value)"
       out << "#{pad}    return value if value.is_a?(#{node.class_name})"
+      out << ""
+      out << "#{pad}    # a typo'd key must not silently drop off the wire"
+      out << "#{pad}    GraphWeaver::Hints.validate_keys!(self, value)"
       out << ""
       out << "#{pad}    new("
       node.fields.each do |field|

@@ -126,11 +126,11 @@ describe "error handling" do
   end
 
   describe "ValidationError" do
-    it "is raised for invalid queries, is an ArgumentError, and carries structured errors" do
+    it "is raised for invalid queries, under the Error umbrella, with structured errors" do
       expect {
         GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", module_name: "Bad")
       }.to raise_error(GraphWeaver::ValidationError) do |e|
-        expect(e).to be_a ArgumentError # source-compatible
+        expect(e).to be_a GraphWeaver::Error # one rescue catches everything
         expect(e.message).to match(/invalid query/)
         expect(e.errors.first[:message]).to be_a String
       end

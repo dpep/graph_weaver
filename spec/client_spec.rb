@@ -269,12 +269,23 @@ describe GraphWeaver::Client do
       expect(other).not_to respond_to(:shout)
     end
 
-    it "catches typo'd registrations instead of silently no-oping" do
+    it "catches typo'd registrations at the call site when the schema is in hand" do
       client = GraphWeaver.new(Demo::Schema)
-      client.register_type("Pett", PetShouting)
 
-      expect { client.parse(query) }
+      expect { client.register_type("Pett", PetShouting) }
         .to raise_error(GraphWeaver::Error, /register_type\("Pett"\).*did you mean 'Pet'/)
+      expect { client.register_enum("Specis", PetKind) }
+        .to raise_error(GraphWeaver::Error, /register_enum\("Specis"\).*did you mean 'Species'/)
+    end
+
+    it "catches typo'd registrations at generation when the schema is lazy" do
+      # a url client hasn't introspected yet — registration can't validate
+      # eagerly, so the next parse raises instead
+      mod = GraphWeaver::Codegen
+      expect {
+        mod.generate(schema: Demo::Schema, query:, module_name: "Typo",
+          types: { "Pett" => { mixins: [PetShouting], requires: [] } })
+      }.to raise_error(GraphWeaver::Error, /register_type\("Pett"\).*did you mean 'Pet'/)
     end
 
     it "builds a mixin from a block, auto-named for generated source" do

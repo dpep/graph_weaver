@@ -1,4 +1,15 @@
 ###  unreleased
+- BREAKING: ValidationError now descends from GraphWeaver::Error (was
+  ArgumentError) — one `rescue GraphWeaver::Error` catches everything
+- Input-struct .coerce raises on unknown hash keys with a spellchecked
+  hint — a typo'd filter key no longer silently drops off the wire
+- Client registrations (register_type/register_enum) validate at the
+  call site when the schema is already loaded; lazy clients still
+  validate at generation
+- Unregistered custom scalars emit bare T.untyped (not
+  T.nilable(T.untyped), an srb tc error under typed: strict)
+- Wire log lines carry [req N OperationName] tags; long queries
+  (introspection) truncate at debug
 - Logging: GraphWeaver.logger (any stdlib-compatible Logger; Rails.logger
   auto-wired by the railtie) — wire traffic + timings at debug,
   introspection/cache/codegen at info, every raised error at warn

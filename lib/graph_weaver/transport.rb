@@ -26,11 +26,17 @@ class GraphWeaver::Transport
   attr_reader :url
 
   def execute(query, variables: {})
+    # tag pairs this request's log lines (threads interleave), and names
+    # the operation so the log says WHICH query, not just the url
+    tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(query)
+
     # full query + variables at debug only — they can carry PII
-    GraphWeaver.log(:debug) { "POST #{url} variables=#{JSON.generate(variables)}\n#{query}" }
+    GraphWeaver.log(:debug) do
+      "POST #{url} #{tag} variables=#{JSON.generate(variables)}\n#{GraphWeaver::Transport.truncate_for_log(query)}"
+    end
 
     status, body = begin
-      GraphWeaver.log_timed(:debug, "POST #{url}") do
+      GraphWeaver.log_timed(:debug, "POST #{url} #{tag} completed") do
         post(JSON.generate(query:, variables:))
       end
     rescue *GraphWeaver.transport_errors.to_a => e
@@ -38,7 +44,7 @@ class GraphWeaver::Transport
       raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end
 
-    GraphWeaver.log(:debug) { "HTTP #{status} from #{url} (#{body.to_s.bytesize} bytes)" }
+    GraphWeaver.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
 
     # reached the server, but it returned a non-2xx status
     unless (200..299).cover?(status)
@@ -47,6 +53,25 @@ class GraphWeaver::Transport
 
     # a caller's connection may already parse json via middleware
     body.is_a?(String) ? JSON.parse(body) : body
+  end
+
+  # "[req 3 FilteredPokemon]" — a per-process request id plus the
+  # operation name (when the document declares one)
+  REQUEST_MUTEX = Mutex.new
+
+  def self.log_tag(query)
+    id = REQUEST_MUTEX.synchronize { @request_count = (@request_count || 0) + 1 }
+    name = query[/\A\s*(?:query|mutation|subscription)\s+([A-Za-z_]\w*)/, 1]
+    "[req #{id}#{" #{name}" if name}]"
+  end
+
+  # keep debug readable: a 100-line introspection query would drown the
+  # log — the INFO introspection line already carries the timing
+  LOG_QUERY_LIMIT = 600
+  def self.truncate_for_log(query)
+    return query if query.length <= LOG_QUERY_LIMIT
+
+    "#{query[0, LOG_QUERY_LIMIT]}... (truncated, #{query.bytesize} bytes total)"
   end
 
   private

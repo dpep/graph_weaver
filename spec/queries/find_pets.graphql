@@ -2,5 +2,6 @@ query($where: PetFilter) {
   findPets(where: $where) {
     name
     species
+    metadata
   }
 }

@@ -84,7 +84,7 @@ describe GraphWeaver::Codegen do
       module_name: "Bad",
     )
 
-    expect { codegen.generate }.to raise_error(ArgumentError, /invalid query/)
+    expect { codegen.generate }.to raise_error(GraphWeaver::ValidationError, /invalid query/)
   end
 
   describe "the generated module" do
@@ -280,6 +280,10 @@ describe GraphWeaver::Codegen do
       # coerce: underscored Symbol/String keys, enums as wire values
       coerced = AdoptQuery::AdoptionInput.coerce({ "name" => "Rex", species: "CAT" })
       expect(coerced.species).to eq AdoptQuery::Species::Cat
+
+      # a typo'd key raises with a hint instead of silently dropping
+      expect { AdoptQuery::AdoptionInput.coerce({ name: "Rex", species: "CAT", nickame: "Rexy" }) }
+        .to raise_error(ArgumentError, /nickame \(did you mean 'nickname'\?\)/)
     end
 
     it "supports recursive input types (Hasura-style bool_exp filters)" do
@@ -344,6 +348,10 @@ describe GraphWeaver::Codegen do
 
       expect(FindPetsQuery.execute!(where:).find_pets.map(&:name)).to eq %w[Shelby]
       expect(FindPetsQuery.execute!.find_pets.size).to eq 2 # no filter
+
+      # unregistered scalar (Metadata): T.untyped pass-through, both ways
+      shelby = FindPetsQuery.execute!(where: { metadata: { "color" => "brown" } }).find_pets.first
+      expect(shelby&.metadata).to eq("color" => "brown")
     end
 
     it "omits optional variables from the wire when nil" do

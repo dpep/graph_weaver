@@ -125,3 +125,12 @@ keep_alive_timeout handles idle expiry. Faraday remains the pooling
 answer.
 
 - Subscriptions.
+- Shared input-type structs across generated modules: one Hasura
+  bool_exp variable pulls its whole recursive closure into EVERY module
+  (~28k lines each) — correct but heavy in PRs; needs cross-module
+  sharing or selection-based pruning (field-test round 2).
+- Structured logging: log_tag pairs lines and names operations now, but
+  events are prose — an optional {event:, url:, ms:} payload contract, a
+  scrub_variables hook, and cache-age on hit lines (field-test round 2).
+- Cut 0.1.1 — RubyGems 0.1.0 is materially behind main (snake_case fix,
+  recursive inputs, keep-alive, logging, error umbrella).
