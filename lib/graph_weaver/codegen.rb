@@ -282,7 +282,17 @@ class GraphWeaver::Codegen
           elsif conditions.size == 1 && bare.empty? &&
               (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
             # a single `... on X` condition: narrow to X's struct — nil
-            # when the runtime type doesn't match (narrowing filters)
+            # when the runtime type doesn't match (narrowing filters).
+            # Narrowing reads "no fields came back" as "type didn't
+            # match", so a fragment whose every field hides behind
+            # @skip/@include would make a real match indistinguishable
+            # from a miss ({} either way) — refuse rather than guess.
+            unless unconditional_field?(member, sub_selections)
+              raise GraphWeaver::Error,
+                "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
+                "@skip/@include — an all-conditional selection makes a match indistinguishable from nil"
+            end
+
             name = pick_name(member.graphql_name, key, taken)
             nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name)) }
           else
@@ -333,6 +343,15 @@ class GraphWeaver::Codegen
   # result keys selected as plain fields (outside any type condition)
   def bare_fields(selections)
     selections.grep(GraphQL::Language::Nodes::Field).map { |field| field.alias || field.name }
+  end
+
+  # does the flattened selection (as seen by member) include at least one
+  # field guaranteed to be present in a matching response?
+  def unconditional_field?(member, selections)
+    each_field(member, selections) do |_key, node|
+      return true if node.directives.none? { |d| %w[skip include].include?(d.name) }
+    end
+    false
   end
 
   # rebuild LIST wrappers but drop NON_NULLs — a narrowed member is nil

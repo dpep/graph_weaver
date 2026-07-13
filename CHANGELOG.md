@@ -1,4 +1,8 @@
 ###  unreleased
+- Narrowed `... on X` selections require at least one unconditional
+  field: with every field behind @skip/@include, a matching response is
+  {} — byte-identical to a non-match — so generation refuses rather
+  than silently dropping real matches to nil
 - Integration spec against Hasura's PokeAPI: snake_case codegen,
   recursive bool_exp variable filtering, untyped jsonb pass-through
   (make integration)

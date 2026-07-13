@@ -181,6 +181,17 @@ describe GraphWeaver::Codegen do
       expect(named).not_to respond_to(:species) # one shared struct, not a Pet member
     end
 
+    it "refuses to narrow when every field is @skip/@include-conditional" do
+      # a matching Pet with all fields skipped returns {} — byte-identical
+      # to a non-match, so narrowing would silently drop real matches
+      expect {
+        GraphWeaver.parse(
+          schema: Demo::Schema,
+          query: 'query($d: Boolean!) { search(term: "el") { ... on Pet { name @include(if: $d) } } }',
+        )
+      }.to raise_error(GraphWeaver::Error, /at least one field not under @skip/)
+    end
+
     it "a single `... on Type` condition narrows: matches cast, mismatches are nil" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
