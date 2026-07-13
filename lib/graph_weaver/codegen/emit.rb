@@ -325,74 +325,30 @@ class GraphWeaver::Codegen
       end
     end
 
-    # a module-level T::Struct per input type; serialize builds the wire
-    # hash, omitting optional fields left nil
+    # A module-level T::Struct per input type: typed consts plus a FIELDS
+    # table the GraphWeaver::InputStruct runtime drives — serialize/to_h/
+    # coerce live once in the gem, not unrolled per struct (bool_exp
+    # schemas pull hundreds of inputs into one module).
     def emit_input(node, out, indent)
       pad = "  " * indent
-
+    
       out << "#{pad}class #{node.class_name} < T::Struct"
-      out << "#{pad}  extend T::Sig"
+      out << "#{pad}  include GraphWeaver::InputStruct"
+      out << "#{pad}  extend GraphWeaver::InputStruct::ClassMethods"
       out << ""
       node.fields.each do |field|
         default = field.required ? "" : ", default: nil"
         out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}#{default}"
       end
       out << ""
-      # locals wear the reserved __gw prefix: prop readers are bare method
-      # calls here, and a prop named "result" or "value" would otherwise
-      # be shadowed — GraphQL reserves __-names, so no field can collide
-      out << "#{pad}  sig { returns(T::Hash[String, T.untyped]) }"
-      out << "#{pad}  def serialize"
-      out << "#{pad}    __gw_result = T.let({}, T::Hash[String, T.untyped])"
+      out << "#{pad}  # (prop, wire, required, serializer, coercer) per field"
+      out << "#{pad}  FIELDS = T.let(["
       node.fields.each do |field|
-        if field.required || field.node.serialize_identity?
-          value = field.node.serialize_identity? ? field.prop.to_s : field.node.serialize(field.prop.to_s, 1)
-          line = "__gw_result[#{field.wire.inspect}] = #{value}"
-          line += " unless #{field.prop}.nil?" unless field.required
-          out << "#{pad}    #{line}"
-        else
-          # bind a local so sorbet's flow-sensitivity narrows the nilable
-          out << "#{pad}    unless (__gw_value = #{field.prop}).nil?"
-          out << "#{pad}      __gw_result[#{field.wire.inspect}] = #{field.node.serialize("__gw_value", 1)}"
-          out << "#{pad}    end"
-        end
+        serializer = field.node.serialize_identity? ? "nil" : "->(v) { #{field.node.serialize("v", 1)} }"
+        coercer = field.node.hash_coerce_identity? ? "nil" : "->(v) { #{field.node.hash_coerce("v", 1)} }"
+        out << "#{pad}    GraphWeaver::InputStruct::Field.new(:#{field.prop}, #{field.wire.inspect}, #{field.required}, #{serializer}, #{coercer}),"
       end
-      out << "#{pad}    __gw_result"
-      out << "#{pad}  end"
-      out << ""
-      out << "#{pad}  # serialize, under the conventional name"
-      out << "#{pad}  sig { returns(T::Hash[String, T.untyped]) }"
-      out << "#{pad}  def to_h = serialize"
-      out << ""
-      out << "#{pad}  # Build from a plain hash (underscored keys, Symbol or String):"
-      out << "#{pad}  # enums accept their wire values, nested inputs accept hashes;"
-      out << "#{pad}  # the struct's types are enforced on construction."
-      out << "#{pad}  sig { params(value: T.any(#{node.class_name}, T::Hash[T.untyped, T.untyped])).returns(#{node.class_name}) }"
-      out << "#{pad}  def self.coerce(value)"
-      out << "#{pad}    return value if value.is_a?(#{node.class_name})"
-      out << ""
-      out << "#{pad}    # a typo'd key must not silently drop off the wire"
-      out << "#{pad}    GraphWeaver::Hints.validate_keys!(self, value)"
-      out << ""
-      out << "#{pad}    new("
-      node.fields.each do |field|
-        raw = "value_at(value, :#{field.prop})"
-        expr = if field.node.hash_coerce_identity?
-          raw
-        elsif field.required
-          "#{raw}.then { |v1| #{field.node.hash_coerce("v1", 2)} }"
-        else
-          "#{raw}&.then { |v1| #{field.node.hash_coerce("v1", 2)} }"
-        end
-        out << "#{pad}      #{field.prop}: #{expr},"
-      end
-      out << "#{pad}    )"
-      out << "#{pad}  end"
-      out << ""
-      out << "#{pad}  sig { params(hash: T::Hash[T.untyped, T.untyped], key: Symbol).returns(T.untyped) }"
-      out << "#{pad}  private_class_method def self.value_at(hash, key)"
-      out << "#{pad}    hash.key?(key) ? hash[key] : hash[key.to_s]"
-      out << "#{pad}  end"
+      out << "#{pad}  ].freeze, T::Array[GraphWeaver::InputStruct::Field])"
       out << "#{pad}end"
     end
   end

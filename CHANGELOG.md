@@ -1,3 +1,15 @@
+###  unreleased
+- Generated input structs are table-driven: typed consts + a per-field
+  FIELDS table (conversions as lambdas) interpreted by the
+  GraphWeaver::InputStruct runtime, replacing unrolled
+  serialize/coerce/value_at per struct — a bool_exp-heavy PokeAPI module
+  shrinks 29k -> 11.5k lines (-60%) with identical behavior (nil
+  omission, wire-value enums, nested/recursive coercion, spellchecked
+  unknown keys all covered by the existing suite)
+- Internal: Node base class for the codegen IR protocol; module
+  assembly moved from Codegen#generate into Emit#emit_module
+  (byte-identical output)
+
 ###  v0.2.0  (2026-07-12)
 - Cleanup pass (staff-engineer review): scalar registrations get the
   same typo validation as enums/types; cassette replay stops recomputing

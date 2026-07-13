@@ -30,7 +30,8 @@ module FindPetsQuery
   RUBY
 
   class PetFilter < T::Struct
-    extend T::Sig
+    include GraphWeaver::InputStruct
+    extend GraphWeaver::InputStruct::ClassMethods
 
     const :_and, T.nilable(T::Array[PetFilter]), default: nil
     const :_not, T.nilable(PetFilter), default: nil
@@ -38,50 +39,14 @@ module FindPetsQuery
     const :name, T.nilable(String), default: nil
     const :species, T.nilable(Species), default: nil
 
-    sig { returns(T::Hash[String, T.untyped]) }
-    def serialize
-      __gw_result = T.let({}, T::Hash[String, T.untyped])
-      unless (__gw_value = _and).nil?
-        __gw_result["_and"] = __gw_value.map { |v1| v1.serialize }
-      end
-      unless (__gw_value = _not).nil?
-        __gw_result["_not"] = __gw_value.serialize
-      end
-      __gw_result["metadata"] = metadata unless metadata.nil?
-      __gw_result["name"] = name unless name.nil?
-      unless (__gw_value = species).nil?
-        __gw_result["species"] = __gw_value.serialize
-      end
-      __gw_result
-    end
-
-    # serialize, under the conventional name
-    sig { returns(T::Hash[String, T.untyped]) }
-    def to_h = serialize
-
-    # Build from a plain hash (underscored keys, Symbol or String):
-    # enums accept their wire values, nested inputs accept hashes;
-    # the struct's types are enforced on construction.
-    sig { params(value: T.any(PetFilter, T::Hash[T.untyped, T.untyped])).returns(PetFilter) }
-    def self.coerce(value)
-      return value if value.is_a?(PetFilter)
-
-      # a typo'd key must not silently drop off the wire
-      GraphWeaver::Hints.validate_keys!(self, value)
-
-      new(
-        _and: value_at(value, :_and)&.then { |v1| v1.map { |v2| PetFilter.coerce(v2) } },
-        _not: value_at(value, :_not)&.then { |v1| PetFilter.coerce(v1) },
-        metadata: value_at(value, :metadata),
-        name: value_at(value, :name),
-        species: value_at(value, :species)&.then { |v1| (v1.is_a?(Species) ? v1 : Species.deserialize(v1)) },
-      )
-    end
-
-    sig { params(hash: T::Hash[T.untyped, T.untyped], key: Symbol).returns(T.untyped) }
-    private_class_method def self.value_at(hash, key)
-      hash.key?(key) ? hash[key] : hash[key.to_s]
-    end
+    # (prop, wire, required, serializer, coercer) per field
+    FIELDS = T.let([
+      GraphWeaver::InputStruct::Field.new(:_and, "_and", false, ->(v) { v.map { |v1| v1.serialize } }, ->(v) { v.map { |v1| PetFilter.coerce(v1) } }),
+      GraphWeaver::InputStruct::Field.new(:_not, "_not", false, ->(v) { v.serialize }, ->(v) { PetFilter.coerce(v) }),
+      GraphWeaver::InputStruct::Field.new(:metadata, "metadata", false, nil, nil),
+      GraphWeaver::InputStruct::Field.new(:name, "name", false, nil, nil),
+      GraphWeaver::InputStruct::Field.new(:species, "species", false, ->(v) { v.serialize }, ->(v) { (v.is_a?(Species) ? v : Species.deserialize(v)) }),
+    ].freeze, T::Array[GraphWeaver::InputStruct::Field])
   end
 
   class Result < T::Struct

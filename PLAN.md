@@ -105,6 +105,13 @@ Response envelope; execute! for raise-or-result).
 
 ## From the field-test experiments (2026-07-12)
 
+Generated-module size (2026-07-12, post-0.2.0): input structs are now
+table-driven (InputStruct runtime + FIELDS) — the PokeAPI filtered-query
+module dropped 29,233 -> 11,562 lines. The floor is ~2 lines/field
+(typed const + FIELDS entry). Remaining lever if it matters again:
+shared input structs emitted once per schema instead of per module.
+
+
 A junior + senior agent pair exercised the repo cold (clone, examples,
 extensions, a Pokedex app against Hasura's 4,441-type PokeAPI schema).
 Fixed same-day: snake_case type names generated invalid constants

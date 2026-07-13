@@ -26,51 +26,21 @@ module AdoptQuery
   end
 
   class AdoptionInput < T::Struct
-    extend T::Sig
+    include GraphWeaver::InputStruct
+    extend GraphWeaver::InputStruct::ClassMethods
 
     const :birthday, T.nilable(Date), default: nil
     const :name, String
     const :nickname, T.nilable(String), default: nil
     const :species, Species
 
-    sig { returns(T::Hash[String, T.untyped]) }
-    def serialize
-      __gw_result = T.let({}, T::Hash[String, T.untyped])
-      unless (__gw_value = birthday).nil?
-        __gw_result["birthday"] = __gw_value.iso8601
-      end
-      __gw_result["name"] = name
-      __gw_result["nickname"] = nickname unless nickname.nil?
-      __gw_result["species"] = species.serialize
-      __gw_result
-    end
-
-    # serialize, under the conventional name
-    sig { returns(T::Hash[String, T.untyped]) }
-    def to_h = serialize
-
-    # Build from a plain hash (underscored keys, Symbol or String):
-    # enums accept their wire values, nested inputs accept hashes;
-    # the struct's types are enforced on construction.
-    sig { params(value: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped])).returns(AdoptionInput) }
-    def self.coerce(value)
-      return value if value.is_a?(AdoptionInput)
-
-      # a typo'd key must not silently drop off the wire
-      GraphWeaver::Hints.validate_keys!(self, value)
-
-      new(
-        birthday: value_at(value, :birthday),
-        name: value_at(value, :name),
-        nickname: value_at(value, :nickname),
-        species: value_at(value, :species).then { |v1| (v1.is_a?(Species) ? v1 : Species.deserialize(v1)) },
-      )
-    end
-
-    sig { params(hash: T::Hash[T.untyped, T.untyped], key: Symbol).returns(T.untyped) }
-    private_class_method def self.value_at(hash, key)
-      hash.key?(key) ? hash[key] : hash[key.to_s]
-    end
+    # (prop, wire, required, serializer, coercer) per field
+    FIELDS = T.let([
+      GraphWeaver::InputStruct::Field.new(:birthday, "birthday", false, ->(v) { v.iso8601 }, nil),
+      GraphWeaver::InputStruct::Field.new(:name, "name", true, nil, nil),
+      GraphWeaver::InputStruct::Field.new(:nickname, "nickname", false, nil, nil),
+      GraphWeaver::InputStruct::Field.new(:species, "species", true, ->(v) { v.serialize }, ->(v) { (v.is_a?(Species) ? v : Species.deserialize(v)) }),
+    ].freeze, T::Array[GraphWeaver::InputStruct::Field])
   end
 
   class Result < T::Struct

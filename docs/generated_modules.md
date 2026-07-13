@@ -152,9 +152,13 @@ hint rather than silently dropping):
 AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 ```
 
-The structs themselves are module-level (`AdoptQuery::AdoptionInput`) with
-`serialize` (aliased as `to_h`) producing the wire hash — optional fields
-default nil and stay off the wire. Nested inputs work (dependencies emit
+The structs themselves are module-level (`AdoptQuery::AdoptionInput`):
+typed consts plus a compact per-field `FIELDS` table that the
+`GraphWeaver::InputStruct` runtime drives — `serialize` (aliased `to_h`)
+produces the wire hash with nil optionals omitted, `coerce` builds from
+plain hashes. The conversions ship in the generated file as data
+(lambdas in the table), so a Hasura `bool_exp` pulling hundreds of input
+types stays ~2 lines per field instead of unrolled methods. Nested inputs work (dependencies emit
 first), including recursive ones — Hasura's self-referential `bool_exp`
 filters generate cleanly (`_and:`/`_not:` fields typed as the struct
 itself), so variable-driven filtering works:

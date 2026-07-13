@@ -19,6 +19,7 @@ require "sorbet-runtime"
 # codegen/nodes.rb (the typed IR), codegen/emit.rb (source emission);
 # this file holds the public API and the query walk.
 require_relative "hints"
+require_relative "input_struct"
 require_relative "inflect"
 require_relative "selection"
 require_relative "codegen/enum_type"
