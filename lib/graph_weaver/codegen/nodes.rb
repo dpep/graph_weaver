@@ -1,11 +1,29 @@
 # typed: true
 # frozen_string_literal: true
 
+require "forwardable"
+
 # The typed intermediate representation of a query selection: one node
 # per GraphQL type shape, each knowing its Sorbet prop type and the
 # cast/serialize code to emit.
 class GraphWeaver::Codegen
-  class Scalar
+  # Protocol defaults — subclasses override what differs. The full node
+  # protocol: bare_type, prop_type, cast(expr, depth), identity?,
+  # serialize(expr, depth), serialize_identity?, coerce?, coerce(expr),
+  # coerce_input_type, hash_coerce(expr, depth), hash_coerce_identity?,
+  # non_null?, nested.
+  class Node
+    def bare_type = raise(GraphWeaver::Error, "#{self.class} must define bare_type")
+    def prop_type = "T.nilable(#{bare_type})"
+    def identity? = false
+    def serialize_identity? = false
+    def coerce? = false
+    def hash_coerce_identity? = false
+    def non_null? = false
+    def nested = nil
+  end
+
+  class Scalar < Node
     # takes a resolved ScalarType — the generator picks it from the
     # client-scoped overlay or the global registry
     def initialize(scalar_type)
@@ -52,34 +70,27 @@ class GraphWeaver::Codegen
     end
 
     def hash_coerce_identity? = !@scalar.coerce?
-
-    def non_null? = false
-    def nested = nil
   end
 
-  class NonNull
+  # NonNull is its inner node with the nilability stripped — everything
+  # else passes through.
+  class NonNull < Node
+    extend Forwardable
+
     attr_reader :of
+
+    def_delegators :@of, :bare_type, :cast, :identity?, :serialize, :serialize_identity?,
+      :coerce?, :coerce, :coerce_input_type, :hash_coerce, :hash_coerce_identity?, :nested
 
     def initialize(of)
       @of = of
     end
 
-    def bare_type = @of.bare_type
     def prop_type = bare_type
-    def cast(expr, depth) = @of.cast(expr, depth)
-    def identity? = @of.identity?
-    def serialize(expr, depth) = @of.serialize(expr, depth)
-    def serialize_identity? = @of.serialize_identity?
-    def coerce? = @of.coerce?
-    def coerce(expr) = @of.coerce(expr)
-    def coerce_input_type = @of.coerce_input_type
-    def hash_coerce(expr, depth) = @of.hash_coerce(expr, depth)
-    def hash_coerce_identity? = @of.hash_coerce_identity?
     def non_null? = true
-    def nested = @of.nested
   end
 
-  class List
+  class List < Node
     attr_reader :of
 
     def initialize(of)
@@ -88,10 +99,6 @@ class GraphWeaver::Codegen
 
     def bare_type
       "T::Array[#{@of.prop_type}]"
-    end
-
-    def prop_type
-      "T.nilable(#{bare_type})"
     end
 
     def cast(expr, depth)
@@ -119,7 +126,6 @@ class GraphWeaver::Codegen
     end
 
     def serialize_identity? = @of.serialize_identity?
-    def coerce? = false
 
     def hash_coerce(expr, depth)
       var = "v#{depth}"
@@ -133,11 +139,10 @@ class GraphWeaver::Codegen
     end
 
     def hash_coerce_identity? = @of.hash_coerce_identity?
-    def non_null? = false
     def nested = @of.nested
   end
 
-  class ObjectNode
+  class ObjectNode < Node
     Field = Struct.new(:prop, :key, :node)
 
     attr_reader :class_name, :fields
@@ -153,20 +158,14 @@ class GraphWeaver::Codegen
 
     def bare_type = class_name
 
-    def prop_type
-      "T.nilable(#{bare_type})"
-    end
-
     def cast(expr, _depth)
       "#{class_name}.from_h(#{expr})"
     end
 
-    def identity? = false
-    def non_null? = false
     def nested = self
   end
 
-  class EnumNode
+  class EnumNode < Node
     attr_reader :class_name, :values
 
     def initialize(class_name, values)
@@ -176,21 +175,13 @@ class GraphWeaver::Codegen
 
     def bare_type = class_name
 
-    def prop_type
-      "T.nilable(#{bare_type})"
-    end
-
     def cast(expr, _depth)
       "#{class_name}.deserialize(#{expr})"
     end
 
-    def identity? = false
-
     def serialize(expr, _depth)
       "#{expr}.serialize"
     end
-
-    def serialize_identity? = false
 
     # enums always coerce: a kwarg or hash field accepts the T::Enum or
     # its wire value (deserialize raises on anything else)
@@ -202,8 +193,6 @@ class GraphWeaver::Codegen
 
     def coerce_input_type = "T.any(#{class_name}, String)"
     def hash_coerce(expr, _depth) = coerce(expr)
-    def hash_coerce_identity? = false
-    def non_null? = false
     def nested = self
   end
 
@@ -211,7 +200,7 @@ class GraphWeaver::Codegen
   # generated enum class — instead module-level <NAME>_FROM_WIRE /
   # <NAME>_TO_WIRE constants translate at the boundary. fallback: makes
   # casting absorb unknown wire values (inputs stay strict).
-  class MappedEnum
+  class MappedEnum < Node
     attr_reader :graphql_name, :mapping
 
     def initialize(enum_type, wire_values)
@@ -226,10 +215,6 @@ class GraphWeaver::Codegen
 
     def bare_type = @type_name
 
-    def prop_type
-      "T.nilable(#{bare_type})"
-    end
-
     def cast(expr, _depth)
       if @fallback
         "#{const_prefix}_FROM_WIRE.fetch(#{expr}) { #{fallback_const} }"
@@ -238,13 +223,9 @@ class GraphWeaver::Codegen
       end
     end
 
-    def identity? = false
-
     def serialize(expr, _depth)
       "#{const_prefix}_TO_WIRE.fetch(#{expr})"
     end
-
-    def serialize_identity? = false
 
     # kwargs and hash fields accept the member or its wire value; unlike
     # casting, bad input raises even with a fallback (a typo'd input is
@@ -257,9 +238,6 @@ class GraphWeaver::Codegen
 
     def coerce_input_type = "T.any(#{@type_name}, String)"
     def hash_coerce(expr, _depth) = coerce(expr)
-    def hash_coerce_identity? = false
-    def non_null? = false
-    def nested = nil
   end
 
   # A single-condition narrowing of an abstract field (`... on Pet { ... }`
@@ -267,7 +245,7 @@ class GraphWeaver::Codegen
   # nil when it doesn't — a non-match's response object carries no
   # matching fields, so the hash arrives empty. Always nilable, whatever
   # the schema's nullability, because narrowing filters.
-  class NarrowedNode
+  class NarrowedNode < Node
     def initialize(of)
       @of = of
     end
@@ -275,20 +253,14 @@ class GraphWeaver::Codegen
     def class_name = @of.class_name
     def bare_type = @of.bare_type
 
-    def prop_type
-      "T.nilable(#{bare_type})"
-    end
-
     def cast(expr, depth)
       "(#{expr}.empty? ? nil : #{@of.cast(expr, depth)})"
     end
 
-    def identity? = false
-    def non_null? = false
     def nested = @of
   end
 
-  class UnionNode
+  class UnionNode < Node
     attr_reader :class_name, :members # graphql type name => ObjectNode
 
     def initialize(class_name, members)
@@ -298,16 +270,10 @@ class GraphWeaver::Codegen
 
     def bare_type = "#{class_name}::Type"
 
-    def prop_type
-      "T.nilable(#{bare_type})"
-    end
-
     def cast(expr, _depth)
       "#{class_name}.from_h(#{expr})"
     end
 
-    def identity? = false
-    def non_null? = false
     def nested = self
   end
 
@@ -315,7 +281,7 @@ class GraphWeaver::Codegen
   # serialize produces the wire hash. Inputs never cast FROM the wire.
   # Joins the coerce protocol so execute kwargs accept plain hashes,
   # normalized (and type-checked) through the generated .coerce.
-  class InputNode
+  class InputNode < Node
     Field = Struct.new(:prop, :wire, :node, :required)
 
     attr_reader :class_name, :fields
@@ -327,18 +293,12 @@ class GraphWeaver::Codegen
 
     def bare_type = class_name
 
-    def prop_type
-      "T.nilable(#{bare_type})"
-    end
-
     def serialize(expr, _depth)
       "#{expr}.serialize"
     end
 
-    def serialize_identity? = false
-
     def cast(_expr, _depth)
-      raise NotImplementedError, "input objects are never cast from responses"
+      raise GraphWeaver::Error, "input objects are never cast from responses"
     end
 
     def coerce? = true
@@ -347,10 +307,5 @@ class GraphWeaver::Codegen
 
     # building a struct field from a caller-supplied plain hash value
     def hash_coerce(expr, _depth) = "#{class_name}.coerce(#{expr})"
-    def hash_coerce_identity? = false
-
-    def identity? = false
-    def non_null? = false
-    def nested = nil
   end
 end
