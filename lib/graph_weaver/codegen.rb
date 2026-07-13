@@ -112,7 +112,10 @@ class GraphWeaver::Codegen
   end
 
   # The shared inputs artifact: the named input/enum types — plus
-  # everything they transitively reference — emitted once per schema.
+  # everything they transitively reference — emitted once per schema as
+  # a manifest (inputs.rb) plus one file per type under inputs/, so a
+  # schema migration diffs only the types it touched. Returns
+  # { relative_filename => source }.
   def self.generate_inputs(schema:, module_name:, input_types: [], enum_types: [],
     scalars: nil, enums: nil, types: nil)
     codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
@@ -132,7 +135,7 @@ class GraphWeaver::Codegen
     enum_types.sort.each { |name| variable_core(@schema.get_type(name)) }
     input_types.sort.each { |name| input_node(@schema.get_type(name)) }
 
-    emit_inputs_module
+    emit_inputs_files
   end
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)

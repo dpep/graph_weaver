@@ -79,16 +79,27 @@ module GraphWeaver
     #
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil, shared_inputs: true)
+    def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil,
+      shared_inputs: true, inputs_module: self.inputs_module)
       schema ||= locate_schema!
-      FileUtils.mkdir_p(output)
 
-      generation_plan(queries:, schema:, client:, shared_inputs:).map do |filename, source|
+      plan = generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module:)
+      written = plan.map do |filename, source|
         target = File.join(output, filename)
+        FileUtils.mkdir_p(File.dirname(target))
         File.write(target, source)
         log(:info) { "generated #{target}" }
         target
       end
+
+      # a type dropped from the schema must not linger as a stale file —
+      # inputs/ is wholly generated, so pruning is safe
+      (Dir[File.join(output, "inputs", "*.rb")] - written).each do |orphan|
+        File.delete(orphan)
+        log(:info) { "pruned #{orphan}" }
+      end
+
+      written
     end
 
     # The freshness guard: raise unless every generated file matches what
@@ -98,12 +109,16 @@ module GraphWeaver
     #      it "generated queries are current" do
     #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil, shared_inputs: true)
+    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil,
+      shared_inputs: true, inputs_module: self.inputs_module)
       schema ||= locate_schema!
-      stale = generation_plan(queries:, schema:, client:, shared_inputs:).filter_map do |filename, source|
+      plan = generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module:)
+      stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
         target unless File.exist?(target) && File.read(target) == source
       end
+      # strays: a type file the current schema no longer produces
+      stale += Dir[File.join(output, "inputs", "*.rb")] - plan.map { |f, _| File.join(output, f) }
 
       unless stale.empty?
         raise Error, "stale generated queries — regenerate (rake graph_weaver:generate): #{stale.join(", ")}"
@@ -140,7 +155,7 @@ module GraphWeaver
     # every variable type once into inputs.rb, with query modules
     # aliasing what they use — the difference between hundreds of
     # duplicated bool_exp structs and one copy per schema.
-    def generation_plan(queries:, schema:, client:, shared_inputs:)
+    def generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module: self.inputs_module)
       namespace = shared_inputs ? inputs_module : nil
       used = { inputs: [], enums: [], mapped: [] }
 
@@ -159,10 +174,11 @@ module GraphWeaver
       end
 
       if namespace && used.values.any?(&:any?)
-        plan.unshift(["inputs.rb", Codegen.generate_inputs(
+        shared = Codegen.generate_inputs(
           schema:, module_name: namespace,
           input_types: used[:inputs], enum_types: used[:enums] + used[:mapped],
-        )])
+        )
+        plan = shared.to_a + plan
       end
 
       plan

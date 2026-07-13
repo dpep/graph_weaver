@@ -22,7 +22,8 @@ app/graphql/
   schema.json        # introspection dump (or schema.graphql SDL)
   queries/           # *.graphql — hand-written, reviewed
   generated/
-    inputs.rb        # shared variable types (inputs, enums), once per schema
+    inputs.rb        # manifest: requires + forward declarations
+    inputs/          # one file per shared type (input structs, enums)
     *_query.rb       # one module per query — generated, checked in, never edited
 ```
 
@@ -155,9 +156,13 @@ AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 ```
 
 In the generate! workflow, input types (and the enums they use) are
-emitted **once per schema** into `generated/inputs.rb` (module
+emitted **once per schema** — one file per type under
+`generated/inputs/`, with `inputs.rb` as the manifest (module
 `GraphQLInputs` — rename via `GraphWeaver.inputs_module=`; opt out with
-`generate!(shared_inputs: false)`). Query modules alias what they touch,
+`generate!(shared_inputs: false)`). Per-type files keep schema drift
+reviewable: a migration diffs exactly the types it touched, and types
+the schema drops are pruned on regeneration (`verify` flags strays).
+Query modules alias what they touch,
 so `AdoptQuery::AdoptionInput` still works and shared types keep one
 identity across modules — three filtered Hasura queries cost one ~11k-line
 inputs file plus ~90 lines each, instead of ~35k lines of duplicates.

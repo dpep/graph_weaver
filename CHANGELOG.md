@@ -1,4 +1,11 @@
 ###  unreleased
+- Shared types split one-file-per-type: generated/inputs/ holds each
+  input struct/enum in its own small file (PokeAPI: 573 files, median
+  24 lines vs one 11.5k-line blob) with inputs.rb as the manifest
+  (forward declarations make load order irrelevant); regeneration
+  prunes files for types the schema dropped, verify flags strays;
+  generate!/verify take inputs_module: per invocation (multi-schema
+  apps generate into different modules)
 - Shared input types: generate! emits every variable type (input
   structs + their enums + mapped-enum tables) ONCE per schema into
   generated/inputs.rb (module GraphQLInputs; GraphWeaver.inputs_module=
