@@ -1,0 +1,10 @@
+{
+  "name": "graph-weaver-federation-harness",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@apollo/gateway": "^2",
+    "@apollo/server": "^4",
+    "graphql": "^16"
+  }
+}

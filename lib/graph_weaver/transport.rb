@@ -54,21 +54,36 @@ class GraphWeaver::Transport
 
     GraphWeaver.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
 
-    # reached the server, but it returned a non-2xx status
+    parsed = parse_body(body)
+
+    # reached the server, but it returned a non-2xx status. Per
+    # graphql-over-http, routers (Apollo Server/Router) send request
+    # errors as 4xx WITH a GraphQL errors body — those flow into the
+    # envelope so QueryError machinery sees the structured errors; only
+    # a body that isn't GraphQL (proxy pages, HTML 500s) is a ServerError.
     unless (200..299).cover?(status)
+      return parsed if parsed.is_a?(Hash) && parsed.key?("errors")
+
       raise GraphWeaver::ServerError.new(status:, body: body.to_s)
     end
 
-    # a caller's connection may already parse json via middleware
-    return body unless body.is_a?(String)
-
-    begin
-      JSON.parse(body)
-    rescue JSON::ParserError
+    unless parsed
       # a 200 that isn't GraphQL — an HTML error page from a proxy, a
       # captive portal: the server misbehaved, classify it that way
-      raise GraphWeaver::ServerError.new(status:, body: "non-JSON response: #{body[0, 500]}")
+      raise GraphWeaver::ServerError.new(status:, body: "non-JSON response: #{body.to_s[0, 500]}")
     end
+
+    parsed
+  end
+
+  # the parsed body, or nil when it isn't JSON (a caller's connection may
+  # already parse via middleware — pass that through)
+  private def parse_body(body)
+    return body unless body.is_a?(String)
+
+    JSON.parse(body)
+  rescue JSON::ParserError
+    nil
   end
 
   # never leak Authorization headers through logs/exceptions — a

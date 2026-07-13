@@ -4,7 +4,7 @@
 check: generate test tc
 
 # manual/one-off checks against real GraphQL APIs (network; GitHub needs
-# `gh auth login` or GITHUB_TOKEN)
+# `gh auth login` or GITHUB_TOKEN; federation boots an Apollo gateway — node)
 integration:
 	INTEGRATION=1 bundle exec rspec spec/integration
 

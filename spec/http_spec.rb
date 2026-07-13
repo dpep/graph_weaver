@@ -72,6 +72,22 @@ describe GraphWeaver::Transport::HTTP do
       .to raise_error(GraphWeaver::ServerError, /non-JSON response: <html>/)
   end
 
+  it "lets a 4xx with a GraphQL errors body flow into the envelope (graphql-over-http routers)" do
+    apollo_style = Class.new(described_class) do
+      def post(_body) = [400, JSON.generate("errors" => [{ "message" => "unknown field", "extensions" => { "code" => "GRAPHQL_VALIDATION_FAILED" } }])]
+    end
+
+    raw = apollo_style.new(url).execute("query { nosuch }")
+    expect(raw.dig("errors", 0, "extensions", "code")).to eq "GRAPHQL_VALIDATION_FAILED"
+
+    # a 4xx WITHOUT GraphQL shape stays a ServerError
+    html = Class.new(described_class) do
+      def post(_body) = [502, "<html>Bad Gateway</html>"]
+    end
+    expect { html.new(url).execute("query { x }") }
+      .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 502 }
+  end
+
   it "wraps unserializable variables (NaN) instead of leaking JSON errors" do
     expect { executor.execute("query", variables: { "amount" => Float::NAN }) }
       .to raise_error(GraphWeaver::Error, /not JSON-serializable/)

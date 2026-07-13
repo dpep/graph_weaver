@@ -8,6 +8,9 @@ PATH
 GEM
   remote: https://rubygems.org/
   specs:
+    apollo-federation (3.10.3)
+      google-protobuf (< 5)
+      graphql
     base64 (0.3.0)
     benchmark (0.5.0)
     bigdecimal (4.1.2)
@@ -28,6 +31,18 @@ GEM
     faraday-net_http (3.4.4)
       net-http (~> 0.5)
     fiber-storage (1.0.1)
+    google-protobuf (4.35.1-aarch64-linux-gnu)
+      bigdecimal
+      rake (~> 13.3)
+    google-protobuf (4.35.1-arm64-darwin)
+      bigdecimal
+      rake (~> 13.3)
+    google-protobuf (4.35.1-x86_64-darwin)
+      bigdecimal
+      rake (~> 13.3)
+    google-protobuf (4.35.1-x86_64-linux-gnu)
+      bigdecimal
+      rake (~> 13.3)
     graphql (2.6.5)
       base64
       fiber-storage
@@ -134,6 +149,7 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
+  apollo-federation
   bigdecimal
   debug
   faker
@@ -149,6 +165,7 @@ DEPENDENCIES
   yard
 
 CHECKSUMS
+  apollo-federation (3.10.3) sha256=61e6d8e1fd695ee45bab5d84f86f586d99c296ad77a86c6f1e7b964ac17be3d7
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   benchmark (0.5.0) sha256=465df122341aedcb81a2a24b4d3bd19b6c67c1530713fd533f3ff034e419236c
   bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
@@ -162,6 +179,10 @@ CHECKSUMS
   faraday (2.14.3) sha256=1882247e6766615c8220b4392bf1d27f6ebb63d8e28267587cef1fb0bf37f278
   faraday-net_http (3.4.4) sha256=0e78af151747ed1b00f33e25973b4bc220d7f16c00c39676817c8b12331eb588
   fiber-storage (1.0.1) sha256=f48e5b6d8b0be96dac486332b55cee82240057065dc761c1ea692b2e719240e1
+  google-protobuf (4.35.1-aarch64-linux-gnu) sha256=50ca44d0eeff3f8475e630a1accdd974256f3510694d574e2c9d6119ea8bc9e1
+  google-protobuf (4.35.1-arm64-darwin) sha256=d9c957df04fa89c749fa9a72a7b383eb4296efc9b2303dc6fd6fbe39c698ad6b
+  google-protobuf (4.35.1-x86_64-darwin) sha256=66b62b4df00931018a692806df66393efa960d6d2b7da69735187249f950d3ee
+  google-protobuf (4.35.1-x86_64-linux-gnu) sha256=c786439087512a3fbd199e9897d265b855f951d4027e218ea55e858d45969edd
   graph_weaver (0.1.0)
   graphql (2.6.5) sha256=1051825bfb4aedb4293cdbcd9726c3150e69e3512556609a32c2ca19d4be3d00
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5

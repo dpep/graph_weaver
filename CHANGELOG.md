@@ -1,4 +1,13 @@
 ###  unreleased
+- Live federation integration: two Ruby subgraphs (apollo-federation
+  gem) composed and routed by a real Apollo gateway (node harness under
+  spec/support/federation), with GraphWeaver introspecting through the
+  router and executing a query stitched across BOTH subgraphs — part of
+  make integration. Complements the existing supergraph-SDL codegen spec
+- graphql-over-http: a non-2xx response carrying a GraphQL errors body
+  (Apollo Server/Router send request errors as 4xx JSON) flows into the
+  Response envelope so QueryError sees the structured errors; only
+  non-GraphQL bodies (proxy pages) raise ServerError
 - Fix: input-struct serialize used bare locals (result/value) that a
   same-named prop silently shadowed — a field named "result" dropped
   its value onto the wrong target; generated locals now wear the

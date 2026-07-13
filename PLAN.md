@@ -124,7 +124,8 @@ keep-alive connection behind a mutex, dropped on any failure; net/http's
 keep_alive_timeout handles idle expiry. Faraday remains the pooling
 answer.
 
-- Subscriptions.
+- Subscriptions; @defer/@stream (routers send multipart responses — the
+  transport classifies them as ServerError today, no incremental support).
 - Shared input-type structs across generated modules: one Hasura
   bool_exp variable pulls its whole recursive closure into EVERY module
   (~28k lines each) — correct but heavy in PRs; needs cross-module
