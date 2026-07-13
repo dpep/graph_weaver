@@ -3,10 +3,11 @@
 
 require_relative "errors"
 
-# Wraps any executor with configurable retries — composes like every
-# other executor, so it layers over HTTP, Faraday, or anything else:
+# Wraps any client/transport with configurable retries — it satisfies
+# the same execute contract, so it layers over HTTP, Faraday, or
+# anything else:
 #
-#      executor = GraphWeaver::RetryExecutor.new(
+#      executor = GraphWeaver::Retry.new(
 #        GraphWeaver::Transport::HTTP.new(url),
 #        tries: 5,                        # total attempts, first included
 #        on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
@@ -25,7 +26,7 @@ require_relative "errors"
 #
 # Exhausting tries re-raises the last error (or returns the last
 # code-matched response).
-class GraphWeaver::RetryExecutor
+class GraphWeaver::Retry
   BACKOFFS = {
     exponential: ->(base, attempt) { base * (2**(attempt - 1)) },
     linear: ->(base, attempt) { base * attempt },

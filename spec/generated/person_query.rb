@@ -81,28 +81,30 @@ module PersonQuery
     end
   end
 
-  @executor = T.let(nil, T.untyped)
+  @client = T.let(nil, T.untyped)
 
   class << self
     extend T::Sig
 
-    sig { params(executor: T.untyped).void }
-    attr_writer :executor
+    sig { params(client: T.untyped).void }
+    attr_writer :client
 
-    # default transport for execute
+    # default client (a GraphWeaver::Client or any transport) for
+    # execute: per-module override, else the app default
     sig { returns(T.untyped) }
-    def executor
-      @executor || Demo::Schema
+    def client
+      @client || Demo::Schema
     end
   end
 
-  sig { params(id: String, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
-  def self.execute(id:, executor: self.executor)
+  sig { params(client: T.untyped, id: String).returns(GraphWeaver::Response[Result]) }
+  def self.execute(client = nil, id:)
     variables = {
       "id" => id,
     }
 
-    raw = executor.execute(QUERY, variables: variables).to_h
+    transport = GraphWeaver.resolve_transport(client || self.client)
+    raw = transport.execute(QUERY, variables: variables).to_h
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
@@ -110,8 +112,8 @@ module PersonQuery
     )
   end
 
-  sig { params(id: String, executor: T.untyped).returns(Result) }
-  def self.execute!(id:, executor: self.executor)
-    execute(id: id, executor: executor).data!
+  sig { params(client: T.untyped, id: String).returns(Result) }
+  def self.execute!(client = nil, id:)
+    execute(client, id: id).data!
   end
 end

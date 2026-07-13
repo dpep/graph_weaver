@@ -39,7 +39,7 @@ you to your fellow stargazers).
 - **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
-- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `RetryExecutor` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
+- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
 - **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
@@ -78,13 +78,13 @@ File.write("app/queries/person_query.rb", source)
 
 # at runtime
 PersonQuery.execute(id: "1")                        # via GraphWeaver.client
-PersonQuery.execute(id: "1", executor: other)       # or per call
+PersonQuery.execute(other_client, id: "1")          # or per call
 ```
 
 Module names derive from the operation name (`query GetPerson` →
 `GetPerson`) or, for `parse` on a `.graphql` file, from the file name;
-pass `module_name:`/`name:` to override. Pass `executor:` (a constant) to
-bake a default transport into the generated module. Prefer Faraday? It's
+pass `module_name:`/`name:` to override. Pass `client:` (a constant) to
+bake a default client into the generated module. Prefer Faraday? It's
 opt-in (`gem "faraday"`), and the client picks it up when loaded —
 middleware blocks and ready connections in [transports](docs/transports.md).
 
@@ -110,10 +110,10 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
   step by step: initializer, rake tasks, fakes, CI, Sorbet or not
 - **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
   variables (enums, input objects), fragments/unions/interfaces,
-  `@skip`/`@include`, naming, executors, dynamic mode
+  `@skip`/`@include`, naming, clients, dynamic mode
 - **[Against a real API](docs/real_world.md)** — the exploratory tour:
   introspect a live endpoint (GitHub end to end), dynamic mode, schema caching
-- **[Transports](docs/transports.md)** — clients, the executor contract,
+- **[Transports](docs/transports.md)** — clients, the execute contract,
   Faraday, retries and backoff
 - **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
   requires, input coercion

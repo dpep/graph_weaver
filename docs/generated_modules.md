@@ -99,9 +99,9 @@ module PersonQuery
     const :person, T.nilable(Person)
   end
 
-  def self.executor ...          # default transport (see below)
-  def self.execute(id:, executor: self.executor)   # -> GraphWeaver::Response[Result]
-  def self.execute!(id:, executor: self.executor)  # -> Result, or raises QueryError
+  def self.client ...            # default client (see below)
+  def self.execute(client = nil, id:)   # -> GraphWeaver::Response[Result]
+  def self.execute!(client = nil, id:)  # -> Result, or raises QueryError
 end
 ```
 
@@ -205,12 +205,12 @@ are impossible).
 Nested struct names come from GraphQL type names, disambiguated one level by
 field name on collision.
 
-## Executors
+## Clients
 
-An executor is anything with `execute(query, variables:)` whose result `to_h`s
+A client is anything with `execute(query, variables:)` whose result `to_h`s
 into `{"data" => ..., "errors" => ...}`. Resolution: per call → per module →
-baked constant → `GraphWeaver.executor=` → `GraphWeaver.client` — the
-canonical list lives in [transports](transports.md#executor-resolution).
+baked constant → `GraphWeaver.client` — the
+canonical list lives in [transports](transports.md#client-resolution).
 
 Generate *without* a baked constant when you want modules to follow the
 app default (`GraphWeaver.client =` in an initializer) — that's also what

@@ -22,12 +22,12 @@ require_relative "testing"
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces
 #     fake data along with test order
 #   - auto_fake: when on (and a schema resolves), each example gets a
-#     fresh seeded FakeExecutor installed as GraphWeaver.executor —
+#     fresh seeded FakeClient installed as GraphWeaver.client —
 #     generated modules run in test mode with zero per-test setup. The
-#     prior executor is restored after each example.
+#     prior client is restored after each example.
 #
-# note: modules generated with a baked-in executor: constant don't consult
-# GraphWeaver.executor — generate without executor: to make them fakeable.
+# note: modules generated with a baked-in client: constant don't consult
+# GraphWeaver.client — generate without client: to make them fakeable.
 module GraphWeaver
   module Testing
     module RSpecIntegration
@@ -41,15 +41,15 @@ module GraphWeaver
           config = GraphWeaver::Testing.config
           next unless config.auto_fake && config.schema
 
-          @__graph_weaver_prior_executor = GraphWeaver.instance_variable_get(:@executor)
-          GraphWeaver.executor = FakeExecutor.new(schema: config.schema)
+          @__graph_weaver_prior_client = GraphWeaver.client
+          GraphWeaver.client = FakeClient.new(schema: config.schema)
         end
 
         rspec_config.after(:each) do
           config = GraphWeaver::Testing.config
           next unless config.auto_fake && config.schema
 
-          GraphWeaver.executor = @__graph_weaver_prior_executor
+          GraphWeaver.client = @__graph_weaver_prior_client
         end
       end
     end

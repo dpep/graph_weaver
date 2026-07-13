@@ -39,11 +39,11 @@ module GraphWeaver::SchemaLoader
     end
   end
 
-  # Run the standard introspection query through an executor and build a
+  # Run the standard introspection query through a transport and build a
   # schema from the result:
   #
-  #      executor = GraphWeaver::Transport::HTTP.new(url, headers: { ... })
-  #      schema = GraphWeaver::SchemaLoader.introspect(executor)
+  #      transport = GraphWeaver::Transport::HTTP.new(url, headers: { ... })
+  #      schema = GraphWeaver::SchemaLoader.introspect(transport)
   #
   # Introspecting a large API takes seconds, so cache: dumps the schema
   # to a file and reuses it until ttl: seconds elapse (no ttl = until the
@@ -67,10 +67,10 @@ module GraphWeaver::SchemaLoader
   # itself — schemas round-trip through their introspection JSON:
   #
   #      json = Rails.cache.fetch("gh_schema", expires_in: 12.hours) do
-  #        GraphWeaver::SchemaLoader.introspect(executor).to_json
+  #        GraphWeaver::SchemaLoader.introspect(transport).to_json
   #      end
   #      schema = GraphWeaver::SchemaLoader.load(json)
-  def self.introspect(executor, cache: nil, ttl: nil)
+  def self.introspect(transport, cache: nil, ttl: nil)
     cache = cache_path(cache)
 
     if cache
@@ -86,8 +86,8 @@ module GraphWeaver::SchemaLoader
       GraphWeaver.log(:info) { "schema cache miss: #{cache}" }
     end
 
-    result = GraphWeaver.log_timed(:info, "introspected #{executor.respond_to?(:url) ? executor.url : executor.class}") do
-      executor.execute(GraphQL::Introspection.query, variables: {}).to_h
+    result = GraphWeaver.log_timed(:info, "introspected #{transport.respond_to?(:url) ? transport.url : transport.class}") do
+      transport.execute(GraphQL::Introspection.query, variables: {}).to_h
     end
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
@@ -100,7 +100,7 @@ module GraphWeaver::SchemaLoader
       # the extension picks the format: .json is the verbatim wire
       # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
       # diffs (both generate byte-identical code)
-      meta = stamp(executor)
+      meta = stamp(transport)
       content = if cache.end_with?(".json")
         JSON.generate(meta ? result.merge("graph_weaver" => meta) : result)
       else
@@ -138,38 +138,38 @@ module GraphWeaver::SchemaLoader
   end
 
   # Re-introspect a dump's source and compare — true when the server has
-  # drifted from what's on disk. executor: overrides the transport (auth
+  # drifted from what's on disk. transport: overrides the transport (auth
   # etc); by default one is built from the dump's recorded url. Wired up
   # as `rake graph_weaver:schema:verify` / `:refresh`.
-  def self.stale?(path, executor: nil)
-    executor ||= source_executor(path)
-    fresh = introspect(executor)
+  def self.stale?(path, transport: nil)
+    transport ||= source_transport(path)
+    fresh = introspect(transport)
 
     fresh.to_definition != load(path).to_definition
   end
 
   # a transport to the dump's recorded url (GRAPHWEAVER_AUTH supplies a
   # token when set)
-  def self.source_executor(path)
+  def self.source_transport(path)
     meta = provenance(path)
     unless meta&.key?("url")
-      raise GraphWeaver::Error, "#{path} records no source url — pass executor:"
+      raise GraphWeaver::Error, "#{path} records no source url — pass transport:"
     end
 
-    GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).executor
+    GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport
   end
-  private_class_method :source_executor
+  private_class_method :source_transport
 
   # Where a dump came from, recorded into the file so it can be
   # re-verified later — a parsable header comment in SDL, a
   # "graph_weaver" sibling key in introspection JSON (from_introspection
-  # reads only "data"). nil when the executor has no url (schema
+  # reads only "data"). nil when the transport has no url (schema
   # classes, fakes).
-  def self.stamp(executor)
-    return unless executor.respond_to?(:url) && executor.url
+  def self.stamp(transport)
+    return unless transport.respond_to?(:url) && transport.url
 
     require "time"
-    { "url" => executor.url, "introspected_at" => Time.now.utc.iso8601 }
+    { "url" => transport.url, "introspected_at" => Time.now.utc.iso8601 }
   end
   private_class_method :stamp
 

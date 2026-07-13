@@ -45,11 +45,11 @@ rescue GraphWeaver::QueryError => e
 end
 ```
 
-Or skip the hand-rolling — `RetryExecutor` wraps any transport with
+Or skip the hand-rolling — `Retry` wraps any transport with
 configurable retries:
 
 ```ruby
-executor = GraphWeaver::RetryExecutor.new(
+transport = GraphWeaver::Retry.new(
   GraphWeaver::Transport::HTTP.new(url),
   tries: 5,                        # total attempts
   backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
@@ -130,5 +130,5 @@ When wire data disagrees with the types the schema promised at generation time
 (a nil where non-null was declared, a malformed scalar, an unknown enum value),
 casting raises `GraphWeaver::TypeError` naming the failing generated struct,
 with the original exception as `#cause`. Simulate one in tests with
-`GraphWeaver::Testing::FakeExecutor.new(schema:, corrupt: "Person.birthday")` — see
+`GraphWeaver::Testing::FakeClient.new(schema:, corrupt: "Person.birthday")` — see
 [testing](testing.md).

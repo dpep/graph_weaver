@@ -34,18 +34,20 @@ class GraphWeaver::Codegen
 
   attr_reader :module_name
 
-  # An executor is anything responding to `execute(query, variables:)`
-  # whose result `to_h`s into {"data" => ..., "errors" => ...}.
+  # A client is anything responding to `execute(query, variables:)`
+  # whose result `to_h`s into {"data" => ..., "errors" => ...} — a
+  # GraphWeaver::Client, a transport, a schema class, a fake.
   #
-  # executor: (a constant, or its name as a string) becomes the generated
-  # module's default transport; when omitted, generated code falls back
-  # to GraphWeaver.executor. module_name: defaults to the operation's
+  # client: (a constant, or its name as a string) becomes the generated
+  # module's baked default; when omitted, generated code falls back to
+  # the app default (GraphWeaver.client=). module_name:
+  # defaults to the operation's
   # name; default_module_name: is parse's container-scoped fallback (file
   # generation stays strict — a checked-in file deserves a deliberate
   # name). scalars:/enums:/types: are client-scoped overlays consulted
   # before the global registries (ScalarType, EnumType, and arrays of
   # mixin modules, each keyed by GraphQL name).
-  def initialize(schema:, query:, module_name: nil, executor: nil, default_module_name: nil,
+  def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
     scalars: nil, enums: nil, types: nil)
     @schema = schema
     @query = query.strip
@@ -54,38 +56,38 @@ class GraphWeaver::Codegen
     @scalars = scalars || {}
     @enums = enums || {}
     @types = types || {}
-    @executor_const = self.class.executor_const(executor)
+    @client_const = self.class.client_const(client)
 
-    if executor && @executor_const.nil?
+    if client && @client_const.nil?
       # a live object can't be spelled in generated source — parse can
       # set one via the module's writer, but file generation cannot
-      raise ArgumentError, "executor: must be a named constant or String (got #{executor.inspect}); pass live objects to parse"
+      raise ArgumentError, "client: must be a named constant or String (got #{client.inspect}); pass live objects to parse"
     end
   end
 
-  # The constant name an executor can be referenced by in generated
+  # The constant name a client/executor can be referenced by in generated
   # source — nil when it can't be (live objects, anonymous modules).
-  def self.executor_const(executor)
-    case executor
-    when String then executor
-    when Module then executor.name
+  def self.client_const(client)
+    case client
+    when String then client
+    when Module then client.name
     end
   end
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, executor: nil, scalars: nil, enums: nil, types: nil)
-    new(schema:, query:, module_name:, executor:, scalars:, enums:, types:).generate
+  def self.generate(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil)
+    new(schema:, query:, module_name:, client:, scalars:, enums:, types:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
   # artifact or checked-in file. Same runtime semantics as the generated
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
-  # executor: additionally accepts a live object (set via .executor=).
-  def self.parse(schema:, query:, module_name: nil, executor: nil, scalars: nil, enums: nil, types: nil)
-    executor_const = executor_const(executor)
+  # client: additionally accepts a live object (set via .client=).
+  def self.parse(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil)
+    client_const = client_const(client)
 
-    codegen = new(schema:, query:, module_name:, executor: executor_const, default_module_name: "Query",
+    codegen = new(schema:, query:, module_name:, client: client_const, default_module_name: "Query",
       scalars:, enums:, types:)
     source = codegen.generate
 
@@ -95,7 +97,7 @@ class GraphWeaver::Codegen
     GraphWeaver.log(:debug) { "parsed #{codegen.module_name} (dynamic module, #{source.bytesize} bytes)" }
     # live objects (or anonymous modules) can't be referenced from
     # generated source — set them via the module's writer instead
-    mod.executor = executor if executor && executor_const.nil?
+    mod.client = client if client && client_const.nil?
     mod
   end
 
@@ -152,10 +154,10 @@ class GraphWeaver::Codegen
       required = node.non_null? && var.default_value.nil?
       kwarg = underscore(var.name)
       # kwargs are declared and forwarded bare in generated source
-      if RUBY_KEYWORDS.include?(kwarg) || kwarg == "executor"
+      if RUBY_KEYWORDS.include?(kwarg)
         raise GraphWeaver::Error,
           "variable $#{var.name} would become the kwarg '#{kwarg}:', which generated code can't declare " \
-          "(#{kwarg == "executor" ? "reserved" : "a Ruby keyword"}) — rename the variable"
+          "(a Ruby keyword) — rename the variable"
       end
       VarDef.new(kwarg, var.name, node, required)
     end
@@ -246,7 +248,7 @@ class GraphWeaver::Codegen
   # input object — reads better flattened: the input's fields become
   # execute's kwargs directly, and the wrapping level is rebuilt on the
   # wire. Multi-variable (or nullable-input) operations keep the
-  # variable-per-kwarg surface; "executor" is a reserved kwarg.
+  # variable-per-kwarg surface.
   def flatten_input(variables)
     return unless variables.size == 1
 
@@ -254,10 +256,7 @@ class GraphWeaver::Codegen
     return unless var.required && var.node.is_a?(NonNull)
 
     input = var.node.of
-    return unless input.is_a?(InputNode)
-    return if input.fields.any? { |field| field.prop == "executor" }
-
-    input
+    input if input.is_a?(InputNode)
   end
 
   # Selection#each_field, collected by result key (codegen groups

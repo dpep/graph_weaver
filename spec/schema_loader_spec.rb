@@ -15,7 +15,7 @@ describe GraphWeaver::SchemaLoader do
     %w[add_pet adopt named person search].each do |base|
       source = GraphWeaver::Codegen.new(
         schema:,
-        executor: "Demo::Schema",
+        client: "Demo::Schema",
         query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
         module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
@@ -191,12 +191,12 @@ describe GraphWeaver::SchemaLoader do
       path = File.join(@dir, "schema.graphql")
       described_class.introspect(counting_executor, cache: path)
 
-      expect(described_class.stale?(path, executor: counting_executor)).to be false
+      expect(described_class.stale?(path, transport: counting_executor)).to be false
 
       drifted = GraphQL::Schema.from_definition("type Query { renamed: String }")
-      expect(described_class.stale?(path, executor: drifted)).to be true
+      expect(described_class.stale?(path, transport: drifted)).to be true
 
-      # without executor: it needs a recorded url to rebuild the transport
+      # without transport: it needs a recorded url to rebuild one
       expect {
         described_class.stale?(path)
       }.to raise_error(GraphWeaver::Error, /no source url/)

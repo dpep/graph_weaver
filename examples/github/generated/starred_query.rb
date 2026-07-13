@@ -96,29 +96,31 @@ module StarredQuery
     end
   end
 
-  @executor = T.let(nil, T.untyped)
+  @client = T.let(nil, T.untyped)
 
   class << self
     extend T::Sig
 
-    sig { params(executor: T.untyped).void }
-    attr_writer :executor
+    sig { params(client: T.untyped).void }
+    attr_writer :client
 
-    # default transport for execute
+    # default client (a GraphWeaver::Client or any transport) for
+    # execute: per-module override, else the app default
     sig { returns(T.untyped) }
-    def executor
-      @executor || GraphWeaver.executor
+    def client
+      @client || GraphWeaver.client!
     end
   end
 
-  sig { params(login: String, first: Integer, executor: T.untyped).returns(GraphWeaver::Response[Result]) }
-  def self.execute(login:, first:, executor: self.executor)
+  sig { params(client: T.untyped, login: String, first: Integer).returns(GraphWeaver::Response[Result]) }
+  def self.execute(client = nil, login:, first:)
     variables = {
       "login" => login,
       "first" => first,
     }
 
-    raw = executor.execute(QUERY, variables: variables).to_h
+    transport = GraphWeaver.resolve_transport(client || self.client)
+    raw = transport.execute(QUERY, variables: variables).to_h
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
@@ -126,8 +128,8 @@ module StarredQuery
     )
   end
 
-  sig { params(login: String, first: Integer, executor: T.untyped).returns(Result) }
-  def self.execute!(login:, first:, executor: self.executor)
-    execute(login: login, first: first, executor: executor).data!
+  sig { params(client: T.untyped, login: String, first: Integer).returns(Result) }
+  def self.execute!(client = nil, login:, first:)
+    execute(client, login: login, first: first).data!
   end
 end

@@ -3,7 +3,7 @@
 
 require "date"
 
-# The value engine behind FakeExecutor and Cassette#anonymize!: seeded,
+# The value engine behind FakeClient and Cassette#anonymize!: seeded,
 # type-correct scalar generation with optional faker-backed semantics
 # matched on field names — strings (name/email/url/...) and numbers
 # (age/price/count/latitude/...) alike. Keeps a consistent id mapping so
@@ -47,7 +47,7 @@ class GraphWeaver::Testing::Values
 
     if @mode == :faker
       # rebind per call: several Values instances may interleave (e.g. two
-      # seeded executors), and faker's rng is global
+      # seeded fakes), and faker's rng is global
       ::Faker::Config.random = @rng
       case type_name
       when "String"

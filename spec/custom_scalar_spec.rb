@@ -169,7 +169,7 @@ describe "custom scalar deserialization" do
 
     mod = GraphWeaver.parse(
       schema: MoneyDemo::Schema,
-      executor: MoneyDemo::Schema,
+      client: MoneyDemo::Schema,
       query:,
     )
 
@@ -264,7 +264,7 @@ describe "custom scalar deserialization" do
 
       mod = GraphWeaver.parse(
         schema: MoneyDemo::Schema,
-        executor: MoneyDemo::Schema,
+        client: MoneyDemo::Schema,
         query:,
       )
 

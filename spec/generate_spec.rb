@@ -12,7 +12,7 @@ describe "GraphWeaver.generate!" do
       schema: Demo::Schema,
       queries: File.join(root, "spec/queries"),
       output: @dir,
-      executor: Demo::Schema,
+      client: Demo::Schema,
     )
 
     expect(written.map { |path| File.basename(path) })
@@ -32,7 +32,7 @@ describe "GraphWeaver.generate!" do
       GraphWeaver.queries_path = queries
       GraphWeaver.generated_path = output
 
-      written = GraphWeaver.generate!(schema: Demo::Schema, executor: Demo::Schema)
+      written = GraphWeaver.generate!(schema: Demo::Schema, client: Demo::Schema)
       expect(written).to eq [File.join(output, "loaded_people_query.rb")]
 
       # and load_generated! requires them — the factory_bot-style one-liner
@@ -55,7 +55,7 @@ describe "GraphWeaver.verify_generated!" do
         schema: Demo::Schema,
         queries: File.join(root, "spec/queries"),
         output: File.join(root, "spec/generated"),
-        executor: Demo::Schema,
+        client: Demo::Schema,
       ),
     ).to be true
   end
@@ -70,7 +70,7 @@ describe "GraphWeaver.verify_generated!" do
           schema: Demo::Schema,
           queries: File.join(root, "spec/queries"),
           output: dir,
-          executor: Demo::Schema,
+          client: Demo::Schema,
         )
       }.to raise_error(GraphWeaver::Error, /stale.*person_query\.rb/m)
     end
@@ -97,7 +97,7 @@ describe "GraphWeaver.auto_coerce" do
   it "defaults built-in coercion lazily — no reset_scalars! dance, any order" do
     mod = GraphWeaver.parse(
       schema: Demo::Schema,
-      executor: Demo::Schema,
+      client: Demo::Schema,
       query: "query Sized($term: String!, $first: Int) { search(term: $term, first: $first) { __typename ... on Named { name } } }",
     )
     # parse happened BEFORE enabling? no — generation is what matters, so
@@ -105,7 +105,7 @@ describe "GraphWeaver.auto_coerce" do
     GraphWeaver.auto_coerce = true
     coerced = GraphWeaver.parse(
       schema: Demo::Schema,
-      executor: Demo::Schema,
+      client: Demo::Schema,
       query: "query Sized($term: String!, $first: Int) { search(term: $term, first: $first) { __typename ... on Named { name } } }",
     )
 
@@ -118,7 +118,7 @@ describe "GraphWeaver.auto_coerce" do
 
     date_mod = GraphWeaver.parse(
       schema: Demo::Schema,
-      executor: Demo::Schema,
+      client: Demo::Schema,
       query: "query People { people { birthday } }",
     )
     # Date has a full cast/serialize pair, so under auto_coerce a Date
@@ -134,7 +134,7 @@ describe "GraphWeaver.auto_coerce" do
 
     mod = GraphWeaver.parse(
       schema: Demo::Schema,
-      executor: Demo::Schema,
+      client: Demo::Schema,
       query: "mutation Adopt($input: AdoptionInput!) { adopt(input: $input) { name species } }",
     )
 

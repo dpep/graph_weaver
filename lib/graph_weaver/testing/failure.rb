@@ -9,15 +9,15 @@ module GraphWeaver
     # transports produce, so error-handling paths are testable without a
     # server that misbehaves on cue:
     #
-    #      PersonQuery.execute(id: "1", executor: Failure.transport)   # TransportError
-    #      PersonQuery.execute(id: "1", executor: Failure.server(status: 502))
-    #      PersonQuery.execute(id: "1", executor: Failure.throttled)   # QueryError, code THROTTLED
-    #      PersonQuery.execute(id: "1", executor: Failure.stale_schema) # schema_stale? => true
+    #      PersonQuery.execute(id: "1", Failure.transport)   # TransportError
+    #      PersonQuery.execute(id: "1", Failure.server(status: 502))
+    #      PersonQuery.execute(id: "1", Failure.throttled)   # QueryError, code THROTTLED
+    #      PersonQuery.execute(id: "1", Failure.stale_schema) # schema_stale? => true
     #
-    # For type mismatches, corrupt the wire with a FakeExecutor override:
-    #      FakeExecutor.new(schema:, overrides: { "Person.birthday" => 123 })
+    # For type mismatches, corrupt the wire with a FakeClient override:
+    #      FakeClient.new(schema:, overrides: { "Person.birthday" => 123 })
     # casting then raises GraphWeaver::TypeError, exactly as a bad server
-    # payload would. For partial failures, see FakeExecutor's fail_at:.
+    # payload would. For partial failures, see FakeClient's fail_at:.
     module Failure
       include Kernel # for sorbet
       module_function
@@ -25,7 +25,7 @@ module GraphWeaver
       # the request never reaches the server — cause preserved, like the
       # bundled transports do
       def transport(message = "simulated network failure", cause: SocketError)
-        FailureExecutor.new do
+        FailureClient.new do
           raise cause, message
         rescue cause => e
           raise GraphWeaver::TransportError, e.message
@@ -34,7 +34,7 @@ module GraphWeaver
 
       # the server answered non-2xx
       def server(status: 500, body: "simulated server error")
-        FailureExecutor.new { raise GraphWeaver::ServerError.new(status:, body:) }
+        FailureClient.new { raise GraphWeaver::ServerError.new(status:, body:) }
       end
 
       # top-level GraphQL errors: strings, or hashes with message/path/
@@ -47,7 +47,7 @@ module GraphWeaver
         response = { "errors" => normalized }
         response["data"] = data if data
         response["extensions"] = JSON.parse(JSON.generate(extensions)) unless extensions.empty?
-        FailureExecutor.new { response }
+        FailureClient.new { response }
       end
 
       def throttled
@@ -79,7 +79,7 @@ module GraphWeaver
     end
 
     # runs the block per request — raise or return an envelope
-    class FailureExecutor
+    class FailureClient
       def initialize(&response)
         @response = response
       end
@@ -92,8 +92,8 @@ module GraphWeaver
     # Delegates each call to the next executor in line (the last one
     # repeats) — fail N times, then succeed, for retry/backoff testing:
     #
-    #      SequenceExecutor.new(Failure.transport, Failure.transport, fake)
-    class SequenceExecutor
+    #      Sequence.new(Failure.transport, Failure.transport, fake)
+    class Sequence
       def initialize(*executors)
         @executors = executors.flatten
         @calls = 0

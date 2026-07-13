@@ -8,9 +8,9 @@ require_relative "errors"
 
 # Base class for the bundled network transports — Transport::HTTP
 # (zero-dependency net/http, loaded by default) and Transport::Faraday
-# (opt-in). A transport is just an executor that speaks GraphQL-over-HTTP:
-# it satisfies the same execute(query, variables:) => {"data" => ...,
-# "errors" => ...} contract as a schema class or a fake.
+# (opt-in). A transport speaks GraphQL-over-HTTP and satisfies the
+# same execute(query, variables:) => {"data" => ..., "errors" => ...}
+# contract as a schema class or a fake — anything in a client slot.
 #
 # The base class owns the shared flow — encode the request, reclassify
 # network-level failures as TransportError, raise ServerError on a

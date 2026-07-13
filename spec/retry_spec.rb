@@ -1,14 +1,14 @@
 require "graph_weaver/testing"
 require_relative "generated/person_query"
 
-describe GraphWeaver::RetryExecutor do
+describe GraphWeaver::Retry do
   let(:failure) { GraphWeaver::Testing::Failure }
-  let(:fake) { GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1) }
+  let(:fake) { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1) }
   let(:slept) { [] }
   let(:sleeper) { ->(seconds) { slept << seconds } }
 
   def sequence(*executors)
-    GraphWeaver::Testing::SequenceExecutor.new(*executors)
+    GraphWeaver::Testing::Sequence.new(*executors)
   end
 
   it "retries transport failures and succeeds" do
@@ -18,7 +18,7 @@ describe GraphWeaver::RetryExecutor do
       sleeper:,
     )
 
-    person = PersonQuery.execute!(id: "1", executor:).person
+    person = PersonQuery.execute!(executor, id: "1").person
     expect(person).not_to be_nil
     expect(slept.size).to eq 2
   end
@@ -27,7 +27,7 @@ describe GraphWeaver::RetryExecutor do
     executor = described_class.new(failure.transport, tries: 3, sleeper:)
 
     expect {
-      PersonQuery.execute(id: "1", executor:)
+      PersonQuery.execute(executor, id: "1")
     }.to raise_error(GraphWeaver::TransportError)
     expect(slept.size).to eq 2 # slept between attempts, not after the last
   end
@@ -38,7 +38,7 @@ describe GraphWeaver::RetryExecutor do
       tries: 5, base: 1, max: 5, jitter: false, sleeper:,
     )
 
-    expect { PersonQuery.execute(id: "1", executor:) }.to raise_error(GraphWeaver::TransportError)
+    expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
     expect(slept).to eq [1.0, 2.0, 4.0, 5.0] # 8 clamps to 5
   end
 
@@ -65,14 +65,14 @@ describe GraphWeaver::RetryExecutor do
       sequence(failure.server(status: 503), fake),
       tries: 2, sleeper:,
     )
-    expect(PersonQuery.execute!(id: "1", executor: five_hundred).person).not_to be_nil
+    expect(PersonQuery.execute!(five_hundred, id: "1").person).not_to be_nil
 
     four_oh_one = described_class.new(
       sequence(failure.server(status: 401), fake),
       tries: 2, sleeper:,
     )
     expect {
-      PersonQuery.execute(id: "1", executor: four_oh_one)
+      PersonQuery.execute(four_oh_one, id: "1")
     }.to raise_error(GraphWeaver::ServerError) # no retry: it's our bug
   end
 
@@ -83,7 +83,7 @@ describe GraphWeaver::RetryExecutor do
     )
 
     expect {
-      PersonQuery.execute(id: "1", executor: only_transport)
+      PersonQuery.execute(only_transport, id: "1")
     }.to raise_error(GraphWeaver::ServerError) # ServerError not listed
   end
 
@@ -92,12 +92,12 @@ describe GraphWeaver::RetryExecutor do
       sequence(failure.throttled, fake),
       tries: 2, retry_codes: ["THROTTLED"], sleeper:,
     )
-    expect(PersonQuery.execute!(id: "1", executor:).person).not_to be_nil
+    expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil
     expect(slept.size).to eq 1
 
     slept.clear
     exhausted = described_class.new(failure.throttled, tries: 2, retry_codes: ["THROTTLED"], sleeper:)
-    response = PersonQuery.execute(id: "1", executor: exhausted)
+    response = PersonQuery.execute(exhausted, id: "1")
     expect(response.errors.first&.code).to eq "THROTTLED" # last response returned
   end
 end

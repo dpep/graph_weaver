@@ -7,12 +7,12 @@ require "yaml"
 
 module GraphWeaver
   module Testing
-    # Raised by ReplayExecutor when a request has no recording.
+    # Raised by Replayer when a request has no recording.
     class MissingRecording < GraphWeaver::Error
       def initialize(path:, query:)
         super(<<~MSG.strip)
           no recording for this request in #{path} — re-record it
-          (RecordingExecutor / Cassette.use with a live executor, or delete
+          (Recorder / Cassette.use with a live client, or delete
           the cassette to start over). Query:
           #{query.strip[0, 200]}
         MSG
@@ -23,8 +23,8 @@ module GraphWeaver
     # cassette is a YAML file of {query, variables, response} entries,
     # keyed on the normalized query + variables.
     #
-    #      # record against a real executor, replay when the file exists:
-    #      executor = GraphWeaver::Testing::Cassette.use("github", executor: real)
+    #      # record against a real client, replay when the file exists:
+    #      client = GraphWeaver::Testing::Cassette.use("github", client: real)
     #
     # Cassettes hold real responses — anonymize before committing:
     #
@@ -45,19 +45,19 @@ module GraphWeaver
       def size = @entries.size
 
       # Replay when recorded, record when not (VCR's once mode).
-      # executor: is required to record; omit it to replay-or-raise.
+      # client: is required to record; omit it to replay-or-raise.
       # With Testing.config.record on (or GRAPHWEAVER_RECORD=1), always
       # records — the "just re-record everything" switch.
-      def self.use(path, executor: nil)
+      def self.use(path, client: nil)
         cassette = new(path)
-        if Testing.config.record && executor
-          RecordingExecutor.new(executor, cassette)
+        if Testing.config.record && client
+          Recorder.new(client, cassette)
         elsif cassette.exist?
-          ReplayExecutor.new(cassette)
-        elsif executor
-          RecordingExecutor.new(executor, cassette)
+          Replayer.new(cassette)
+        elsif client
+          Recorder.new(client, cassette)
         else
-          raise MissingRecording.new(path: cassette.path, query: "(no executor to record with)")
+          raise MissingRecording.new(path: cassette.path, query: "(no client to record with)")
         end
       end
 
@@ -78,7 +78,7 @@ module GraphWeaver
       end
 
       # Replace recorded response values with fakes, preserving structure.
-      # Walks each entry's query against the schema (like FakeExecutor,
+      # Walks each entry's query against the schema (like FakeClient,
       # but transforming what's there instead of generating from scratch).
       def anonymize!(schema:, seed: nil, mode: nil)
         anonymizer = Anonymizer.new(schema:, seed:, mode:)
@@ -102,13 +102,13 @@ module GraphWeaver
       end
     end
 
-    # Tees requests through a live executor and records every response.
+    # Tees requests through a live client and records every response.
     # With Testing.config.anonymize (or anonymize: true), responses are
     # anonymized as they're recorded — and the anonymized version is what
     # the caller sees too, so assertions written now hold on replay.
-    class RecordingExecutor
-      def initialize(executor, cassette, anonymize: nil)
-        @executor = executor
+    class Recorder
+      def initialize(client, cassette, anonymize: nil)
+        @client = client
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
 
         config = Testing.config
@@ -122,7 +122,7 @@ module GraphWeaver
       end
 
       def execute(query, variables: {})
-        response = @executor.execute(query, variables:).to_h
+        response = @client.execute(query, variables:).to_h
         if @anonymizer && (data = response["data"])
           response = response.merge("data" => @anonymizer.anonymize(query, data))
         end
@@ -134,7 +134,7 @@ module GraphWeaver
 
     # Serves recorded responses; raises MissingRecording on unknown
     # requests rather than silently faking.
-    class ReplayExecutor
+    class Replayer
       def initialize(cassette)
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
       end

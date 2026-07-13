@@ -5,12 +5,12 @@ describe "failure simulation" do
   after { GraphWeaver::Testing.reset! }
 
   let(:failure) { GraphWeaver::Testing::Failure }
-  let(:fake) { GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1) }
+  let(:fake) { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1) }
 
   describe GraphWeaver::Testing::Failure do
     it "simulates network failures with the cause preserved" do
       expect {
-        PersonQuery.execute(id: "1", executor: failure.transport)
+        PersonQuery.execute(failure.transport, id: "1")
       }.to raise_error(GraphWeaver::TransportError) do |e|
         expect(e.cause).to be_a SocketError
       end
@@ -18,7 +18,7 @@ describe "failure simulation" do
 
     it "simulates non-2xx responses" do
       expect {
-        PersonQuery.execute(id: "1", executor: failure.server(status: 502, body: "bad gateway"))
+        PersonQuery.execute(failure.server(status: 502, body: "bad gateway"), id: "1")
       }.to raise_error(GraphWeaver::ServerError) do |e|
         expect(e.status).to eq 502
       end
@@ -30,7 +30,7 @@ describe "failure simulation" do
         data: { "person" => nil },
       )
 
-      response = PersonQuery.execute(id: "1", executor:)
+      response = PersonQuery.execute(executor, id: "1")
       expect(response.errors?).to be true
       expect(response.errors_at("person").first&.code).to eq "BOOM"
       expect { response.data! }.to raise_error(GraphWeaver::QueryError) do |e|
@@ -39,52 +39,52 @@ describe "failure simulation" do
     end
 
     it "simulates throttling and schema staleness" do
-      throttled = PersonQuery.execute(id: "1", executor: failure.throttled)
+      throttled = PersonQuery.execute(failure.throttled, id: "1")
       expect(throttled.errors.first&.code).to eq "THROTTLED"
       expect(throttled.schema_stale?).to be false
 
-      stale = PersonQuery.execute(id: "1", executor: failure.stale_schema)
+      stale = PersonQuery.execute(failure.stale_schema, id: "1")
       expect(stale.schema_stale?).to be true
       expect { stale.data! }.to raise_error(GraphWeaver::QueryError, /regenerate/)
     end
 
     it "stale_schema names a specific field, or samples a real one from the schema" do
-      named = PersonQuery.execute(id: "1", executor: failure.stale_schema(type: "Person", field: "name"))
+      named = PersonQuery.execute(failure.stale_schema(type: "Person", field: "name"), id: "1")
       expect(named.errors.first&.message).to eq "Field 'name' doesn't exist on type 'Person'"
 
-      sampled = PersonQuery.execute(id: "1", executor: failure.stale_schema(schema: Demo::Schema, seed: 3))
+      sampled = PersonQuery.execute(failure.stale_schema(schema: Demo::Schema, seed: 3), id: "1")
       message = sampled.errors.first&.message
       expect(message).to match(/Field '\w+' doesn't exist on type '(Person|Pet|Query|Mutation)'/)
       expect(sampled.schema_stale?).to be true
     end
   end
 
-  describe GraphWeaver::Testing::SequenceExecutor do
+  describe GraphWeaver::Testing::Sequence do
     it "fails N times then succeeds — retry testing" do
-      executor = GraphWeaver::Testing::SequenceExecutor.new(
+      executor = GraphWeaver::Testing::Sequence.new(
         failure.transport,
         failure.transport,
         fake,
       )
 
       2.times do
-        expect { PersonQuery.execute(id: "1", executor:) }.to raise_error(GraphWeaver::TransportError)
+        expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
       end
-      expect(PersonQuery.execute!(id: "1", executor:).person).not_to be_nil
-      expect(PersonQuery.execute!(id: "1", executor:).person).not_to be_nil # last repeats
+      expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil
+      expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil # last repeats
     end
   end
 
-  describe "FakeExecutor failure injection" do
+  describe "FakeClient failure injection" do
     it "simulates type mismatches via corrupt: — the wrong-typed value is derived" do
-      corrupt = GraphWeaver::Testing::FakeExecutor.new(
+      corrupt = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         corrupt: "Person.birthday",
       )
 
       expect {
-        PersonQuery.execute(id: "1", executor: corrupt)
+        PersonQuery.execute(corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
@@ -92,9 +92,9 @@ describe "failure simulation" do
 
     it "corrupts strings and object lists by kind" do
       # String field gets an Integer
-      name_corrupt = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, corrupt: "Person.name")
+      name_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.name")
       expect {
-        PersonQuery.execute(id: "1", executor: name_corrupt)
+        PersonQuery.execute(name_corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
@@ -102,9 +102,9 @@ describe "failure simulation" do
       # list elements get non-Hash values; the sig on Pet.from_h rejects
       # them at the call site, so Person owns the failure and the cause
       # names Pet
-      pets_corrupt = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, corrupt: "Person.pets")
+      pets_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.pets")
       expect {
-        PersonQuery.execute(id: "1", executor: pets_corrupt)
+        PersonQuery.execute(pets_corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
         expect(e.cause&.message).to include("Pet.from_h")
@@ -112,35 +112,35 @@ describe "failure simulation" do
     end
 
     it "overrides remain the manual escape hatch for exact corrupt values" do
-      executor = GraphWeaver::Testing::FakeExecutor.new(
+      executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         overrides: { "Person.birthday" => "not-iso8601" },
       )
 
-      expect { PersonQuery.execute(id: "1", executor:) }.to raise_error(GraphWeaver::TypeError)
+      expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TypeError)
     end
 
     it "appends verbatim errors alongside fake data" do
-      executor = GraphWeaver::Testing::FakeExecutor.new(
+      executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         errors: [{ message: "cost warning", extensions: { code: "EXPENSIVE" } }],
       )
 
-      response = PersonQuery.execute(id: "1", executor:)
+      response = PersonQuery.execute(executor, id: "1")
       expect(response.data&.person).not_to be_nil # data AND errors
       expect(response.errors.first&.code).to eq "EXPENSIVE"
     end
 
     it "fail_at nulls a nullable field and records its error" do
-      executor = GraphWeaver::Testing::FakeExecutor.new(
+      executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         fail_at: { path: "person.birthday", message: "hidden", code: "PRIVATE" },
       )
 
-      response = PersonQuery.execute(id: "1", executor:)
+      response = PersonQuery.execute(executor, id: "1")
       person = response.data&.person
 
       expect(person&.birthday).to be_nil
@@ -152,14 +152,14 @@ describe "failure simulation" do
       # pets is [Pet!]! — name fails, the non-null element bubbles the
       # list, the non-null list bubbles to person (the nearest nullable
       # spot), exactly like a real server's error propagation
-      executor = GraphWeaver::Testing::FakeExecutor.new(
+      executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         list_size: 2..2,
         fail_at: "person.pets.name",
       )
 
-      response = PersonQuery.execute(id: "1", executor:)
+      response = PersonQuery.execute(executor, id: "1")
 
       expect(response.data&.person).to be_nil
       error = response.errors.first

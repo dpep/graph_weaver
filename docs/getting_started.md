@@ -50,7 +50,7 @@ GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "ti
 
 `GraphWeaver.client =` is the load-bearing line: generated modules
 without a baked transport resolve to it at execute time (the full
-[resolution order](transports.md#executor-resolution)). The generated
+[resolution order](transports.md#client-resolution)). The generated
 modules themselves load at boot automatically (the Railtie requires
 everything under `generated_path`, after your initializers run) —
 outside Rails, call `GraphWeaver.load_generated!` wherever your app
@@ -95,7 +95,7 @@ require "graph_weaver/rspec"
 
 That's the whole setup: the schema auto-locates from the committed dump
 and `auto_fake` defaults on, so every query in every example executes
-against a seeded, schema-correct `FakeExecutor` — no server, no stubs,
+against a seeded, schema-correct `FakeClient` — no server, no stubs,
 and `rspec --seed 1234` reproduces the fake data along with test order.
 Pin values with `overrides:`, simulate failures with `Failure.*`, opt
 out with `config.auto_fake = false` — see [testing](testing.md).

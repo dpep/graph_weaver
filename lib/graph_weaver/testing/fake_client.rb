@@ -4,11 +4,11 @@
 require "graphql"
 require "json"
 
-# An executor that fabricates schema-correct responses for whatever query
+# A fake client that fabricates schema-correct responses for whatever query
 # arrives — the zero-setup way to test code built on generated modules:
 #
-#      fake = GraphWeaver::Testing::FakeExecutor.new(schema:)
-#      result = PersonQuery.execute!(id: "1", executor: fake)
+#      fake = GraphWeaver::Testing::FakeClient.new(schema:)
+#      result = PersonQuery.execute!(id: "1", fake — positionally)
 #      result.person.name  # => a plausible String, typed and castable
 #
 # Values are type-correct by construction (real enum values, valid
@@ -22,7 +22,7 @@ require "json"
 # also the way to simulate a corrupt payload — casting raises
 # GraphWeaver::TypeError.)
 #
-#      FakeExecutor.new(schema:, overrides: {
+#      FakeClient.new(schema:, overrides: {
 #        "Person.name" => "Daniel",
 #        "email" => -> { "test@example.com" },
 #      })
@@ -33,8 +33,8 @@ require "json"
 # bubble past non-null positions to the nearest nullable ancestor, just
 # like a real server:
 #
-#      FakeExecutor.new(schema:, fail_at: "person.pets.name")
-#      FakeExecutor.new(schema:, fail_at: { path: "person.email", message: "hidden", code: "PRIVATE" })
+#      FakeClient.new(schema:, fail_at: "person.pets.name")
+#      FakeClient.new(schema:, fail_at: { path: "person.email", message: "hidden", code: "PRIVATE" })
 #
 # errors: appends verbatim top-level errors alongside the fake data.
 #
@@ -43,11 +43,11 @@ require "json"
 # so casting raises GraphWeaver::TypeError. One spec checks the failure
 # path; every other spec gets working data:
 #
-#      FakeExecutor.new(schema:, corrupt: "Person.birthday")
+#      FakeClient.new(schema:, corrupt: "Person.birthday")
 #
-# seed: makes a run reproducible (also seeds faker). Per-executor options
+# seed: makes a run reproducible (also seeds faker). Per-instance options
 # fall back to GraphWeaver::Testing.config.
-class GraphWeaver::Testing::FakeExecutor
+class GraphWeaver::Testing::FakeClient
   include GraphWeaver::Selection
 
   # sentinel: a simulated failure bubbling up to the nearest nullable spot

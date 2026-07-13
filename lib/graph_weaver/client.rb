@@ -4,7 +4,7 @@
 require_relative "codegen"
 require_relative "errors"
 require_relative "inflect"
-require_relative "retry_executor"
+require_relative "retry"
 require_relative "schema_loader"
 require_relative "transport/http"
 
@@ -20,8 +20,8 @@ require_relative "transport/http"
 # The first argument is a url (a transport is built; the schema comes
 # from introspection on first use, cached per cache:/ttl:) or a schema
 # source — a live schema class (which also executes in-process), or a
-# path/SDL/introspection dump via SchemaLoader. Pass executor: to bring
-# your own transport for a schema source.
+# path/SDL/introspection dump via SchemaLoader. Pass transport: to
+# bring your own transport for a schema source.
 #
 # Clients are independent: each has its own transport, schema, and
 # scalar registrations, so one app can talk to several GraphQL servers —
@@ -29,11 +29,11 @@ require_relative "transport/http"
 class GraphWeaver::Client
   URL = %r{\Ahttps?://}i
 
-  def initialize(source, auth: nil, headers: {}, retries: false, executor: nil, cache: nil, ttl: nil, &middleware)
+  def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil, &middleware)
     if source.is_a?(String) && source.match?(URL)
-      raise ArgumentError, "pass a url or executor:, not both" if executor
+      raise ArgumentError, "pass a url or transport:, not both" if transport
 
-      @executor = wrap_retries(build_transport(source, auth:, headers:, &middleware), retries)
+      @transport = wrap_retries(build_transport(source, auth:, headers:, &middleware), retries)
     else
       if auth || middleware || retries != false
         raise ArgumentError, "auth:/retries:/middleware apply to a url — got a schema source"
@@ -43,11 +43,10 @@ class GraphWeaver::Client
         raise ArgumentError, "cache:/ttl: apply to url introspection — got a schema source"
       end
 
-      # a live schema class doubles as an in-process executor; a loaded
+      # a live schema class doubles as an in-process transport; a loaded
       # dump has no resolvers, so it is type information only
       @schema = source.is_a?(Module) ? source : GraphWeaver::SchemaLoader.load(source)
-      @implicit_executor = source if source.is_a?(Module)
-      @executor = executor
+      @transport = transport || (source if source.is_a?(Module))
     end
 
     @cache = cache
@@ -57,27 +56,22 @@ class GraphWeaver::Client
     @types = {}
   end
 
-  # The transport queries run through: this client's own (a url-built
-  # transport, or executor:), else the global executor= override (a test
-  # fake outranks even a live schema class), else the schema class
-  # executing in-process.
-  def executor
-    return @executor if @executor
-    return GraphWeaver.executor if GraphWeaver.executor?
+  # The transport queries run through: a url-built transport, an
+  # explicit transport:, or the live schema class executing in-process.
+  # Clients are self-contained — the app default never leaks in; nil for
+  # schema-dump clients (type information only).
+  attr_reader :transport
 
-    @implicit_executor || GraphWeaver.executor # raises the helpful error
+  # transport, when this client must be able to execute
+  def transport!
+    transport or raise GraphWeaver::Error,
+      "this client has no transport (built from a schema dump) — pass a url or transport:"
   end
 
-  # This client's own transport, independent of any global fallback —
-  # what GraphWeaver.client= wires in for generated modules.
-  def own_executor
-    @executor || @implicit_executor
-  end
-
-  # The schema, introspecting through the executor on first use (cached
+  # The schema, introspecting through the transport on first use (cached
   # per the client's cache:/ttl:) unless one was given up front.
   def schema
-    @schema ||= GraphWeaver::SchemaLoader.introspect(executor, cache: @cache, ttl: @ttl)
+    @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
   end
 
   # Client-scoped scalar registration: consulted before the global
@@ -116,10 +110,10 @@ class GraphWeaver::Client
   # Parse a query (a .graphql path or raw string) into a typed module
   # bound to this client's schema, scalars, enums, helpers, and transport
   # (including a live schema class executing in-process — the module came
-  # from this client, so it runs against it; pass executor: at execute
-  # time to override, e.g. with a fake).
+  # from this client, so it runs against it; pass a client per call to
+  # override, e.g. with a fake).
   def parse(query, name: nil)
-    GraphWeaver.parse(schema:, query:, name:, executor: own_executor,
+    GraphWeaver.parse(schema:, query:, name:, client: transport,
       scalars: @scalars, enums: @enums, types: @types)
   end
 
@@ -143,12 +137,12 @@ class GraphWeaver::Client
 
   # One-shot dynamic execution — parse + execute, returning the typed
   # Response envelope (execute! returns the result or raises). Variables
-  # are plain kwargs, exactly as on a generated module ("executor" is
-  # reserved); graphql-cased string keys work too.
+  # are plain kwargs, exactly as on a generated module; graphql-cased
+  # string keys work too.
   def execute(query, **variables)
     mod = parse(query)
     kwargs = variables.to_h { |key, value| [GraphWeaver::Inflect.underscore(key.to_s).to_sym, value] }
-    mod.execute(**kwargs, executor:)
+    mod.execute(transport!, **kwargs)
   end
 
   def execute!(query, **variables)
@@ -193,13 +187,13 @@ class GraphWeaver::Client
     end
   end
 
-  # retries: is off by default — true for RetryExecutor defaults, or a
+  # retries: is off by default — true for Retry defaults, or a
   # Hash of its options
   def wrap_retries(transport, retries)
     case retries
-    when true then GraphWeaver::RetryExecutor.new(transport)
+    when true then GraphWeaver::Retry.new(transport)
     when false, nil then transport
-    else GraphWeaver::RetryExecutor.new(transport, **retries)
+    else GraphWeaver::Retry.new(transport, **retries)
     end
   end
 end

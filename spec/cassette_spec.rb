@@ -29,42 +29,42 @@ describe GraphWeaver::Testing::Cassette do
 
   describe "record and replay" do
     it "records through a live executor, then replays without it" do
-      recorder = GraphWeaver::Testing::RecordingExecutor.new(live, path)
-      recorded = PersonQuery.execute!(id: "1", executor: recorder)
+      recorder = GraphWeaver::Testing::Recorder.new(live, path)
+      recorded = PersonQuery.execute!(recorder, id: "1")
       expect(recorded.person&.name).to eq "Daniel"
       expect(live.calls).to eq 1
 
-      replayed = PersonQuery.execute!(id: "1", executor: GraphWeaver::Testing::ReplayExecutor.new(path))
+      replayed = PersonQuery.execute!(GraphWeaver::Testing::Replayer.new(path), id: "1")
       expect(replayed.person&.name).to eq "Daniel"
       expect(replayed.person&.pets&.map(&:name)).to eq %w[Shelby Brownie]
       expect(live.calls).to eq 1 # replay never touched the live executor
     end
 
     it "matches on query AND variables, raising helpfully on a miss" do
-      GraphWeaver::Testing::RecordingExecutor.new(live, path)
+      GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" })
 
-      replay = GraphWeaver::Testing::ReplayExecutor.new(path)
+      replay = GraphWeaver::Testing::Replayer.new(path)
       expect {
         replay.execute(PersonQuery::QUERY, variables: { "id" => "2" })
       }.to raise_error(GraphWeaver::Testing::MissingRecording, /no recording|re-record/)
     end
 
     it "Cassette.use records when the file is missing, replays when present" do
-      first = GraphWeaver::Testing::Cassette.use(path, executor: live)
-      expect(first).to be_a GraphWeaver::Testing::RecordingExecutor
-      PersonQuery.execute!(id: "1", executor: first)
+      first = GraphWeaver::Testing::Cassette.use(path, client: live)
+      expect(first).to be_a GraphWeaver::Testing::Recorder
+      PersonQuery.execute!(first, id: "1")
 
-      second = GraphWeaver::Testing::Cassette.use(path, executor: live)
-      expect(second).to be_a GraphWeaver::Testing::ReplayExecutor
-      expect(PersonQuery.execute!(id: "1", executor: second).person&.name).to eq "Daniel"
+      second = GraphWeaver::Testing::Cassette.use(path, client: live)
+      expect(second).to be_a GraphWeaver::Testing::Replayer
+      expect(PersonQuery.execute!(second, id: "1").person&.name).to eq "Daniel"
       expect(live.calls).to eq 1
     end
 
     it "resolves bare names against config.cassette_dir" do
       GraphWeaver::Testing.configure { |config| config.cassette_dir = @dir }
 
-      GraphWeaver::Testing::RecordingExecutor.new(live, "github")
+      GraphWeaver::Testing::Recorder.new(live, "github")
         .execute(PersonQuery::QUERY, variables: { "id" => "1" })
 
       expect(File).to exist(File.join(@dir, "github.yml"))
@@ -73,12 +73,12 @@ describe GraphWeaver::Testing::Cassette do
 
   describe "record mode and anonymize-on-record" do
     it "config.record forces re-recording even when the cassette exists" do
-      described_class.use(path, executor: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
+      described_class.use(path, client: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
       expect(live.calls).to eq 1
 
       GraphWeaver::Testing.configure { |config| config.record = true }
-      executor = described_class.use(path, executor: live)
-      expect(executor).to be_a GraphWeaver::Testing::RecordingExecutor
+      executor = described_class.use(path, client: live)
+      expect(executor).to be_a GraphWeaver::Testing::Recorder
       executor.execute(PersonQuery::QUERY, variables: { "id" => "1" })
       expect(live.calls).to eq 2 # hit the live executor again
     end
@@ -90,7 +90,7 @@ describe GraphWeaver::Testing::Cassette do
         config.seed = 5
       end
 
-      recorder = GraphWeaver::Testing::RecordingExecutor.new(live, path)
+      recorder = GraphWeaver::Testing::Recorder.new(live, path)
       returned = recorder.execute(PersonQuery::QUERY, variables: { "id" => "1" })
 
       recorded = described_class.new(path).lookup(PersonQuery::QUERY, { "id" => "1" })
@@ -103,7 +103,7 @@ describe GraphWeaver::Testing::Cassette do
       GraphWeaver::Testing.configure { |config| config.anonymize = true }
 
       expect {
-        GraphWeaver::Testing::RecordingExecutor.new(live, path)
+        GraphWeaver::Testing::Recorder.new(live, path)
       }.to raise_error(ArgumentError, /schema/)
     end
   end
@@ -173,11 +173,11 @@ describe GraphWeaver::Testing::Cassette do
     end
 
     it "anonymized cassettes still cast through generated modules" do
-      GraphWeaver::Testing::RecordingExecutor.new(live, path)
+      GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" })
       described_class.new(path).anonymize!(schema: Demo::Schema, seed: 5)
 
-      person = PersonQuery.execute!(id: "1", executor: GraphWeaver::Testing::ReplayExecutor.new(path)).person
+      person = PersonQuery.execute!(GraphWeaver::Testing::Replayer.new(path), id: "1").person
 
       expect(person&.name).to be_a String
       expect(person&.name).not_to eq "Daniel"

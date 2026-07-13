@@ -109,39 +109,42 @@ class GraphWeaver::Codegen
     end
 
     def emit_execute(out, variables, flatten: nil)
-      out << "  @executor = T.let(nil, T.untyped)"
+      out << "  @client = T.let(nil, T.untyped)"
       out << ""
       out << "  class << self"
       out << "    extend T::Sig"
       out << ""
-      out << "    sig { params(executor: T.untyped).void }"
-      out << "    attr_writer :executor"
+      out << "    sig { params(client: T.untyped).void }"
+      out << "    attr_writer :client"
       out << ""
-      out << "    # default transport for execute"
+      out << "    # default client (a GraphWeaver::Client or any transport) for"
+      out << "    # execute: per-module override, else the app default"
       out << "    sig { returns(T.untyped) }"
-      out << "    def executor"
-      out << "      @executor || #{@executor_const || "GraphWeaver.executor"}"
+      out << "    def client"
+      out << "      @client || #{@client_const || "GraphWeaver.client!"}"
       out << "    end"
       out << "  end"
       out << ""
 
       # the kwarg surface: the input's fields when flattened, else one
-      # kwarg per declared variable — typed identically either way
+      # kwarg per declared variable — typed identically either way. The
+      # per-call client override rides as an optional POSITIONAL arg, so
+      # variables keep the entire kwarg namespace (nothing is reserved).
       params = flatten ? flatten.fields.partition(&:required).flatten : variables
 
-      sig_params = params.map do |param|
+      sig_params = ["client: T.untyped"]
+      sig_params += params.map do |param|
         bare = param.node.coerce? ? param.node.coerce_input_type : param.node.bare_type
         kwarg_type = param.required || bare == "T.untyped" ? bare : "T.nilable(#{bare})"
         "#{kwarg_name(param)}: #{kwarg_type}"
       end
-      sig_params << "executor: T.untyped"
 
-      kwargs = params.map { |param| param.required ? "#{kwarg_name(param)}:" : "#{kwarg_name(param)}: nil" }
-      kwargs << "executor: self.executor"
+      kwargs = ["client = nil"]
+      kwargs += params.map { |param| param.required ? "#{kwarg_name(param)}:" : "#{kwarg_name(param)}: nil" }
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # `execute(...).data!` — the typed result, or a raised QueryError.
-      forward = (params.map { |param| "#{kwarg_name(param)}: #{kwarg_name(param)}" } + ["executor: executor"]).join(", ")
+      forward = (["client"] + params.map { |param| "#{kwarg_name(param)}: #{kwarg_name(param)}" }).join(", ")
 
       if flatten
         out << "  # $#{variables.first.wire}'s fields, flattened into kwargs (single input-object variable)"
@@ -171,7 +174,8 @@ class GraphWeaver::Codegen
       end
 
       out << ""
-      out << "    raw = executor.execute(QUERY, variables: variables).to_h"
+      out << "    transport = GraphWeaver.resolve_transport(client || self.client)"
+      out << "    raw = transport.execute(QUERY, variables: variables).to_h"
       out << "    GraphWeaver::Response[Result].new("
       out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
       out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"

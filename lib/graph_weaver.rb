@@ -9,7 +9,7 @@ require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
 require_relative "graph_weaver/client"
 require_relative "graph_weaver/transport/http"
-require_relative "graph_weaver/retry_executor"
+require_relative "graph_weaver/retry"
 require_relative "graph_weaver/schema_loader"
 require_relative "graph_weaver/version"
 require_relative "graph_weaver/railtie" if defined?(::Rails::Railtie)
@@ -33,31 +33,27 @@ module GraphWeaver
       Client.new(source, **options, &middleware)
     end
 
-    # The app's default client — the blessed way to wire generated
-    # modules to a server:
+    # The app's default client — how generated modules find their server:
     #
     #      GraphWeaver.client = GraphWeaver.new(url, auth: token)
     #
-    # Generated modules resolve their transport per call -> per module ->
-    # baked constant -> GraphWeaver.executor= -> the default client.
+    # Accepts a Client or anything satisfying the execute contract (a
+    # schema class, a fake — testing's auto_fake swaps one in per
+    # example). Generated modules resolve per call -> per module
+    # (MyQuery.client=) -> baked constant -> here.
     attr_accessor :client
 
-    # The low-level knob under client=: assign a bare executor (a fake, a
-    # custom transport) and it wins over the default client — which is
-    # how testing's auto_fake swaps in per example. Generated modules
-    # fall back to this method.
-    attr_writer :executor
-
-    def executor
-      @executor || @client&.own_executor or
-        raise Error, "no executor configured — set GraphWeaver.client= (or executor=), or pass executor:"
+    # the default client, when one is required
+    def client!
+      @client or raise Error, "no client configured — set GraphWeaver.client= or pass a client"
     end
 
-    # is an explicit executor= override set? (the default client doesn't
-    # count: a client resolving its own transport must not see another
-    # client through the global)
-    def executor?
-      !@executor.nil?
+    # The transport behind a client-or-transport value: a Client resolves
+    # to its own transport, anything else already speaks execute.
+    # Generated modules call this on every execute, so any slot in the
+    # resolution chain can hold either kind.
+    def resolve_transport(target)
+      target.is_a?(Client) ? target.transport! : target
     end
 
     # Conventional locations, factory_bot-style: used as defaults by
@@ -77,12 +73,12 @@ module GraphWeaver
     #
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema: nil, queries: queries_path, output: generated_path, executor: nil)
+    def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil)
       schema ||= locate_schema!
       require "fileutils"
       FileUtils.mkdir_p(output)
 
-      each_query(queries, schema:, executor:).map do |base, source|
+      each_query(queries, schema:, client:).map do |base, source|
         target = File.join(output, "#{base}_query.rb")
         File.write(target, source)
         log(:info) { "generated #{target}" }
@@ -97,9 +93,9 @@ module GraphWeaver
     #      it "generated queries are current" do
     #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, executor: nil)
+    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil)
       schema ||= locate_schema!
-      stale = each_query(queries, schema:, executor:).filter_map do |base, source|
+      stale = each_query(queries, schema:, client:).filter_map do |base, source|
         target = File.join(output, "#{base}_query.rb")
         target unless File.exist?(target) && File.read(target) == source
       end
@@ -136,14 +132,14 @@ module GraphWeaver
     private :locate_schema!
 
     # (base, generated_source) per .graphql file in a directory
-    def each_query(queries, schema:, executor:)
+    def each_query(queries, schema:, client:)
       Dir[File.join(queries, "*.graphql")].sort.map do |path|
         base = File.basename(path, ".graphql")
         source = Codegen.generate(
           schema:,
           query: File.read(path),
           module_name: "#{Inflect.camelize(base)}Query",
-          executor:,
+          client:,
         )
         [base, source]
       end
@@ -245,14 +241,14 @@ module GraphWeaver
     # name) or a raw query string (name derived from the operation name,
     # falling back to "Query" for anonymous operations — collisions are
     # impossible since each parse gets its own container). Pass name: to
-    # override, executor: to set the module's transport.
-    def parse(schema:, query:, name: nil, executor: nil, scalars: nil, enums: nil, types: nil)
+    # override, client: to bake the module's default client/transport.
+    def parse(schema:, query:, name: nil, client: nil, scalars: nil, enums: nil, types: nil)
       if query.end_with?(".graphql", ".gql")
         name ||= "#{Inflect.camelize(File.basename(query, ".*"))}Query"
         query = File.read(query)
       end
 
-      Codegen.parse(schema:, query:, module_name: name, executor:, scalars:, enums:, types:)
+      Codegen.parse(schema:, query:, module_name: name, client:, scalars:, enums:, types:)
     end
 
     # One-shot dynamic execution — a throwaway client, no build step:
@@ -264,16 +260,17 @@ module GraphWeaver
     # GraphWeaver.new; this is Client#execute on a client you don't keep.
     # (A url source introspects the schema on every call — keep a client
     # for more than one query.) Variables are plain kwargs, as on a
-    # generated module ("executor" is reserved). execute returns the
+    # generated module (nothing reserved). execute returns the
     # Response envelope, execute! the typed result, raising QueryError on
     # top-level errors.
-    def execute(source, query, executor: nil, **variables)
-      Client.new(source, executor:).execute(query, **variables)
+    def execute(source, query, **variables)
+      client = source.is_a?(Client) ? source : Client.new(source)
+      client.execute(query, **variables)
     end
 
     # execute + data! — the typed result, or a raised QueryError. See execute.
-    def execute!(source, query, executor: nil, **variables)
-      execute(source, query, executor:, **variables).data!
+    def execute!(source, query, **variables)
+      execute(source, query, **variables).data!
     end
   end
 end

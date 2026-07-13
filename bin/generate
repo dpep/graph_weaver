@@ -9,5 +9,5 @@ GraphWeaver.generate!(
   schema: Demo::Schema,
   queries: File.join(root, "spec/queries"),
   output: File.join(root, "spec/generated"),
-  executor: Demo::Schema,
+  client: Demo::Schema,
 ).each { |path| puts "wrote #{path}" }

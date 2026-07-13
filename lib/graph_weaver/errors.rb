@@ -38,7 +38,7 @@ module GraphWeaver
   end
 
   class << self
-    # The exception classes the bundled executors reclassify as
+    # The exception classes the bundled transports reclassify as
     # TransportError — network-level failures where the request never
     # reached the server. A mutable Set: each transport contributes its own
     # on load (net/http adds Timeout/SSL, Faraday adds its ConnectionFailed,

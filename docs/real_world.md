@@ -45,8 +45,8 @@ Clients are independent — build one per server, each with its own
 transport, schema, and scalar mappings. The introspection step (seconds
 on a big API) happens lazily on first `schema`/`parse` and caches per
 `cache:`/`ttl:`; for finer control the pieces are all public
-(`GraphWeaver::SchemaLoader.introspect(executor, cache:, ttl:)`, or cache
-`introspect(executor).to_json` in Rails.cache and `SchemaLoader.load` it).
+(`GraphWeaver::SchemaLoader.introspect(transport, cache:, ttl:)`, or cache
+`introspect(transport).to_json` in Rails.cache and `SchemaLoader.load` it).
 
 The same flow runs as one-off integration specs against the live GitHub
 and Countries APIs — `make integration` (network; GitHub auth via

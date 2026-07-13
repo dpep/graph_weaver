@@ -7,7 +7,7 @@ describe GraphWeaver::Transport::Faraday do
 
   it "builds a default connection from a url" do
     executor = described_class.new(url)
-    result = PersonQuery.execute(id: "1", executor:).data!
+    result = PersonQuery.execute(executor, id: "1").data!
 
     expect(result.person&.name).to eq "Daniel"
     expect(result.person&.birthday).to eq Date.new(1990, 6, 15)
@@ -17,7 +17,7 @@ describe GraphWeaver::Transport::Faraday do
     connection = Faraday.new(url:, headers: { "X-Client" => "custom" })
     executor = described_class.new(connection)
 
-    expect(PersonQuery.execute(id: "1", executor:).data!.person&.name).to eq "Daniel"
+    expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
     expect(@requests.last[:headers]["x-client"]).to eq ["custom"]
   end
 
@@ -26,14 +26,14 @@ describe GraphWeaver::Transport::Faraday do
       conn.request :authorization, "Bearer", "t0ken"
     end
 
-    PersonQuery.execute(id: "1", executor:)
+    PersonQuery.execute(executor, id: "1")
     expect(@requests.last[:headers]["authorization"]).to eq ["Bearer t0ken"]
   end
 
   it "raises ServerError on a non-2xx response" do
     executor = described_class.new("http://127.0.0.1:#{@port}/nope")
 
-    expect { PersonQuery.execute(id: "1", executor:) }
+    expect { PersonQuery.execute(executor, id: "1") }
       .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 404 }
   end
 
@@ -43,6 +43,6 @@ describe GraphWeaver::Transport::Faraday do
     probe.close
     executor = described_class.new("http://127.0.0.1:#{port}/")
 
-    expect { PersonQuery.execute(id: "1", executor:) }.to raise_error(GraphWeaver::TransportError)
+    expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
   end
 end

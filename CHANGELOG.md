@@ -1,4 +1,17 @@
 ###  unreleased
+- BREAKING: "client" replaces "executor" across the whole surface.
+  Generated modules: the per-call override is an optional POSITIONAL
+  first argument — PersonQuery.execute(github, id: "1") — so variables
+  own the entire kwarg namespace and NOTHING is reserved (a $client or
+  $executor variable is fine; only Ruby keywords refuse); per-module is
+  MyQuery.client=, the baked param is client:. GraphWeaver.executor= is
+  gone — GraphWeaver.client= is the one ambient slot (auto_fake swaps
+  it per example; explicit clients are self-contained and never see it).
+  Client#executor is now Client#transport (transport: to bring your
+  own); SchemaLoader.introspect/stale? speak transport. Renames:
+  FakeExecutor => Testing::FakeClient, SequenceExecutor =>
+  Testing::Sequence, RetryExecutor => GraphWeaver::Retry,
+  Recording/ReplayExecutor => Recorder/Replayer, Cassette.use(client:)
 - Live federation integration: two Ruby subgraphs (apollo-federation
   gem) composed and routed by a real Apollo gateway (node harness under
   spec/support/federation), with GraphWeaver introspecting through the

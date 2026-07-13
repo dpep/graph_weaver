@@ -47,7 +47,7 @@ module GraphWeaver
             connection.request(request)
           rescue => e
             # socket state is unknown — drop it so the next call starts
-            # fresh (retry policy belongs to RetryExecutor, not here)
+            # fresh (retry policy belongs to Retry, not here)
             disconnect
             raise e
           end

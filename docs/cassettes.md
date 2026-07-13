@@ -1,7 +1,7 @@
 # Cassettes: capture and replay
 
 Cassettes record real API responses and replay them in tests — above the
-transport (an executor wrapping an executor), so there's no HTTP
+transport (a client wrapping a client), so there's no HTTP
 interception and they work identically over HTTP, Faraday, or in-process
 execution. A cassette is a YAML file of `{query, variables, response}`
 entries, matched on the normalized query + variables.
@@ -10,8 +10,8 @@ entries, matched on the normalized query + variables.
 
 ```ruby
 # spec: replay when the cassette exists, record against `live` when not
-executor = GraphWeaver::Testing::Cassette.use("github", executor: live)
-result = RepoQuery.execute!(owner: "dpep", name: "graph_weaver", executor:)
+cassette = GraphWeaver::Testing::Cassette.use("github", client: live)
+result = RepoQuery.execute!(cassette, owner: "dpep", name: "graph_weaver")
 ```
 
 1. **Record** — first run hits the live API and writes
@@ -33,7 +33,7 @@ and the path — no silent fabrication.
 ## Anonymization
 
 Anonymizing rewrites recorded values through the same engine
-[FakeExecutor](testing.md) uses, while preserving everything that makes
+[FakeClient](testing.md) uses, while preserving everything that makes
 the recording faithful:
 
 | preserved | replaced |
@@ -68,7 +68,7 @@ variables.
 
 ## When to use what
 
-- **FakeExecutor** — no recording needed; schema-correct random data.
+- **FakeClient** — no recording needed; schema-correct random data.
   Best default for unit tests.
 - **Cassettes** — real response *shapes* from a real API (pagination
   quirks, actual union members, servers' null habits). Best for

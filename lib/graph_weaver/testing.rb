@@ -30,7 +30,7 @@ end
 #      nil      — auto: :faker when the gem is loaded, else :literal
 #
 # rspec users: require "graph_weaver/rspec" instead — it hooks the suite
-# (seed from rspec, optional auto-faked executor per example).
+# (seed from rspec, optional auto-faked client per example).
 module GraphWeaver
   module Testing
     MODES = [:faker, :literal].freeze
@@ -101,6 +101,6 @@ module GraphWeaver
 end
 
 require_relative "testing/values"
-require_relative "testing/fake_executor"
+require_relative "testing/fake_client"
 require_relative "testing/failure"
 require_relative "testing/cassette"

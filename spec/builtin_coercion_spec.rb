@@ -83,7 +83,7 @@ describe "built-in scalar coercion" do
 
     mod = GraphWeaver.parse(
       schema: BuiltinDemo::Schema,
-      executor: BuiltinDemo::Schema,
+      client: BuiltinDemo::Schema,
       query:,
     )
 

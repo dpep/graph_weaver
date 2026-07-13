@@ -28,7 +28,7 @@ describe GraphWeaver::Client do
     it "builds the transport, introspects the schema lazily, and executes" do
       client = GraphWeaver.new(url)
 
-      expect(client.executor).to be_a GraphWeaver::Transport::Faraday # no retry wrapper by default
+      expect(client.transport).to be_a GraphWeaver::Transport::Faraday # no retry wrapper by default
       expect(client.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
       expect(client.schema.types).to have_key "Person"
     end
@@ -47,13 +47,13 @@ describe GraphWeaver::Client do
     it "prefers Faraday when loaded, with middleware pass-through" do
       client = GraphWeaver.new(url) { |conn| conn.options.timeout = 3 }
 
-      expect(client.executor).to be_a GraphWeaver::Transport::Faraday
+      expect(client.transport).to be_a GraphWeaver::Transport::Faraday
     end
 
     it "falls back to the built-in transport without faraday, rejecting middleware" do
       hide_const("Faraday")
 
-      expect(GraphWeaver.new(url).executor).to be_a GraphWeaver::Transport::HTTP
+      expect(GraphWeaver.new(url).transport).to be_a GraphWeaver::Transport::HTTP
       expect {
         GraphWeaver.new(url) { |conn| conn }
       }.to raise_error(ArgumentError, /faraday/)
@@ -65,10 +65,10 @@ describe GraphWeaver::Client do
       client = GraphWeaver.new("http://127.0.0.1:1/graphql", retries: { tries: 3, sleeper: ->(s) { slept << s } })
 
       expect { client.execute!("query { person(id: 1) { id } }") }.to raise_error(GraphWeaver::TransportError)
-      expect(slept.size).to eq 2 # the Hash reached the RetryExecutor
+      expect(slept.size).to eq 2 # the Hash reached the Retry
 
-      expect(GraphWeaver.new(url, retries: true).executor).to be_a GraphWeaver::RetryExecutor
-      expect(GraphWeaver.new(url, retries: false).executor).to be_a GraphWeaver::Transport::Faraday
+      expect(GraphWeaver.new(url, retries: true).transport).to be_a GraphWeaver::Retry
+      expect(GraphWeaver.new(url, retries: false).transport).to be_a GraphWeaver::Transport::Faraday
     end
 
     it "parses typed modules bound to its transport" do
@@ -94,8 +94,8 @@ describe GraphWeaver::Client do
       end
     end
 
-    it "rejects a url plus executor:" do
-      expect { GraphWeaver.new(url, executor: Demo::Schema) }.to raise_error(ArgumentError, /not both/)
+    it "rejects a url plus transport:" do
+      expect { GraphWeaver.new(url, transport: Demo::Schema) }.to raise_error(ArgumentError, /not both/)
     end
   end
 
@@ -107,7 +107,7 @@ describe GraphWeaver::Client do
       expect(client.schema).to equal Demo::Schema
     end
 
-    it "a configured global executor still wins over the schema class" do
+    it "is self-contained: the app default never leaks into an explicit client" do
       recorded = []
       recorder = Class.new do
         define_method(:execute) do |query, variables:|
@@ -116,15 +116,15 @@ describe GraphWeaver::Client do
         end
       end
 
-      GraphWeaver.executor = recorder.new
+      GraphWeaver.client = recorder.new
       GraphWeaver.new(Demo::Schema).execute!("query { person(id: 1) { id } }")
 
-      expect(recorded.size).to eq 1
+      expect(recorded).to be_empty # the explicit client ran in-process
     ensure
-      GraphWeaver.executor = nil
+      GraphWeaver.client = nil
     end
 
-    it "a dump is type information only — no executor to run against" do
+    it "a dump is type information only — no transport to run against" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "schema.graphql")
         File.write(path, Demo::Schema.to_definition)
@@ -132,11 +132,11 @@ describe GraphWeaver::Client do
         client = GraphWeaver.new(path)
         expect(client.schema.types).to have_key "Person"
         expect { client.execute("query { person(id: 1) { id } }") }
-          .to raise_error(GraphWeaver::Error, /no executor/)
+          .to raise_error(GraphWeaver::Error, /no transport/)
 
         # bring your own transport
-        with_executor = GraphWeaver.new(path, executor: Demo::Schema)
-        expect(with_executor.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
+        with_transport = GraphWeaver.new(path, transport: Demo::Schema)
+        expect(with_transport.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
       end
     end
 
@@ -154,26 +154,22 @@ describe GraphWeaver::Client do
   end
 
   describe "GraphWeaver.client=" do
-    # parsed without executor:, so it follows the global fallback chain
+    # parsed without a client, so it follows the global fallback chain
     let(:mod) { GraphWeaver.parse(schema: Demo::Schema, query: "query Who { person(id: 1) { name } }") }
 
-    after do
-      GraphWeaver.client = nil
-      GraphWeaver.executor = nil
-    end
+    after { GraphWeaver.client = nil }
 
     it "wires generated modules to the default client" do
-      expect { mod.execute! }.to raise_error(GraphWeaver::Error, /no executor/)
+      expect { mod.execute! }.to raise_error(GraphWeaver::Error, /no client/)
 
       GraphWeaver.client = GraphWeaver.new(url)
       expect(mod.execute!.person&.name).to eq "Daniel"
     end
 
-    it "an executor= override (e.g. a test fake) beats the default client" do
+    it "a per-call client beats the app default" do
       GraphWeaver.client = GraphWeaver.new("http://127.0.0.1:1/graphql") # nothing listens
-      GraphWeaver.executor = Demo::Schema
 
-      expect(mod.execute!.person&.name).to eq "Daniel"
+      expect(mod.execute!(Demo::Schema).person&.name).to eq "Daniel"
     end
   end
 

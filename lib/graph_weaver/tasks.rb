@@ -50,8 +50,8 @@ namespace :graph_weaver do
       path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
       meta = GraphWeaver::SchemaLoader.provenance(path) or abort "#{path} records no source url"
 
-      executor = GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).executor
-      GraphWeaver::SchemaLoader.introspect(executor, cache: path, ttl: 0)
+      transport = GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport
+      GraphWeaver::SchemaLoader.introspect(transport, cache: path, ttl: 0)
       puts "refreshed #{path} from #{meta["url"]}"
     end
   end

@@ -6,11 +6,11 @@ require_relative "generated/add_pet_query"
 describe GraphWeaver::Testing do
   after { GraphWeaver::Testing.reset! }
 
-  let(:fake) { GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 42) }
+  let(:fake) { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 42) }
 
-  describe GraphWeaver::Testing::FakeExecutor do
+  describe GraphWeaver::Testing::FakeClient do
     it "fabricates responses that cast cleanly through generated structs" do
-      person = PersonQuery.execute!(id: "1", executor: fake).person
+      person = PersonQuery.execute!(fake, id: "1").person
 
       expect(person&.name).to be_a String
       expect(person&.pets).to all(be_a(PersonQuery::Result::Person::Pet))
@@ -18,20 +18,20 @@ describe GraphWeaver::Testing do
     end
 
     it "samples real enum values and valid union members" do
-      results = SearchQuery.execute!(term: "x", executor: fake).search
+      results = SearchQuery.execute!(fake, term: "x").search
 
       results.each do |member|
         expect(%w[Person Pet]).to include(member.__typename)
       end
 
-      pet = AddPetQuery.execute!(name: "Rex", species: AddPetQuery::Species::Dog, executor: fake).add_pet
+      pet = AddPetQuery.execute!(fake, name: "Rex", species: AddPetQuery::Species::Dog).add_pet
       expect([AddPetQuery::Result::Pet::Species::Dog, AddPetQuery::Result::Pet::Species::Cat])
         .to include(pet.species)
     end
 
     it "is reproducible with a seed" do
-      one = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 7)
-      two = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 7)
+      one = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 7)
+      two = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 7)
       query = "query { people { name pets { name species } } }"
 
       expect(one.execute(query, variables: {})).to eq two.execute(query, variables: {})
@@ -41,7 +41,7 @@ describe GraphWeaver::Testing do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
         query: "query { person(id: 1) { name email } }",
-        executor: fake,
+        client: fake,
       )
 
       person = mod.execute!.person
@@ -50,7 +50,7 @@ describe GraphWeaver::Testing do
     end
 
     it "pins fields via overrides, most-specific key first" do
-      executor = GraphWeaver::Testing::FakeExecutor.new(
+      executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         overrides: {
@@ -63,7 +63,7 @@ describe GraphWeaver::Testing do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
         query: "query { person(id: 1) { name email pets { name } } }",
-        executor:,
+        client: executor,
       )
 
       person = mod.execute!.person
@@ -75,7 +75,7 @@ describe GraphWeaver::Testing do
     it "honors first/last/limit args when fabricating lists" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: fake,
+        client: fake,
         query: 'query Capped { search(term: "x", first: 3) { __typename ... on Named { name } } }',
       )
 
@@ -83,12 +83,12 @@ describe GraphWeaver::Testing do
     end
 
     it "honors null_chance and list_size" do
-      always_nil = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, null_chance: 1.0)
+      always_nil = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, null_chance: 1.0)
       # person is itself nullable, so it nils at the root
-      expect(PersonQuery.execute!(id: "1", executor: always_nil).person).to be_nil
+      expect(PersonQuery.execute!(always_nil, id: "1").person).to be_nil
 
-      never_nil = GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema, seed: 1, list_size: 2..2)
-      person = PersonQuery.execute!(id: "1", executor: never_nil).person
+      never_nil = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, list_size: 2..2)
+      person = PersonQuery.execute!(never_nil, id: "1").person
       expect(person&.birthday).to be_a Date # default null_chance 0: nullable but present
       expect(person&.pets&.size).to eq 2
     end
@@ -160,11 +160,11 @@ describe GraphWeaver::Testing do
       end
 
       run([:before, :each])
-      expect(GraphWeaver.executor).to be_a GraphWeaver::Testing::FakeExecutor
+      expect(GraphWeaver.client).to be_a GraphWeaver::Testing::FakeClient
       expect(PersonQuery.execute!(id: "1").person&.name).to be_a String
 
       run([:after, :each])
-      expect { GraphWeaver.executor }.to raise_error(GraphWeaver::Error, /no executor/)
+      expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
     it "stays out of the way when auto_fake is opted out" do
@@ -175,7 +175,7 @@ describe GraphWeaver::Testing do
 
       run([:before, :each])
 
-      expect { GraphWeaver.executor }.to raise_error(GraphWeaver::Error, /no executor/)
+      expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
     it "defaults on: schema auto-locates from the conventional dump" do
@@ -187,7 +187,7 @@ describe GraphWeaver::Testing do
         expect(GraphWeaver::Testing.config.auto_fake).to be true
 
         run([:before, :each])
-        expect(GraphWeaver.executor).to be_a GraphWeaver::Testing::FakeExecutor
+        expect(GraphWeaver.client).to be_a GraphWeaver::Testing::FakeClient
         run([:after, :each])
       ensure
         GraphWeaver.schema_path = nil
@@ -204,8 +204,8 @@ describe GraphWeaver::Testing do
       end
 
       person = PersonQuery.execute!(
+        GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema),
         id: "1",
-        executor: GraphWeaver::Testing::FakeExecutor.new(schema: Demo::Schema),
       ).person
 
       expect(person&.name).to eq "from config"
@@ -215,13 +215,13 @@ describe GraphWeaver::Testing do
     it "lets per-executor options win over config" do
       described_class.configure { |config| config.overrides = { "Person.name" => "config" } }
 
-      executor = GraphWeaver::Testing::FakeExecutor.new(
+      executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
         seed: 1,
         overrides: { "Person.name" => "explicit" },
       )
 
-      expect(PersonQuery.execute!(id: "1", executor:).person&.name).to eq "explicit"
+      expect(PersonQuery.execute!(executor, id: "1").person&.name).to eq "explicit"
     end
 
     it "resets to defaults" do

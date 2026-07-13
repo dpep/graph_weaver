@@ -4,7 +4,7 @@
 require "graphql"
 
 module GraphWeaver
-  # Shared query-selection walking — the rules Codegen, FakeExecutor, and
+  # Shared query-selection walking — the rules Codegen, FakeClient, and
   # the cassette Anonymizer all follow, in one place so they can't drift:
   # how fragments flatten into selections, and when a type condition
   # applies. Hosts set @schema and call load_operation before walking.

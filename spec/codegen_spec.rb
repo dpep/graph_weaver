@@ -13,7 +13,7 @@ describe GraphWeaver::Codegen do
     %w[add_pet adopt find_pets named person search].each do |base|
       source = described_class.new(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
         module_name: "#{base.split("_").map(&:capitalize).join}Query",
       ).generate
@@ -36,7 +36,7 @@ describe GraphWeaver::Codegen do
     it "survives queries containing bare GRAPHQL lines (block strings)" do
       query = %(query Sneaky { search(term: """\nGRAPHQL\n""") { __typename ... on Named { name } } })
 
-      mod = GraphWeaver.parse(schema: Demo::Schema, query:, executor: Demo::Schema)
+      mod = GraphWeaver.parse(schema: Demo::Schema, query:, client: Demo::Schema)
       expect(mod::QUERY).to include(%("""\nGRAPHQL\n"""))
       expect(mod.execute.errors?).to be false
     end
@@ -46,7 +46,7 @@ describe GraphWeaver::Codegen do
     expect {
       described_class.generate(
         schema: Demo::Schema,
-        executor: GraphWeaver::Transport::HTTP.new("http://example.com"),
+        client: GraphWeaver::Transport::HTTP.new("http://example.com"),
         query: "query People { people { name } }",
       )
     }.to raise_error(ArgumentError, /named constant/)
@@ -64,7 +64,7 @@ describe GraphWeaver::Codegen do
       end
     end
 
-    mod = GraphWeaver.parse(schema:, query: "query { pokemon_v2_pokemon { id name } }", executor: executor.new)
+    mod = GraphWeaver.parse(schema:, query: "query { pokemon_v2_pokemon { id name } }", client: executor.new)
     pokemon = mod.execute!.pokemon_v2_pokemon.first
 
     expect(pokemon.class.name).to end_with("Result::PokemonV2Pokemon")
@@ -85,7 +85,7 @@ describe GraphWeaver::Codegen do
       mod = GraphWeaver.parse(
         schema:,
         query: "mutation Save($input: Tricky!) { save(input: $input) }",
-        executor: Demo::Schema, # never called; serialize is pure
+        client: Demo::Schema, # never called; serialize is pure
       )
 
       wire = mod::Tricky.new(result: "kept", value: "also kept").serialize
@@ -102,14 +102,20 @@ describe GraphWeaver::Codegen do
       }.to raise_error(GraphWeaver::Error, /generated #serialize/)
     end
 
-    it "refuses variables whose kwarg would be a keyword or the reserved executor" do
+    it "refuses variables whose kwarg would be a Ruby keyword" do
       expect {
         GraphWeaver.parse(schema: Demo::Schema, query: "query($end: ID!) { person(id: $end) { id } }")
       }.to raise_error(GraphWeaver::Error, /\$end.*Ruby keyword/)
+    end
 
-      expect {
-        GraphWeaver.parse(schema: Demo::Schema, query: "query($executor: ID!) { person(id: $executor) { id } }")
-      }.to raise_error(GraphWeaver::Error, /\$executor.*reserved/)
+    it "nothing is reserved: a variable named $client or $executor is fine" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        client: Demo::Schema,
+        query: "query($executor: ID!) { person(id: $executor) { name } }",
+      )
+
+      expect(mod.execute!(executor: "1").person&.name).to eq "Daniel"
     end
   end
 
@@ -121,7 +127,7 @@ describe GraphWeaver::Codegen do
   it "rejects queries that do not validate against the schema" do
     codegen = described_class.new(
       schema: Demo::Schema,
-      executor: Demo::Schema,
+      client: Demo::Schema,
       query: "{ nope }",
       module_name: "Bad",
     )
@@ -154,7 +160,7 @@ describe GraphWeaver::Codegen do
         end
       end
 
-      response = PersonQuery.execute(id: "1", executor: failing.new)
+      response = PersonQuery.execute(failing.new, id: "1")
       expect(response.errors?).to be true
       expect(response.errors.first.code).to eq "OOPS"
       expect { response.data! }.to raise_error(GraphWeaver::QueryError, /boom/)
@@ -166,7 +172,7 @@ describe GraphWeaver::Codegen do
       failing = Class.new do
         def execute(_query, variables:) = { "errors" => [{ "message" => "boom" }] }
       end
-      expect { PersonQuery.execute!(id: "1", executor: failing.new) }
+      expect { PersonQuery.execute!(failing.new, id: "1") }
         .to raise_error(GraphWeaver::QueryError)
     end
   end
@@ -201,7 +207,7 @@ describe GraphWeaver::Codegen do
     it "requires __typename when the selection varies by concrete type" do
       codegen = described_class.new(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: 'query { search(term: "x") { ... on Pet { species } ... on Person { email } } }',
         module_name: "Bad",
       )
@@ -214,7 +220,7 @@ describe GraphWeaver::Codegen do
     it "interface-level fields need no __typename — one struct, no dispatch" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: 'query { named(name: "Shelby") { name } }',
       )
 
@@ -237,7 +243,7 @@ describe GraphWeaver::Codegen do
     it "a single `... on Type` condition narrows: matches cast, mismatches are nil" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: 'query { search(term: "el") { ... on Pet { name species } } }',
       )
 
@@ -302,7 +308,7 @@ describe GraphWeaver::Codegen do
     it "keeps the input: kwarg when other variables ride along" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: <<~GRAPHQL,
           mutation($input: AdoptionInput!, $detail: Boolean!) {
             adopt(input: $input) {
@@ -367,7 +373,7 @@ describe GraphWeaver::Codegen do
 
       mod = GraphWeaver.parse(
         schema:,
-        executor:,
+        client: executor,
         query: "query($where: pokemon_bool_exp) { pokemon(where: $where) { id name } }",
       )
 
@@ -410,7 +416,7 @@ describe GraphWeaver::Codegen do
     it "omits optional variables from the wire when nil" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: <<~GRAPHQL,
           query($term: String = "el") {
             search(term: $term) {
@@ -432,7 +438,7 @@ describe GraphWeaver::Codegen do
     it "makes conditional fields nilable, whatever the schema says" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: <<~GRAPHQL,
           query WithPets($withPets: Boolean!) {
             person(id: 1) {
@@ -458,7 +464,7 @@ describe GraphWeaver::Codegen do
     it "evals a module on the fly, deriving the name from the operation" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: "query People { people { name } }",
       )
 
@@ -470,7 +476,7 @@ describe GraphWeaver::Codegen do
       # the name comes from the file name
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: File.expand_path("queries/person.graphql", __dir__),
       )
 
@@ -480,7 +486,7 @@ describe GraphWeaver::Codegen do
     it "parses anonymous raw query strings, defaulting the name" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: "query { people { name } }",
       )
 
@@ -496,7 +502,7 @@ describe GraphWeaver::Codegen do
     it "does not leak global constants" do
       GraphWeaver.parse(
         schema: Demo::Schema,
-        executor: Demo::Schema,
+        client: Demo::Schema,
         query: "query Leaky { people { name } }",
       )
 
@@ -504,24 +510,24 @@ describe GraphWeaver::Codegen do
     end
   end
 
-  describe "executors" do
+  describe "client resolution" do
     let(:mod) do
       GraphWeaver.parse(schema: Demo::Schema, query: "query People { people { name } }")
     end
 
-    it "falls back to GraphWeaver.executor, raising when unconfigured" do
-      expect { mod.execute }.to raise_error(GraphWeaver::Error, /no executor configured/)
+    it "falls back to GraphWeaver.client, raising when unconfigured" do
+      expect { mod.execute }.to raise_error(GraphWeaver::Error, /no client configured/)
 
       begin
-        GraphWeaver.executor = Demo::Schema
+        GraphWeaver.client = Demo::Schema
         expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
       ensure
-        GraphWeaver.executor = nil
+        GraphWeaver.client = nil
       end
     end
 
     it "supports per-module override" do
-      mod.executor = Demo::Schema
+      mod.client = Demo::Schema
 
       expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
     end
@@ -555,7 +561,7 @@ describe GraphWeaver::Codegen do
       expect(result.search.map(&:name)).to eq %w[Daniel Shelby]
     end
 
-    it "prefers GraphWeaver.executor over in-process execution" do
+    it "a schema-source one-shot is self-contained — the app default does not leak in" do
       recorded = []
       recorder = Class.new do
         define_method(:initialize) { |log| @log = log }
@@ -566,7 +572,7 @@ describe GraphWeaver::Codegen do
       end
 
       begin
-        GraphWeaver.executor = recorder.new(recorded)
+        GraphWeaver.client = recorder.new(recorded)
         result = GraphWeaver.execute!(
           Demo::Schema,
           "query($id: ID!) { person(id: $id) { name } }",
@@ -574,31 +580,24 @@ describe GraphWeaver::Codegen do
         )
 
         expect(result.person&.name).to eq "Daniel"
-        expect(recorded).to eq [{ "id" => "1" }]
+        expect(recorded).to be_empty # ran in-process, not through the app default
       ensure
-        GraphWeaver.executor = nil
+        GraphWeaver.client = nil
       end
     end
 
-    it "prefers an explicit executor over the default" do
-      failing = Class.new do
-        def execute(_query, variables:)
-          { "errors" => [{ "message" => "wrong executor" }] }
-        end
-      end
-
+    it "a Client source runs through that client" do
       begin
-        GraphWeaver.executor = failing.new
+        GraphWeaver.client = Class.new { def execute(*) = { "errors" => [{ "message" => "wrong" }] } }.new
         result = GraphWeaver.execute!(
-          Demo::Schema,
+          GraphWeaver.new(Demo::Schema),
           "query($id: ID!) { person(id: $id) { name } }",
           id: "1",
-          executor: Demo::Schema,
         )
 
         expect(result.person&.name).to eq "Daniel"
       ensure
-        GraphWeaver.executor = nil
+        GraphWeaver.client = nil
       end
     end
   end

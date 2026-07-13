@@ -1,11 +1,12 @@
 # Transports
 
-An executor is anything with `execute(query, variables:)` whose result
-`to_h`s into `{"data" => ..., "errors" => ...}`. Everything below is an
-implementation of that one contract — as is a schema class (in-process
-execution), a [FakeExecutor](testing.md), or anything you write.
+A *client* is anything with `execute(query, variables:)` whose result
+`to_h`s into `{"data" => ..., "errors" => ...}` — from a full
+`GraphWeaver::Client` down to a schema class (in-process execution), a
+[FakeClient](testing.md), or anything you write. Every slot that takes a
+client accepts any of them.
 
-A *transport* is an executor that speaks GraphQL-over-HTTP. The bundled
+A *transport* is the network end of that contract — GraphQL-over-HTTP. The bundled
 two — `Transport::HTTP` (net/http, zero dependencies, loaded by default)
 and `Transport::Faraday` (opt-in) — subclass `GraphWeaver::Transport`,
 which owns the shared flow: encode the request, reclassify network
@@ -22,23 +23,22 @@ github = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN
 ```
 
 `GraphWeaver.new` builds a [`Client`](real_world.md): the best transport
-with auth applied (exposed as `client.executor`), the schema introspected
-lazily, and `parse`/`execute` bound to both.
+with auth applied (exposed as `client.transport`), the schema
+introspected lazily, and `parse`/`execute` bound to both.
 
 - `auth:` — a token; "Bearer" is assumed unless the string carries its own
   scheme (`"Basic dXNlcjpwYXNz..."`)
 - `headers:` — anything else (API keys, custom headers)
-- `retries:` — off by default; `true` for a `RetryExecutor` with defaults,
+- `retries:` — off by default; `true` for a `Retry` with defaults,
   or a Hash of its options
 - `cache:` / `ttl:` — schema introspection caching (see
   [real world](real_world.md)); url clients only — a schema source never
   introspects, so passing them raises
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
-To wire generated modules that don't bake a transport, make it the app's
-default client: `GraphWeaver.client = github`. (`GraphWeaver.executor=`
-is the low-level knob underneath — assign a bare executor, e.g. a test
-fake, and it wins over the default client.)
+To wire generated modules that don't bake a client, make it the app's
+default: `GraphWeaver.client = github`. Anything satisfying the execute
+contract works there — testing's auto_fake swaps in a fake per example.
 
 **Transport pick**: `Transport::Faraday` when the app already loads
 faraday (its middleware/proxy/timeout ecosystem comes along), the
@@ -78,28 +78,29 @@ GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.adapter :net_http_persistent   # gem "net-http-persistent"
 end
 
-GraphWeaver.executor = ...   # the global default
+GraphWeaver.client = ...   # the app default (a Client or any of the above)
 ```
 
-## Executor resolution
+## Client resolution
 
-The canonical order — how a generated module finds its transport:
+The canonical order — how a generated module finds its client (each slot
+takes a `Client` or any bare transport/fake):
 
-1. per call: `execute(..., executor: something)`
-2. per module: `MyQuery.executor = something`
-3. baked constant: `Codegen.generate(..., executor: MyApi::Executor)`
-4. global override: `GraphWeaver.executor=` (fakes win over the client)
-5. the default client: `GraphWeaver.client`
+1. per call: `execute(some_client, ...)` — the optional first positional
+   argument, so variables keep the entire kwarg namespace
+2. per module: `MyQuery.client = something`
+3. baked constant: `Codegen.generate(..., client: MyApi::CLIENT)`
+4. the app default: `GraphWeaver.client=`
 
 Nothing set anywhere raises with a message saying which knobs exist.
 
 ## Retries
 
-`RetryExecutor` wraps any executor:
+`Retry` wraps any client/transport:
 
 ```ruby
-GraphWeaver::RetryExecutor.new(
-  inner_executor,
+GraphWeaver::Retry.new(
+  inner_transport,
   tries: 5,                        # total attempts, first included
   backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
   base: 0.5, max: 30,              # seconds; delays clamp at max:

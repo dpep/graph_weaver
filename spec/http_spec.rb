@@ -1,7 +1,7 @@
 require "socket"
 require_relative "generated/person_query"
 
-# Generated modules run against a remote server by swapping the executor:
+# Generated modules run against a remote server by swapping the client:
 # same structs, same casting, HTTP transport.
 describe GraphWeaver::Transport::HTTP do
   include_context "graphql http server"
@@ -9,7 +9,7 @@ describe GraphWeaver::Transport::HTTP do
   let(:executor) { described_class.new(url) }
 
   it "runs generated queries over HTTP" do
-    person = PersonQuery.execute(id: "1", executor:).data!.person
+    person = PersonQuery.execute(executor, id: "1").data!.person
 
     expect(person&.name).to eq "Daniel"
     expect(person&.birthday).to eq Date.new(1990, 6, 15)
@@ -20,24 +20,24 @@ describe GraphWeaver::Transport::HTTP do
     expect(Net::HTTP).to receive(:start).once.and_call_original
 
     2.times do
-      expect(PersonQuery.execute(id: "1", executor:).data!.person&.name).to eq "Daniel"
+      expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
     end
   end
 
   it "drops a failed connection and reconnects on the next call" do
-    PersonQuery.execute(id: "1", executor:)
+    PersonQuery.execute(executor, id: "1")
     http = executor.instance_variable_get(:@http)
     expect(http).to receive(:request).and_raise(Errno::ECONNRESET)
 
-    expect { PersonQuery.execute(id: "1", executor:) }
+    expect { PersonQuery.execute(executor, id: "1") }
       .to raise_error(GraphWeaver::TransportError)
-    expect(PersonQuery.execute(id: "1", executor:).data!.person&.name).to eq "Daniel"
+    expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
   end
 
   it "raises ServerError on a non-2xx response (reached the server)" do
     bad = described_class.new("http://127.0.0.1:#{@port}/nope")
 
-    expect { PersonQuery.execute(id: "1", executor: bad) }
+    expect { PersonQuery.execute(bad, id: "1") }
       .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 404 }
   end
 
@@ -48,7 +48,7 @@ describe GraphWeaver::Transport::HTTP do
     probe.close
     bad = described_class.new("http://127.0.0.1:#{port}/")
 
-    expect { PersonQuery.execute(id: "1", executor: bad) }
+    expect { PersonQuery.execute(bad, id: "1") }
       .to raise_error(GraphWeaver::TransportError)
   end
 
@@ -57,7 +57,7 @@ describe GraphWeaver::Transport::HTTP do
     GraphWeaver.register_transport_error(pool_error)
     allow(Net::HTTP).to receive(:start).and_raise(pool_error.new("pool exhausted"))
 
-    expect { PersonQuery.execute(id: "1", executor:) }
+    expect { PersonQuery.execute(executor, id: "1") }
       .to raise_error(GraphWeaver::TransportError, /pool exhausted/)
   ensure
     GraphWeaver.transport_errors.delete(pool_error)
