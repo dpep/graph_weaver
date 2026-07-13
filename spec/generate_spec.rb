@@ -16,7 +16,7 @@ describe "GraphWeaver.generate!" do
     )
 
     expect(written.map { |path| File.basename(path) })
-      .to eq %w[add_pet_query.rb adopt_query.rb find_pets_query.rb named_query.rb person_query.rb search_query.rb]
+      .to eq %w[inputs.rb add_pet_query.rb adopt_query.rb find_pets_query.rb named_query.rb person_query.rb search_query.rb]
     # byte-identical to the checked-in fixtures (same generator, same inputs)
     expect(File.read(File.join(@dir, "person_query.rb")))
       .to eq File.read(File.join(root, "spec/generated/person_query.rb"))

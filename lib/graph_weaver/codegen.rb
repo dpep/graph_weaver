@@ -46,9 +46,11 @@ class GraphWeaver::Codegen
   # generation stays strict — a checked-in file deserves a deliberate
   # name). scalars:/enums:/types: are client-scoped overlays consulted
   # before the global registries (ScalarType, EnumType, and arrays of
-  # mixin modules, each keyed by GraphQL name).
+  # mixin modules, each keyed by GraphQL name). inputs_namespace: is the
+  # shared-inputs workflow (see GraphWeaver.generate!): variable types
+  # live once in that module and the query module aliases what it uses.
   def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
-    scalars: nil, enums: nil, types: nil)
+    scalars: nil, enums: nil, types: nil, inputs_namespace: nil)
     @schema = schema
     @query = query.strip
     @module_name = module_name
@@ -56,6 +58,7 @@ class GraphWeaver::Codegen
     @scalars = scalars || {}
     @enums = enums || {}
     @types = types || {}
+    @inputs_namespace = inputs_namespace
     @client_const = self.class.client_const(client)
 
     if client && @client_const.nil?
@@ -99,6 +102,37 @@ class GraphWeaver::Codegen
     # generated source — set them via the module's writer instead
     mod.client = client if client && client_const.nil?
     mod
+  end
+
+  # The schema-level variable types this query touched, by GraphQL
+  # name — the generate! workflow unions these across queries to decide
+  # what the shared inputs module must contain.
+  def variable_type_names
+    { inputs: @variable_inputs.keys, enums: @variable_enums.keys, mapped: @mapped_enums.keys }
+  end
+
+  # The shared inputs artifact: the named input/enum types — plus
+  # everything they transitively reference — emitted once per schema.
+  def self.generate_inputs(schema:, module_name:, input_types: [], enum_types: [],
+    scalars: nil, enums: nil, types: nil)
+    codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
+    codegen.generate_inputs(input_types, enum_types)
+  end
+
+  def generate_inputs(input_types, enum_types)
+    unless @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
+      raise ArgumentError, "inputs module name must be a constant name, got #{@module_name.inspect}"
+    end
+
+    @variable_enums = {}
+    @variable_inputs = {}
+    @mapped_enums = {}
+    @requires = []
+
+    enum_types.sort.each { |name| variable_core(@schema.get_type(name)) }
+    input_types.sort.each { |name| input_node(@schema.get_type(name)) }
+
+    emit_inputs_module
   end
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)

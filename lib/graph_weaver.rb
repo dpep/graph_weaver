@@ -62,6 +62,11 @@ module GraphWeaver
     # override the accessors or pass paths.
     attr_writer :queries_path, :generated_path, :schema_path
 
+    # the shared-inputs module name (see generate!)
+    attr_writer :inputs_module
+
+    def inputs_module = @inputs_module || "GraphQLInputs"
+
     def queries_path = @queries_path || "app/graphql/queries"
     def generated_path = @generated_path || "app/graphql/generated"
     def schema_path = @schema_path || "app/graphql/schema.json"
@@ -74,12 +79,12 @@ module GraphWeaver
     #
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil)
+    def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil, shared_inputs: true)
       schema ||= locate_schema!
       FileUtils.mkdir_p(output)
 
-      each_query(queries, schema:, client:).map do |base, source|
-        target = File.join(output, "#{base}_query.rb")
+      generation_plan(queries:, schema:, client:, shared_inputs:).map do |filename, source|
+        target = File.join(output, filename)
         File.write(target, source)
         log(:info) { "generated #{target}" }
         target
@@ -93,10 +98,10 @@ module GraphWeaver
     #      it "generated queries are current" do
     #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil)
+    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil, shared_inputs: true)
       schema ||= locate_schema!
-      stale = each_query(queries, schema:, client:).filter_map do |base, source|
-        target = File.join(output, "#{base}_query.rb")
+      stale = generation_plan(queries:, schema:, client:, shared_inputs:).filter_map do |filename, source|
+        target = File.join(output, filename)
         target unless File.exist?(target) && File.read(target) == source
       end
 
@@ -131,20 +136,38 @@ module GraphWeaver
     end
     private :locate_schema!
 
-    # (base, generated_source) per .graphql file in a directory
-    def each_query(queries, schema:, client:)
-      Dir[File.join(queries, "*.graphql")].sort.map do |path|
+    # (filename, source) per artifact: shared_inputs (the default) emits
+    # every variable type once into inputs.rb, with query modules
+    # aliasing what they use — the difference between hundreds of
+    # duplicated bool_exp structs and one copy per schema.
+    def generation_plan(queries:, schema:, client:, shared_inputs:)
+      namespace = shared_inputs ? inputs_module : nil
+      used = { inputs: [], enums: [], mapped: [] }
+
+      plan = Dir[File.join(queries, "*.graphql")].sort.map do |path|
         base = File.basename(path, ".graphql")
-        source = Codegen.generate(
+        codegen = Codegen.new(
           schema:,
           query: File.read(path),
           module_name: "#{Inflect.camelize(base)}Query",
           client:,
+          inputs_namespace: namespace,
         )
-        [base, source]
+        source = codegen.generate
+        codegen.variable_type_names.each { |kind, names| used[kind] |= names }
+        ["#{base}_query.rb", source]
       end
+
+      if namespace && used.values.any?(&:any?)
+        plan.unshift(["inputs.rb", Codegen.generate_inputs(
+          schema:, module_name: namespace,
+          input_types: used[:inputs], enum_types: used[:enums] + used[:mapped],
+        )])
+      end
+
+      plan
     end
-    private :each_query
+    private :generation_plan
 
     # Default input coercion for scalars that don't say coerce: themselves,
     # resolved lazily at generation time (so set it any time before you

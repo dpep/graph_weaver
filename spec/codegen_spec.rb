@@ -10,16 +10,14 @@ describe GraphWeaver::Codegen do
   it "keeps the checked-in generated files up to date" do
     root = File.expand_path("..", __dir__)
 
-    %w[add_pet adopt find_pets named person search].each do |base|
-      source = described_class.new(
+    expect(
+      GraphWeaver.verify_generated!(
         schema: Demo::Schema,
+        queries: File.join(root, "spec/queries"),
+        output: File.join(root, "spec/generated"),
         client: Demo::Schema,
-        query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
-        module_name: "#{base.split("_").map(&:capitalize).join}Query",
-      ).generate
-
-      expect(File.read(File.join(root, "spec/generated/#{base}_query.rb"))).to eq source
-    end
+      ),
+    ).to be true
   end
 
   describe "eval safety" do

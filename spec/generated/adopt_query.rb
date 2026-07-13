@@ -5,6 +5,8 @@
 
 require "date"
 
+require_relative "inputs"
+
 module AdoptQuery
   extend T::Sig
 
@@ -18,30 +20,8 @@ module AdoptQuery
     }
   GRAPHQL
 
-  class Species < T::Enum
-    enums do
-      Cat = new("CAT")
-      Dog = new("DOG")
-    end
-  end
-
-  class AdoptionInput < T::Struct
-    include GraphWeaver::InputStruct
-    extend GraphWeaver::InputStruct::ClassMethods
-
-    const :birthday, T.nilable(Date), default: nil
-    const :name, String
-    const :nickname, T.nilable(String), default: nil
-    const :species, Species
-
-    # (prop, wire, required, serializer, coercer) per field
-    FIELDS = T.let([
-      GraphWeaver::InputStruct::Field.new(:birthday, "birthday", false, ->(v) { v.iso8601 }, nil),
-      GraphWeaver::InputStruct::Field.new(:name, "name", true, nil, nil),
-      GraphWeaver::InputStruct::Field.new(:nickname, "nickname", false, nil, nil),
-      GraphWeaver::InputStruct::Field.new(:species, "species", true, ->(v) { v.serialize }, ->(v) { (v.is_a?(Species) ? v : Species.deserialize(v)) }),
-    ].freeze, T::Array[GraphWeaver::InputStruct::Field])
-  end
+  AdoptionInput = GraphQLInputs::AdoptionInput
+  Species = GraphQLInputs::Species
 
   class Result < T::Struct
     extend T::Sig

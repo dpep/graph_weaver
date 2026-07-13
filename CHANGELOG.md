@@ -1,4 +1,12 @@
 ###  unreleased
+- Shared input types: generate! emits every variable type (input
+  structs + their enums + mapped-enum tables) ONCE per schema into
+  generated/inputs.rb (module GraphQLInputs; GraphWeaver.inputs_module=
+  renames, shared_inputs: false opts out), with query modules aliasing
+  only what their own surface references — AdoptQuery::AdoptionInput
+  keeps working and shared types gain one identity across modules.
+  Three filtered Hasura queries: 34,684 lines inline -> 11,754 shared
+  (~90 lines per query module)
 - BREAKING (vs 0.2.0): auto_fake is opt-in again — require
   "graph_weaver/rspec" no longer swaps every example onto a fake;
   set config.auto_fake = true explicitly (the schema still auto-locates

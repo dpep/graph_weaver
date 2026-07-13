@@ -42,16 +42,14 @@ describe "introspection" do
     dump = Demo::Schema.as_json
     rebuilt = GraphQL::Schema.from_introspection(dump)
 
-    %w[add_pet adopt named person search].each do |base|
-      source = GraphWeaver::Codegen.new(
+    # byte-identical to the fixtures the LIVE class generated
+    expect(
+      GraphWeaver.verify_generated!(
         schema: rebuilt,
+        queries: File.expand_path("queries", __dir__),
+        output: File.expand_path("generated", __dir__),
         client: "Demo::Schema",
-        query: File.read(File.expand_path("queries/#{base}.graphql", __dir__)),
-        module_name: "#{base.split("_").map(&:capitalize).join}Query",
-      ).generate
-
-      checked_in = File.read(File.expand_path("generated/#{base}_query.rb", __dir__))
-      expect(source).to eq checked_in
-    end
+      ),
+    ).to be true
   end
 end

@@ -9,19 +9,19 @@ describe GraphWeaver::SchemaLoader do
     Dir.mktmpdir { |dir| @dir = dir; example.run }
   end
 
+  # loaded schemas must generate byte-identically to the live class —
+  # verified against the checked-in fixtures (shared inputs included)
   def codegen_parity(schema)
     root = File.expand_path("..", __dir__)
 
-    %w[add_pet adopt named person search].each do |base|
-      source = GraphWeaver::Codegen.new(
+    expect(
+      GraphWeaver.verify_generated!(
         schema:,
+        queries: File.join(root, "spec/queries"),
+        output: File.join(root, "spec/generated"),
         client: "Demo::Schema",
-        query: File.read(File.join(root, "spec/queries/#{base}.graphql")),
-        module_name: "#{base.split("_").map(&:capitalize).join}Query",
-      ).generate
-
-      expect(source).to eq File.read(File.join(root, "spec/generated/#{base}_query.rb"))
-    end
+      ),
+    ).to be true
   end
 
   it "loads an introspection dump (.json)" do

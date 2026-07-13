@@ -21,7 +21,9 @@ fails when the two drift. The conventional layout (configurable via
 app/graphql/
   schema.json        # introspection dump (or schema.graphql SDL)
   queries/           # *.graphql — hand-written, reviewed
-  generated/         # *_query.rb — generated, checked in, never edited
+  generated/
+    inputs.rb        # shared variable types (inputs, enums), once per schema
+    *_query.rb       # one module per query — generated, checked in, never edited
 ```
 
 The schema dump is step 0 — codegen reads it, never a live endpoint.
@@ -151,6 +153,16 @@ hint rather than silently dropping):
 ```ruby
 AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 ```
+
+In the generate! workflow, input types (and the enums they use) are
+emitted **once per schema** into `generated/inputs.rb` (module
+`GraphQLInputs` — rename via `GraphWeaver.inputs_module=`; opt out with
+`generate!(shared_inputs: false)`). Query modules alias what they touch,
+so `AdoptQuery::AdoptionInput` still works and shared types keep one
+identity across modules — three filtered Hasura queries cost one ~11k-line
+inputs file plus ~90 lines each, instead of ~35k lines of duplicates.
+Deeply nested types live unaliased in the shared module
+(`GraphQLInputs::PetFilter`). Dynamic `parse` stays self-contained.
 
 The structs themselves are module-level (`AdoptQuery::AdoptionInput`):
 typed consts plus a compact per-field `FIELDS` table that the
