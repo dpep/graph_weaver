@@ -269,6 +269,14 @@ describe GraphWeaver::Client do
       expect(other).not_to respond_to(:shout)
     end
 
+    it "catches typo'd registrations instead of silently no-oping" do
+      client = GraphWeaver.new(Demo::Schema)
+      client.register_type("Pett", PetShouting)
+
+      expect { client.parse(query) }
+        .to raise_error(GraphWeaver::Error, /register_type\("Pett"\).*did you mean 'Pet'/)
+    end
+
     it "builds a mixin from a block, auto-named for generated source" do
       client = GraphWeaver.new(Demo::Schema)
       client.register_type("Pet") do

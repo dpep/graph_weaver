@@ -77,11 +77,12 @@ module GraphWeaver
   class GraphQLError
     attr_reader :message, :locations, :path, :extensions
 
-    def initialize(message:, locations: [], path: nil, extensions: {})
+    def initialize(message:, locations: [], path: nil, extensions: {}, type: nil)
       @message = message
       @locations = locations
       @path = path
       @extensions = extensions
+      @error_type = type
     end
 
     def self.from_h(hash)
@@ -90,13 +91,16 @@ module GraphWeaver
         locations: hash["locations"] || [],
         path: hash["path"],
         extensions: hash["extensions"] || {},
+        type: hash["type"],
       )
     end
 
     # The machine-readable error code, e.g. "THROTTLED" — the thing to
-    # branch on. nil when the server didn't set extensions.code.
+    # branch on. Read from extensions.code (the Apollo/spec-adjacent
+    # convention) or a top-level "type" (GitHub's dialect: NOT_FOUND,
+    # FORBIDDEN). nil when the server sent neither.
     def code
-      extensions["code"]
+      extensions["code"] || @error_type
     end
 
     # Message shapes servers use when they reject the *shape* of a query

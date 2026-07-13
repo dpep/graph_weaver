@@ -1,4 +1,19 @@
 ###  unreleased
+- Fix: snake_case GraphQL type names (Hasura, PostGraphile) camelize
+  into valid Ruby constants — pokemon_v2_pokemon => PokemonV2Pokemon
+  (previously generated a SyntaxError); wire names (__typename dispatch,
+  registry keys) are untouched
+- Everything raised is rescuable: unparseable queries wrap as
+  ValidationError (GraphQL::ParseError no longer leaks), and internal
+  NotImplementedError raises (recursive inputs, unsupported kinds,
+  subscriptions) became GraphWeaver::Error
+- Transport::HTTP takes open_timeout:/read_timeout: (defaults 10s/30s);
+  timeouts surface as retriable TransportError
+- GraphQLError#code also reads a top-level "type" (GitHub's dialect:
+  NOT_FOUND, FORBIDDEN) when extensions.code is absent
+- Typo'd client-scoped registrations raise at generation with a
+  spellchecked hint (register_type("Pett") => "did you mean 'Pet'?")
+  instead of silently no-oping
 - Abstract selections narrow: __typename is only required when the
   selection varies by concrete type. Interface-level-fields-only
   selections generate one shared struct (no dispatch); a single

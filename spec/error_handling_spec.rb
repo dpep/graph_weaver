@@ -87,6 +87,17 @@ describe "error handling" do
     end
   end
 
+  describe "GraphQLError#code dialects" do
+    it "reads extensions.code, falling back to a top-level type (GitHub)" do
+      apollo = GraphWeaver::GraphQLError.from_h("message" => "x", "extensions" => { "code" => "THROTTLED" })
+      github = GraphWeaver::GraphQLError.from_h("message" => "x", "type" => "NOT_FOUND")
+
+      expect(apollo.code).to eq "THROTTLED"
+      expect(github.code).to eq "NOT_FOUND"
+      expect(GraphWeaver::GraphQLError.from_h("message" => "x").code).to be_nil
+    end
+  end
+
   describe "ServerError" do
     it "carries status and body, distinct from a GraphQL error" do
       e = GraphWeaver::ServerError.new(status: 500, body: "kaboom")

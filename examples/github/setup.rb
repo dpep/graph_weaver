@@ -13,7 +13,9 @@ abort "need a token: `gh auth login`, or GITHUB_TOKEN=..." if token.empty?
 GraphWeaver.client = GraphWeaver.new(
   "https://api.github.com/graphql",
   auth: token,
-  # first run introspects GitHub's (large) schema and dumps it here —
-  # gitignored, takes a few seconds once, instant after
+  # used by generate.rb (and any dynamic parse): the first introspection
+  # of GitHub's large schema dumps here — gitignored, a few seconds once,
+  # instant after. run.rb's checked-in generated modules never introspect,
+  # so running it alone won't create this file.
   cache: File.join(__dir__, "schema.json"),
 )

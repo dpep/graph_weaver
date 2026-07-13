@@ -102,3 +102,19 @@ Response envelope; execute! for raise-or-result).
   resolvers — codegen must stay name-keyed, never call schema runtime hooks
 - graphql-client (the gem) casts scalars via coerce_isolated_input and
   only with a live schema class — documented in the early specs
+
+## From the field-test experiments (2026-07-12)
+
+A junior + senior agent pair exercised the repo cold (clone, examples,
+extensions, a Pokedex app against Hasura's 4,441-type PokeAPI schema).
+Fixed same-day: snake_case type names generated invalid constants
+(camelize), GraphQL::ParseError/NotImplementedError escaping the Error
+umbrella, HttpExecutor timeouts, GitHub's top-level "type" error codes,
+typo'd client registrations silently no-oping. Still open:
+
+- Recursive input types (Hasura's bool_exp filter surface is entirely
+  self-referential — variable-driven filtering there is impossible;
+  literal arguments in the document work). Needs forward-declared
+  structs or lazy prop types.
+- Subscriptions.
+- Connection reuse in Transport::HTTP (Faraday covers it today).

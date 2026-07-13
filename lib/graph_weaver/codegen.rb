@@ -101,10 +101,18 @@ class GraphWeaver::Codegen
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
 
   def generate
-    errors = @schema.validate(@query)
+    begin
+      errors = @schema.validate(@query)
+    rescue GraphQL::ParseError => e
+      # unparseable queries wrap like invalid ones — everything raised
+      # here descends from GraphWeaver::Error (or ArgumentError)
+      raise GraphWeaver::ValidationError.new([{ message: e.message, line: nil, column: nil }])
+    end
     if errors.any?
       raise GraphWeaver::ValidationError.new(errors.map { |e| validation_detail(e) })
     end
+
+    validate_registrations!
 
     @variable_enums = {}
     @variable_inputs = {}
@@ -180,6 +188,23 @@ class GraphWeaver::Codegen
   end
 
   private
+
+  # Client-scoped registrations name types in THIS schema — a typo'd
+  # name would otherwise be a silent no-op, the most confusing failure
+  # mode available. (Global registrations skip this: they may target a
+  # different client's server.)
+  def validate_registrations!
+    { "enum" => @enums, "type" => @types }.each do |kind, registry|
+      registry.each_key do |name|
+        next if @schema.get_type(name)
+
+        suggestion = defined?(DidYouMean::SpellChecker) &&
+          DidYouMean::SpellChecker.new(dictionary: @schema.types.keys).correct(name).first
+        hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
+        raise GraphWeaver::Error, "register_#{kind}(#{name.inspect}) matches no type in this schema#{hint}"
+      end
+    end
+  end
 
   # The Relay convention — an operation whose only variable is a required
   # input object — reads better flattened: the input's fields become
@@ -258,7 +283,7 @@ class GraphWeaver::Codegen
         when "SCALAR"
           type_ref(field_type) { scalar_node(core.graphql_name) }
         else
-          raise NotImplementedError, "unsupported kind: #{core.kind.name}"
+          raise GraphWeaver::Error, "unsupported kind: #{core.kind.name}"
         end
       end
 
@@ -318,7 +343,7 @@ class GraphWeaver::Codegen
 
     # sorted so output is deterministic across schema sources
     members = @schema.possible_types(type).sort_by(&:graphql_name).to_h do |possible|
-      [possible.graphql_name, object_node(possible, selections, possible.graphql_name)]
+      [possible.graphql_name, object_node(possible, selections, camelize(possible.graphql_name))]
     end
 
     UnionNode.new(class_name, members)
@@ -335,7 +360,7 @@ class GraphWeaver::Codegen
     when GraphQL::Language::Nodes::TypeName
       variable_core(@schema.get_type(ast_type.name))
     else
-      raise NotImplementedError, "unsupported type node: #{ast_type.class}"
+      raise GraphWeaver::Error, "unsupported type node: #{ast_type.class}"
     end
   end
 
@@ -346,11 +371,11 @@ class GraphWeaver::Codegen
       scalar_node(core.graphql_name)
     when "ENUM"
       mapped_enum_node(core) || (@variable_enums[core.graphql_name] ||=
-        EnumNode.new(core.graphql_name, core.values.keys.sort))
+        EnumNode.new(camelize(core.graphql_name), core.values.keys.sort))
     when "INPUT_OBJECT"
       input_node(core)
     else
-      raise NotImplementedError, "unsupported variable kind: #{core.kind.name}"
+      raise GraphWeaver::Error, "unsupported variable kind: #{core.kind.name}"
     end
   end
 
@@ -361,11 +386,11 @@ class GraphWeaver::Codegen
     return @variable_inputs[core.graphql_name] if @variable_inputs.key?(core.graphql_name)
 
     if @inputs_in_progress.include?(core.graphql_name)
-      raise NotImplementedError, "recursive input type: #{core.graphql_name}"
+      raise GraphWeaver::Error, "recursive input type: #{core.graphql_name}"
     end
     @inputs_in_progress << core.graphql_name
 
-    node = InputNode.new(core.graphql_name)
+    node = InputNode.new(camelize(core.graphql_name))
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
       child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
@@ -424,10 +449,13 @@ class GraphWeaver::Codegen
     type
   end
 
+  # GraphQL type names become struct names — camelized, because schemas
+  # in the wild use snake_case type names (Hasura, PostGraphile) and a
+  # verbatim lowercase name is not a Ruby constant
   def pick_name(type_name, key, taken)
-    candidate = type_name
-    candidate = "#{camelize(key)}#{type_name}" if taken.include?(candidate)
-    raise NotImplementedError, "class name collision: #{candidate}" if taken.include?(candidate)
+    candidate = camelize(type_name)
+    candidate = "#{camelize(key)}#{candidate}" if taken.include?(candidate)
+    raise GraphWeaver::Error, "class name collision: #{candidate}" if taken.include?(candidate)
 
     taken << candidate
     candidate

@@ -51,6 +51,30 @@ describe GraphWeaver::Codegen do
     }.to raise_error(ArgumentError, /named constant/)
   end
 
+  it "camelizes snake_case schema type names (Hasura-style) into valid constants" do
+    schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+      type Query { pokemon_v2_pokemon(limit: Int): [pokemon_v2_pokemon!]! }
+      type pokemon_v2_pokemon { id: Int! name: String! }
+    GRAPHQL
+
+    executor = Class.new do
+      def execute(_query, variables:)
+        { "data" => { "pokemon_v2_pokemon" => [{ "id" => 1, "name" => "bulbasaur" }] } }
+      end
+    end
+
+    mod = GraphWeaver.parse(schema:, query: "query { pokemon_v2_pokemon { id name } }", executor: executor.new)
+    pokemon = mod.execute!.pokemon_v2_pokemon.first
+
+    expect(pokemon.class.name).to end_with("Result::PokemonV2Pokemon")
+    expect(pokemon&.name).to eq "bulbasaur"
+  end
+
+  it "wraps unparseable queries as ValidationError, not GraphQL::ParseError" do
+    expect { GraphWeaver.parse(schema: Demo::Schema, query: "query {") }
+      .to raise_error(GraphWeaver::ValidationError)
+  end
+
   it "rejects queries that do not validate against the schema" do
     codegen = described_class.new(
       schema: Demo::Schema,

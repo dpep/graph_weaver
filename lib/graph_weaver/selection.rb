@@ -27,7 +27,7 @@ module GraphWeaver
       case operation&.operation_type
       when "query", nil then @schema.query
       when "mutation" then @schema.mutation
-      else raise NotImplementedError, "unsupported operation: #{operation.operation_type}"
+      else raise GraphWeaver::Error, "unsupported operation: #{operation.operation_type}"
       end
     end
 
@@ -47,7 +47,7 @@ module GraphWeaver
           end
           each_field(type, fragment.selections, &block) if applies?(fragment.type.name, type)
         else
-          raise NotImplementedError, "unsupported selection: #{selection.class}"
+          raise GraphWeaver::Error, "unsupported selection: #{selection.class}"
         end
       end
     end
