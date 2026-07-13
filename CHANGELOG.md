@@ -1,4 +1,7 @@
 ###  unreleased
+- Integration spec against Hasura's PokeAPI: snake_case codegen,
+  recursive bool_exp variable filtering, untyped jsonb pass-through
+  (make integration)
 - BREAKING: ValidationError now descends from GraphWeaver::Error (was
   ArgumentError) — one `rescue GraphWeaver::Error` catches everything
 - Input-struct .coerce raises on unknown hash keys with a spellchecked

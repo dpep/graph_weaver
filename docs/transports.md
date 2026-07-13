@@ -70,6 +70,14 @@ GraphWeaver::Transport::Faraday.new(url) do |conn|
 end
 GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
 
+# One Faraday::Connection is reused for the transport's lifetime, but
+# socket keep-alive depends on the ADAPTER: Faraday's default net_http
+# adapter opens a fresh connection per request. For persistent sockets
+# (and real pooling), pick a persistent adapter:
+GraphWeaver::Transport::Faraday.new(url) do |conn|
+  conn.adapter :net_http_persistent   # gem "net-http-persistent"
+end
+
 GraphWeaver.executor = ...   # the global default
 ```
 
