@@ -1,4 +1,4 @@
-###  unreleased
+###  v0.2.1  (2026-07-13)
 - Conventional paths are appendable lists: queries_paths /
   generated_paths (singular accessors read the first entry, so existing
   config keeps working); load_generated!, Client#load_queries!, and the
