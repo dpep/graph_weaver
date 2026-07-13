@@ -167,24 +167,19 @@ describe GraphWeaver::Testing do
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
-    it "stays out of the way when auto_fake is opted out" do
-      GraphWeaver::Testing.configure do |config|
-        config.schema = Demo::Schema
-        config.auto_fake = false
-      end
+    it "defaults OFF — fakes are an explicit opt-in" do
+      expect(GraphWeaver::Testing.config.auto_fake).to be false
 
       run([:before, :each])
-
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
-    it "defaults on: schema auto-locates from the conventional dump" do
+    it "once opted in, the schema auto-locates from the conventional dump" do
       Dir.mktmpdir do |dir|
         GraphWeaver.schema_path = File.join(dir, "schema.graphql")
         File.write(GraphWeaver.schema_path, Demo::Schema.to_definition)
 
-        # untouched config: auto_fake defaults true, schema locates
-        expect(GraphWeaver::Testing.config.auto_fake).to be true
+        GraphWeaver::Testing.configure { |config| config.auto_fake = true }
 
         run([:before, :each])
         expect(GraphWeaver.client).to be_a GraphWeaver::Testing::FakeClient

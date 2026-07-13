@@ -8,14 +8,12 @@ require_relative "testing"
 #
 #      require "graph_weaver/rspec"
 #
-# That one line is the whole setup in a conventional app: the schema
-# auto-locates from the committed dump (GraphWeaver.schema_path) and
-# auto_fake defaults on, so every example runs against a schema-correct
-# fake. Configure to override:
+# Then opt in to per-example fakes (explicit on purpose — silently
+# swapping every example onto a fake is too surprising to be a default):
 #
 #      GraphWeaver::Testing.configure do |config|
-#        config.schema = MySchema     # instead of the located dump
-#        config.auto_fake = false     # opt out of per-example fakes
+#        config.auto_fake = true      # every example runs against a fake
+#        # config.schema = MySchema   # optional: the committed dump auto-locates
 #      end
 #
 # What it wires up:

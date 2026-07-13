@@ -91,14 +91,16 @@ PersonQuery.execute!(id: "1").person&.name   # typed, via GraphWeaver.client
 ```ruby
 # spec/support/graph_weaver.rb
 require "graph_weaver/rspec"
+
+GraphWeaver::Testing.configure { |config| config.auto_fake = true }
 ```
 
-That's the whole setup: the schema auto-locates from the committed dump
-and `auto_fake` defaults on, so every query in every example executes
-against a seeded, schema-correct `FakeClient` — no server, no stubs,
-and `rspec --seed 1234` reproduces the fake data along with test order.
-Pin values with `overrides:`, simulate failures with `Failure.*`, opt
-out with `config.auto_fake = false` — see [testing](testing.md).
+The opt-in is deliberate (no surprise fakes); once on, the schema
+auto-locates from the committed dump and every query in every example
+executes against a seeded, schema-correct `FakeClient` — no server, no
+stubs, and `rspec --seed 1234` reproduces the fake data along with test
+order. Pin values with `overrides:`, simulate failures with `Failure.*`
+— see [testing](testing.md).
 
 ## 7. Verify in CI
 

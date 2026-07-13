@@ -31,24 +31,22 @@ GraphWeaver::Testing::FakeClient.new(schema:, overrides: {
 })
 ```
 
-With rspec, one line in `spec/support/graph_weaver.rb` is the whole
-default setup — the schema auto-locates from the committed dump at
-`GraphWeaver.schema_path`, and `auto_fake` defaults on:
+With rspec, the setup is two lines in `spec/support/graph_weaver.rb` —
+the require, plus an explicit opt-in to per-example fakes (deliberately
+not a default: silently swapping every example onto a fake would be
+surprising). The schema auto-locates from the committed dump at
+`GraphWeaver.schema_path`:
 
 ```ruby
-require "graph_weaver/rspec"   # seed follows --seed; every example auto-fakes
-```
+require "graph_weaver/rspec"   # seed follows --seed
 
-Configure to override any of it:
-
-```ruby
 GraphWeaver::Testing.configure do |config|
-  config.schema = MySchema             # an in-process class instead of the located dump
-  config.auto_fake = false             # opt out of per-example fakes
-  config.mode = :faker                 # or :literal (plain typed values); nil = auto
-  config.overrides = { "Person.name" => "Daniel" }
-  config.list_size = 1..3
-  config.null_chance = 0.1             # nullable fields go nil sometimes
+  config.auto_fake = true              # every example runs against a fresh fake
+  # config.schema = MySchema           # optional: an in-process class instead of the dump
+  # config.mode = :faker               # or :literal (plain typed values); nil = auto
+  # config.overrides = { "Person.name" => "Daniel" }
+  # config.list_size = 1..3
+  # config.null_chance = 0.1           # nullable fields go nil sometimes
 end
 ```
 

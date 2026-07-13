@@ -49,10 +49,10 @@ module GraphWeaver
         @mode = nil # auto
         @schema = nil
         @cassette_dir = "spec/cassettes"
-        # on by default — engages only when a schema resolves (below), so
-        # requiring graph_weaver/rspec in a conventional app is
-        # zero-config; config.auto_fake = false opts out
-        @auto_fake = true
+        # explicit opt-in: swapping every example onto a fake is too
+        # surprising to be a default — a little friction beats unexpected
+        # behavior (the schema still auto-locates once you opt in)
+        @auto_fake = false
         # GRAPHWEAVER_RECORD=1 rspec ...  -> Cassette.use re-records
         @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
         # anonymize responses as they're recorded (needs config.schema)

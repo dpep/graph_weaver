@@ -1,4 +1,8 @@
 ###  unreleased
+- BREAKING (vs 0.2.0): auto_fake is opt-in again — require
+  "graph_weaver/rspec" no longer swaps every example onto a fake;
+  set config.auto_fake = true explicitly (the schema still auto-locates
+  once you do). Less magic, no unexpected behavior
 - Generated input structs are table-driven: typed consts + a per-field
   FIELDS table (conversions as lambdas) interpreted by the
   GraphWeaver::InputStruct runtime, replacing unrolled
