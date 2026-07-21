@@ -99,7 +99,7 @@ GEM
     rubydex (0.2.7-arm64-darwin)
     rubydex (0.2.7-x86_64-darwin)
     rubydex (0.2.7-x86_64-linux)
-    simplecov (1.0.1)
+    simplecov (1.0.2)
     sorbet (0.6.13347)
       sorbet-static (= 0.6.13347)
     sorbet-runtime (0.6.13347)
@@ -206,7 +206,7 @@ CHECKSUMS
   rubydex (0.2.7-arm64-darwin) sha256=f0d28bbf4153568be79b671642424750053e0bea971b60ddf5cec19bf4563990
   rubydex (0.2.7-x86_64-darwin) sha256=b002b259d118ac69de44470eff1597143318402c45630c47371f9542631447dc
   rubydex (0.2.7-x86_64-linux) sha256=dacfade9fa42ce4469618da6dac07e69d5f3ac6a313b4caced5234c8f052419a
-  simplecov (1.0.1) sha256=419d93c40484159d20b40e26e9a83cdd4c3afa2f3fd443bb8946c301cd658d75
+  simplecov (1.0.2) sha256=c6459434efe4b948b46477cc2df2faa73ab365f83a33c7c17f81262f4f7f1244
   sorbet (0.6.13347) sha256=2830946e6efda8dc732c5d703350bed17f437fbea1ccfbef543a65e33ae445c1
   sorbet-runtime (0.6.13347) sha256=54e7221d9f4b63f58aec79f3043752a9ba7810347c6ae0d903531591cc2d5f01
   sorbet-static (0.6.13347-aarch64-linux) sha256=9bb60509bf9a8715d93e77cd55f96659575d81a5f47b52bd4f66b3dfe6f2182e
