@@ -42,7 +42,7 @@ GEM
     google-protobuf (4.35.1-x86_64-linux-gnu)
       bigdecimal
       rake (~> 13.3)
-    graphql (2.6.5)
+    graphql (2.6.6)
       base64
       fiber-storage
       logger
@@ -177,7 +177,7 @@ CHECKSUMS
   google-protobuf (4.35.1-x86_64-darwin) sha256=66b62b4df00931018a692806df66393efa960d6d2b7da69735187249f950d3ee
   google-protobuf (4.35.1-x86_64-linux-gnu) sha256=c786439087512a3fbd199e9897d265b855f951d4027e218ea55e858d45969edd
   graph_weaver (0.2.1)
-  graphql (2.6.5) sha256=1051825bfb4aedb4293cdbcd9726c3150e69e3512556609a32c2ca19d4be3d00
+  graphql (2.6.6) sha256=7438e2036b571c884377eb1529225470ba959365f26dc47152953c213bc38c31
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5
   io-console (0.8.2) sha256=d6e3ae7a7cc7574f4b8893b4fca2162e57a825b223a177b7afa236c5ef9814cc
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
