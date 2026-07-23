@@ -91,7 +91,21 @@ module AddPetQuery
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    raw = transport.execute(QUERY, variables: variables).to_h
+    from_response(transport.execute(QUERY, variables: variables))
+  end
+
+  sig { params(client: T.untyped, name: String, species: T.any(Species, String)).returns(Result) }
+  def self.execute!(client = nil, name:, species:)
+    execute(client, name: name, species: species).data!
+  end
+
+  # Deserialize a raw GraphQL response into the typed envelope — the
+  # network-free half of execute, for responses fetched by any client.
+  # Takes the response hash (or anything with #to_h): {"data" => ...,
+  # "errors" => ..., "extensions" => ...} with wire-cased string keys.
+  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.from_response(response)
+    raw = response.to_h
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
@@ -99,8 +113,9 @@ module AddPetQuery
     )
   end
 
-  sig { params(client: T.untyped, name: String, species: T.any(Species, String)).returns(Result) }
-  def self.execute!(client = nil, name:, species:)
-    execute(client, name: name, species: species).data!
+  # from_response + data! — the typed result, or a raised QueryError.
+  sig { params(response: T.untyped).returns(Result) }
+  def self.from_response!(response)
+    from_response(response).data!
   end
 end

@@ -409,7 +409,30 @@ class GraphWeaver::Codegen
 
       out << ""
       out << "    transport = GraphWeaver.resolve_transport(client || self.client)"
-      out << "    raw = transport.execute(QUERY, variables: variables).to_h"
+      out << "    from_response(transport.execute(QUERY, variables: variables))"
+      out << "  end"
+      out << ""
+      out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+      out << "  def self.execute!(#{kwargs.join(", ")})"
+      out << "    execute(#{forward}).data!"
+      out << "  end"
+      out << ""
+      emit_from_response(out)
+    end
+
+    # The network-free half of execute: deserialize a raw GraphQL response
+    # into the typed envelope. For responses fetched by any other client —
+    # execute delegates here after the transport call. Accepts the response
+    # hash (or anything with #to_h, e.g. a schema result): {"data" => ...,
+    # "errors" => ..., "extensions" => ...} with wire-cased string keys.
+    def emit_from_response(out)
+      out << "  # Deserialize a raw GraphQL response into the typed envelope — the"
+      out << "  # network-free half of execute, for responses fetched by any client."
+      out << "  # Takes the response hash (or anything with #to_h): {\"data\" => ...,"
+      out << "  # \"errors\" => ..., \"extensions\" => ...} with wire-cased string keys."
+      out << "  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }"
+      out << "  def self.from_response(response)"
+      out << "    raw = response.to_h"
       out << "    GraphWeaver::Response[Result].new("
       out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
       out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"
@@ -417,9 +440,10 @@ class GraphWeaver::Codegen
       out << "    )"
       out << "  end"
       out << ""
-      out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
-      out << "  def self.execute!(#{kwargs.join(", ")})"
-      out << "    execute(#{forward}).data!"
+      out << "  # from_response + data! — the typed result, or a raised QueryError."
+      out << "  sig { params(response: T.untyped).returns(Result) }"
+      out << "  def self.from_response!(response)"
+      out << "    from_response(response).data!"
       out << "  end"
     end
 

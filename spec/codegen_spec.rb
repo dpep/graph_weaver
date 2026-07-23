@@ -175,6 +175,43 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  describe "from_response — standalone deserialization (no client)" do
+    let(:raw) do
+      {
+        "data" => { "person" => { "id" => "1", "name" => "Daniel", "birthday" => "1990-06-15", "pets" => [{ "name" => "Shelby" }] } },
+        "extensions" => { "cost" => 1 },
+      }
+    end
+
+    it "deserializes a raw response hash into the typed envelope" do
+      response = PersonQuery.from_response(raw)
+      expect(response).to be_a GraphWeaver::Response
+      expect(response.data!.person&.name).to eq "Daniel"
+      expect(response.data!.person&.birthday).to eq Date.new(1990, 6, 15)
+      expect(response.data!.person&.pets&.map(&:name)).to eq ["Shelby"]
+      expect(response.extensions).to eq({ "cost" => 1 })
+      expect(response.errors?).to be false
+    end
+
+    it "accepts anything responding to #to_h (e.g. a schema result)" do
+      hash = raw # capture: the singleton method body runs with self = wrapped
+      wrapped = Object.new.tap { |o| o.define_singleton_method(:to_h) { hash } }
+      expect(PersonQuery.from_response(wrapped).data!.person&.name).to eq "Daniel"
+    end
+
+    it "carries top-level errors into the envelope" do
+      response = PersonQuery.from_response("errors" => [{ "message" => "boom" }])
+      expect(response.errors?).to be true
+      expect(response.data).to be_nil
+    end
+
+    it "from_response! returns the result, raising QueryError on errors" do
+      expect(PersonQuery.from_response!(raw).person&.name).to eq "Daniel"
+      expect { PersonQuery.from_response!("errors" => [{ "message" => "boom" }]) }
+        .to raise_error(GraphWeaver::QueryError)
+    end
+  end
+
   describe "unions and fragments" do
     let(:results) { SearchQuery.execute(term: "el").data!.search }
 

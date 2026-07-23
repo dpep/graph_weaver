@@ -119,6 +119,9 @@ module PersonQuery
   def self.client ...            # default client (see below)
   def self.execute(client = nil, id:)   # -> GraphWeaver::Response[Result]
   def self.execute!(client = nil, id:)  # -> Result, or raises QueryError
+
+  def self.from_response(response)      # deserialize a raw hash -> Response[Result]
+  def self.from_response!(response)     # -> Result, or raises QueryError
 end
 ```
 
@@ -127,6 +130,38 @@ end
   cost/throttle metadata survive.
 - `execute!` is the shortcut: the typed result or a raised
   `GraphWeaver::QueryError`.
+- `from_response` / `from_response!` are the **network-free half** of the
+  pair — same envelope, but from a response hash you already have (see below).
+
+## Deserializing a response from another client
+
+`execute` is two steps: make the request, then cast the JSON into the typed
+structs. Only the second step is GraphWeaver-specific, and it's exposed on its
+own — so you can fetch with any GraphQL client (Apollo, a raw `Net::HTTP` post,
+a batching layer, a recorded fixture) and hand the result to GraphWeaver:
+
+```ruby
+raw = my_graphql_client.post(PersonQuery::QUERY, id: "1")
+# => {"data" => {"person" => {...}}, "errors" => [...], "extensions" => {...}}
+
+response = PersonQuery.from_response(raw)   # GraphWeaver::Response[Result]
+person   = response.data!.person            # typed, no network
+
+# or skip the envelope:
+person   = PersonQuery.from_response!(raw).person
+```
+
+`from_response` builds the exact same `GraphWeaver::Response[Result]` envelope
+`execute` does — in fact `execute` *is* `from_response(transport.execute(...))`.
+Errors and extensions are preserved; `#data!` / `from_response!` raise
+`QueryError` on top-level errors.
+
+The one requirement: pass the response **verbatim** — a hash (or anything with
+`#to_h`) with the standard GraphQL shape and **wire-cased string keys**
+(`"person"`, `"nameWithOwner"`), the top-level `"data"` / `"errors"` /
+`"extensions"` keys included. Don't symbolize or snake_case it first;
+`from_response` reads `raw["data"]` and the casting reads camelCase field keys.
+The module must, of course, be generated for the query you ran.
 
 ## Variables become typed kwargs
 
