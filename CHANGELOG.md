@@ -1,3 +1,9 @@
+###  v0.2.2  (2026-07-22)
+- Generated modules expose from_response / from_response! alongside
+  execute / execute!: deserialize a raw GraphQL response (fetched by any
+  client) into the typed envelope without going through the transport.
+  execute now delegates to from_response
+
 ###  v0.2.1  (2026-07-13)
 - Conventional paths are appendable lists: queries_paths /
   generated_paths (singular accessors read the first entry, so existing
