@@ -337,7 +337,7 @@ describe GraphWeaver::Codegen do
 
       # bad shapes fail loudly at the boundary
       expect { AdoptQuery.execute!(species: "DOG") }.to raise_error(ArgumentError)
-      expect { AdoptQuery.execute!(name: "Rex", species: "DRAGON") }.to raise_error(KeyError)
+      expect { AdoptQuery.execute!(name: "Rex", species: "DRAGON") }.to raise_error(GraphWeaver::InputError)
     end
 
     it "keeps the input: kwarg when other variables ride along" do
@@ -377,7 +377,35 @@ describe GraphWeaver::Codegen do
 
       # a typo'd key raises with a hint instead of silently dropping
       expect { AdoptQuery::AdoptionInput.coerce({ name: "Rex", species: "CAT", nickame: "Rexy" }) }
-        .to raise_error(ArgumentError, /nickame \(did you mean 'nickname'\?\)/)
+        .to raise_error(GraphWeaver::InputError, /nickame \(did you mean 'nickname'\?\)/)
+    end
+
+    it "raises a branded, structured InputError for bad input (rescue for a 422)" do
+      # every bad-input shape lands under one rescuable error…
+      bad = {
+        "unknown key" => -> { AdoptQuery::AdoptionInput.coerce(name: "Rex", species: "CAT", nickame: "x") },
+        "out-of-range enum" => -> { AdoptQuery::AdoptionInput.coerce(name: "Rex", species: "DRAGON") },
+        "missing required field" => -> { AdoptQuery::AdoptionInput.coerce(species: "CAT") },
+        "wrong-typed field" => -> { AdoptQuery::AdoptionInput.coerce(name: 123, species: "CAT") },
+      }
+      bad.each_value do |build|
+        expect(&build).to raise_error(GraphWeaver::InputError)
+        expect(&build).to raise_error(GraphWeaver::Error) # under the umbrella
+      end
+
+      # …and it carries a machine-readable to_h for the response body
+      error = begin
+        AdoptQuery::AdoptionInput.coerce(name: "Rex", species: "CAT", nickame: "x")
+      rescue GraphWeaver::InputError => e
+        e
+      end
+      expect(error.to_h).to include("error" => "GraphWeaver::InputError")
+      expect(error.to_h["struct"]).to end_with("AdoptionInput")
+      expect(error.to_h["field"]).to include("nickame")
+
+      # a nested bad key reports the nested input type, not the outer one
+      expect { FindPetsQuery::PetFilter.coerce(_and: [{ speces: "DOG" }]) }
+        .to raise_error(GraphWeaver::InputError, /PetFilter.*speces/m)
     end
 
     it "supports recursive input types (Hasura-style bool_exp filters)" do

@@ -303,6 +303,27 @@ module GraphWeaver
     end
   end
 
+  # Raised when the variables passed to a query or mutation can't be built
+  # into the generated input structs — an unknown or typo'd input key, a
+  # missing required input field, an out-of-range enum, or a wrong-typed
+  # field. This is the "the caller's input was invalid" error: rescue it at
+  # an API boundary to return a 422. #field names the offending input field
+  # when known, #struct the input type being built; the underlying
+  # TypeError/KeyError/ArgumentError is preserved as #cause.
+  class InputError < Error
+    attr_reader :field, :struct
+
+    def initialize(message, field: nil, struct: nil)
+      @field = field
+      @struct = struct
+      super(message)
+    end
+
+    def to_h
+      super.merge("field" => field, "struct" => struct&.to_s).compact
+    end
+  end
+
   # Build-time: the query didn't validate against the schema. Carries the
   # structured validation errors (message + line/column) rather than a
   # joined string. Under the Error umbrella like everything else raised

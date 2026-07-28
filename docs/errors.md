@@ -31,6 +31,7 @@ it failed:
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
+| `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field — `#field`, `#struct` |
 | `ValidationError` | build time: the query didn't validate against the schema |
 
 ```ruby
@@ -64,11 +65,30 @@ Defaults match the rescue block above: transport failures always retry,
 override with `retry_if:`), and GraphQL-level codes only when listed in
 `retry_codes:`. Exhausting `tries:` re-raises the last error.
 
-Two deliberate exceptions live *outside* the hierarchy, because typed
-kwargs should fail like any Ruby method call: a wrong-typed variable
-raises sorbet-runtime's `TypeError` ("Parameter 'page': Expected type
-T.nilable(Integer), got type String"), and a missing required variable
-raises a plain `ArgumentError` ("missing keyword: :id").
+**Top-level scalar variables** fail like any Ruby method call, *outside* the
+hierarchy on purpose — passing the wrong Ruby type for a scalar kwarg is a
+programming bug, not caller input: a wrong-typed one raises sorbet-runtime's
+`TypeError` ("Parameter 'page': Expected type T.nilable(Integer), got type
+String"), a missing required one a plain `ArgumentError` ("missing keyword: :id").
+
+**Input-object variables** are the caller-input case, so they're *inside* the
+hierarchy. When you pass an input object as a hash (or struct) it's built
+through the generated `coerce`, and any problem there — an unknown/typo'd key, a
+missing required field, an out-of-range enum, a wrong-typed field — raises
+`GraphWeaver::InputError`. That's one rescue point for turning invalid input
+into a 422:
+
+```ruby
+rescue GraphWeaver::InputError => e
+  render json: e.to_h, status: :unprocessable_entity
+  # { "error" => "GraphWeaver::InputError",
+  #   "message" => "unknown key(s) for …Input: staus (did you mean 'status'?)",
+  #   "field" => "staus", "struct" => "…Input" }
+end
+```
+
+A nested filter reports the innermost input type, so the error points at the
+input that actually held the bad field.
 
 Business/validation failures returned *as data* (Shopify-style `userErrors { field
 message code }`) aren't errors here — they're just fields you selected, so they

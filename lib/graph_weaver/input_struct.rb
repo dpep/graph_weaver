@@ -3,6 +3,7 @@
 
 require "sorbet-runtime"
 
+require_relative "errors"
 require_relative "hints"
 
 module GraphWeaver
@@ -53,6 +54,13 @@ module GraphWeaver
           raw = value.key?(field.prop) ? value[field.prop] : value[field.prop.to_s]
           [field.prop, raw.nil? || field.coercer.nil? ? raw : field.coercer.call(raw)]
         end)
+      rescue GraphWeaver::InputError
+        raise # already contextualized by a nested input / enum coercion
+      rescue ::TypeError, ::ArgumentError, KeyError => e
+        # a wrong-typed field, a missing required field, or an out-of-range
+        # enum — surface one branded, structured error for a 422. (`::` so the
+        # rescue catches Ruby's TypeError, not GraphWeaver::TypeError.)
+        raise GraphWeaver::InputError.new("invalid input for #{self}: #{e.message}", struct: self)
       end
     end
   end

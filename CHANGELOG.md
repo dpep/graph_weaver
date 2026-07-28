@@ -1,3 +1,13 @@
+###  v0.3.0  (2026-07-27)
+- Invalid query input now raises `GraphWeaver::InputError` (under the
+  `GraphWeaver::Error` umbrella) instead of a raw `ArgumentError` /
+  `KeyError` / sorbet `TypeError`: an unknown or typo'd input key, a
+  missing required field, an out-of-range enum, or a wrong-typed field
+  when an input object is built from a hash through `coerce`. Carries
+  `#field` / `#struct` and a JSON-ready `#to_h` — one rescue point for
+  returning a 422 at an API boundary. Top-level *scalar* kwargs still
+  fail like any Ruby method call (sorbet `TypeError` / `ArgumentError`).
+
 ###  v0.2.2  (2026-07-22)
 - Generated modules expose from_response / from_response! alongside
   execute / execute!: deserialize a raw GraphQL response (fetched by any

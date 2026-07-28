@@ -3,6 +3,7 @@
 
 require "sorbet-runtime"
 
+require_relative "errors"
 require_relative "inflect"
 
 module GraphWeaver
@@ -32,7 +33,11 @@ module GraphWeaver
         end
         suggestion ? "#{key} (did you mean '#{suggestion}'?)" : key
       end
-      raise ArgumentError, "unknown key(s) for #{struct}: #{hints.join(", ")}"
+      raise GraphWeaver::InputError.new(
+        "unknown key(s) for #{struct}: #{hints.join(", ")}",
+        field: unknown.join(", "),
+        struct: struct,
+      )
     end
 
     def method_missing(name, *args, &block)
