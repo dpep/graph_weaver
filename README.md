@@ -113,6 +113,8 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
   `@skip`/`@include`, naming, clients, dynamic mode
 - **[Against a real API](docs/real_world.md)** — the exploratory tour:
   introspect a live endpoint (GitHub end to end), dynamic mode, schema caching
+- **[Federation](docs/federation.md)** — Apollo Federation: supergraph vs API
+  schema, feeding weaver a composed graph, the `@inaccessible` caveat
 - **[Transports](docs/transports.md)** — clients, the execute contract,
   Faraday, retries and backoff
 - **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
