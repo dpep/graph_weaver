@@ -19,10 +19,10 @@ module GraphWeaver
 
     Data = type_member
 
-    sig { returns(T.nilable(Data)) }
+    sig { override.returns(T.nilable(Data)) }
     attr_reader :data
 
-    sig { returns(T::Array[GraphWeaver::GraphQLError]) }
+    sig { override.returns(T::Array[GraphWeaver::GraphQLError]) }
     attr_reader :errors
 
     sig { returns(T::Hash[String, T.untyped]) }

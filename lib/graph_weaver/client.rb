@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require_relative "codegen"
@@ -27,13 +27,36 @@ require_relative "transport/http"
 # scalar registrations, so one app can talk to several GraphQL servers —
 # even ones that disagree about what a "DateTime" is.
 class GraphWeaver::Client
-  URL = %r{\Ahttps?://}i
+  extend T::Sig
 
+  URL = T.let(%r{\Ahttps?://}i, Regexp)
+
+  sig do
+    params(
+      source: T.untyped,
+      auth: T.nilable(String),
+      headers: T::Hash[String, String],
+      retries: T.untyped,
+      transport: T.untyped,
+      cache: T.untyped,
+      ttl: T.untyped,
+      middleware: T.nilable(T.proc.params(conn: T.untyped).void),
+    ).void
+  end
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil, &middleware)
+    # graphql-ruby schemas, duck-typed transports, and flexible codec specs
+    # meet here, so much of the state is untyped by nature.
+    @schema = T.let(nil, T.untyped)
+    @cache = T.let(cache, T.untyped)
+    @ttl = T.let(ttl, T.untyped)
+    @scalars = T.let({}, T::Hash[String, GraphWeaver::Codegen::ScalarType])
+    @enums = T.let({}, T::Hash[String, GraphWeaver::Codegen::EnumType])
+    @types = T.let({}, T::Hash[String, T::Hash[Symbol, T.untyped]])
+
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, "pass a url or transport:, not both" if transport
 
-      @transport = wrap_retries(build_transport(source, auth:, headers:, &middleware), retries)
+      @transport = T.let(wrap_retries(build_transport(source, auth:, headers:, &middleware), retries), T.untyped)
     else
       if auth || middleware || retries != false
         raise ArgumentError, "auth:/retries:/middleware apply to a url — got a schema source"
@@ -46,23 +69,19 @@ class GraphWeaver::Client
       # a live schema class doubles as an in-process transport; a loaded
       # dump has no resolvers, so it is type information only
       @schema = source.is_a?(Module) ? source : GraphWeaver::SchemaLoader.load(source)
-      @transport = transport || (source if source.is_a?(Module))
+      @transport = T.let(transport || (source if source.is_a?(Module)), T.untyped)
     end
-
-    @cache = cache
-    @ttl = ttl
-    @scalars = {}
-    @enums = {}
-    @types = {}
   end
 
   # The transport queries run through: a url-built transport, an
   # explicit transport:, or the live schema class executing in-process.
   # Clients are self-contained — the app default never leaks in; nil for
   # schema-dump clients (type information only).
+  sig { returns(T.untyped) }
   attr_reader :transport
 
   # transport, when this client must be able to execute
+  sig { returns(T.untyped) }
   def transport!
     transport or raise GraphWeaver::Error,
       "this client has no transport (built from a schema dump) — pass a url or transport:"
@@ -70,6 +89,7 @@ class GraphWeaver::Client
 
   # The schema, introspecting through the transport on first use (cached
   # per the client's cache:/ttl:) unless one was given up front.
+  sig { returns(T.untyped) }
   def schema
     @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
   end
@@ -78,6 +98,12 @@ class GraphWeaver::Client
   # registry when this client generates code, so two clients can map the
   # same scalar name onto different Ruby types. Same signature as
   # GraphWeaver.register_scalar.
+  sig do
+    params(
+      graphql_name: T.any(String, Symbol), type: T.untyped, cast: T.untyped,
+      serialize: T.untyped, requires: T.nilable(String), coerce: T.untyped,
+    ).returns(GraphWeaver::Codegen::ScalarType)
+  end
   def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
     validate_registration!("scalar", graphql_name.to_s)
     @scalars[graphql_name.to_s] =
@@ -87,6 +113,12 @@ class GraphWeaver::Client
   # Client-scoped enum mapping: this client's generated code speaks your
   # T::Enum for the named GraphQL enum (see Codegen::EnumType — inference
   # by name, map: for renames, fallback: to absorb unknown wire values).
+  sig do
+    params(
+      graphql_name: T.any(String, Symbol), type: T.untyped, map: T.untyped,
+      fallback: T.untyped, requires: T.nilable(String),
+    ).returns(GraphWeaver::Codegen::EnumType)
+  end
   def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
     validate_registration!("enum", graphql_name.to_s)
     @enums[graphql_name.to_s] =
@@ -94,6 +126,7 @@ class GraphWeaver::Client
   end
 
   # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
+  sig { params(mappings: T::Hash[T.untyped, T.untyped]).void }
   def register_enums(mappings)
     mappings.each { |graphql_name, type| register_enum(graphql_name, type) }
   end
@@ -102,6 +135,12 @@ class GraphWeaver::Client
   # struct this client generates from the named GraphQL type — pass
   # modules, or a block to build one inline. Additive with global
   # registrations (see GraphWeaver.extend_type).
+  sig do
+    params(
+      graphql_name: T.any(String, Symbol), mixins: T.untyped,
+      requires: T.nilable(T.any(String, T::Array[String])), block: T.nilable(T.proc.void),
+    ).returns(T::Hash[Symbol, T.untyped])
+  end
   def extend_type(graphql_name, *mixins, requires: nil, &block)
     validate_registration!("type", graphql_name.to_s)
     entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [] }
@@ -113,6 +152,7 @@ class GraphWeaver::Client
   # (including a live schema class executing in-process — the module came
   # from this client, so it runs against it; pass a client per call to
   # override, e.g. with a fake).
+  sig { params(query: String, name: T.nilable(String)).returns(T.untyped) }
   def parse(query, name: nil)
     GraphWeaver.parse(schema:, query:, name:, client: transport,
       scalars: @scalars, enums: @enums, types: @types)
@@ -127,6 +167,7 @@ class GraphWeaver::Client
   #
   # Reloadable (constants are replaced), so it suits consoles and dev.
   # Returns the modules.
+  sig { params(dir: T.nilable(String), namespace: T.untyped).returns(T::Array[T.untyped]) }
   def load_queries!(dir = nil, namespace: Object)
     dirs = dir ? [dir] : GraphWeaver.queries_paths
     dirs.flat_map { |d| Dir[File.join(d, "*.graphql")].sort }.map do |path|
@@ -141,12 +182,14 @@ class GraphWeaver::Client
   # Response envelope (execute! returns the result or raises). Variables
   # are plain kwargs, exactly as on a generated module; graphql-cased
   # string keys work too.
+  sig { params(query: String, variables: T.untyped).returns(T.untyped) }
   def execute(query, **variables)
     mod = parse(query)
     kwargs = variables.to_h { |key, value| [GraphWeaver::Inflect.underscore(key.to_s).to_sym, value] }
     mod.execute(transport!, **kwargs)
   end
 
+  sig { params(query: String, variables: T.untyped).returns(T.untyped) }
   def execute!(query, **variables)
     execute(query, **variables).data!
   end
@@ -158,6 +201,7 @@ class GraphWeaver::Client
   # use) — immediate feedback in consoles. Lazily-introspecting clients
   # get the same check at generation time instead; never trigger an
   # introspection just to validate a name.
+  sig { params(kind: String, name: String).void }
   def validate_registration!(kind, name)
     return unless @schema
 
@@ -173,6 +217,12 @@ class GraphWeaver::Client
   # ...), and try-requiring would switch transports on apps that never
   # chose it. With faraday under `require: false`, load it before
   # building the client.
+  sig do
+    params(
+      url: String, auth: T.nilable(String), headers: T::Hash[String, String],
+      middleware: T.nilable(T.proc.params(conn: T.untyped).void),
+    ).returns(T.untyped)
+  end
   def build_transport(url, auth:, headers:, &middleware)
     headers = headers.dup
     if auth
@@ -191,6 +241,7 @@ class GraphWeaver::Client
 
   # retries: is off by default — true for Retry defaults, or a
   # Hash of its options
+  sig { params(transport: T.untyped, retries: T.untyped).returns(T.untyped) }
   def wrap_retries(transport, retries)
     case retries
     when true then GraphWeaver::Retry.new(transport)

@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 require "sorbet-runtime"
@@ -12,16 +12,20 @@ module GraphWeaver
   # structured failures to users. One subclass per failure site —
   # {TransportError} (never reached the server), {ServerError} (non-2xx),
   # {QueryError} (GraphQL-level errors), {TypeError} (response wouldn't
-  # cast), {ValidationError} (build time) — each merging its specifics
-  # into #to_h.
+  # cast), {InputError} (bad variables), {ValidationError} (build time) —
+  # each merging its specifics into #to_h.
   class Error < StandardError
+    extend T::Sig
+
     # every GraphWeaver error surfaces on the logger too (see
     # GraphWeaver.logger) — construction here means a raise
+    sig { params(args: T.untyped).void }
     def initialize(*args)
       super
       GraphWeaver.log(:warn) { "#{self.class.name}: #{message}" }
     end
 
+    sig { overridable.returns(T::Hash[String, T.untyped]) }
     def to_h
       { "error" => self.class.name, "message" => message }
     end
@@ -31,12 +35,17 @@ module GraphWeaver
   # TLS handshake, timeout. The original exception is preserved as #cause.
   # Generally retriable.
   class TransportError < Error
+    extend T::Sig
+
+    sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
       super.merge("cause" => cause&.class&.name)
     end
   end
 
   class << self
+    extend T::Sig
+
     # The exception classes the bundled transports reclassify as
     # TransportError — network-level failures where the request never
     # reached the server. A mutable Set: each transport contributes its own
@@ -48,11 +57,16 @@ module GraphWeaver
     #
     # SystemCallError covers every Errno::* (connection refused/reset, host
     # unreachable); SocketError covers DNS.
+    sig { returns(T::Set[T.class_of(Exception)]) }
     def transport_errors
-      @transport_errors ||= Set[SocketError, SystemCallError, IOError]
+      @transport_errors ||= T.let(
+        Set[SocketError, SystemCallError, IOError],
+        T.nilable(T::Set[T.class_of(Exception)]),
+      )
     end
 
     # Add one or more exception classes to the transport-error set.
+    sig { params(classes: T.class_of(Exception)).returns(T::Array[T.class_of(Exception)]) }
     def register_transport_error(*classes)
       transport_errors.merge(classes)
       classes
@@ -63,8 +77,15 @@ module GraphWeaver
   # that exploded, a 502 from a proxy, a 401, etc. Distinct from a GraphQL
   # error: we got an HTTP response, it just wasn't success.
   class ServerError < Error
-    attr_reader :status, :body
+    extend T::Sig
 
+    sig { returns(Integer) }
+    attr_reader :status
+
+    sig { returns(T.untyped) }
+    attr_reader :body
+
+    sig { params(status: Integer, body: T.untyped).void }
     def initialize(status:, body: nil)
       @status = status
       @body = body
@@ -72,6 +93,7 @@ module GraphWeaver
       super("HTTP #{status}#{snippet}")
     end
 
+    sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
       super.merge("status" => status)
     end
@@ -81,16 +103,38 @@ module GraphWeaver
   # object (not raised) — the response envelope and QueryError carry these.
   # Match on #code (extensions["code"]) rather than the message string.
   class GraphQLError
-    attr_reader :message, :locations, :path, :extensions
+    extend T::Sig
 
+    sig { returns(String) }
+    attr_reader :message
+
+    sig { returns(T::Array[T.untyped]) }
+    attr_reader :locations
+
+    sig { returns(T.nilable(T::Array[T.untyped])) }
+    attr_reader :path
+
+    sig { returns(T::Hash[String, T.untyped]) }
+    attr_reader :extensions
+
+    sig do
+      params(
+        message: String,
+        locations: T::Array[T.untyped],
+        path: T.nilable(T::Array[T.untyped]),
+        extensions: T::Hash[String, T.untyped],
+        type: T.nilable(String),
+      ).void
+    end
     def initialize(message:, locations: [], path: nil, extensions: {}, type: nil)
       @message = message
       @locations = locations
       @path = path
       @extensions = extensions
-      @error_type = type
+      @error_type = T.let(type, T.nilable(String))
     end
 
+    sig { params(hash: T::Hash[String, T.untyped]).returns(GraphQLError) }
     def self.from_h(hash)
       new(
         message: hash["message"] || "(no message)",
@@ -105,6 +149,7 @@ module GraphWeaver
     # branch on. Read from extensions.code (the Apollo/spec-adjacent
     # convention) or a top-level "type" (GitHub's dialect: NOT_FOUND,
     # FORBIDDEN). nil when the server sent neither.
+    sig { returns(T.nilable(String)) }
     def code
       extensions["code"] || @error_type
     end
@@ -113,11 +158,15 @@ module GraphWeaver
     # (unknown field/type/argument). Heuristic by necessity: only Apollo
     # sets a standard code (GRAPHQL_VALIDATION_FAILED); graphql-ruby and
     # GitHub speak in messages.
-    VALIDATION_MESSAGE = /doesn't exist|Cannot query field|Unknown (field|type|argument)|isn't defined|undefined (field|type)/i
+    VALIDATION_MESSAGE = T.let(
+      /doesn't exist|Cannot query field|Unknown (field|type|argument)|isn't defined|undefined (field|type)/i,
+      Regexp,
+    )
 
     # True when this error looks like the server rejected the query's
     # shape — for a generated module that usually means the schema
     # changed after generation.
+    sig { returns(T::Boolean) }
     def validation?
       code == "GRAPHQL_VALIDATION_FAILED" || VALIDATION_MESSAGE.match?(message)
     end
@@ -126,17 +175,21 @@ module GraphWeaver
     # indices stripped — ["people", 3, "email"] => "people.email". The
     # parseable key for grouping/reporting (the raw #path keeps indices).
     # nil for global errors with no path.
+    sig { returns(T.nilable(String)) }
     def field
-      return unless path
+      p = path
+      return unless p
 
-      named = path.reject { |seg| seg.is_a?(Integer) || seg.to_s.match?(/\A\d+\z/) }
+      named = p.reject { |seg| seg.is_a?(Integer) || seg.to_s.match?(/\A\d+\z/) }
       named.join(".") unless named.empty?
     end
 
+    sig { returns(String) }
     def to_s
-      loc = locations&.first
+      loc = locations.first
       at = loc ? " at #{loc["line"]}:#{loc["column"]}" : ""
-      where = path ? " (path: #{path.join(".")})" : ""
+      p = path
+      where = p ? " (path: #{p.join(".")})" : ""
       tag = code ? " [#{code}]" : ""
       "#{message}#{at}#{where}#{tag}"
     end
@@ -144,6 +197,7 @@ module GraphWeaver
     # JSON-ready: the problematic field (both forms — #field for grouping,
     # #path with indices for exact location), the machine code, and the
     # server's full extensions.
+    sig { returns(T::Hash[String, T.untyped]) }
     def to_h
       {
         "message" => message,
@@ -158,15 +212,18 @@ module GraphWeaver
   end
 
   # Shared filtering over a collection of GraphQLErrors, for surfacing
-  # field-level failures programmatically. Host must define #errors.
+  # field-level failures programmatically. Host must define #errors / #data.
   module ErrorFiltering
+    extend T::Sig
     include Kernel # for sorbet: hosts are Objects
 
     # the host's interface, overridden by its attr_readers
+    sig { overridable.returns(T::Array[GraphQLError]) }
     def errors
       raise NotImplementedError, "#{self.class} must define #errors"
     end
 
+    sig { overridable.returns(T.untyped) }
     def data
       raise NotImplementedError, "#{self.class} must define #data"
     end
@@ -174,15 +231,20 @@ module GraphWeaver
     # Errors touching a field path — "user.email" or ["user", "email"];
     # prefix match, so deeper errors count too. List indices appear as
     # path segments ("people.0.email").
+    sig { params(path: T.any(String, T::Array[T.untyped])).returns(T::Array[GraphQLError]) }
     def errors_at(path)
       want = (path.is_a?(String) ? path.split(".") : path).map(&:to_s)
-      errors.select { |error| error.path && error.path.map(&:to_s).first(want.size) == want }
+      errors.select do |error|
+        p = error.path
+        p && p.map(&:to_s).first(want.size) == want
+      end
     end
 
     # True when any error looks like the server rejected the query's
     # shape — the schema has likely changed since the module was
     # generated. Refresh the schema dump and regenerate (rake
     # graph_weaver:schema:refresh && rake graph_weaver:generate).
+    sig { returns(T::Boolean) }
     def schema_stale?
       errors.any?(&:validation?)
     end
@@ -193,25 +255,31 @@ module GraphWeaver
     #      response.each_error do |field, errors|
     #        form.add_error(field, errors.map(&:message))
     #      end
+    sig { returns(T::Hash[T.nilable(String), T::Array[GraphQLError]]) }
     def errors_by_field
       errors.group_by(&:field)
     end
 
+    sig do
+      params(block: T.proc.params(field: T.nilable(String), errors: T::Array[GraphQLError]).void).void
+    end
     def each_error(&block)
-      errors_by_field.each(&block)
+      errors_by_field.each { |field, errs| block.call(field, errs) }
     end
 
     # The id of the record an error points into, resolved by walking the
     # error's path through the (partial) typed data: an error at
     # ["people", 3, "email"] resolves to people[3].id. nil when the data
     # is missing, the path doesn't walk, or the record has no id field.
+    sig { params(error: GraphQLError).returns(T.untyped) }
     def entity_id(error)
       # untyped by nature: the walk traverses whatever structs this query
       # generated, reassigning across types at each step
       node = T.let(data, T.untyped)
-      return unless node && error.path
+      path = error.path
+      return unless node && path
 
-      error.path[0..-2].each do |segment|
+      (path[0..-2] || []).each do |segment|
         node = if segment.is_a?(Integer) || segment.to_s.match?(/\A\d+\z/)
           node.is_a?(Array) ? node[segment.to_i] : nil
         else
@@ -230,6 +298,7 @@ module GraphWeaver
     #
     #      { "people.email" => { "messages" => [...], "codes" => [...],
     #        "entity_ids" => ["7", "9"], "errors" => [full to_h...] } }
+    sig { returns(T::Hash[T.nilable(String), T::Hash[String, T.untyped]]) }
     def report
       errors_by_field.to_h do |field, field_errors|
         [field, {
@@ -247,10 +316,25 @@ module GraphWeaver
   # Carries the structured errors, any partial data, and top-level
   # extensions (cost/throttle metadata).
   class QueryError < Error
+    extend T::Sig
     include ErrorFiltering
 
-    attr_reader :errors, :data, :extensions
+    sig { override.returns(T::Array[GraphQLError]) }
+    attr_reader :errors
 
+    sig { override.returns(T.untyped) }
+    attr_reader :data
+
+    sig { returns(T::Hash[String, T.untyped]) }
+    attr_reader :extensions
+
+    sig do
+      params(
+        errors: T::Array[GraphQLError],
+        data: T.untyped,
+        extensions: T::Hash[String, T.untyped],
+      ).void
+    end
     def initialize(errors, data: nil, extensions: {})
       @errors = errors
       @data = data
@@ -259,12 +343,14 @@ module GraphWeaver
     end
 
     # All non-nil error codes — handy for `codes.include?("THROTTLED")`.
+    sig { returns(T::Array[String]) }
     def codes
-      errors.map(&:code).compact
+      errors.filter_map(&:code)
     end
 
     # The machine side: every error with its path/code/extensions, plus
     # the drift verdict — nest this straight into a JSON response.
+    sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
       super.merge(
         "schema_stale" => schema_stale?,
@@ -276,6 +362,7 @@ module GraphWeaver
 
     private
 
+    sig { returns(String) }
     def summary
       first = errors.first
       more = errors.size > 1 ? " (and #{errors.size - 1} more)" : ""
@@ -291,13 +378,18 @@ module GraphWeaver
   # #cause carries the original TypeError/KeyError with the offending
   # prop in its message.
   class TypeError < Error
+    extend T::Sig
+
+    sig { returns(T.untyped) }
     attr_reader :struct
 
+    sig { params(struct: T.untyped, error: T.nilable(Exception), message: T.nilable(String)).void }
     def initialize(struct:, error: nil, message: nil)
       @struct = struct
       super("failed to cast response into #{struct}: #{message || error&.message}")
     end
 
+    sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
       super.merge("struct" => struct.to_s, "cause" => cause&.message)
     end
@@ -311,14 +403,22 @@ module GraphWeaver
   # when known, #struct the input type being built; the underlying
   # TypeError/KeyError/ArgumentError is preserved as #cause.
   class InputError < Error
-    attr_reader :field, :struct
+    extend T::Sig
 
+    sig { returns(T.nilable(String)) }
+    attr_reader :field
+
+    sig { returns(T.untyped) }
+    attr_reader :struct
+
+    sig { params(message: String, field: T.nilable(String), struct: T.untyped).void }
     def initialize(message, field: nil, struct: nil)
       @field = field
       @struct = struct
       super(message)
     end
 
+    sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
       super.merge("field" => field, "struct" => struct&.to_s).compact
     end
@@ -329,13 +429,18 @@ module GraphWeaver
   # joined string. Under the Error umbrella like everything else raised
   # here (through 0.1.0 it was an ArgumentError instead).
   class ValidationError < Error
+    extend T::Sig
+
+    sig { returns(T::Array[T::Hash[Symbol, T.untyped]]) }
     attr_reader :errors
 
+    sig { params(errors: T::Array[T::Hash[Symbol, T.untyped]]).void }
     def initialize(errors)
       @errors = errors
       super("invalid query: #{errors.map { |e| e[:message] }.join("; ")}")
     end
 
+    sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
       super.merge("errors" => errors.map { |e| e.transform_keys(&:to_s) })
     end
