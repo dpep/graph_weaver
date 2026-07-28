@@ -147,7 +147,7 @@ class GraphWeaver::Codegen
 
     attr_reader :class_name, :fields
     # the GraphQL type this struct was generated from, and any registered
-    # helper modules to include (see Codegen.register_type)
+    # helper modules to include (see Codegen.extend_type)
     attr_accessor :graphql_type, :mixins
 
     def initialize(class_name)

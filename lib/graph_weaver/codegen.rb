@@ -219,7 +219,9 @@ class GraphWeaver::Codegen
     suggestion = defined?(DidYouMean::SpellChecker) &&
       DidYouMean::SpellChecker.new(dictionary: schema.types.keys).correct(name).first
     hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
-    raise GraphWeaver::Error, "register_#{kind}(#{name.inspect}) matches no type in this schema#{hint}"
+    # the type registry is reached via extend_type; scalars/enums via register_*
+    method = kind == "type" ? "extend_type" : "register_#{kind}"
+    raise GraphWeaver::Error, "#{method}(#{name.inspect}) matches no type in this schema#{hint}"
   end
 
   # Structured shape for a schema-validation error: message plus its first

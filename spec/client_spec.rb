@@ -276,7 +276,7 @@ describe GraphWeaver::Client do
 
     it "includes registered modules into structs generated from the type" do
       client = GraphWeaver.new(Demo::Schema)
-      client.register_type("Pet", PetShouting)
+      client.extend_type("Pet", PetShouting)
 
       pet = client.execute!(query).person&.pets&.first
       expect(pet&.shout).to eq "Shelby!"
@@ -290,8 +290,8 @@ describe GraphWeaver::Client do
     it "catches typo'd registrations at the call site when the schema is in hand" do
       client = GraphWeaver.new(Demo::Schema)
 
-      expect { client.register_type("Pett", PetShouting) }
-        .to raise_error(GraphWeaver::Error, /register_type\("Pett"\).*did you mean 'Pet'/)
+      expect { client.extend_type("Pett", PetShouting) }
+        .to raise_error(GraphWeaver::Error, /extend_type\("Pett"\).*did you mean 'Pet'/)
       expect { client.register_enum("Specis", PetKind) }
         .to raise_error(GraphWeaver::Error, /register_enum\("Specis"\).*did you mean 'Species'/)
     end
@@ -303,12 +303,12 @@ describe GraphWeaver::Client do
       expect {
         mod.generate(schema: Demo::Schema, query:, module_name: "Typo",
           types: { "Pett" => { mixins: [PetShouting], requires: [] } })
-      }.to raise_error(GraphWeaver::Error, /register_type\("Pett"\).*did you mean 'Pet'/)
+      }.to raise_error(GraphWeaver::Error, /extend_type\("Pett"\).*did you mean 'Pet'/)
     end
 
     it "builds a mixin from a block, auto-named for generated source" do
       client = GraphWeaver.new(Demo::Schema)
-      client.register_type("Pet") do
+      client.extend_type("Pet") do
         def whisper = "#{name.downcase}..."
       end
 
@@ -317,10 +317,10 @@ describe GraphWeaver::Client do
       expect(GraphWeaver::TypeHelpers.const_defined?(:Pet)).to be true
 
       # a second block registration stacks under a fresh name
-      client.register_type("Pet") { def echo = name * 2 }
+      client.extend_type("Pet") { def echo = name * 2 }
       expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
 
-      expect { client.register_type("Pet") }.to raise_error(ArgumentError, /modules, or a block/)
+      expect { client.extend_type("Pet") }.to raise_error(ArgumentError, /modules, or a block/)
     end
   end
 end

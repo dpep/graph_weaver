@@ -285,19 +285,19 @@ module GraphWeaver
     # GraphQL type — derived values live as methods next to the honest
     # wire data, and srb tc checks them against each query's selection:
     #
-    #      GraphWeaver.register_type("Pet", PetHelpers)
+    #      GraphWeaver.extend_type("Pet", PetHelpers)
     #
     # Or build the mixin inline with a block (module_eval'd into an
     # auto-named module — quick, but invisible to srb tc):
     #
-    #      GraphWeaver.register_type("Pet") do
+    #      GraphWeaver.extend_type("Pet") do
     #        def display_name = "#{name} the pet"
     #      end
     #
     # Additive (repeated and client-scoped registrations stack). Global;
-    # client.register_type scopes to one client.
-    def register_type(graphql_name, *mixins, requires: nil, &block)
-      Codegen.register_type(graphql_name, *mixins, requires:, &block)
+    # client.extend_type scopes to one client.
+    def extend_type(graphql_name, *mixins, requires: nil, &block)
+      Codegen.extend_type(graphql_name, *mixins, requires:, &block)
     end
 
     # Restore the built-in scalars, dropping every custom registration —

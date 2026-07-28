@@ -101,8 +101,8 @@ class GraphWeaver::Client
   # Client-scoped type helpers: include app-owned modules into every
   # struct this client generates from the named GraphQL type — pass
   # modules, or a block to build one inline. Additive with global
-  # registrations (see GraphWeaver.register_type).
-  def register_type(graphql_name, *mixins, requires: nil, &block)
+  # registrations (see GraphWeaver.extend_type).
+  def extend_type(graphql_name, *mixins, requires: nil, &block)
     validate_registration!("type", graphql_name.to_s)
     entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [] }
     GraphWeaver::Codegen.add_type_helpers(entry, graphql_name, mixins, requires, block)

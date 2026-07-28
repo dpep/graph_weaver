@@ -155,7 +155,7 @@ module PetHelpers
   def display_name = adult? ? "#{name} 🦴" : "#{name} 🐶"
 end
 
-GraphWeaver.register_type("Pet", PetHelpers)   # or api.register_type(...)
+GraphWeaver.extend_type("Pet", PetHelpers)   # or api.extend_type(...)
 
 pet.display_name   # => "Shelby 🦴"
 pet.name           # => "Shelby" — the wire value stays honest
@@ -173,7 +173,7 @@ For quick decoration, build the mixin inline — the block is
 `GraphWeaver::TypeHelpers` so generated files can reference it:
 
 ```ruby
-api.register_type("Pet") do
+api.extend_type("Pet") do
   def display_name = "#{name} 🐶"
 end
 ```

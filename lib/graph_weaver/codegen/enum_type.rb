@@ -90,19 +90,19 @@ class GraphWeaver::Codegen
     # Attach app-owned helper modules to every struct generated from a
     # GraphQL type — the logic stays in your code, generation wires it in:
     #
-    #      GraphWeaver.register_type("Pet", PetHelpers)
+    #      GraphWeaver.extend_type("Pet", PetHelpers)
     #
     # Or build the mixin inline — the block is module_eval'd into a fresh
     # module auto-named GraphWeaver::TypeHelpers::<Type>. Handy for quick
     # decoration; srb tc can't see into block-defined methods, so prefer
     # a named module where static checking matters:
     #
-    #      GraphWeaver.register_type("Pet") do
+    #      GraphWeaver.extend_type("Pet") do
     #        def display_name = "#{name} the pet"
     #      end
     #
     # Additive: repeated registrations (and client-scoped ones) stack.
-    def register_type(graphql_name, *mixins, requires: nil, &block)
+    def extend_type(graphql_name, *mixins, requires: nil, &block)
       entry = type_registry[graphql_name.to_s] ||= { mixins: [], requires: [] }
       add_type_helpers(entry, graphql_name, mixins, requires, block)
     end
@@ -111,7 +111,7 @@ class GraphWeaver::Codegen
       @type_registry ||= {}
     end
 
-    # shared with Client#register_type: build/validate the mixins and
+    # shared with Client#extend_type: build/validate the mixins and
     # append them to a registry entry
     def add_type_helpers(entry, graphql_name, mixins, requires, block)
       mixins = mixins.dup
@@ -143,7 +143,7 @@ class GraphWeaver::Codegen
 end
 
 module GraphWeaver
-  # Home of block-built type helpers (register_type with a block), which
+  # Home of block-built type helpers (extend_type with a block), which
   # need constant names so generated files can reference them.
   module TypeHelpers; end
 end

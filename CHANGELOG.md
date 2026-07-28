@@ -1,4 +1,10 @@
-###  v0.3.0  (2026-07-27)
+###  v0.3.0  (2026-07-28)
+- Renamed `register_type` to `extend_type` to disambiguate intent: it
+  *decorates* a generated struct with mixin modules/helpers — it doesn't
+  define or replace a type's deserialization (that's `register_scalar` /
+  `register_enum`, for leaf types, whose Ruby shape is fixed; a composite's
+  shape is per-query, so there's nothing fixed to replace). No deprecation —
+  the old name is dropped.
 - Invalid query input now raises `GraphWeaver::InputError` (under the
   `GraphWeaver::Error` umbrella) instead of a raw `ArgumentError` /
   `KeyError` / sorbet `TypeError`: an unknown or typo'd input key, a
