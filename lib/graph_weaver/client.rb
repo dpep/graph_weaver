@@ -76,7 +76,8 @@ class GraphWeaver::Client
 
   # Client-scoped scalar registration: consulted before the global
   # registry when this client generates code, so two clients can map the
-  # same scalar name onto different Ruby types. Same signature as
+  # same scalar name onto different Ruby types. A `Type.field` coordinate
+  # (e.g. "User.birthday") overrides just that field. Same signature as
   # GraphWeaver.register_scalar.
   def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
     validate_registration!("scalar", graphql_name.to_s)

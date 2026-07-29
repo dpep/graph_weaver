@@ -1,3 +1,12 @@
+###  v0.3.2  (2026-07-29)
+- `register_scalar` accepts a `Type.field` coordinate to override how one
+  field's scalar deserializes — so the same scalar can be different Ruby types
+  across fields (`register_scalar("User.birthday", Date)` while
+  `ISO8601DateTime` stays a `Time` elsewhere). Field overrides win over the
+  scalar-name registration; both stack global-then-client. The coordinate is
+  validated against the schema (a typo'd or non-scalar field raises). Same
+  method, same signature — a `.` in the name selects the field form.
+
 ###  v0.3.1  (2026-07-28)
 - `GraphWeaver.extend_t_sig` controls whether generated modules/structs emit
   `extend T::Sig`. Default (`nil`) auto-detects a global T::Sig injection

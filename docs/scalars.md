@@ -14,6 +14,19 @@ them: `client.register_scalar(...)` overlays the global registry for that
 client's generation only — so two servers can disagree about what a
 `DateTime` is, and neither leaks into the other.
 
+Pass a `Type.field` **coordinate** instead of a scalar name to override just
+that one field — so the same scalar can deserialize as different Ruby types
+across fields:
+
+```ruby
+GraphWeaver.register_scalar("ISO8601DateTime", Time)   # the default, everywhere
+GraphWeaver.register_scalar("User.birthday", Date)     # this field only
+```
+
+A field override wins over the scalar-name registration; both stack the same
+global-then-client way. (GraphQL names can't contain `.`, so the coordinate is
+unambiguous — and it's validated against the schema, so a typo'd field raises.)
+
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
 

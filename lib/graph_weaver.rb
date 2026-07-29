@@ -275,7 +275,15 @@ module GraphWeaver
     # raw input (e.g. "12.00"), running the latter through the cast before
     # serializing — it raises on bad input, so some safety survives. Built-in
     # scalars are pre-registered the same way, so this also overrides them.
-    # Call before generating.
+    #
+    # Pass a `Type.field` coordinate instead of a scalar name to override just
+    # that one field — so the same scalar can deserialize as different Ruby
+    # types across fields (a `Date` for `User.birthday`, a `Time` elsewhere):
+    #
+    #      GraphWeaver.register_scalar("User.birthday", Date)
+    #
+    # A field-level override wins over the scalar-name registration. Same
+    # signature either way. Call before generating.
     def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
       Codegen.register_scalar(graphql_name, type, cast:, serialize:, requires:, coerce:)
     end

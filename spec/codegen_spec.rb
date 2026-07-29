@@ -692,4 +692,46 @@ describe GraphWeaver::Codegen do
       expect(source).to include("extend T::Sig")
     end
   end
+
+  describe "per-field scalar override (register_scalar with a Type.field coordinate)" do
+    let(:schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        scalar ISO8601DateTime
+        type Query { event: Event }
+        type Event { startsAt: ISO8601DateTime! createdOn: ISO8601DateTime! }
+      GRAPHQL
+    end
+
+    after { GraphWeaver.reset_scalars! }
+
+    it "maps the same scalar to different Ruby types across fields in one query" do
+      GraphWeaver.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
+      GraphWeaver.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
+
+      src = described_class.generate(schema:, query: "query E { event { startsAt createdOn } }")
+      expect(src).to include("const :starts_at, Time")   # the scalar-name default
+      expect(src).to include("const :created_on, Date")  # the field override wins
+    end
+
+    it "deserializes each field to its own Ruby type end to end (client-scoped)" do
+      executor = Class.new do
+        def execute(_query, variables:)
+          { "data" => { "event" => { "startsAt" => "2020-01-02T03:04:05Z", "createdOn" => "2021-06-15" } } }
+        end
+      end.new
+      client = GraphWeaver::Client.new(schema, transport: executor)
+      client.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
+      client.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
+
+      event = client.execute!("query E { event { startsAt createdOn } }").event
+      expect(event.starts_at).to be_a(Time)
+      expect(event.created_on).to be_a(Date)
+    end
+
+    it "validates the coordinate names a real scalar field" do
+      client = GraphWeaver::Client.new(schema)
+      expect { client.register_scalar("Event.nope", Date) }
+        .to raise_error(GraphWeaver::Error, /no scalar field/)
+    end
+  end
 end

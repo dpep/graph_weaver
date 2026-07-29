@@ -214,6 +214,14 @@ class GraphWeaver::Codegen
   # whose schema introspects lazily). Global registrations skip this:
   # they may target a different client's server.
   def self.validate_registration!(schema, kind, name)
+    # register_scalar("Type.field", ...) overrides one field's scalar — validate
+    # the field exists and is a scalar, not that a type named "Type.field" exists.
+    if kind == "scalar" && name.include?(".")
+      return if scalar_field?(schema, name)
+
+      raise GraphWeaver::Error, "register_scalar(#{name.inspect}) matches no scalar field in this schema"
+    end
+
     return if schema.get_type(name)
 
     suggestion = defined?(DidYouMean::SpellChecker) &&
@@ -222,6 +230,18 @@ class GraphWeaver::Codegen
     # the type registry is reached via extend_type; scalars/enums via register_*
     method = kind == "type" ? "extend_type" : "register_#{kind}"
     raise GraphWeaver::Error, "#{method}(#{name.inspect}) matches no type in this schema#{hint}"
+  end
+
+  # Whether `coordinate` ("Type.field") names an existing scalar field — the
+  # validation for a per-field register_scalar override.
+  def self.scalar_field?(schema, coordinate)
+    type_name, field_name = coordinate.split(".", 2)
+    return false unless field_name
+
+    field = schema.get_field(type_name, field_name)
+    !!field && field.type.unwrap.kind.name == "SCALAR"
+  rescue StandardError
+    false
   end
 
   # Structured shape for a schema-validation error: message plus its first
@@ -305,7 +325,8 @@ class GraphWeaver::Codegen
             type_ref(field_type) { EnumNode.new(name, core.values.keys.sort) }
           end
         when "SCALAR"
-          type_ref(field_type) { scalar_node(core.graphql_name) }
+          coordinate = "#{type.graphql_name}.#{field_name}"
+          type_ref(field_type) { scalar_node(core.graphql_name, coordinate) }
         else
           raise GraphWeaver::Error, "unsupported kind: #{core.kind.name}"
         end
@@ -462,9 +483,13 @@ class GraphWeaver::Codegen
 
   # A Scalar node, recording any requires its registered type needs so the
   # generated file can require them (collected across the whole query).
-  # Resolution: the client-scoped overlay first, then the global registry.
-  def scalar_node(name)
-    scalar = @scalars[name.to_s] || GraphWeaver::Codegen.scalar(name)
+  # Resolution, most specific first: a per-field override (`Type.field`), then
+  # the scalar-name registration — each checked client-scoped, then global.
+  def scalar_node(name, coordinate = nil)
+    scalar =
+      (coordinate && (@scalars[coordinate] || GraphWeaver::Codegen.scalar_registry[coordinate])) ||
+      @scalars[name.to_s] ||
+      GraphWeaver::Codegen.scalar(name)
     @requires.concat(scalar.requires)
     Scalar.new(scalar)
   end
