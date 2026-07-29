@@ -127,6 +127,13 @@ generated files — dynamic `parse` is invisible to `srb tc`. Everything
 works without Sorbet; codegen plus Sorbet is what moves type errors from
 runtime to CI.
 
+If your app globally injects `T::Sig` (`class Module; include T::Sig`), the
+per-struct `extend T::Sig` in generated files is redundant — rubocop's
+`Sorbet/RedundantExtendTSig` flags it. GraphWeaver auto-detects that at
+generation time and skips the `extend`; override with
+`GraphWeaver.extend_t_sig = true`/`false`. (Generated code is machine-generated
+and marked "do not edit," so excluding `generated/**` from rubocop is also fine.)
+
 ## Not Rails?
 
 Everything above works the same, minus the Railtie conveniences: add

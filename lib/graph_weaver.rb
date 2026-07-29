@@ -238,6 +238,25 @@ module GraphWeaver
     # a registration always wins.
     attr_accessor :auto_coerce
 
+    # Whether generated modules/structs emit `extend T::Sig` (so `sig`
+    # resolves standalone). Default (nil) auto-detects: an app that globally
+    # injects T::Sig (`class Module; include T::Sig`) makes the per-struct
+    # extend redundant — rubocop's Sorbet/RedundantExtendTSig flags it — so
+    # generation skips it. Force with true/false. Resolved at generation time.
+    #
+    #      GraphWeaver.extend_t_sig = false   # never emit (rely on a global include)
+    attr_writer :extend_t_sig
+
+    # The resolved boolean codegen uses: the explicit setting, else emit
+    # unless T::Sig is globally injected into Module.
+    def extend_t_sig?
+      @extend_t_sig.nil? ? !global_tsig? : @extend_t_sig
+    end
+
+    # Whether the host app has globally injected T::Sig into every module
+    # (`class Module; include T::Sig`) — extracted so it's stubbable in tests.
+    def global_tsig? = Module.include?(T::Sig)
+
     # Teach the generator how a GraphQL custom scalar deserializes into a
     # rich Ruby object (and serializes back onto the wire when used as a
     # variable):

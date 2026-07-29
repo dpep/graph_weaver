@@ -219,8 +219,7 @@ class GraphWeaver::Codegen
         out << ""
       end
       out << "module #{@module_name}"
-      out << "  extend T::Sig"
-      out << ""
+      out << "  extend T::Sig" << "" if GraphWeaver.extend_t_sig?
       # a GraphQL block string could contain a bare GRAPHQL line, which
       # would terminate the heredoc early — pick a delimiter the query
       # can't collide with
@@ -282,7 +281,7 @@ class GraphWeaver::Codegen
       pad = "  " * indent
 
       out << "#{pad}class #{node.class_name} < T::Struct"
-      out << "#{pad}  extend T::Sig"
+      out << "#{pad}  extend T::Sig" if GraphWeaver.extend_t_sig?
       out << "#{pad}  include GraphWeaver::Hints"
       node.mixins.each do |mixin|
         out << "#{pad}  include #{mixin} # registered for #{node.graphql_type}"
@@ -318,8 +317,7 @@ class GraphWeaver::Codegen
       pad = "  " * indent
 
       out << "#{pad}module #{node.class_name}"
-      out << "#{pad}  extend T::Sig"
-      out << ""
+      out << "#{pad}  extend T::Sig" << "" if GraphWeaver.extend_t_sig?
 
       node.members.each_value do |member|
         emit_object(member, out, indent + 1)
@@ -346,8 +344,7 @@ class GraphWeaver::Codegen
       out << "  @client = T.let(nil, T.untyped)"
       out << ""
       out << "  class << self"
-      out << "    extend T::Sig"
-      out << ""
+      out << "    extend T::Sig" << "" if GraphWeaver.extend_t_sig?
       out << "    sig { params(client: T.untyped).void }"
       out << "    attr_writer :client"
       out << ""

@@ -1,3 +1,10 @@
+###  v0.3.1  (2026-07-28)
+- `GraphWeaver.extend_t_sig` controls whether generated modules/structs emit
+  `extend T::Sig`. Default (`nil`) auto-detects a global T::Sig injection
+  (`class Module; include T::Sig`) and skips the now-redundant `extend` — so
+  generated code stays clean under rubocop's `Sorbet/RedundantExtendTSig`.
+  Force with `true`/`false`; `false` requires the global include.
+
 ###  v0.3.0  (2026-07-28)
 - Renamed `register_type` to `extend_type` to disambiguate intent: it
   *decorates* a generated struct with mixin modules/helpers — it doesn't

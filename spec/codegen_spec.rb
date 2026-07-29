@@ -664,4 +664,32 @@ describe GraphWeaver::Codegen do
       end
     end
   end
+
+  describe "extend T::Sig emission (GraphWeaver.extend_t_sig)" do
+    after { GraphWeaver.extend_t_sig = nil } # restore the auto-detect default
+
+    def source
+      described_class.generate(schema: Demo::Schema, query: "query People { people { name } }")
+    end
+
+    it "emits by default when T::Sig isn't globally injected (standalone safety)" do
+      expect(source).to include("extend T::Sig")
+    end
+
+    it "omits it when set false — rely on a global `class Module; include T::Sig`" do
+      GraphWeaver.extend_t_sig = false
+      expect(source).not_to include("extend T::Sig")
+    end
+
+    it "auto-detects a global T::Sig injection and skips the redundant extend" do
+      allow(GraphWeaver).to receive(:global_tsig?).and_return(true)
+      expect(source).not_to include("extend T::Sig")
+    end
+
+    it "an explicit setting overrides auto-detect" do
+      allow(GraphWeaver).to receive(:global_tsig?).and_return(true)
+      GraphWeaver.extend_t_sig = true
+      expect(source).to include("extend T::Sig")
+    end
+  end
 end
