@@ -1,3 +1,11 @@
+###  v0.3.4  (2026-07-29)
+- Shared fragments: define reusable named fragments once (default
+  `app/graphql/fragments`, configurable via `GraphWeaver.fragments_paths`) and
+  spread them from any query. Each query inlines only the fragments it
+  transitively spreads, so the sent query stays self-contained. Fragment files
+  hold only fragments; names are unique across them. Works in `generate!` and
+  dynamic `parse`.
+
 ###  v0.3.3  (2026-07-29)
 - Union member-type dedup: a union selected more than once on a struct now
   collapses to one Ruby type family instead of a distinct per-field family with

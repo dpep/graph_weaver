@@ -86,6 +86,24 @@ reviewed like any other code — and never edited by hand.
 PersonQuery.execute!(id: "1").person&.name   # typed, via GraphWeaver.client
 ```
 
+### Shared fragments
+
+Define reusable fragments once and spread them from any query:
+
+```graphql
+# app/graphql/fragments/person_fields.graphql
+fragment PersonFields on Person { name birthday }
+
+# app/graphql/queries/person.graphql
+query($id: ID!) { person(id: $id) { ...PersonFields } }
+```
+
+Each query inlines only the fragments it (transitively) spreads, so the sent
+`QUERY` stays self-contained — the server never needs your fragment library.
+Fragment files hold only fragments (no operations), and names are unique across
+them. Point elsewhere with `GraphWeaver.fragments_paths` (an appendable list,
+default `app/graphql/fragments`).
+
 ## 6. Test against fakes
 
 ```ruby

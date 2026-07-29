@@ -244,6 +244,61 @@ class GraphWeaver::Codegen
     false
   end
 
+  # Parse every fragment file under `paths` into one { name => FragmentDefinition }
+  # map — reusable fragments a query can spread. Fragment files hold only
+  # fragments (no operations); names are unique across them.
+  def self.load_fragments(paths)
+    Array(paths).flat_map { |dir| Dir[File.join(dir, "*.graphql")].sort }.each_with_object({}) do |file, out|
+      doc = GraphQL.parse(File.read(file))
+      if doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).any?
+        raise GraphWeaver::Error, "#{file}: fragment files define only fragments, no operations"
+      end
+      doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).each do |frag|
+        raise GraphWeaver::Error, "duplicate shared fragment '#{frag.name}' (#{file})" if out.key?(frag.name)
+        out[frag.name] = frag
+      end
+    end
+  end
+
+  # Append the shared fragments a query spreads (transitively) to its source, so
+  # the sent query is self-contained. Unused shared fragments are left out.
+  def self.inline_fragments(query, shared)
+    return query if shared.empty?
+
+    doc = GraphQL.parse(query)
+    local = doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).map(&:name)
+    used = reachable_fragments(fragment_spreads(doc.definitions), shared, local)
+    return query if used.empty?
+
+    "#{query.rstrip}\n\n#{used.sort.map { |name| shared.fetch(name).to_query_string }.join("\n\n")}\n"
+  end
+
+  # BFS over spreads, following shared fragments into their own spreads; a
+  # locally-defined or unknown spread is left for schema validation to judge.
+  def self.reachable_fragments(spreads, shared, local)
+    needed = []
+    queue = spreads.dup
+    until queue.empty?
+      name = queue.shift
+      next if needed.include?(name) || local.include?(name) || !shared.key?(name)
+
+      needed << name
+      queue.concat(fragment_spreads([shared.fetch(name)]))
+    end
+    needed
+  end
+  private_class_method :reachable_fragments
+
+  # Names of every fragment spread reachable in these AST nodes.
+  def self.fragment_spreads(nodes, acc = [])
+    nodes.each do |node|
+      acc << node.name if node.is_a?(GraphQL::Language::Nodes::FragmentSpread)
+      fragment_spreads(node.selections, acc) if node.respond_to?(:selections)
+    end
+    acc
+  end
+  private_class_method :fragment_spreads
+
   # Structured shape for a schema-validation error: message plus its first
   # source location, so ValidationError#errors is inspectable.
   def validation_detail(error)

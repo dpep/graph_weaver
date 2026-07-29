@@ -67,7 +67,7 @@ module GraphWeaver
     #
     # The singular accessors read the first entry (the default target
     # for generate! and the rake tasks); assigning one replaces the list.
-    attr_writer :queries_paths, :generated_paths, :schema_path
+    attr_writer :queries_paths, :generated_paths, :schema_path, :fragments_paths
 
     # Entries may be glob patterns — the generated default also matches
     # per-schema layouts (app/graphql/github/generated). Queries stay
@@ -75,8 +75,14 @@ module GraphWeaver
     def queries_paths = @queries_paths ||= ["app/graphql/queries"]
     def generated_paths = @generated_paths ||= ["app/graphql/generated", "app/graphql/*/generated"]
 
+    # Reusable named fragments, defined once and available to every query —
+    # each query inlines only the ones it (transitively) spreads, so the sent
+    # query stays self-contained.
+    def fragments_paths = @fragments_paths ||= ["app/graphql/fragments"]
+
     def queries_path = queries_paths.first
     def generated_path = generated_paths.first
+    def fragments_path = fragments_paths.first
 
     def queries_path=(path)
       @queries_paths = path.nil? ? nil : [path]
@@ -196,15 +202,17 @@ module GraphWeaver
     # every variable type once into inputs.rb, with query modules
     # aliasing what they use — the difference between hundreds of
     # duplicated bool_exp structs and one copy per schema.
-    def generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module: self.inputs_module)
+    def generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module: self.inputs_module,
+      fragments: fragments_paths)
       namespace = shared_inputs ? inputs_module : nil
       used = { inputs: [], enums: [], mapped: [] }
+      shared = Codegen.load_fragments(fragments)
 
       plan = Dir[File.join(queries, "*.graphql")].sort.map do |path|
         base = File.basename(path, ".graphql")
         codegen = Codegen.new(
           schema:,
-          query: File.read(path),
+          query: Codegen.inline_fragments(File.read(path), shared),
           module_name: "#{Inflect.camelize(base)}Query",
           client:,
           inputs_namespace: namespace,
@@ -349,11 +357,13 @@ module GraphWeaver
     # falling back to "Query" for anonymous operations — collisions are
     # impossible since each parse gets its own container). Pass name: to
     # override, client: to bake the module's default client/transport.
-    def parse(schema:, query:, name: nil, client: nil, scalars: nil, enums: nil, types: nil)
+    def parse(schema:, query:, name: nil, client: nil, scalars: nil, enums: nil, types: nil,
+      fragments: fragments_paths)
       if query.end_with?(".graphql", ".gql")
         name ||= "#{Inflect.camelize(File.basename(query, ".*"))}Query"
         query = File.read(query)
       end
+      query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments))
 
       Codegen.parse(schema:, query:, module_name: name, client:, scalars:, enums:, types:)
     end
