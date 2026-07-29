@@ -49,8 +49,12 @@ class GraphWeaver::Codegen
   # mixin modules, each keyed by GraphQL name). inputs_namespace: is the
   # shared-inputs workflow (see GraphWeaver.generate!): variable types
   # live once in that module and the query module aliases what it uses.
+  # unions_namespace:/hoistable_unions: are the parallel shared-unions
+  # workflow — a whole-union field spread as a named shared fragment resolves
+  # to one canonical type in that module (see used_union_names).
   def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
-    scalars: nil, enums: nil, types: nil, inputs_namespace: nil)
+    scalars: nil, enums: nil, types: nil, inputs_namespace: nil, unions_namespace: nil,
+    hoistable_unions: nil)
     @schema = schema
     @query = query.strip
     @module_name = module_name
@@ -59,6 +63,12 @@ class GraphWeaver::Codegen
     @enums = enums || {}
     @types = types || {}
     @inputs_namespace = inputs_namespace
+    # the shared-unions workflow: unions_namespace names the module hoisted
+    # unions live in; hoistable_unions is the set of shared fragment names this
+    # query may hoist (spreads it inlined, minus any it shadows locally)
+    @unions_namespace = unions_namespace
+    @hoistable_unions = hoistable_unions || []
+    @used_unions = []
     @client_const = self.class.client_const(client)
 
     if client && @client_const.nil?
@@ -111,6 +121,11 @@ class GraphWeaver::Codegen
     { inputs: @variable_inputs.keys, enums: @variable_enums.keys, mapped: @mapped_enums.keys }
   end
 
+  # The shared union fragments this query hoisted, by name — the generate!
+  # workflow unions these across queries to decide what the shared unions
+  # module must contain.
+  def used_union_names = @used_unions.dup
+
   # The shared inputs artifact: the named input/enum types — plus
   # everything they transitively reference — emitted once per schema as
   # a manifest (inputs.rb) plus one file per type under inputs/, so a
@@ -136,6 +151,36 @@ class GraphWeaver::Codegen
     input_types.sort.each { |name| input_node(@schema.get_type(name)) }
 
     emit_inputs_files
+  end
+
+  # The shared unions artifact: each named shared fragment a query hoisted,
+  # built once against the schema as <module_name>::<Name>, so the same union
+  # across queries resolves to one Ruby type family. `fragments` is the loaded
+  # shared-fragment table (nested spreads resolve through it); `names` the
+  # fragments to build. Returns { "unions.rb" => source }.
+  def self.generate_unions(schema:, module_name:, fragments:, names:,
+    scalars: nil, enums: nil, types: nil)
+    codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
+    codegen.generate_unions(fragments, names)
+  end
+
+  def generate_unions(fragments, names)
+    unless @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
+      raise ArgumentError, "unions module name must be a constant name, got #{@module_name.inspect}"
+    end
+
+    @requires = []
+    @mapped_enums = {}
+    # nested spreads inside a shared fragment resolve through the whole table
+    @fragments = fragments
+
+    unions = names.uniq.sort.map do |name|
+      fragment = fragments.fetch(name)
+      type = @schema.get_type(fragment.type.name)
+      UnionNode.new(camelize(name), union_members(type, fragment.selections))
+    end
+
+    emit_unions_file(unions)
   end
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
@@ -168,6 +213,7 @@ class GraphWeaver::Codegen
     @variable_enums = {}
     @variable_inputs = {}
     @mapped_enums = {}
+    @used_unions = []
     # requires the generated file needs (custom scalars, enum mappings,
     # type helpers all contribute)
     @requires = []
@@ -260,14 +306,22 @@ class GraphWeaver::Codegen
     end
   end
 
-  # Append the shared fragments a query spreads (transitively) to its source, so
-  # the sent query is self-contained. Unused shared fragments are left out.
-  def self.inline_fragments(query, shared)
-    return query if shared.empty?
+  # The shared fragments a query spreads (transitively), excluding any it
+  # shadows with a local definition of the same name — the names
+  # inline_fragments appends, and the set the generate! workflow may hoist
+  # when they sit on a whole-union field.
+  def self.shared_fragment_spreads(query, shared)
+    return [] if shared.empty?
 
     doc = GraphQL.parse(query)
     local = doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).map(&:name)
-    used = reachable_fragments(fragment_spreads(doc.definitions), shared, local)
+    reachable_fragments(fragment_spreads(doc.definitions), shared, local)
+  end
+
+  # Append the shared fragments a query spreads (transitively) to its source, so
+  # the sent query is self-contained. Unused shared fragments are left out.
+  def self.inline_fragments(query, shared)
+    used = shared_fragment_spreads(query, shared)
     return query if used.empty?
 
     "#{query.rstrip}\n\n#{used.sort.map { |name| shared.fetch(name).to_query_string }.join("\n\n")}\n"
@@ -370,6 +424,14 @@ class GraphWeaver::Codegen
 
             name = pick_name(member.graphql_name, key, taken)
             nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name)) }
+          elsif @unions_namespace && (frag = lone_shared_spread(sub_selections)) &&
+              @hoistable_unions.include?(frag)
+            # a whole-union field spread as a named shared fragment: hoist to
+            # the shared unions module so the same union across queries is one
+            # Ruby type family (one exhaustive `case ... T.absurd`).
+            @used_unions << frag unless @used_unions.include?(frag)
+            ref = UnionRefNode.new(camelize(frag))
+            type_ref(field_type) { ref }
           else
             members = union_members(core, sub_selections)
             # reuse an identical sibling union (pick_name/name only on a miss)
@@ -422,6 +484,17 @@ class GraphWeaver::Codegen
   # result keys selected as plain fields (outside any type condition)
   def bare_fields(selections)
     selections.grep(GraphQL::Language::Nodes::Field).map { |field| field.alias || field.name }
+  end
+
+  # The fragment name when a selection is exactly one bare fragment spread
+  # (`{ ...F }`) — the shape a union field must have to hoist into the shared
+  # unions module. A spread carrying directives (@skip/@include), or mixed with
+  # other fields, stays a locally-emitted union.
+  def lone_shared_spread(selections)
+    return unless selections.size == 1
+
+    spread = selections.first
+    spread.name if spread.is_a?(GraphQL::Language::Nodes::FragmentSpread) && spread.directives.empty?
   end
 
   # does the flattened selection (as seen by member) include at least one
@@ -486,6 +559,7 @@ class GraphWeaver::Codegen
       inner = node.fields.map { |f| "#{f.prop}=#{signature(f.node)}" }.sort.join(",")
       "o:#{node.graphql_type}(#{inner})"
     when UnionNode then "u:(#{union_signature(node.members)})"
+    when UnionRefNode then "ur:#{node.class_name}" # hoisted — identity is its shared name
     else "x:#{node.object_id}" # unknown node kind — never collapse
     end
   end

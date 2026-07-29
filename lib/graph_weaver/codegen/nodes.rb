@@ -277,6 +277,26 @@ class GraphWeaver::Codegen
     def nested = self
   end
 
+  # A reference to a union hoisted into the shared unions module (a named
+  # shared fragment spread as a whole union field): the query references
+  # <Name>::Type and dispatches through <Name>.from_h, where <Name> is the
+  # alias the query module gives GraphQLUnions::<Name>. The type family lives
+  # once in the shared module, so the same union across queries is one Ruby
+  # type — nested is nil, nothing is emitted here.
+  class UnionRefNode < Node
+    attr_reader :class_name
+
+    def initialize(class_name)
+      @class_name = class_name
+    end
+
+    def bare_type = "#{class_name}::Type"
+
+    def cast(expr, _depth)
+      "#{class_name}.from_h(#{expr})"
+    end
+  end
+
   # An input-object variable: emitted as a module-level T::Struct whose
   # serialize produces the wire hash. Inputs never cast FROM the wire.
   # Joins the coerce protocol so execute kwargs accept plain hashes,

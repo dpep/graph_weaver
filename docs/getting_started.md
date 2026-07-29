@@ -104,6 +104,33 @@ Fragment files hold only fragments (no operations), and names are unique across
 them. Point elsewhere with `GraphWeaver.fragments_paths` (an appendable list,
 default `app/graphql/fragments`).
 
+### Shared unions
+
+When a shared fragment *is* the whole selection on a union field, its type is
+hoisted once into a `GraphQLUnions` module and every query that spreads it
+aliases the same type — so a `union` selected across many queries becomes one
+Ruby type family, and you write one exhaustive `case … when … T.absurd` that
+works everywhere:
+
+```graphql
+# app/graphql/fragments/feed_item.graphql
+fragment FeedItemFields on FeedItem {
+  __typename
+  ... on Post { title }
+  ... on Photo { url }
+}
+
+# any query
+query { feed { ...FeedItemFields } }   # feed : T::Array[FeedItemFields::Type]
+```
+
+Hoisting is what the shared fragment buys you — there's no flag. It triggers
+only when the union field's selection is exactly that one spread (mix in other
+fields, or shadow the fragment with a query-local one of the same name, and the
+union stays inlined in that query). Named like the inputs module from the output
+path (`GraphQLUnions`, or `GithubUnions` in a multi-schema layout); override
+with `GraphWeaver.unions_module=`.
+
 ## 6. Test against fakes
 
 ```ruby

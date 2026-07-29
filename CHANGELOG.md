@@ -1,4 +1,13 @@
 ###  v0.4.0  (2026-07-28)
+- Shared unions: when a named shared fragment is the whole selection on a union
+  field (`feed { ...FeedItemFields }`), its type is hoisted once into a
+  `GraphQLUnions` module and every query that spreads it aliases the same type —
+  so a union selected across many queries is one Ruby type family (one
+  exhaustive `case … T.absurd`), not a fresh dispatch module per query. No flag:
+  the shared fragment is the opt-in. Triggers only for an exact lone spread;
+  mixing other fields, or shadowing with a query-local fragment, keeps the union
+  inlined. Module name derives from the output path (override with
+  `GraphWeaver.unions_module=`); dynamic `parse` still inlines.
 - Removed the `shared_inputs:` option from `generate!` / `verify_generated!`.
   Directory-based generation always emits each input type once into a shared
   module — the self-contained-module opt-out added complexity for little value.

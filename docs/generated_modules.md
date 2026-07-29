@@ -253,7 +253,11 @@ mod.execute!(where:)
   interface-level fields only → one shared struct; a single `... on X`
   condition and nothing else → `X`'s struct, always nilable — a
   non-matching runtime type comes back as `nil`, so narrowing doubles as
-  filtering.
+  filtering. When a whole union field is selected as one named *shared*
+  fragment (`{ ...FeedItemFields }`), that type is hoisted once into the
+  `GraphQLUnions` module and each query aliases it — so the same union is one
+  Ruby type family across queries, not a fresh dispatch module per query. Like
+  shared inputs, it's a `generate!`-directory concern; dynamic `parse` inlines.
 - **`@skip` / `@include`** — a directive-conditional field may be absent from
   the response regardless of schema nullability, so its generated type is
   always nilable.
