@@ -1,3 +1,11 @@
+###  v0.4.0  (2026-07-28)
+- Removed the `shared_inputs:` option from `generate!` / `verify_generated!`.
+  Directory-based generation always emits each input type once into a shared
+  module — the self-contained-module opt-out added complexity for little value.
+  Single-query `parse` / `Codegen.generate` still inline their types (there's
+  no set to share against). Only affects callers who passed
+  `shared_inputs: false`.
+
 ###  v0.3.4  (2026-07-29)
 - Shared fragments: define reusable named fragments once (default
   `app/graphql/fragments`, configurable via `GraphWeaver.fragments_paths`) and

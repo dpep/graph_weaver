@@ -210,9 +210,8 @@ emitted **once per schema** — one file per type under
 named from the output path: the conventional layout gets
 `GraphQLInputs`, while a multi-schema layout names each schema's module
 after its directory (`app/graphql/github/generated` → `GithubInputs`).
-Override globally with `GraphWeaver.inputs_module=` or per run with
-`generate!(inputs_module:)`; opt out with
-`generate!(shared_inputs: false)`. Per-type files keep schema drift
+Override the module name globally with `GraphWeaver.inputs_module=` or per run
+with `generate!(inputs_module:)`. Per-type files keep schema drift
 reviewable: a migration diffs exactly the types it touched, and types
 the schema drops are pruned on regeneration (`verify` flags strays).
 Query modules alias what they touch,

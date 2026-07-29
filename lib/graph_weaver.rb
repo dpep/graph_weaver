@@ -124,11 +124,11 @@ module GraphWeaver
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Pair with a freshness spec (docs/generated_modules.md).
     def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil,
-      shared_inputs: true, inputs_module: nil)
+      inputs_module: nil)
       schema ||= locate_schema!
       inputs_module ||= self.inputs_module(output)
 
-      plan = generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module:)
+      plan = generation_plan(queries:, schema:, client:, inputs_module:)
       written = plan.map do |filename, source|
         target = File.join(output, filename)
         FileUtils.mkdir_p(File.dirname(target))
@@ -155,10 +155,10 @@ module GraphWeaver
     #        GraphWeaver.verify_generated!
     #      end
     def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil,
-      shared_inputs: true, inputs_module: nil)
+      inputs_module: nil)
       schema ||= locate_schema!
       inputs_module ||= self.inputs_module(output)
-      plan = generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module:)
+      plan = generation_plan(queries:, schema:, client:, inputs_module:)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
         target unless File.exist?(target) && File.read(target) == source
@@ -198,13 +198,13 @@ module GraphWeaver
     end
     private :locate_schema!
 
-    # (filename, source) per artifact: shared_inputs (the default) emits
-    # every variable type once into inputs.rb, with query modules
-    # aliasing what they use — the difference between hundreds of
-    # duplicated bool_exp structs and one copy per schema.
-    def generation_plan(queries:, schema:, client:, shared_inputs:, inputs_module: self.inputs_module,
+    # (filename, source) per artifact: every variable type is emitted once into
+    # inputs.rb, with query modules aliasing what they use — the difference
+    # between hundreds of duplicated bool_exp structs and one copy per schema.
+    # (Single-query parse still inlines its types — there's no set to share.)
+    def generation_plan(queries:, schema:, client:, inputs_module: self.inputs_module,
       fragments: fragments_paths)
-      namespace = shared_inputs ? inputs_module : nil
+      namespace = inputs_module
       used = { inputs: [], enums: [], mapped: [] }
       shared = Codegen.load_fragments(fragments)
 
