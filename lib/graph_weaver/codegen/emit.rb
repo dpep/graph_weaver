@@ -288,7 +288,9 @@ class GraphWeaver::Codegen
       end
       out << ""
 
-      node.fields.filter_map { |field| field.node.nested }.each do |child|
+      # uniq by object identity: deduped sibling unions share one node, so the
+      # shared type is emitted once (both fields' consts already reference it).
+      node.fields.filter_map { |field| field.node.nested }.uniq.each do |child|
         emit_nested(child, out, indent + 1)
         out << ""
       end

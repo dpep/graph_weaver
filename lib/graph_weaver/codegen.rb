@@ -271,6 +271,10 @@ class GraphWeaver::Codegen
     node.graphql_type = type.graphql_name
     node.mixins = type_mixins(type.graphql_name)
     taken = [class_name]
+    # Dedup structurally-identical dispatch-union fields on this struct: the
+    # same union selected two ways (unblockOptions vs selectedOption) shares
+    # one Ruby type, so consumers get one exhaustive `case ... T.absurd`.
+    union_cache = {}
 
     gather(type, selections).each do |key, field_nodes|
       field_name = field_nodes.first.name
@@ -312,8 +316,11 @@ class GraphWeaver::Codegen
             name = pick_name(member.graphql_name, key, taken)
             nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name)) }
           else
-            name = pick_name(core.graphql_name, key, taken)
-            type_ref(field_type) { union_node(core, sub_selections, name) }
+            members = union_members(core, sub_selections)
+            # reuse an identical sibling union (pick_name/name only on a miss)
+            union = (union_cache[union_signature(members)] ||=
+              UnionNode.new(pick_name(core.graphql_name, key, taken), members))
+            type_ref(field_type) { union }
           end
         when "ENUM"
           if (mapped = mapped_enum_node(core))
@@ -388,19 +395,44 @@ class GraphWeaver::Codegen
   # concrete type: one member struct per possible type; wire dispatch
   # reads __typename, so the query must select it. For interfaces, the
   # interface's own field selections gather into every member.
-  def union_node(type, selections, class_name)
+  # The union's member structs (graphql type name => ObjectNode), sorted for
+  # deterministic output. Dispatch reads __typename, so the query must select
+  # it; for interfaces the interface-level fields gather into every member.
+  def union_members(type, selections)
     unless gather(type, selections).key?("__typename")
       raise ArgumentError,
-        "select __typename on #{type.graphql_name} so #{class_name} can dispatch — " \
+        "select __typename on #{type.graphql_name} so the union can dispatch — " \
         "or narrow to a single `... on Type` condition (no dispatch needed)"
     end
 
-    # sorted so output is deterministic across schema sources
-    members = @schema.possible_types(type).sort_by(&:graphql_name).to_h do |possible|
+    @schema.possible_types(type).sort_by(&:graphql_name).to_h do |possible|
       [possible.graphql_name, object_node(possible, selections, camelize(possible.graphql_name))]
     end
+  end
 
-    UnionNode.new(class_name, members)
+  # A name-independent structural fingerprint of a union's members, so two
+  # occurrences that generate identical structs collapse to one Ruby type.
+  def union_signature(members)
+    members.map { |gname, member| "#{gname}=#{signature(member)}" }.sort.join(",")
+  end
+
+  # Structural signature of a node — ignores the generated class name (which
+  # varies per occurrence), keying on GraphQL type, selection shape, and
+  # nullability so only genuinely-identical shapes collapse.
+  def signature(node)
+    case node
+    when NonNull then "!#{signature(node.of)}"
+    when List then "[#{signature(node.of)}]"
+    when NarrowedNode then "?#{signature(node.nested)}"
+    when Scalar then "s:#{node.bare_type}"
+    when EnumNode then "e:#{node.values.sort.join("|")}"
+    when MappedEnum then "m:#{node.graphql_name}"
+    when ObjectNode
+      inner = node.fields.map { |f| "#{f.prop}=#{signature(f.node)}" }.sort.join(",")
+      "o:#{node.graphql_type}(#{inner})"
+    when UnionNode then "u:(#{union_signature(node.members)})"
+    else "x:#{node.object_id}" # unknown node kind — never collapse
+    end
   end
 
   # Build a node from an AST type reference (variable definitions), where

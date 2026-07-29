@@ -734,4 +734,58 @@ describe GraphWeaver::Codegen do
         .to raise_error(GraphWeaver::Error, /no scalar field/)
     end
   end
+
+  describe "union member-type dedup" do
+    # The same union selected two ways collapses to one Ruby type family, so a
+    # consumer gets a single exhaustive `case ... T.absurd`, not per-field families.
+    def source(sdl, query)
+      described_class.generate(schema: GraphQL::Schema.from_definition(sdl), query:)
+    end
+
+    let(:sdl) do
+      <<~GRAPHQL
+        union Contact = Email | Phone
+        type Email { address: String! label: String! }
+        type Phone { number: String! }
+        type User { primary: Contact secondary: Contact! }
+        type Query { user: User }
+      GRAPHQL
+    end
+    let(:sel) { "{ __typename ... on Email { address } ... on Phone { number } }" }
+
+    it "collapses the same union selected identically into one type family" do
+      src = source(sdl, "query D { user { primary #{sel} secondary #{sel} } }")
+      expect(src.scan(/module \w*Contact\b/).uniq).to eq(["module Contact"])
+      expect(src).to include("const :primary, T.nilable(Contact::Type)")
+      expect(src).to include("const :secondary, Contact::Type") # shared type, wrapper differs
+    end
+
+    it "keeps distinct types when the selections differ" do
+      differ = "query D { user { primary #{sel} " \
+               "secondary { __typename ... on Email { address label } ... on Phone { number } } } }"
+      expect(source(sdl, differ).scan(/module \w*Contact\b/).uniq.size).to eq(2)
+    end
+
+    it "shares the core across a list and a single field (wrappers differ)" do
+      list_sdl = sdl.sub("secondary: Contact!", "secondary: [Contact!]!")
+      src = source(list_sdl, "query D { user { primary #{sel} secondary #{sel} } }")
+      expect(src.scan(/module \w*Contact\b/).uniq.size).to eq(1)
+      expect(src).to include("const :secondary, T::Array[Contact::Type]")
+    end
+
+    it "deserializes both fields into one member family — one dispatch handles both" do
+      mod = Module.new
+      mod.module_eval(source(sdl, "query D { user { primary #{sel} secondary #{sel} } }"))
+      user = mod.const_get(:D).const_get(:Result).const_get(:User)
+      u = user.from_h(
+        "primary" => { "__typename" => "Email", "address" => "a" },
+        "secondary" => { "__typename" => "Phone", "number" => "n" },
+      )
+      expect(u.primary).to be_a(user::Contact::Email)
+      expect(u.secondary).to be_a(user::Contact::Phone)
+
+      render = ->(opt) { opt.is_a?(user::Contact::Email) ? :email : :phone }
+      expect([u.primary, u.secondary].map(&render)).to eq(%i[email phone])
+    end
+  end
 end

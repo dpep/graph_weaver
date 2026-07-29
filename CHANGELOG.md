@@ -1,3 +1,11 @@
+###  v0.3.3  (2026-07-29)
+- Union member-type dedup: a union selected more than once on a struct now
+  collapses to one Ruby type family instead of a distinct per-field family with
+  identical members — so a consumer gets a single exhaustive
+  `case … T.absurd` across every field of that union. Structurally different
+  selections stay distinct types. (First cut: same-struct siblings; regenerate
+  checked-in modules to pick it up.)
+
 ###  v0.3.2  (2026-07-29)
 - `register_scalar` accepts a `Type.field` coordinate to override how one
   field's scalar deserializes — so the same scalar can be different Ruby types
