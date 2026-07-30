@@ -174,12 +174,18 @@ pet.display_name   # => "Shelby 🦴"
 pet.name           # => "Shelby" — the wire value stays honest
 ```
 
-Because the include is emitted into the generated source, `srb tc` checks
-the helpers against each query's actual selection — a helper that calls
-`birthday` on a query that never selected it is a **static error**, which
-doubles as selection-completeness checking. Registrations are additive
-(global plus client-scoped stack), and fakes/cassettes get the behavior
-automatically since it lives on the struct.
+The methods live on the struct, so they see its wire fields at runtime and
+fakes/cassettes get the behavior automatically; registrations are additive
+(global plus client-scoped stack). One caveat on *static* typing, though:
+`srb tc` checks a mixin's method bodies in the module's own scope, not the
+including struct's — so a helper that reads a wire field (`name`, `birthday`)
+doesn't resolve it and fails with "method does not exist on the module." Write
+such a helper at `# typed: false`, or reach the field through `T.unsafe(self)`
+— either way its body isn't statically checked against the selection. (Sorbet's
+`requires_ancestor` is the escape in principle, but it needs an experimental
+flag and a concrete ancestor, which a per-query struct isn't.) The only place a
+field-reading derivation type-checks natively is *inside* the struct body, where
+the field is in scope — which is codegen's job, not a mixin's.
 
 For quick decoration, build the mixin inline — the block is
 `module_eval`'d into a fresh module auto-named under
@@ -191,6 +197,8 @@ api.extend_type("Pet") do
 end
 ```
 
-Same runtime behavior, one caveat: `srb tc` can't see into block-defined
-methods, so prefer a named module where static checking matters —
-complexity on demand.
+Same runtime behavior, less static reach: the block becomes a runtime module
+with no source on disk, so `srb tc` can't see its methods at all — fine in
+dynamic `parse`, but in a checked-in `# typed: strict` file it's an unresolved
+reference. Prefer a named module (and mind the field-access caveat above) where
+static checking matters — complexity on demand.

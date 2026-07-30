@@ -348,13 +348,15 @@ module GraphWeaver
     end
 
     # Include app-owned helper modules into every struct generated from a
-    # GraphQL type — derived values live as methods next to the honest
-    # wire data, and srb tc checks them against each query's selection:
+    # GraphQL type — derived values live as methods next to the honest wire
+    # data, on the struct at runtime (fakes/cassettes included):
     #
     #      GraphWeaver.extend_type("Pet", PetHelpers)
     #
-    # Or build the mixin inline with a block (module_eval'd into an
-    # auto-named module — quick, but invisible to srb tc):
+    # A helper that reads a wire field is checked by srb tc in the module's
+    # own scope, not the struct's, so the field won't resolve — write it
+    # # typed: false or reach it via T.unsafe(self). Or build the mixin inline
+    # with a block (module_eval'd into an auto-named module — invisible to srb):
     #
     #      GraphWeaver.extend_type("Pet") do
     #        def display_name = "#{name} the pet"
