@@ -270,6 +270,39 @@ mode) the struct raises a NoMethodError naming the prop that does exist —
 `use 'name_with_owner'` for the exact wire name, `did you mean ...?` for
 a near-miss typo in either casing.
 
+### Consuming a union — dispatch on the class, not `__typename`
+
+`from_h` already reads `__typename` off the wire and builds the right member
+struct, so what you hold is a real `Book` or `Disc`, not a tag. Branch on the
+class and let Sorbet do the rest:
+
+```ruby
+items.each do |item|          # item : T.any(Result::Item::Book, Result::Item::Disc)
+  case item
+  when Result::Item::Book then item.title     # narrowed to Book — .title is available
+  when Result::Item::Disc then item.runtime   # narrowed to Disc — .runtime is available
+  else T.absurd(item)
+  end
+end
+```
+
+Two things a `case item.__typename` on the string can't give you. `when Book`
+*narrows*: inside the branch `item` is statically a `Book`, so its fields
+typecheck (a `Disc` field would be a compile error) — a string value narrows
+nothing. And after every member, the `T.any` is exhausted, so `T.absurd` asserts
+the `else` is unreachable: add a member to the union, regenerate, and the
+`T.absurd` stops compiling until you handle it. Dispatching on the string tag
+gets you neither — mistakes and schema growth fall through to a runtime raise.
+
+`__typename` is still there as a plain `String` if you want the raw tag, but you
+rarely need it to dispatch. Its one real use is the case the class can't cover:
+two *differently-selected* occurrences of the same union are distinct type
+families (`Result::Item::Book` is not `Result::FeaturedItem::Book`), so a `case`
+written for one won't span the other. To hold "the same union" as one type
+across queries, select it through a shared fragment
+([shared unions](#selections)); if all you have is the bare tag, `__typename` is
+the common denominator (but an unchecked one).
+
 ## Naming
 
 Module names derive from the operation name (`query GetPerson` → `GetPerson`);
