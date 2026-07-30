@@ -31,10 +31,9 @@ inputs — are identical to the API schema, so your generated structs are correc
 and because codegen is **query-driven**, nothing federation-internal could
 generate code anyway.
 
-The one caveat: a supergraph is a **superset** of the API schema, so weaver can
-only ever **over-permit** — it will never reject a valid query, but it won't
-flag one that selects a field the API *hides*. In practice that's exactly one
-thing: `@inaccessible`.
+A supergraph is a **superset** of the API schema — it carries elements the
+public API hides, marked `@inaccessible`. Weaver removes those on load (below),
+so the schema it generates against is the API schema, not the superset.
 
 ### `@inaccessible`
 
@@ -48,57 +47,32 @@ It's a fed-v2 feature — common in mature, multi-team graphs with lots of share
 types, rare in small or young ones, and targeted where present (a handful of
 elements, not every field).
 
-Reading the raw supergraph, weaver would let you select an `@inaccessible`
-field — but the router serves the API schema and rejects it at runtime (a
-"field doesn't exist" error, surfaced as [`QueryError` / `schema_stale?`](errors.md)).
-So the gap is narrow (you'd have to query a hidden field on purpose) and fails
-loudly, not silently.
+Weaver derives the API schema from the supergraph for you: loading strips every
+`@inaccessible` element and cascades — a field/argument/union-member/interface
+referencing a removed type goes too, and a type left empty is removed in turn —
+so codegen validates against **exactly** what clients can query. There's no
+over-permit gap, and no need for Apollo's JS tooling (`@apollo/federation-internals`)
+to subtract the API schema first; feed weaver the raw supergraph and you get the
+router's contract. (This is a pure SDL rewrite at load time — see
+[`SchemaLoader`](../lib/graph_weaver/schema_loader.rb).)
 
-One grep says whether it affects you at all:
+Other federation directives hide nothing from the schema, so weaver keeps the
+field and ignores the directive: `@requiresScopes` / `@policy` / `@authenticated`
+enforce access at runtime; `@tag` / `@requires` / `@provides` / `@external` are
+metadata.
 
-```sh
-grep -c '@inaccessible' supergraph.graphql
-```
+## Which schema to feed
 
-Zero, and the supergraph *is* the API schema for weaver's purposes — feed it
-directly.
+Any of these — they all produce the same generated code:
 
-Other federation directives hide nothing from the schema:
-`@requiresScopes` / `@policy` / `@authenticated` keep the field and enforce
-access at runtime; `@tag` / `@requires` / `@provides` / `@external` are metadata
-weaver ignores.
-
-## The exact contract: the API schema
-
-To make codegen match the router precisely (no over-permit), feed weaver the
-**API schema** instead of the raw supergraph. Deriving it is a *subtraction*
-from the composed graph — not composition — done with Apollo's tooling:
-
-```sh
-rover supergraph compose --config supergraph.yaml > supergraph.graphql
-```
-
-```js
-// then, in JS, strip to the API schema:
-import { Supergraph } from '@apollo/federation-internals';
-import { printSchema } from 'graphql';
-
-const api = Supergraph.fromString(supergraphSdl).apiSchema().toGraphQLJSSchema();
-process.stdout.write(printSchema(api));   // api.graphql — feed this to weaver
-```
-
-Check the API SDL in (many teams already emit it in CI) and point weaver at it:
-codegen then validates against exactly what clients can query, with no live
-gateway involved.
-
-## Which to use
-
-- **No `@inaccessible`** → point weaver at the supergraph and move on.
-- **Uses `@inaccessible`, and you want codegen to catch hidden-field mistakes** →
-  feed the derived API schema (above), or introspect the live router.
+- **The supergraph SDL** — weaver strips the `@join__*`/`@link` machinery and
+  derives the API schema (removing `@inaccessible`). The common case.
+- **The API schema SDL** — already subtracted (e.g. emitted in your CI); loads
+  as an ordinary schema.
+- **The live router** — introspect it; it already serves the API schema.
 
 A large real supergraph carries more constructs than a toy one (interface
 objects via `@join__type(isInterfaceObject:)`, `@join__unionMember`, enum join
-directives). The mechanism holds, but the honest check is to run codegen against
-your actual composed schema plus a couple of representative queries before
-relying on it.
+directives). The stripping holds across them, but the honest check is to run
+codegen against your actual composed schema plus a couple of representative
+queries before relying on it.

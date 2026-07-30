@@ -56,7 +56,7 @@ module GraphWeaver::SchemaLoader
   end
 
   FEDERATION_PREFIXES = %w[join__ link__ core__].freeze
-  FEDERATION_DIRECTIVES = %w[link core].to_set.freeze
+  FEDERATION_DIRECTIVES = %w[link core inaccessible].to_set.freeze
 
   # Whether a type/directive name belongs to the federation composition layer.
   def self.federation_name?(name)
@@ -73,11 +73,89 @@ module GraphWeaver::SchemaLoader
   # and no join__* leaking into schema.types.
   def self.strip_federation(sdl)
     doc = GraphQL.parse(sdl)
-    kept = doc.definitions
+    defs = remove_inaccessible(doc.definitions)
       .reject { |defn| defn.respond_to?(:name) && federation_name?(defn.name) }
       .map { |defn| strip_federation_directives(defn) }
-    GraphQL::Language::Nodes::Document.new(definitions: kept).to_query_string
+    GraphQL::Language::Nodes::Document.new(definitions: defs).to_query_string
   end
+
+  # Derive the API schema by dropping every element marked @inaccessible —
+  # present in the federated graph but hidden from the public API the router
+  # serves (its common use is safely rolling out a field on a shared type).
+  # Cascades: a field/argument/union-member/implements referencing a removed
+  # type goes too, and a type left with no fields/values/members is itself
+  # removed — repeated to a fixpoint. So codegen matches exactly what clients
+  # can query, without the over-permitting a raw supergraph would allow and
+  # without Apollo's JS tooling to subtract the API schema.
+  def self.remove_inaccessible(definitions)
+    removed = definitions.select { |d| type_definition?(d) && inaccessible?(d) }.map(&:name).to_set
+    loop do
+      survivors = definitions
+        .reject { |d| type_definition?(d) && removed.include?(d.name) }
+        .map { |d| prune_inaccessible(d, removed) }
+      newly = survivors.select { |d| type_definition?(d) && type_emptied?(d) }.map(&:name)
+      return survivors if (newly - removed.to_a).empty?
+
+      removed.merge(newly)
+    end
+  end
+  private_class_method :remove_inaccessible
+
+  # A type-system type definition (object/interface/union/enum/input/scalar) —
+  # not a directive or schema definition.
+  def self.type_definition?(node)
+    node.respond_to?(:name) &&
+      !node.is_a?(GraphQL::Language::Nodes::DirectiveDefinition) &&
+      node.class.name.end_with?("TypeDefinition")
+  end
+  private_class_method :type_definition?
+
+  def self.inaccessible?(node)
+    node.respond_to?(:directives) && node.directives.any? { |d| d.name == "inaccessible" }
+  end
+  private_class_method :inaccessible?
+
+  # Whether pruning left the type with nothing the SDL grammar allows to be
+  # empty — a fieldless object/interface/input, a valueless enum, a memberless
+  # union — so it must be removed and its references cascaded.
+  def self.type_emptied?(node)
+    (node.respond_to?(:fields) && node.fields && node.fields.empty?) ||
+      (node.is_a?(GraphQL::Language::Nodes::EnumTypeDefinition) && node.values.empty?) ||
+      (node.is_a?(GraphQL::Language::Nodes::UnionTypeDefinition) && node.types.empty?)
+  end
+  private_class_method :type_emptied?
+
+  # the unwrapped (through NON_NULL/LIST) type name a field or argument references
+  def self.unwrapped_type_name(node)
+    type = node.type
+    type = type.of_type while type.respond_to?(:of_type)
+    type.name
+  end
+  private_class_method :unwrapped_type_name
+
+  # Remove @inaccessible children and children referencing a removed type,
+  # from a type's fields (and their arguments), enum values, union members,
+  # and implemented interfaces.
+  def self.prune_inaccessible(node, removed)
+    gone = lambda do |child|
+      inaccessible?(child) || (child.respond_to?(:type) && removed.include?(unwrapped_type_name(child)))
+    end
+
+    changes = {}
+    if node.respond_to?(:fields) && node.fields
+      changes[:fields] = node.fields.reject(&gone).map do |field|
+        args = field.respond_to?(:arguments) && field.arguments
+        args && args.any? ? field.merge(arguments: args.reject(&gone)) : field
+      end
+    end
+    changes[:values] = node.values.reject(&gone) if node.respond_to?(:values) && node.values
+    changes[:types] = node.types.reject { |t| removed.include?(t.name) } if node.respond_to?(:types) && node.types
+    if node.respond_to?(:interfaces) && node.interfaces
+      changes[:interfaces] = node.interfaces.reject { |i| removed.include?(i.name) }
+    end
+    changes.empty? ? node : node.merge(changes)
+  end
+  private_class_method :prune_inaccessible
 
   # Recursively remove @join__*/@link applications from a definition and its
   # fields, arguments, and enum values.

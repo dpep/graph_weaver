@@ -265,5 +265,38 @@ describe GraphWeaver::SchemaLoader do
       sdl = "type Query {\n  a: Int\n  b: String\n}"
       expect(described_class.load(sdl).get_type("Query").fields.keys).to eq %w[a b]
     end
+
+    context "@inaccessible (deriving the API schema)" do
+      let(:with_inaccessible) do
+        <<~GRAPHQL
+          directive @inaccessible on FIELD_DEFINITION | OBJECT | ENUM_VALUE | ARGUMENT_DEFINITION
+          directive @join__type(graph: join__Graph!) repeatable on OBJECT | ENUM
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          type Query @join__type(graph: A) {
+            user: User
+            secret: Secret @inaccessible
+            thing(id: ID!, debug: Boolean @inaccessible): Thing
+          }
+          type User @join__type(graph: A) { id: ID! email: String @inaccessible rank: Rank }
+          type Secret @join__type(graph: A) @inaccessible { code: String! }
+          type Thing @join__type(graph: A) { id: ID! }
+          enum Rank @join__type(graph: A) { HIGH LOW BETA @inaccessible }
+        GRAPHQL
+      end
+
+      let(:api) { described_class.load(with_inaccessible) }
+
+      it "drops @inaccessible fields, arguments, and enum values" do
+        expect(api.get_type("User").fields.keys).to eq %w[id rank]         # email gone
+        expect(api.get_type("Query").fields["thing"].arguments.keys).to eq %w[id]  # debug gone
+        expect(api.get_type("Rank").values.keys).to eq %w[HIGH LOW]        # BETA gone
+      end
+
+      it "removes an @inaccessible type and cascades to fields that referenced it" do
+        expect(api.get_type("Secret")).to be_nil
+        expect(api.get_type("Query").fields.keys).to eq %w[user thing]     # secret cascaded away
+        expect(api.types.keys.grep(/join__|link__/)).to be_empty
+      end
+    end
   end
 end

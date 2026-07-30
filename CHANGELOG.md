@@ -1,3 +1,12 @@
+###  v0.4.4  (2026-07-30)
+- Supergraph loading now derives the **API schema**: `@inaccessible` elements
+  (present in the federated graph but hidden from what the router serves) are
+  removed on load, cascading — a field/argument/union-member/interface
+  referencing a removed type goes too, and a type left empty is removed in turn.
+  So codegen validates against exactly what clients can query, with no
+  over-permitting and no Apollo JS tooling to subtract the API schema first.
+  Plain (non-federation) SDL is untouched.
+
 ###  v0.4.3  (2026-07-30)
 - Federation-aware supergraph loading: `SchemaLoader` (and `Client.new`) now
   load a composed Apollo Federation v2 supergraph SDL directly. When the `@join__*`
