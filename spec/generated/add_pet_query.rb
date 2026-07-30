@@ -96,7 +96,7 @@ module AddPetQuery
 
   sig { params(client: T.untyped, name: String, species: T.any(Species, String)).returns(Result) }
   def self.execute!(client = nil, name:, species:)
-    execute(client, name: name, species: species).data!
+    execute(client, name:, species:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

@@ -94,7 +94,7 @@ module FindPetsQuery
 
   sig { params(client: T.untyped, where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped]))).returns(Result) }
   def self.execute!(client = nil, where: nil)
-    execute(client, where: where).data!
+    execute(client, where:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

@@ -1,3 +1,8 @@
+###  v0.4.1  (2026-07-29)
+- Generated `execute!` forwards its kwargs to `execute` via hash shorthand
+  (`execute(client, name:, species:)` rather than `name: name, species: species`)
+  — cosmetic only. Regenerate to refresh (`verify` flags the drift otherwise).
+
 ###  v0.4.0  (2026-07-28)
 - Shared unions: when a named shared fragment is the whole selection on a union
   field (`feed { ...FeedItemFields }`), its type is hoisted once into a

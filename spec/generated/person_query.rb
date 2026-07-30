@@ -109,7 +109,7 @@ module PersonQuery
 
   sig { params(client: T.untyped, id: String).returns(Result) }
   def self.execute!(client = nil, id:)
-    execute(client, id: id).data!
+    execute(client, id:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

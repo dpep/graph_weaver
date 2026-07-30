@@ -128,7 +128,7 @@ module NamedQuery
 
   sig { params(client: T.untyped, name: String).returns(Result) }
   def self.execute!(client = nil, name:)
-    execute(client, name: name).data!
+    execute(client, name:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

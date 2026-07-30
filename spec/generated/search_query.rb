@@ -141,7 +141,7 @@ module SearchQuery
 
   sig { params(client: T.untyped, term: String).returns(Result) }
   def self.execute!(client = nil, term:)
-    execute(client, term: term).data!
+    execute(client, term:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

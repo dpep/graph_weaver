@@ -414,7 +414,8 @@ class GraphWeaver::Codegen
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # `execute(...).data!` — the typed result, or a raised QueryError.
-      forward = (["client"] + params.map { |param| "#{kwarg_name(param)}: #{kwarg_name(param)}" }).join(", ")
+      # kwargs forward via hash shorthand (key == value)
+      forward = (["client"] + params.map { |param| "#{kwarg_name(param)}:" }).join(", ")
 
       if flatten
         out << "  # $#{variables.first.wire}'s fields, flattened into kwargs (single input-object variable)"

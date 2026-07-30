@@ -99,7 +99,7 @@ module AdoptQuery
 
   sig { params(client: T.untyped, name: String, species: T.any(Species, String), birthday: T.nilable(Date), nickname: T.nilable(String)).returns(Result) }
   def self.execute!(client = nil, name:, species:, birthday: nil, nickname: nil)
-    execute(client, name: name, species: species, birthday: birthday, nickname: nickname).data!
+    execute(client, name:, species:, birthday:, nickname:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the
