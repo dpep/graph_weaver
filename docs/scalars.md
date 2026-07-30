@@ -202,3 +202,38 @@ with no source on disk, so `srb tc` can't see its methods at all — fine in
 dynamic `parse`, but in a checked-in `# typed: strict` file it's an unresolved
 reference. Prefer a named module (and mind the field-access caveat above) where
 static checking matters — complexity on demand.
+
+### Flat accessors with `alias:`
+
+The one derivation the generator can type for you is a plain projection — a
+selected field, possibly nested, exposed under a flat accessor. `alias:` emits a
+sig'd delegator *into the struct body*, where the field is in scope, so it's
+fully checked (the thing a mixin can't be):
+
+```ruby
+GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
+
+# generated on the Widget struct:
+#   sig { returns(T.nilable(String)) }
+#   def tag = meta&.tag
+```
+
+So a hand-written value object that only existed to expose `tag` flat over
+`data.dig("meta", "tag")` drops away — the generated struct answers `.tag`
+directly. Forms:
+
+```ruby
+alias: { tag: "meta.tag" }              # explicit accessor name
+alias: "meta.tag"                       # accessor named after the last segment (`tag`)
+alias: ["meta.tag", "meta.color"]       # several at once
+alias: { label: "name", tag: "meta.tag" }
+```
+
+The path is the Ruby accessor chain (`meta.tag`), typed from the selection: any
+nullable hop makes the accessor nilable and inserts `&.`; the leaf can be a
+scalar, enum, or nested struct. It's validated against each query at generation —
+an unselected or misspelled segment (`did you mean 'tag'?`), a path through a
+list, or a name that collides with a real field all fail with a pointed error.
+Registrations stack and are client-scopable, like the mixin forms. For anything
+beyond a passthrough projection — real logic, still typed — reopen the generated
+struct in your own file and add sig'd methods; Sorbet merges the bodies.

@@ -465,7 +465,70 @@ class GraphWeaver::Codegen
       node.fields << ObjectNode::Field.new(prop, key, child)
     end
 
+    node.aliases = resolve_aliases(node)
     node
+  end
+
+  # Resolve each registered alias (extend_type alias:) for this struct's type
+  # against its actual selection — path -> a typed delegator emitted into the
+  # struct body. Validated here, per query, so an unselected or untraversable
+  # path fails at generation with a pointed message.
+  def resolve_aliases(node)
+    type_aliases(node.graphql_type).map do |name, segments|
+      resolve_alias(node, name, segments)
+    end
+  end
+
+  # Registered aliases for a GraphQL type: global registry plus this client's
+  # overlay (client-scoped wins on a name clash).
+  def type_aliases(graphql_name)
+    global = GraphWeaver::Codegen.type_registry[graphql_name]&.dig(:aliases) || {}
+    (global.merge(@types[graphql_name]&.dig(:aliases) || {}))
+  end
+
+  ALIAS_RESERVED = (%w[from_h serialize to_h].to_set + RUBY_KEYWORDS).freeze
+
+  # Walk a dotted path (Ruby prop names) through this struct's selected fields,
+  # building the delegator expression (`meta&.tag`) and its return type. Any hop
+  # is nilable -> the accessor is nilable; a list hop or an unselected segment
+  # raises. The leaf may be any node (scalar, enum, nested struct).
+  def resolve_alias(node, name, segments)
+    if node.fields.any? { |f| f.prop == name } || ALIAS_RESERVED.include?(name)
+      raise GraphWeaver::Error,
+        "alias #{name.inspect} on #{node.graphql_type} collides with an existing field or method"
+    end
+
+    current = T.let(node, T.untyped)
+    parts = []
+    nilable = T.let(false, T::Boolean)
+    segments.each_with_index do |seg, i|
+      field = current.fields.find { |f| f.prop == seg }
+      unless field
+        props = current.fields.map(&:prop)
+        suggestion = defined?(DidYouMean::SpellChecker) &&
+          DidYouMean::SpellChecker.new(dictionary: props).correct(seg).first
+        hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
+        raise GraphWeaver::Error,
+          "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a selected field#{hint}"
+      end
+      nilable ||= !field.node.non_null?
+
+      if i == segments.size - 1
+        leaf = field.node.bare_type
+        type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
+        return ObjectNode::Alias.new(name, (parts << seg).join, type)
+      end
+
+      inner = T.let(field.node, T.untyped)
+      inner = inner.of while inner.is_a?(NonNull)
+      raise GraphWeaver::Error, "alias #{name.inspect}: cannot traverse list-typed '#{seg}'" if inner.is_a?(List)
+      unless inner.is_a?(ObjectNode)
+        raise GraphWeaver::Error, "alias #{name.inspect}: '#{seg}' is not an object to traverse into"
+      end
+
+      parts << seg << (field.node.non_null? ? "." : "&.")
+      current = inner
+    end
   end
 
   # The concrete type conditions a selection mentions (inline fragments

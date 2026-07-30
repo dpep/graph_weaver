@@ -1,3 +1,15 @@
+###  v0.4.2  (2026-07-30)
+- `extend_type` accepts `alias:` — project a selected field (possibly nested)
+  onto a flat, typed accessor emitted into the struct body:
+  `extend_type("Widget", alias: { tag: "meta.tag" })` generates a sig'd
+  `def tag = meta&.tag`. Retires hand-written value objects that only flattened
+  a passthrough field. Takes a `{ name => path }` hash, a bare path string
+  (accessor named after the last segment), or an array of paths. Typed from the
+  selection — a nullable hop makes the accessor nilable and nil-safe; the leaf
+  may be a scalar, enum, or nested struct. Validated per query at generation: an
+  unselected/misspelled segment (with `did you mean`), a list hop, or a name
+  collision raises. Stacks and is client-scopable like the mixin forms.
+
 ###  v0.4.1  (2026-07-29)
 - Generated `execute!` forwards its kwargs to `execute` via hash shorthand
   (`execute(client, name:, species:)` rather than `name: name, species: species`)

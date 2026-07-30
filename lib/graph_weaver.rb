@@ -364,8 +364,8 @@ module GraphWeaver
     #
     # Additive (repeated and client-scoped registrations stack). Global;
     # client.extend_type scopes to one client.
-    def extend_type(graphql_name, *mixins, requires: nil, &block)
-      Codegen.extend_type(graphql_name, *mixins, requires:, &block)
+    def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
+      Codegen.extend_type(graphql_name, *mixins, requires:, **kw, &block)
     end
 
     # Restore the built-in scalars, dropping every custom registration —

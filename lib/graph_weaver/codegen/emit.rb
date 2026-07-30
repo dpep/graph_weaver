@@ -349,6 +349,14 @@ class GraphWeaver::Codegen
       out << "#{pad}  rescue TypeError, ArgumentError, KeyError => e"
       out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, error: e)"
       out << "#{pad}  end"
+
+      # alias delegators (extend_type alias:) — typed accessors that project a
+      # selected field onto the struct, next to the honest wire data
+      node.aliases.each do |a|
+        out << ""
+        out << "#{pad}  sig { returns(#{a.type}) }"
+        out << "#{pad}  def #{a.name} = #{a.expr}"
+      end
       out << "#{pad}end"
     end
 

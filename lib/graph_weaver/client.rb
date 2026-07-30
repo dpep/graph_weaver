@@ -103,10 +103,11 @@ class GraphWeaver::Client
   # struct this client generates from the named GraphQL type — pass
   # modules, or a block to build one inline. Additive with global
   # registrations (see GraphWeaver.extend_type).
-  def extend_type(graphql_name, *mixins, requires: nil, &block)
+  def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
     validate_registration!("type", graphql_name.to_s)
-    entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [] }
-    GraphWeaver::Codegen.add_type_helpers(entry, graphql_name, mixins, requires, block)
+    aliases = GraphWeaver::Codegen.take_aliases(kw)
+    entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [], aliases: {} }
+    GraphWeaver::Codegen.add_type_helpers(entry, graphql_name, mixins, requires, block, aliases)
   end
 
   # Parse a query (a .graphql path or raw string) into a typed module

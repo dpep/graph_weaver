@@ -320,7 +320,7 @@ describe GraphWeaver::Client do
       client.extend_type("Pet") { def echo = name * 2 }
       expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
 
-      expect { client.extend_type("Pet") }.to raise_error(ArgumentError, /modules, or a block/)
+      expect { client.extend_type("Pet") }.to raise_error(ArgumentError, /helper modules, a block, or alias/)
     end
   end
 end

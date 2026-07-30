@@ -102,9 +102,38 @@ class GraphWeaver::Codegen
     #      end
     #
     # Additive: repeated registrations (and client-scoped ones) stack.
-    def extend_type(graphql_name, *mixins, requires: nil, &block)
-      entry = type_registry[graphql_name.to_s] ||= { mixins: [], requires: [] }
-      add_type_helpers(entry, graphql_name, mixins, requires, block)
+    #
+    # alias: projects a (possibly nested) selected field onto a flat, typed
+    # accessor on the struct — the one derivation codegen can type itself, so
+    # it's emitted into the struct body where the field is in scope:
+    #
+    #      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
+    #      GraphWeaver.extend_type("Widget", alias: "meta.tag")        # accessor named `tag`
+    #      GraphWeaver.extend_type("Widget", alias: ["meta.tag", "meta.color"])
+    def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
+      aliases = take_aliases(kw)
+      entry = type_registry[graphql_name.to_s] ||= { mixins: [], requires: [], aliases: {} }
+      add_type_helpers(entry, graphql_name, mixins, requires, block, aliases)
+    end
+
+    # Pull alias: out of the keyword rest and normalize it; any other keyword
+    # is a typo worth flagging rather than silently dropping.
+    def take_aliases(kw)
+      aliases = normalize_aliases(kw.delete(:alias))
+      raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
+      aliases
+    end
+
+    # { accessor => [path, segments] } from a path string (accessor named
+    # after the last segment), an array of such, or an { accessor => path } hash.
+    def normalize_aliases(input)
+      case input
+      when nil then {}
+      when String then { input.split(".").last => input.split(".") }
+      when Array then input.to_h { |path| [path.split(".").last, path.split(".")] }
+      when Hash then input.to_h { |name, path| [name.to_s, path.to_s.split(".")] }
+      else raise ArgumentError, "alias: expects a String, Array, or Hash, got #{input.class}"
+      end
     end
 
     def type_registry
@@ -113,11 +142,13 @@ class GraphWeaver::Codegen
 
     # shared with Client#extend_type: build/validate the mixins and
     # append them to a registry entry
-    def add_type_helpers(entry, graphql_name, mixins, requires, block)
+    def add_type_helpers(entry, graphql_name, mixins, requires, block, aliases = {})
       mixins = mixins.dup
       mixins << helper_module(graphql_name, block) if block
 
-      raise ArgumentError, "pass one or more helper modules, or a block" if mixins.empty?
+      if mixins.empty? && aliases.empty?
+        raise ArgumentError, "pass one or more helper modules, a block, or alias:"
+      end
       mixins.each do |mixin|
         unless mixin.is_a?(Module) && mixin.name
           raise ArgumentError, "type helpers must be named modules, got #{mixin.inspect}"
@@ -126,6 +157,7 @@ class GraphWeaver::Codegen
 
       entry[:mixins].concat(mixins)
       entry[:requires].concat(Array(requires))
+      (entry[:aliases] ||= {}).merge!(aliases)
       entry
     end
 

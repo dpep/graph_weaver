@@ -144,16 +144,20 @@ class GraphWeaver::Codegen
 
   class ObjectNode < Node
     Field = Struct.new(:prop, :key, :node)
+    # a resolved alias delegator (extend_type alias:): the accessor name, the
+    # Ruby path expression it reads (meta&.tag), and its Sorbet return type
+    Alias = Struct.new(:name, :expr, :type)
 
     attr_reader :class_name, :fields
-    # the GraphQL type this struct was generated from, and any registered
-    # helper modules to include (see Codegen.extend_type)
-    attr_accessor :graphql_type, :mixins
+    # the GraphQL type this struct was generated from, any registered helper
+    # modules to include, and any resolved alias delegators (see extend_type)
+    attr_accessor :graphql_type, :mixins, :aliases
 
     def initialize(class_name)
       @class_name = class_name
       @fields = []
       @mixins = []
+      @aliases = []
     end
 
     def bare_type = class_name
