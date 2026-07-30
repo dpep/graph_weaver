@@ -1,11 +1,9 @@
 # typed: ignore — UserQuery is eval'd at runtime, invisible to srb
 
-require "graph_weaver/directive_defaults_patch"
-
 # Apollo Federation: a router exposes a supergraph whose SDL is annotated
-# with join__/link directives. From a client's perspective those are
-# transparent — the API surface is a normal schema. This proves codegen
-# runs against a supergraph SDL directly.
+# with join__/link directives. SchemaLoader strips that composition
+# machinery, so codegen runs against a supergraph SDL directly — no
+# graphql-ruby monkeypatch, and the synthetic join__* types never leak in.
 describe "federation / supergraph" do
   SUPERGRAPH_SDL = <<~GRAPHQL
     schema
@@ -17,9 +15,7 @@ describe "federation / supergraph" do
 
     directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
     directive @join__graph(name: String!, url: String!) on ENUM_VALUE
-    # the real join v0.3 directive shape, defaulted non-null args and all —
-    # loading it requires directive_defaults_patch (graphql-ruby drops
-    # directive-argument defaults when building from SDL)
+    # the real join v0.3 directive shape, defaulted non-null args and all
     directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
     directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
 
@@ -47,7 +43,12 @@ describe "federation / supergraph" do
     }
   GRAPHQL
 
-  let(:schema) { GraphQL::Schema.from_definition(SUPERGRAPH_SDL) }
+  let(:schema) { GraphWeaver::SchemaLoader.load(SUPERGRAPH_SDL) }
+
+  it "strips the composition machinery — no join__*/link__* leaks into the schema" do
+    expect(schema.types.keys.grep(/join__|link__/)).to be_empty
+    expect(schema.get_type("User").fields.keys).to eq %w[id name petNames]
+  end
 
   let(:source) do
     GraphWeaver::Codegen.new(

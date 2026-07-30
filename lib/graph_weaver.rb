@@ -17,9 +17,6 @@ require_relative "graph_weaver/railtie" if defined?(::Rails::Railtie)
 
 # opt-in extras:
 #      require "graph_weaver/transport/faraday"        # Faraday transport
-#      require "graph_weaver/directive_defaults_patch" # fix graphql-ruby
-#        dropping directive argument defaults when loading SDL (needed for
-#        Apollo supergraph SDL until rmosolgo/graphql-ruby#5659 ships)
 module GraphWeaver
   class << self
     # A client for one GraphQL server — transport, schema, and scoped

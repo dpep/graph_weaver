@@ -1,3 +1,16 @@
+###  v0.4.3  (2026-07-30)
+- Federation-aware supergraph loading: `SchemaLoader` (and `Client.new`) now
+  load a composed Apollo Federation v2 supergraph SDL directly. When the `@join__*`
+  markers are present it strips the composition machinery — the synthetic
+  `join__*`/`link__*` types and directive definitions, and every `@join__*`/`@link`
+  application — via an AST rewrite before `from_definition`, so the merged type
+  shapes load cleanly with nothing federation-internal leaking into
+  `schema.types`. Plain SDL is untouched. A query can now be typed against the
+  composed supergraph, not just per-subgraph schema objects.
+- Removed `directive_defaults_patch.rb` (the graphql-ruby monkeypatch); the
+  preprocessor supersedes it and `graphql-ruby` fixed the underlying issue. The
+  gem now requires `graphql >= 2.6.7`.
+
 ###  v0.4.2  (2026-07-30)
 - `extend_type` accepts `alias:` — project a selected field (possibly nested)
   onto a flat, typed accessor emitted into the struct body:

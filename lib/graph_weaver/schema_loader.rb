@@ -26,18 +26,72 @@ module GraphWeaver::SchemaLoader
         raise ArgumentError, "unsupported schema content: #{source.lstrip[0, 80].inspect}"
       end
 
-      GraphQL::Schema.from_definition(source)
+      build_sdl(source)
     else # a file path
       case File.extname(source)
       when ".json"
         GraphQL::Schema.from_introspection(JSON.parse(File.read(source)))
       when ".graphql", ".gql"
-        GraphQL::Schema.from_definition(File.read(source))
+        build_sdl(File.read(source))
       else
         raise ArgumentError, "unsupported schema format: #{source}"
       end
     end
   end
+
+  # Build a schema from SDL, first stripping Apollo Federation composition
+  # machinery when the SDL is a composed supergraph — so a supergraph dump
+  # (often the only artifact for the merged graph, and what the router
+  # actually serves) loads like any schema, with the federation plumbing
+  # gone rather than leaked into schema.types. Plain SDL passes through.
+  def self.build_sdl(sdl)
+    GraphQL::Schema.from_definition(federation_sdl?(sdl) ? strip_federation(sdl) : sdl)
+  end
+  private_class_method :build_sdl
+
+  # A composed Fed2 supergraph is marked by @join__* directives (every merged
+  # type carries them); a plain schema has none.
+  def self.federation_sdl?(sdl)
+    sdl.match?(/@join__\w/)
+  end
+
+  FEDERATION_PREFIXES = %w[join__ link__ core__].freeze
+  FEDERATION_DIRECTIVES = %w[link core].to_set.freeze
+
+  # Whether a type/directive name belongs to the federation composition layer.
+  def self.federation_name?(name)
+    !!name && (name.start_with?(*FEDERATION_PREFIXES) || FEDERATION_DIRECTIVES.include?(name))
+  end
+  private_class_method :federation_name?
+
+  # Drop the composition machinery from supergraph SDL: the synthetic
+  # join__*/link__* type and directive definitions, and every @join__*/@link
+  # application on the types that remain. What's left is the merged graph's
+  # ordinary type shapes — exactly what codegen reads. Parsing is lenient (it's
+  # schema *building* that rejects the join directives), so we parse, filter the
+  # AST, and reprint clean SDL for from_definition — no graphql-ruby monkeypatch
+  # and no join__* leaking into schema.types.
+  def self.strip_federation(sdl)
+    doc = GraphQL.parse(sdl)
+    kept = doc.definitions
+      .reject { |defn| defn.respond_to?(:name) && federation_name?(defn.name) }
+      .map { |defn| strip_federation_directives(defn) }
+    GraphQL::Language::Nodes::Document.new(definitions: kept).to_query_string
+  end
+
+  # Recursively remove @join__*/@link applications from a definition and its
+  # fields, arguments, and enum values.
+  def self.strip_federation_directives(node)
+    changes = {}
+    if node.respond_to?(:directives) && node.directives
+      changes[:directives] = node.directives.reject { |d| federation_name?(d.name) }
+    end
+    changes[:fields] = node.fields.map { |c| strip_federation_directives(c) } if node.respond_to?(:fields) && node.fields
+    changes[:arguments] = node.arguments.map { |c| strip_federation_directives(c) } if node.respond_to?(:arguments) && node.arguments
+    changes[:values] = node.values.map { |c| strip_federation_directives(c) } if node.respond_to?(:values) && node.values
+    changes.empty? ? node : node.merge(changes)
+  end
+  private_class_method :strip_federation_directives
 
   # Run the standard introspection query through a transport and build a
   # schema from the result:

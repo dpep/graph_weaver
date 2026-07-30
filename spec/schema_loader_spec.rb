@@ -225,4 +225,45 @@ describe GraphWeaver::SchemaLoader do
       }.to raise_error(GraphWeaver::Error, /introspection failed/)
     end
   end
+
+  describe "federation supergraph SDL" do
+    let(:supergraph) do
+      <<~GRAPHQL
+        schema @link(url: "https://specs.apollo.dev/link/v1.0") { query: Query }
+        directive @link(url: String!) repeatable on SCHEMA
+        directive @join__type(graph: join__Graph!, extension: Boolean! = false) repeatable on OBJECT
+        directive @join__field(graph: join__Graph) on FIELD_DEFINITION
+        scalar join__FieldSet
+        enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+        type Query @join__type(graph: A) {
+          thing(id: ID! @join__field(graph: A)): Thing @join__field(graph: A)
+        }
+        type Thing @join__type(graph: A) {
+          id: ID!
+          rank: Rank @join__field(graph: A)
+        }
+        enum Rank @join__type(graph: A) { HIGH @join__enumValue(graph: A) LOW }
+      GRAPHQL
+    end
+
+    it "detects a supergraph by its @join__ markers, not a plain schema" do
+      expect(described_class.federation_sdl?(supergraph)).to be(true)
+      expect(described_class.federation_sdl?("type Query { a: Int }")).to be(false)
+    end
+
+    it "strips the composition machinery, keeping the merged type shapes" do
+      schema = described_class.load(supergraph)
+
+      expect(schema.types.keys.grep(/join__|link__/)).to be_empty
+      expect(schema.get_type("Thing").fields.keys).to eq %w[id rank]
+      expect(schema.get_type("Rank").values.keys).to eq %w[HIGH LOW]
+      # a real field survives with its type, minus the join plumbing
+      expect(schema.get_type("Query").fields["thing"].type.unwrap.graphql_name).to eq "Thing"
+    end
+
+    it "leaves a plain (non-federation) schema untouched" do
+      sdl = "type Query {\n  a: Int\n  b: String\n}"
+      expect(described_class.load(sdl).get_type("Query").fields.keys).to eq %w[a b]
+    end
+  end
 end

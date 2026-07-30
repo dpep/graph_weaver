@@ -20,12 +20,16 @@ URL to introspect the API schema live.
 
 ## Pointing weaver at a supergraph
 
-A supergraph SDL works as-is. It declares its own `@join__*`/`@link` directives
-and `join__*` types, so graphql-ruby builds it; weaver reads field types and
-args, not directives, so the join plumbing is ignored; and because codegen is
-**query-driven**, the federation-internal types generate no code unless a query
-names them (none would). Field shapes — nullability, args, enums, inputs — are
-identical to the API schema, so your generated structs are correct.
+A supergraph SDL works as-is. When `SchemaLoader` sees the `@join__*` markers it
+strips the composition machinery before building the schema — the synthetic
+`join__*`/`link__*` types and directive definitions, and every `@join__*`/`@link`
+application on the real types — so what codegen sees is the merged graph's
+ordinary type shapes, with no federation plumbing leaking into `schema.types`.
+(It's a pure AST rewrite of the SDL; no graphql-ruby monkeypatch, and plain
+schemas pass through untouched.) Field shapes — nullability, args, enums,
+inputs — are identical to the API schema, so your generated structs are correct;
+and because codegen is **query-driven**, nothing federation-internal could
+generate code anyway.
 
 The one caveat: a supergraph is a **superset** of the API schema, so weaver can
 only ever **over-permit** — it will never reject a valid query, but it won't

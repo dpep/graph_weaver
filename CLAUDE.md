@@ -26,8 +26,7 @@ where it pays off in developer experience; leave the rest at `# typed: true`.
   shape without catching anything. **Don't promote these to strict.**
 - Rule of thumb: if a sig would be mostly `T.untyped`, it isn't worth writing.
   Concrete types = value; `T.untyped` sigs = paperwork.
-- `railtie.rb` / `tasks.rb` are `# typed: ignore` (Rails/Rake DSL);
-  `directive_defaults_patch.rb` is `# typed: false` (a prepended monkeypatch).
+- `railtie.rb` / `tasks.rb` are `# typed: ignore` (Rails/Rake DSL).
 
 ## Design invariants (don't "fix" these)
 

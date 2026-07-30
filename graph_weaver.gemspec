@@ -14,7 +14,9 @@ Gem::Specification.new do |s|
 
   s.required_ruby_version = ">= 3.3"
 
-  s.add_dependency "graphql", ">= 2"
+  # 2.6.7 fills defaulted directive arguments when building from SDL
+  # (rmosolgo/graphql-ruby#5659) — needed since we dropped our own patch for it
+  s.add_dependency "graphql", ">= 2.6.7"
   s.add_dependency "sorbet-runtime"
 
   s.add_development_dependency "apollo-federation" # federation integration subgraphs
