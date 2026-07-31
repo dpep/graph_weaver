@@ -69,7 +69,7 @@ describe GraphWeaver::Transport::HTTP do
     end
 
     expect { html.new(url).execute("query { x }") }
-      .to raise_error(GraphWeaver::ServerError, /non-JSON response: <html>/)
+      .to raise_error(GraphWeaver::ServerError, /non-GraphQL response: <html>/)
   end
 
   it "lets a 4xx with a GraphQL errors body flow into the envelope (graphql-over-http routers)" do

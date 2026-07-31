@@ -46,6 +46,13 @@ module GraphWeaver
       def coerce(value)
         return value if value.is_a?(self)
 
+        # a caller passing a non-Hash (a bare string, or a Hash where a nested
+        # list was expected) is bad input — surface a branded 422, not a raw
+        # NoMethodError from validate_keys!'s `.keys`
+        unless value.is_a?(Hash)
+          raise GraphWeaver::InputError.new("expected a Hash or #{self}, got #{value.class}", struct: self)
+        end
+
         # a typo'd key must not silently drop off the wire
         GraphWeaver::Hints.validate_keys!(self, value)
 

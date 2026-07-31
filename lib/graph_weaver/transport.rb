@@ -62,15 +62,18 @@ class GraphWeaver::Transport
     # envelope so QueryError machinery sees the structured errors; only
     # a body that isn't GraphQL (proxy pages, HTML 500s) is a ServerError.
     unless (200..299).cover?(status)
-      return parsed if parsed.is_a?(Hash) && parsed.key?("errors")
+      # only a body carrying actual GraphQL errors flows through — a 4xx with
+      # `"errors": null` (or []) isn't a structured error response, so the
+      # status stays the signal
+      return parsed if parsed.is_a?(Hash) && parsed["errors"].is_a?(Array) && parsed["errors"].any?
 
       raise GraphWeaver::ServerError.new(status:, body: body.to_s)
     end
 
-    unless parsed
-      # a 200 that isn't GraphQL — an HTML error page from a proxy, a
-      # captive portal: the server misbehaved, classify it that way
-      raise GraphWeaver::ServerError.new(status:, body: "non-JSON response: #{body.to_s[0, 500]}")
+    unless parsed.is_a?(Hash)
+      # a 200 that isn't a GraphQL object — an HTML error page from a proxy, a
+      # captive portal, or a bare JSON array/string: the server misbehaved
+      raise GraphWeaver::ServerError.new(status:, body: "non-GraphQL response: #{body.to_s[0, 500]}")
     end
 
     parsed

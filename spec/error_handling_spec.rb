@@ -314,4 +314,33 @@ describe "error handling" do
       end
     end
   end
+
+  describe "malformed inputs/responses stay branded (review fixes)" do
+    # a transport that reached the server and got back this (status, body)
+    def canned(status, body)
+      Class.new(GraphWeaver::Transport) do
+        define_method(:initialize) { |s, b| @status = s; @body = b; @url = "http://test/graphql" }
+        define_method(:post) { |_encoded| [@status, @body] }
+      end.new(status, body)
+    end
+
+    it "raises ServerError (not a null-data envelope) on a non-2xx body with errors: null" do
+      expect { canned(429, '{"errors":null}').execute("query { x }") }
+        .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 429 }
+    end
+
+    it "raises ServerError on a 2xx body that isn't a JSON object" do
+      expect { canned(200, "[1,2,3]").execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
+    end
+
+    it "raises QueryError (not a bare TypeError) when data! sees null data and no errors" do
+      expect { run("data" => nil).data! }.to raise_error(GraphWeaver::QueryError)
+    end
+
+    it "raises InputError when an input struct is coerced from a non-Hash" do
+      require_relative "generated/inputs"
+      expect { GraphQLInputs::AdoptionInput.coerce("nope") }
+        .to raise_error(GraphWeaver::InputError, /expected a Hash/)
+    end
+  end
 end

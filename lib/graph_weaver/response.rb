@@ -49,7 +49,14 @@ module GraphWeaver
     sig { returns(Data) }
     def data!
       raise GraphWeaver::QueryError.new(errors, data: data, extensions: extensions) unless errors.empty?
-      T.must(data)
+
+      # a well-formed GraphQL response always pairs null data with errors; a
+      # server (or an errors-stripping proxy) that returns neither is broken —
+      # brand it rather than leaking a bare `T.must` TypeError
+      data || raise(GraphWeaver::QueryError.new(
+        [GraphWeaver::GraphQLError.new(message: "response carried neither data nor errors")],
+        extensions: extensions,
+      ))
     end
   end
 end
