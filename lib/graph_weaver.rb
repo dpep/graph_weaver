@@ -293,6 +293,15 @@ module GraphWeaver
     # (`class Module; include T::Sig`) — extracted so it's stubbable in tests.
     def global_tsig? = Module.include?(T::Sig)
 
+    # The closest entry in `dictionary` to `term` — a "did you mean" suggestion,
+    # or nil (also nil when did_you_mean isn't loadable). One home for the guard
+    # used by codegen validation, alias resolution, and the runtime prop hints.
+    def did_you_mean(dictionary, term)
+      return unless defined?(DidYouMean::SpellChecker)
+
+      DidYouMean::SpellChecker.new(dictionary: dictionary).correct(term).first
+    end
+
     # Teach the generator how a GraphQL custom scalar deserializes into a
     # rich Ruby object (and serializes back onto the wire when used as a
     # variable):

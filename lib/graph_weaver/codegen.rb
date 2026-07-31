@@ -270,8 +270,7 @@ class GraphWeaver::Codegen
 
     return if schema.get_type(name)
 
-    suggestion = defined?(DidYouMean::SpellChecker) &&
-      DidYouMean::SpellChecker.new(dictionary: schema.types.keys).correct(name).first
+    suggestion = GraphWeaver.did_you_mean(schema.types.keys, name)
     hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
     # the type registry is reached via extend_type; scalars/enums via register_*
     method = kind == "type" ? "extend_type" : "register_#{kind}"
@@ -535,8 +534,7 @@ class GraphWeaver::Codegen
         field = obj.fields.find { |f| f.prop == seg }
         unless field
           props = obj.fields.map(&:prop)
-          suggestion = defined?(DidYouMean::SpellChecker) &&
-            DidYouMean::SpellChecker.new(dictionary: props).correct(seg).first
+          suggestion = GraphWeaver.did_you_mean(props, seg)
           hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
           raise GraphWeaver::Error,
             "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a selected field#{hint}"

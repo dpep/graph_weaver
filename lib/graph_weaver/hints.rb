@@ -28,8 +28,8 @@ module GraphWeaver
         prop = GraphWeaver::Inflect.underscore(key)
         suggestion = if known.include?(prop)
           prop # a wire-cased key — the exact snake_case prop exists
-        elsif defined?(DidYouMean::SpellChecker)
-          DidYouMean::SpellChecker.new(dictionary: known).correct(prop).first
+        else
+          GraphWeaver.did_you_mean(known, prop)
         end
         suggestion ? "#{key} (did you mean '#{suggestion}'?)" : key
       end
@@ -56,12 +56,10 @@ module GraphWeaver
         return "GraphQL fields generate snake_case props; use '#{prop}'"
       end
 
-      return unless defined?(DidYouMean::SpellChecker)
-
       # a guess, not a mapping — spellcheck the (underscored) miss
       # against the props that exist, so typos in either casing land
       props = T.unsafe(self.class).props.keys.map(&:to_s)
-      suggestion = DidYouMean::SpellChecker.new(dictionary: props).correct(prop).first
+      suggestion = GraphWeaver.did_you_mean(props, prop)
       "did you mean '#{suggestion}'?" if suggestion
     end
   end
