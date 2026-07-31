@@ -58,11 +58,18 @@ module GraphWeaver::SchemaLoader
   FEDERATION_PREFIXES = %w[join__ link__ core__].freeze
   FEDERATION_DIRECTIVES = %w[link core inaccessible].to_set.freeze
 
-  # Whether a type/directive name belongs to the federation composition layer.
-  def self.federation_name?(name)
+  # Synthetic composition TYPES are always prefixed (join__Graph, link__Import).
+  # The bare names (link/core/inaccessible) are DIRECTIVES only — a user type
+  # literally named `link` (Hasura-style lowercase) must not be dropped.
+  def self.federation_type_name?(name)
+    !!name && name.start_with?(*FEDERATION_PREFIXES)
+  end
+  private_class_method :federation_type_name?
+
+  def self.federation_directive_name?(name)
     !!name && (name.start_with?(*FEDERATION_PREFIXES) || FEDERATION_DIRECTIVES.include?(name))
   end
-  private_class_method :federation_name?
+  private_class_method :federation_directive_name?
 
   # Drop the composition machinery from supergraph SDL: the synthetic
   # join__*/link__* type and directive definitions, and every @join__*/@link
@@ -74,10 +81,30 @@ module GraphWeaver::SchemaLoader
   def self.strip_federation(sdl)
     doc = GraphQL.parse(sdl)
     defs = remove_inaccessible(doc.definitions)
-      .reject { |defn| defn.respond_to?(:name) && federation_name?(defn.name) }
+      .reject { |defn| federation_definition?(defn) }
       .map { |defn| strip_federation_directives(defn) }
+
+    if defs.none? { |d| d.is_a?(GraphQL::Language::Nodes::ObjectTypeDefinition) }
+      raise GraphWeaver::Error,
+        "supergraph has no object types left after stripping the federation machinery — " \
+        "is the whole schema behind @inaccessible?"
+    end
+
     GraphQL::Language::Nodes::Document.new(definitions: defs).to_query_string
   end
+
+  # a synthetic composition definition to drop: a federation directive
+  # definition (by name), or a synthetic join__*/link__* type (by prefix)
+  def self.federation_definition?(defn)
+    return false unless defn.respond_to?(:name)
+
+    if defn.is_a?(GraphQL::Language::Nodes::DirectiveDefinition)
+      federation_directive_name?(defn.name)
+    else
+      federation_type_name?(defn.name)
+    end
+  end
+  private_class_method :federation_definition?
 
   # Derive the API schema by dropping every element marked @inaccessible —
   # present in the federated graph but hidden from the public API the router
@@ -93,8 +120,9 @@ module GraphWeaver::SchemaLoader
       survivors = definitions
         .reject { |d| type_definition?(d) && removed.include?(d.name) }
         .map { |d| prune_inaccessible(d, removed) }
+      # survivors already exclude `removed`, so anything newly emptied is fresh
       newly = survivors.select { |d| type_definition?(d) && type_emptied?(d) }.map(&:name)
-      return survivors if (newly - removed.to_a).empty?
+      return survivors if newly.empty?
 
       removed.merge(newly)
     end
@@ -162,7 +190,7 @@ module GraphWeaver::SchemaLoader
   def self.strip_federation_directives(node)
     changes = {}
     if node.respond_to?(:directives) && node.directives
-      changes[:directives] = node.directives.reject { |d| federation_name?(d.name) }
+      changes[:directives] = node.directives.reject { |d| federation_directive_name?(d.name) }
     end
     changes[:fields] = node.fields.map { |c| strip_federation_directives(c) } if node.respond_to?(:fields) && node.fields
     changes[:arguments] = node.arguments.map { |c| strip_federation_directives(c) } if node.respond_to?(:arguments) && node.arguments

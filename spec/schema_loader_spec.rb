@@ -298,5 +298,31 @@ describe GraphWeaver::SchemaLoader do
         expect(api.types.keys.grep(/join__|link__/)).to be_empty
       end
     end
+
+    context "review fixes" do
+      it "keeps a user type whose name matches a federation directive (link)" do
+        sdl = <<~GRAPHQL
+          directive @link(url: String!) repeatable on SCHEMA
+          directive @join__type(graph: join__Graph!) repeatable on OBJECT
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          type link @join__type(graph: A) { id: ID! }
+          type Query @join__type(graph: A) { node: link }
+        GRAPHQL
+        schema = described_class.load(sdl)
+
+        expect(schema.get_type("link")).not_to be_nil
+        expect(schema.get_type("Query").fields["node"].type.unwrap.graphql_name).to eq "link"
+      end
+
+      it "raises a clear error when @inaccessible removes everything queryable" do
+        sdl = <<~GRAPHQL
+          directive @inaccessible on OBJECT
+          directive @join__type(graph: join__Graph!) repeatable on OBJECT
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          type Query @join__type(graph: A) @inaccessible { thing: String }
+        GRAPHQL
+        expect { described_class.load(sdl) }.to raise_error(GraphWeaver::Error, /no object types/)
+      end
+    end
   end
 end

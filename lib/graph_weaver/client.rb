@@ -35,7 +35,7 @@ class GraphWeaver::Client
 
       @transport = wrap_retries(build_transport(source, auth:, headers:, &middleware), retries)
     else
-      if auth || middleware || retries != false
+      if auth || middleware || retries
         raise ArgumentError, "auth:/retries:/middleware apply to a url — got a schema source"
       end
       if cache || ttl

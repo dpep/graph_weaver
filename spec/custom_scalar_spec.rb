@@ -293,4 +293,9 @@ describe "custom scalar deserialization" do
     expect(source).to include(%(require "date"))
     expect(source.index(%(require "date"))).to be < source.index("module PersonQuery")
   end
+
+  it "rejects an anonymous class as a scalar type (would emit a literal nil)" do
+    expect { GraphWeaver.register_scalar("Anon", Class.new) }
+      .to raise_error(ArgumentError, /anonymous/)
+  end
 end

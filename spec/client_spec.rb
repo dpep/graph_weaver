@@ -122,6 +122,11 @@ describe GraphWeaver::Client do
       expect(client.schema).to equal Demo::Schema
     end
 
+    it "accepts retries: nil (off), like a url client" do
+      expect { GraphWeaver.new(Demo::Schema, retries: nil) }.not_to raise_error
+      expect { GraphWeaver.new(Demo::Schema, retries: true) }.to raise_error(ArgumentError, /url/)
+    end
+
     it "is self-contained: the app default never leaks into an explicit client" do
       recorded = []
       recorder = Class.new do

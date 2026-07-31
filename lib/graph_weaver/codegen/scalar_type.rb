@@ -123,7 +123,10 @@ class GraphWeaver::Codegen
 
     def type_name(type)
       case type
-      when Module then type.name
+      when Module
+        # an anonymous class has no name to emit — it would land as a literal
+        # `nil` in generated source
+        type.name || raise(ArgumentError, "type: must be a named class/module, got an anonymous one")
       when String then type
       else raise ArgumentError, "type: must be a class/module or String, got #{type.inspect}"
       end
