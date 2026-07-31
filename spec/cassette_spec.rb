@@ -184,4 +184,27 @@ describe GraphWeaver::Testing::Cassette do
       expect(person&.birthday).to be_a(Date).or be_nil
     end
   end
+
+  describe "review fixes" do
+    it "records symbol-keyed variables and reloads without crashing" do
+      query = "query($id: ID!) { person(id: $id) { name } }"
+      described_class.new(path).record(query, { id: "1" }, { "data" => {} })
+
+      # reload (safe_load) — symbols would raise Psych::DisallowedClass before normalizing
+      reloaded = nil
+      expect { reloaded = described_class.new(path) }.not_to raise_error
+      expect(reloaded.lookup(query, { "id" => "1" })).not_to be_nil
+    end
+
+    it "keeps concrete-fragment fields when the recorded data has no __typename" do
+      query = "query { named { name ... on Pet { species } } }"
+      response = { "data" => { "named" => { "name" => "Shelby", "species" => "DOG" } } }
+      cassette = described_class.new(path)
+      cassette.record(query, {}, response)
+      cassette.anonymize!(schema: Demo::Schema, seed: 5)
+
+      named = described_class.new(path).lookup(query, {}).dig("response", "data", "named")
+      expect(named).to have_key("species") # was dropped before the anonymizer relaxation
+    end
+  end
 end

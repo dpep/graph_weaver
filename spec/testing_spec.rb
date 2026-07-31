@@ -227,4 +227,24 @@ describe GraphWeaver::Testing do
       expect(described_class.config.null_chance).to eq 0.0
     end
   end
+
+  describe "review fixes" do
+    it "merges duplicate-key selections so the fake casts against the generated struct" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, name: "DupKeys",
+        query: "query { people { pets { name } pets { species } } }")
+      fake = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, list_size: 1..1)
+
+      pet = mod.execute!(fake).people.first.pets.first # would raise (name missing) before the merge fix
+      expect(pet.name).to be_a(String)
+      expect(pet.species).not_to be_nil
+    end
+
+    it "fires fail_at on every execute, not just the first" do
+      fake = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, fail_at: "people.name")
+      query = "query { people { name } }"
+
+      expect(fake.execute(query)["errors"]).not_to be_nil
+      expect(fake.execute(query)["errors"]).not_to be_nil # was nil (triggered stuck) before the fix
+    end
+  end
 end

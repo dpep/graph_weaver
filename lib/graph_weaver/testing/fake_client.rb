@@ -73,6 +73,8 @@ class GraphWeaver::Testing::FakeClient
 
     @path = []
     @failures = []
+    # fail_at fires once per execute, not once per client lifetime
+    @fail_at.each { |spec| spec.delete("triggered") }
     data = object_value(root_type, operation.selections)
     data = nil if data.equal?(NULL_BUBBLE) # total propagation, like a real server
 
@@ -104,9 +106,12 @@ class GraphWeaver::Testing::FakeClient
 
   def object_value(type, selections)
     result = {}
-    each_field(type, selections) do |key, node|
+    # gather (not each_field) so a field selected twice — `a { x } a { y }` —
+    # fabricates the MERGED shape codegen's struct expects, not last-writer-wins
+    gather(type, selections).each do |key, nodes|
+      node = nodes.first
       @path.push(key)
-      value = node.name == "__typename" ? type.graphql_name : field_value(type, node)
+      value = node.name == "__typename" ? type.graphql_name : field_value(type, node, nodes.flat_map(&:selections))
       @path.pop
 
       if value.equal?(NULL_BUBBLE)
@@ -127,7 +132,7 @@ class GraphWeaver::Testing::FakeClient
     @schema.get_field(type.graphql_name, node.name).type.kind.name == "NON_NULL"
   end
 
-  def field_value(parent_type, node)
+  def field_value(parent_type, node, selections)
     if (spec = matching_failure)
       @failures << {
         "message" => spec["message"] || "simulated failure",
@@ -148,7 +153,7 @@ class GraphWeaver::Testing::FakeClient
       return corrupt_value(field_type)
     end
 
-    type_value(field_type, node)
+    type_value(field_type, node, selections)
   end
 
   # a value casting can't accept, derived from the field's own type — and
@@ -184,14 +189,14 @@ class GraphWeaver::Testing::FakeClient
     rng.rand(@list_size)
   end
 
-  def type_value(type, node, non_null: false)
+  def type_value(type, node, selections, non_null: false)
     case type.kind.name
     when "NON_NULL"
-      type_value(type.of_type, node, non_null: true)
+      type_value(type.of_type, node, selections, non_null: true)
     when "LIST"
       elements = Array.new(list_length(node)) do |index|
         @path.push(index)
-        element = type_value(type.of_type, node)
+        element = type_value(type.of_type, node, selections)
         @path.pop
         element
       end
@@ -206,21 +211,21 @@ class GraphWeaver::Testing::FakeClient
     else
       return if !non_null && rng.rand < @null_chance
 
-      core_value(type, node)
+      core_value(type, node, selections)
     end
   end
 
-  def core_value(type, node)
+  def core_value(type, node, selections)
     case type.kind.name
     when "SCALAR"
       @values.scalar(type.graphql_name, node.name)
     when "ENUM"
       type.values.keys.sort.sample(random: rng)
     when "OBJECT"
-      object_value(type, node.selections)
+      object_value(type, selections)
     when "UNION", "INTERFACE"
       member = @schema.possible_types(type).sort_by(&:graphql_name).sample(random: rng)
-      object_value(member, node.selections)
+      object_value(member, selections)
     else
       raise NotImplementedError, "cannot fake kind: #{type.kind.name}"
     end

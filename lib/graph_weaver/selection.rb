@@ -58,6 +58,17 @@ module GraphWeaver
       end
     end
 
+    # each_field grouped by result key: repeated selections of one field
+    # (`a { x } a { y }`, or the same field reached through two fragments)
+    # collect together, so callers MERGE their sub-selections rather than
+    # last-writer-wins. Codegen relies on this; FakeClient/Anonymizer must too,
+    # or they'd fabricate/keep a shape the generated struct can't cast.
+    def gather(type, selections)
+      out = {}
+      each_field(type, selections) { |key, node| (out[key] ||= []) << node }
+      out
+    end
+
     # A fragment's type condition applies when it names this type exactly,
     # or an interface/union this type belongs to (`... on Named { ... }`).
     def applies?(condition, type)

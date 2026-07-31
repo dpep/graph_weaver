@@ -70,7 +70,7 @@ module GraphWeaver
         entry = {
           "key" => self.class.key(query, variables),
           "query" => query,
-          "variables" => variables,
+          "variables" => self.class.normalize_variables(variables),
           "response" => response,
         }
         @entries.reject! { |existing| existing["key"] == entry["key"] }
@@ -92,7 +92,14 @@ module GraphWeaver
       end
 
       def self.key(query, variables)
-        { "query" => query.gsub(/\s+/, " ").strip, "variables" => variables || {} }
+        { "query" => query.gsub(/\s+/, " ").strip, "variables" => normalize_variables(variables) }
+      end
+
+      # JSON round-trip so symbol keys become strings — otherwise YAML.dump
+      # writes Ruby symbols the safe loader rejects on the next run, and lookup
+      # keys stay stable across processes
+      def self.normalize_variables(variables)
+        JSON.parse(JSON.generate(variables || {}))
       end
 
       private
@@ -167,6 +174,19 @@ module GraphWeaver
 
       private
 
+      # Anonymization walks recorded data, not a live dispatch. When the query
+      # narrows an abstract type without selecting __typename (`named { name
+      # ... on Pet { species } }`), the recorded data has no type tag, so the
+      # strict applies? would drop the `... on Pet` fields. Treat any concrete
+      # member condition as applying; object_value's `data.key?(key)` guard
+      # discards fields the actual member's response didn't carry.
+      def applies?(condition, type)
+        return true if super
+
+        member = @schema.get_type(condition)
+        !!member && @schema.possible_types(type).include?(member)
+      end
+
       def object_value(type, selections, data)
         return data if data.nil?
 
@@ -190,7 +210,12 @@ module GraphWeaver
       end
 
       def field_value(parent_type, node, value)
-        type_value(@schema.get_field(parent_type.graphql_name, node.name).type, node, value)
+        # a field from a `... on Member` fragment lives on the member, not the
+        # abstract type we're walking (no __typename to narrow by), so fall back
+        # to whichever possible type declares it
+        field = @schema.get_field(parent_type.graphql_name, node.name) ||
+          @schema.possible_types(parent_type).filter_map { |t| @schema.get_field(t.graphql_name, node.name) }.first
+        type_value(field.type, node, value)
       end
 
       def type_value(type, node, value)

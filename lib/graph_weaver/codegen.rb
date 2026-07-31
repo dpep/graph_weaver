@@ -378,14 +378,6 @@ class GraphWeaver::Codegen
   end
 
 
-  # Selection#each_field, collected by result key (codegen groups
-  # repeated selections of one field so it can merge them)
-  def gather(type, selections)
-    out = {}
-    each_field(type, selections) { |key, node| (out[key] ||= []) << node }
-    out
-  end
-
   def object_node(type, selections, class_name)
     node = ObjectNode.new(class_name)
     node.graphql_type = type.graphql_name
