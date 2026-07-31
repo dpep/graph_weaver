@@ -164,4 +164,56 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
       %i[HomeQuery GraphQLInputs GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
     end
   end
+
+  describe "review fixes" do
+    class HoistRank < T::Enum
+      enums { High = new("HIGH"); Low = new("LOW") }
+    end
+
+    let(:schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { feed: [FeedItem!]! }
+        union FeedItem = Post | Photo
+        type Post { rank: Rank! }
+        type Photo { url: String! }
+        enum Rank { HIGH LOW }
+      GRAPHQL
+    end
+
+    let(:fragment) do
+      <<~GRAPHQL
+        fragment FeedItemFields on FeedItem {
+          __typename
+          ... on Post { rank }
+          ... on Photo { url }
+        }
+      GRAPHQL
+    end
+
+    it "emits mapped-enum tables into unions.rb and resolves them at from_h" do
+      registry = GraphWeaver::Codegen.enum_registry
+      saved = registry.dup
+      GraphWeaver.register_enum("Rank", HoistRank)
+      generate(@base)
+
+      expect(File.read("#{@base}/generated/unions.rb")).to include("RANK_FROM_WIRE")
+      GraphWeaver.load_generated!("#{@base}/generated")
+      got = HomeQuery.from_response!("data" => { "feed" => [{ "__typename" => "Post", "rank" => "HIGH" }] })
+      expect(got.feed.first.rank).to eq(HoistRank::High)
+    ensure
+      registry.clear
+      registry.merge!(saved)
+      %i[HomeQuery ArchiveQuery GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
+    end
+
+    it "refuses to hoist a shared fragment whose name collides with a generated constant" do
+      write("#{@base}/fragments", "f.graphql", fragment.sub("FeedItemFields", "Result"))
+      write("#{@base}/queries", "home.graphql", "query Home { feed { ...Result } }")
+      FileUtils.mkdir_p("#{@base}/generated")
+      GraphWeaver.fragments_paths = ["#{@base}/fragments"]
+
+      expect { GraphWeaver.generate!(schema:, queries: "#{@base}/queries", output: "#{@base}/generated") }
+        .to raise_error(GraphWeaver::Error, /collides with a generated constant/)
+    end
+  end
 end

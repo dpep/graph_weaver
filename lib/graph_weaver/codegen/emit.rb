@@ -194,6 +194,13 @@ class GraphWeaver::Codegen
         end
         out << "module #{@module_name}"
         out << "  extend T::Sig" << "" if GraphWeaver.extend_t_sig?
+        # a member selecting a mapped enum (register_enum) reads its module-level
+        # <NAME>_FROM_WIRE table — emit those here so from_h resolves them, the
+        # same way emit_variable_types does for the query module
+        @mapped_enums.each_value do |mapped|
+          emit_mapped_enum(mapped, out, 1)
+          out << ""
+        end
         unions.each do |union|
           emit_union(union, out, 1)
           out << ""

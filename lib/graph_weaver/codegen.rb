@@ -175,13 +175,25 @@ class GraphWeaver::Codegen
     @fragments = fragments
 
     unions = names.uniq.sort.map do |name|
+      class_name = camelize(name)
+      # the query module aliases <class_name> = <unions module>::<class_name>;
+      # a name that camelizes to a generated module-level constant (the Result
+      # struct, the QUERY heredoc) would collide with that alias at load
+      if HOISTED_UNION_RESERVED.include?(class_name)
+        raise GraphWeaver::Error,
+          "shared fragment #{name.inspect} hoists to #{class_name}, which collides with a generated constant — rename the fragment"
+      end
       fragment = fragments.fetch(name)
       type = @schema.get_type(fragment.type.name)
-      UnionNode.new(camelize(name), union_members(type, fragment.selections))
+      UnionNode.new(class_name, union_members(type, fragment.selections))
     end
 
     emit_unions_file(unions)
   end
+
+  # module-level constants every generated query module defines — a hoisted
+  # union aliased to one of these would clash at load
+  HOISTED_UNION_RESERVED = %w[Result QUERY].to_set.freeze
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
 
