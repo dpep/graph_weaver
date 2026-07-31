@@ -134,4 +134,46 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     expect { GraphWeaver.extend_type("Widget", aliases: { tag: "meta.tag" }) }
       .to raise_error(ArgumentError, /unknown keyword/)
   end
+
+  # the motivating case, end to end: a federation _entities query that resolves
+  # one entity by key, read as a single typed object instead of an array
+  describe "single-entity _entities accessor (end to end)" do
+    let(:fed_schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { _entities(representations: [_Any!]!): [_Entity]! me: User }
+        scalar _Any
+        union _Entity = Widget | Gadget
+        type Widget { id: ID! name: String! }
+        type Gadget { id: ID! size: Int! }
+        type User { id: ID! }
+      GRAPHQL
+    end
+
+    it "reads the lone entity directly, typed as the concrete member" do
+      GraphWeaver.extend_type("Query",
+        alias: { entity: "_entities.first", entity_name: "_entities.first.name" }, optional: true)
+      mod = GraphWeaver::Codegen.parse(schema: fed_schema, module_name: "Fetch",
+        query: "query($r: [_Any!]!) { _entities(representations: $r) { ... on Widget { id name } } }")
+
+      got = mod.from_response!("data" => { "_entities" => [{ "id" => "1", "name" => "Shelby" }] })
+      expect(got.entity).to be_a(mod::Result::Widget) # concrete member, not the union
+      expect(got.entity&.name).to eq "Shelby"
+      expect(got.entity_name).to eq "Shelby"          # projected straight through
+    end
+
+    it "returns nil (not a crash) when no entity matched" do
+      GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
+      mod = GraphWeaver::Codegen.parse(schema: fed_schema, module_name: "Fetch2",
+        query: "query($r: [_Any!]!) { _entities(representations: $r) { ... on Widget { id name } } }")
+
+      expect(mod.from_response!("data" => { "_entities" => [] }).entity).to be_nil
+    end
+
+    it "omits the accessor (optional) on a query that doesn't fetch entities" do
+      GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
+      mod = GraphWeaver::Codegen.parse(schema: fed_schema, module_name: "Me", query: "query { me { id } }")
+
+      expect(mod::Result.instance_methods).not_to include(:entity)
+    end
+  end
 end
