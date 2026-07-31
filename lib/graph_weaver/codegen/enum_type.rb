@@ -132,6 +132,12 @@ class GraphWeaver::Codegen
       aliases
     end
 
+    # accessor names and path segments are interpolated verbatim into generated
+    # source, so — like module_name — they must be plain identifiers, never
+    # arbitrary text that could inject code
+    ALIAS_NAME = /\A[a-zA-Z_]\w*[?!]?\z/
+    ALIAS_SEGMENT = /\A[a-zA-Z_]\w*\z/
+
     # { accessor => { segments:, optional: } } from a path string (accessor
     # named after the last segment), an array of such, or an { accessor => path }
     # hash. `optional:` marks every alias in this registration as lenient.
@@ -143,7 +149,17 @@ class GraphWeaver::Codegen
       when Hash then input.map { |name, path| [name.to_s, path.to_s.split(".")] }
       else raise ArgumentError, "alias: expects a String, Array, or Hash, got #{input.class}"
       end
-      pairs.to_h { |name, segments| [name, { segments:, optional: }] }
+      pairs.to_h do |name, segments|
+        unless name.to_s.match?(ALIAS_NAME)
+          raise ArgumentError, "alias name #{name.inspect} is not a valid method name"
+        end
+        raise ArgumentError, "alias #{name.inspect} has an empty path" if segments.empty?
+
+        bad = segments.reject { |seg| seg.match?(ALIAS_SEGMENT) }
+        raise ArgumentError, "alias #{name.inspect} has an invalid path segment: #{bad.first.inspect}" if bad.any?
+
+        [name, { segments:, optional: }]
+      end
     end
 
     def type_registry

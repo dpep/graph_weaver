@@ -176,4 +176,47 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
       expect(mod::Result.instance_methods).not_to include(:entity)
     end
   end
+
+  describe "resolver correctness (review fixes)" do
+    let(:nested_schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { widget: Widget }
+        type Widget { id: ID! name: String! meta: Meta first: Thing }
+        type Meta { tag: String! sub: Sub rank: Rank }
+        type Sub { code: String! }
+        type Thing { id: ID! }
+        enum Rank { HIGH LOW }
+      GRAPHQL
+    end
+
+    def gen2(aliases, q, **opts)
+      GraphWeaver.extend_type("Widget", alias: aliases, **opts)
+      GraphWeaver::Codegen.generate(schema: nested_schema, query: q, module_name: "W")
+    end
+
+    it "qualifies a deep object/enum leaf with its container path (not a bare constant)" do
+      src = gen2({ s: "meta.sub", r: "meta.rank" }, "query W { widget { meta { sub { code } rank } } }")
+      expect(src).to include("sig { returns(T.nilable(Meta::Sub)) }", "def s = meta&.sub")
+      expect(src).to include("sig { returns(T.nilable(Meta::Rank)) }", "def r = meta&.rank")
+    end
+
+    it "rejects an alias name or path segment that isn't a plain identifier" do
+      expect { GraphWeaver.extend_type("Widget", alias: { "x; puts :pwn" => "name" }) }
+        .to raise_error(ArgumentError, /valid method name/)
+      expect { GraphWeaver.extend_type("Widget", alias: { x: "" }) }
+        .to raise_error(ArgumentError, /empty path/)
+      expect { GraphWeaver.extend_type("Widget", alias: { x: "meta. " }) }
+        .to raise_error(ArgumentError, /invalid path segment/)
+    end
+
+    it "does not let optional: swallow a reserved-name/collision error" do
+      GraphWeaver.extend_type("Widget", alias: { serialize: "meta.tag" }, optional: true)
+      expect { GraphWeaver::Codegen.generate(schema: nested_schema, query: "query W { widget { meta { tag } } }", module_name: "W") }
+        .to raise_error(GraphWeaver::Error, /collides/)
+    end
+
+    it "reads a schema field named `first` as a field, not a list selector" do
+      expect(gen2({ t: "first.id" }, "query W { widget { first { id } } }")).to include("def t = first&.id")
+    end
+  end
 end

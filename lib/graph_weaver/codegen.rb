@@ -474,11 +474,24 @@ class GraphWeaver::Codegen
   # path fails at generation with a pointed message.
   def resolve_aliases(node)
     type_aliases(node.graphql_type).filter_map do |name, spec|
-      resolve_alias(node, name, spec[:segments])
-    rescue GraphWeaver::Error
-      # an optional alias that doesn't fit this query's selection is simply
-      # omitted; a strict one (the default) surfaces the error
-      raise unless spec[:optional]
+      # a bad accessor name (reserved, or colliding with a real field) is a
+      # registration mistake — it fails for every query, so it always raises,
+      # even for optional aliases (which otherwise mask it as "doesn't fit").
+      check_alias_name!(node, name)
+      begin
+        resolve_alias(node, name, spec[:segments])
+      rescue GraphWeaver::Error
+        # a path that doesn't fit THIS query's selection: strict raises,
+        # optional simply omits the accessor
+        raise unless spec[:optional]
+      end
+    end
+  end
+
+  def check_alias_name!(node, name)
+    if node.fields.any? { |f| f.prop == name } || ALIAS_RESERVED.include?(name)
+      raise GraphWeaver::Error,
+        "alias #{name.inspect} on #{node.graphql_type} collides with an existing field or method"
     end
   end
 
@@ -501,36 +514,39 @@ class GraphWeaver::Codegen
   # selector on a non-list, or an unselected segment raises. Any nilable hop
   # (a nullable field, or a list element) makes the accessor nilable.
   def resolve_alias(node, name, segments)
-    if node.fields.any? { |f| f.prop == name } || ALIAS_RESERVED.include?(name)
-      raise GraphWeaver::Error,
-        "alias #{name.inspect} on #{node.graphql_type} collides with an existing field or method"
-    end
-
     cur = T.let(node, T.untyped)           # the node the path has reached
     cur_nilable = T.let(false, T::Boolean) # is the expression so far nilable
     nilable = T.let(false, T::Boolean)     # is the accessor overall nilable
+    containers = T.let([], T::Array[String]) # nested-struct class names on the way to the leaf
     expr = +""
 
     segments.each do |seg|
       connector = expr.empty? ? "" : (cur_nilable ? "&." : ".")
 
-      if LIST_SELECTORS.include?(seg)
-        list = list_of(cur)
-        unless list
-          raise GraphWeaver::Error,
-            "alias #{name.inspect} on #{node.graphql_type}: .#{seg} needs a list, but the path so far isn't one"
-        end
+      # `first`/`last` select an element only when the current hop is actually a
+      # list; otherwise they're an ordinary field (a schema field named `first`)
+      if LIST_SELECTORS.include?(seg) && list_of(cur)
         expr << connector << seg
-        cur = list.of
+        cur = list_of(cur).of
         cur_nilable = true # first/last is nil on an empty list
         nilable = true
       else
         obj = object_of(cur)
         unless obj
-          hint = list_of(cur) ? " — use .first or .last to pick an element" : ""
+          hint = if list_of(cur)
+            " — use .first or .last to pick an element"
+          elsif LIST_SELECTORS.include?(seg)
+            " — .#{seg} needs a list"
+          else
+            ""
+          end
           raise GraphWeaver::Error,
             "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' can't be read here (not an object)#{hint}"
         end
+        # the object a field is read from is the lexical container of its result
+        # (nested structs emit inside their parent); the aliased struct itself is
+        # the delegator's own scope, so it contributes no prefix
+        containers << obj.class_name unless obj.equal?(node)
         field = obj.fields.find { |f| f.prop == seg }
         unless field
           props = obj.fields.map(&:prop)
@@ -546,9 +562,31 @@ class GraphWeaver::Codegen
       end
     end
 
-    leaf = cur.bare_type
+    leaf = qualified_alias_type(cur, containers)
     type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
     ObjectNode::Alias.new(name, expr, type)
+  end
+
+  # The leaf's Sorbet type as referenced from the aliased struct. Generated
+  # nested constants (structs, enums, unions) must carry the container path,
+  # since the delegator's `sig` is emitted in an outer struct where a bare
+  # `Sub` wouldn't resolve; scalars, mapped enums, and hoisted union refs are
+  # already top-level. `containers` is the class-name chain to the leaf.
+  def qualified_alias_type(node, containers)
+    node = node.of if node.is_a?(NonNull)
+    prefix = containers.empty? ? "" : "#{containers.join("::")}::"
+
+    case node
+    when List
+      element = node.of.is_a?(NonNull) ? qualified_alias_type(node.of, containers) : begin
+        inner = qualified_alias_type(node.of, containers)
+        inner == "T.untyped" ? inner : "T.nilable(#{inner})"
+      end
+      "T::Array[#{element}]"
+    when ObjectNode, EnumNode, NarrowedNode then "#{prefix}#{node.class_name}"
+    when UnionNode then "#{prefix}#{node.bare_type}"
+    else node.bare_type # Scalar, MappedEnum, UnionRefNode — already top-level
+    end
   end
 
   # the List a node wraps (through NON_NULL), or nil
