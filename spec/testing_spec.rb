@@ -246,5 +246,10 @@ describe GraphWeaver::Testing do
       expect(fake.execute(query)["errors"]).not_to be_nil
       expect(fake.execute(query)["errors"]).not_to be_nil # was nil (triggered stuck) before the fix
     end
+
+    it "treats an Integer list_size as an exact length (a Range randomizes)" do
+      fake = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, list_size: 3)
+      expect(fake.execute("query { people { name } }").dig("data", "people").size).to eq 3
+    end
   end
 end

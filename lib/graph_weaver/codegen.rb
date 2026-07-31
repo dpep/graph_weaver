@@ -258,6 +258,15 @@ class GraphWeaver::Codegen
       VarDef.new(kwarg, var.name, node, required)
     end
 
+    # two variables that underscore to the same kwarg ($userId + $user_id) would
+    # silently drop one on the wire — flag it like a prop collision
+    collision = variables.group_by(&:kwarg).find { |_, vars| vars.size > 1 }
+    if collision
+      wire = collision.last.map { |var| "$#{var.wire}" }.join(", ")
+      raise GraphWeaver::Error,
+        "variables #{wire} both map to the kwarg '#{collision.first}:' — rename one"
+    end
+
     root = object_node(root_type, operation.selections, "Result")
 
     emit_module(root, variables)

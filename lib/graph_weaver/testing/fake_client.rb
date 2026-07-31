@@ -186,7 +186,8 @@ class GraphWeaver::Testing::FakeClient
     argument = node.arguments.find { |arg| %w[first last limit].include?(arg.name) }
     return argument.value if argument && argument.value.is_a?(Integer)
 
-    rng.rand(@list_size)
+    # an Integer list_size means exactly that many; a Range randomizes within it
+    @list_size.is_a?(Range) ? rng.rand(@list_size) : @list_size
   end
 
   def type_value(type, node, selections, non_null: false)

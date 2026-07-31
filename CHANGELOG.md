@@ -22,6 +22,10 @@ Bug fixes from a full-library review (all with regression coverage):
 - Federation: a user type named `link` is no longer dropped; an all-`@inaccessible`
   schema raises a pointed error. Client accepts `retries: nil` on a schema
   source; `register_scalar` rejects an anonymous class.
+- FakeClient: an Integer `list_size` now means exactly that length (a Range
+  randomizes within it). Codegen rejects two variables that underscore to the
+  same kwarg (`$userId` + `$user_id`). The Faraday transport raises rather than
+  silently dropping `headers:`/block when handed a prebuilt connection.
 
 ###  v0.4.5  (2026-07-30)
 - `alias:` paths gain list-element selectors: a `first`/`last` segment picks one

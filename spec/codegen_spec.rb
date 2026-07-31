@@ -788,4 +788,12 @@ describe GraphWeaver::Codegen do
       expect([u.primary, u.secondary].map(&render)).to eq(%i[email phone])
     end
   end
+
+  it "rejects two variables that underscore to the same kwarg" do
+    schema = GraphQL::Schema.from_definition("type Query { thing(userId: ID, alt: ID): String }")
+    query = "query($userId: ID, $user_id: ID) { thing(userId: $userId, alt: $user_id) }"
+
+    expect { GraphWeaver::Codegen.generate(schema:, query:, module_name: "Q") }
+      .to raise_error(GraphWeaver::Error, /rename one/)
+  end
 end

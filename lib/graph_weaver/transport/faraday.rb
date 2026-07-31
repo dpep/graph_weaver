@@ -32,6 +32,13 @@ module GraphWeaver
       def initialize(url_or_connection, headers: {}, &block)
         @connection = case url_or_connection
         when ::Faraday::Connection
+          # a prebuilt connection carries its own headers/middleware, so
+          # headers:/block would be silently dropped — fail loudly instead
+          unless headers.empty? && block.nil?
+            raise ArgumentError,
+              "headers:/block are ignored when passing a prebuilt Faraday::Connection — configure them on it"
+          end
+
           url_or_connection
         else
           # Faraday appends the default adapter when the block doesn't set one
