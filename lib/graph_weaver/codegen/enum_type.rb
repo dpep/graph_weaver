@@ -110,30 +110,40 @@ class GraphWeaver::Codegen
     #      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
     #      GraphWeaver.extend_type("Widget", alias: "meta.tag")        # accessor named `tag`
     #      GraphWeaver.extend_type("Widget", alias: ["meta.tag", "meta.color"])
+    #
+    # A path segment is a field, or `first`/`last` to pick one element out of a
+    # list hop (always nilable): `alias: { entity: "_entities.first" }`.
+    #
+    # optional: true makes the aliases lenient — a query whose selection doesn't
+    # fit the path just omits the accessor instead of failing generation. Use it
+    # for a root-type accessor (a Query alias every query would otherwise have to
+    # satisfy) or one that only fits some selections.
     def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
       aliases = take_aliases(kw)
       entry = type_registry[graphql_name.to_s] ||= { mixins: [], requires: [], aliases: {} }
       add_type_helpers(entry, graphql_name, mixins, requires, block, aliases)
     end
 
-    # Pull alias: out of the keyword rest and normalize it; any other keyword
-    # is a typo worth flagging rather than silently dropping.
+    # Pull alias:/optional: out of the keyword rest and normalize; any other
+    # keyword is a typo worth flagging rather than silently dropping.
     def take_aliases(kw)
-      aliases = normalize_aliases(kw.delete(:alias))
+      aliases = normalize_aliases(kw.delete(:alias), optional: !!kw.delete(:optional))
       raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
       aliases
     end
 
-    # { accessor => [path, segments] } from a path string (accessor named
-    # after the last segment), an array of such, or an { accessor => path } hash.
-    def normalize_aliases(input)
-      case input
-      when nil then {}
-      when String then { input.split(".").last => input.split(".") }
-      when Array then input.to_h { |path| [path.split(".").last, path.split(".")] }
-      when Hash then input.to_h { |name, path| [name.to_s, path.to_s.split(".")] }
+    # { accessor => { segments:, optional: } } from a path string (accessor
+    # named after the last segment), an array of such, or an { accessor => path }
+    # hash. `optional:` marks every alias in this registration as lenient.
+    def normalize_aliases(input, optional:)
+      pairs = case input
+      when nil then []
+      when String then [[input.split(".").last, input.split(".")]]
+      when Array then input.map { |path| [path.split(".").last, path.split(".")] }
+      when Hash then input.map { |name, path| [name.to_s, path.to_s.split(".")] }
       else raise ArgumentError, "alias: expects a String, Array, or Hash, got #{input.class}"
       end
+      pairs.to_h { |name, segments| [name, { segments:, optional: }] }
     end
 
     def type_registry

@@ -69,10 +69,44 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     expect(none.widget.tag).to be_nil
   end
 
-  it "rejects a path that traverses a list" do
+  it "field-traversing a list points you at .first/.last" do
     GraphWeaver.extend_type("Widget", alias: { code: "bits.code" })
     expect { generate("query W { widget { bits { code } } }") }
-      .to raise_error(GraphWeaver::Error, /list/)
+      .to raise_error(GraphWeaver::Error, /use \.first or \.last/)
+  end
+
+  it "picks a list element with .first (nilable) and can read into it" do
+    GraphWeaver.extend_type("Widget", alias: { top_bit: "bits.first", top_code: "bits.first.code" })
+    src = generate("query W { widget { bits { code } } }")
+    expect(src).to include("sig { returns(T.nilable(Bit)) }", "def top_bit = bits.first")
+    expect(src).to include("sig { returns(T.nilable(String)) }", "def top_code = bits.first&.code")
+  end
+
+  it "supports .last symmetrically" do
+    GraphWeaver.extend_type("Widget", alias: { last_code: "bits.last.code" })
+    expect(generate("query W { widget { bits { code } } }")).to include("def last_code = bits.last&.code")
+  end
+
+  it "rejects .first on a non-list" do
+    GraphWeaver.extend_type("Widget", alias: { x: "name.first" })
+    expect { generate }.to raise_error(GraphWeaver::Error, /needs a list/)
+  end
+
+  describe "optional: (lenient) aliases" do
+    it "omits the accessor on a query whose selection doesn't fit the path" do
+      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" }, optional: true)
+      # default query selects meta.tag -> accessor present
+      expect(generate).to include("def tag = meta&.tag")
+      # this query omits meta -> accessor skipped, no error
+      src = generate("query W { widget { id } }")
+      expect(src).not_to include("def tag")
+    end
+
+    it "still raises for a strict (default) alias on the same mismatch" do
+      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
+      expect { generate("query W { widget { id } }") }
+        .to raise_error(GraphWeaver::Error, /not a selected field/)
+    end
   end
 
   it "rejects an accessor name that collides with a selected field" do

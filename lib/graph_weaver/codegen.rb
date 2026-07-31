@@ -474,8 +474,12 @@ class GraphWeaver::Codegen
   # struct body. Validated here, per query, so an unselected or untraversable
   # path fails at generation with a pointed message.
   def resolve_aliases(node)
-    type_aliases(node.graphql_type).map do |name, segments|
-      resolve_alias(node, name, segments)
+    type_aliases(node.graphql_type).filter_map do |name, spec|
+      resolve_alias(node, name, spec[:segments])
+    rescue GraphWeaver::Error
+      # an optional alias that doesn't fit this query's selection is simply
+      # omitted; a strict one (the default) surfaces the error
+      raise unless spec[:optional]
     end
   end
 
@@ -487,48 +491,82 @@ class GraphWeaver::Codegen
   end
 
   ALIAS_RESERVED = (%w[from_h serialize to_h].to_set + RUBY_KEYWORDS).freeze
+  # list selectors — pick one element out of a list-typed hop, always nilable
+  # (the list may be empty). Everything else is a field prop.
+  LIST_SELECTORS = %w[first last].freeze
 
-  # Walk a dotted path (Ruby prop names) through this struct's selected fields,
-  # building the delegator expression (`meta&.tag`) and its return type. Any hop
-  # is nilable -> the accessor is nilable; a list hop or an unselected segment
-  # raises. The leaf may be any node (scalar, enum, nested struct).
+  # Walk a dotted path through this struct's selected shape, building the
+  # delegator expression (`meta&.tag`, `_entities.first&.name`) and its return
+  # type. A segment is a field prop, or `first`/`last` to pick a list element.
+  # Everything is checked against the node tree: a field on a non-object, a
+  # selector on a non-list, or an unselected segment raises. Any nilable hop
+  # (a nullable field, or a list element) makes the accessor nilable.
   def resolve_alias(node, name, segments)
     if node.fields.any? { |f| f.prop == name } || ALIAS_RESERVED.include?(name)
       raise GraphWeaver::Error,
         "alias #{name.inspect} on #{node.graphql_type} collides with an existing field or method"
     end
 
-    current = T.let(node, T.untyped)
-    parts = []
-    nilable = T.let(false, T::Boolean)
-    segments.each_with_index do |seg, i|
-      field = current.fields.find { |f| f.prop == seg }
-      unless field
-        props = current.fields.map(&:prop)
-        suggestion = defined?(DidYouMean::SpellChecker) &&
-          DidYouMean::SpellChecker.new(dictionary: props).correct(seg).first
-        hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
-        raise GraphWeaver::Error,
-          "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a selected field#{hint}"
-      end
-      nilable ||= !field.node.non_null?
+    cur = T.let(node, T.untyped)           # the node the path has reached
+    cur_nilable = T.let(false, T::Boolean) # is the expression so far nilable
+    nilable = T.let(false, T::Boolean)     # is the accessor overall nilable
+    expr = +""
 
-      if i == segments.size - 1
-        leaf = field.node.bare_type
-        type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
-        return ObjectNode::Alias.new(name, (parts << seg).join, type)
-      end
+    segments.each do |seg|
+      connector = expr.empty? ? "" : (cur_nilable ? "&." : ".")
 
-      inner = T.let(field.node, T.untyped)
-      inner = inner.of while inner.is_a?(NonNull)
-      raise GraphWeaver::Error, "alias #{name.inspect}: cannot traverse list-typed '#{seg}'" if inner.is_a?(List)
-      unless inner.is_a?(ObjectNode)
-        raise GraphWeaver::Error, "alias #{name.inspect}: '#{seg}' is not an object to traverse into"
+      if LIST_SELECTORS.include?(seg)
+        list = list_of(cur)
+        unless list
+          raise GraphWeaver::Error,
+            "alias #{name.inspect} on #{node.graphql_type}: .#{seg} needs a list, but the path so far isn't one"
+        end
+        expr << connector << seg
+        cur = list.of
+        cur_nilable = true # first/last is nil on an empty list
+        nilable = true
+      else
+        obj = object_of(cur)
+        unless obj
+          hint = list_of(cur) ? " — use .first or .last to pick an element" : ""
+          raise GraphWeaver::Error,
+            "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' can't be read here (not an object)#{hint}"
+        end
+        field = obj.fields.find { |f| f.prop == seg }
+        unless field
+          props = obj.fields.map(&:prop)
+          suggestion = defined?(DidYouMean::SpellChecker) &&
+            DidYouMean::SpellChecker.new(dictionary: props).correct(seg).first
+          hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
+          raise GraphWeaver::Error,
+            "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a selected field#{hint}"
+        end
+        expr << connector << seg
+        cur = field.node
+        cur_nilable = !field.node.non_null?
+        nilable ||= cur_nilable
       end
-
-      parts << seg << (field.node.non_null? ? "." : "&.")
-      current = inner
     end
+
+    leaf = cur.bare_type
+    type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
+    ObjectNode::Alias.new(name, expr, type)
+  end
+
+  # the List a node wraps (through NON_NULL), or nil
+  def list_of(node)
+    node = T.let(node, T.untyped)
+    node = node.of while node.is_a?(NonNull)
+    node if node.is_a?(List)
+  end
+
+  # the ObjectNode a node resolves to for field access (through NON_NULL and a
+  # narrowed abstract member), or nil — unions/scalars/lists can't be read into
+  def object_of(node)
+    node = T.let(node, T.untyped)
+    node = node.of while node.is_a?(NonNull)
+    node = node.nested if node.is_a?(NarrowedNode)
+    node if node.is_a?(ObjectNode)
   end
 
   # The concrete type conditions a selection mentions (inline fragments

@@ -1,3 +1,17 @@
+###  v0.4.5  (2026-07-30)
+- `alias:` paths gain list-element selectors: a `first`/`last` segment picks one
+  element out of a list hop, always nilable — `alias: { entity: "_entities.first" }`
+  yields `def entity = _entities&.first`, and navigation continues into the
+  element (`_entities.first.name`). Typed from the selection: a single inline
+  fragment lands on the concrete member (`T.nilable(Widget)`), a multi-fragment
+  selection on the union. Selectors are checked against the node shape — `.first`
+  on a non-list raises. Cleanly retires the `result._entities&.first&.field`
+  boilerplate of single-entity federation `_entities` queries.
+- `extend_type(..., optional: true)` makes its aliases lenient: a query whose
+  selection doesn't fit the path omits the accessor instead of failing
+  generation. For an alias on a universal type (a `Query` accessor a strict alias
+  would force every query to satisfy), or one that only fits some selections.
+
 ###  v0.4.4  (2026-07-30)
 - Supergraph loading now derives the **API schema**: `@inaccessible` elements
   (present in the federated graph but hidden from what the router serves) are

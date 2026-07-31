@@ -232,8 +232,26 @@ alias: { label: "name", tag: "meta.tag" }
 The path is the Ruby accessor chain (`meta.tag`), typed from the selection: any
 nullable hop makes the accessor nilable and inserts `&.`; the leaf can be a
 scalar, enum, or nested struct. It's validated against each query at generation —
-an unselected or misspelled segment (`did you mean 'tag'?`), a path through a
-list, or a name that collides with a real field all fail with a pointed error.
-Registrations stack and are client-scopable, like the mixin forms. For anything
-beyond a passthrough projection — real logic, still typed — reopen the generated
-struct in your own file and add sig'd methods; Sorbet merges the bodies.
+an unselected or misspelled segment (`did you mean 'tag'?`), a selector on a
+non-list, or a name that collides with a real field all fail with a pointed
+error. Registrations stack and are client-scopable, like the mixin forms.
+
+A segment can also be `first` or `last` to pick one element out of a list hop —
+always nilable, since the list may be empty. This is what turns an
+`_entities`-style "array that logically holds one thing" into a clean accessor:
+
+```ruby
+GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
+
+#   sig { returns(T.nilable(Widget)) }        # concrete, when the selection is one `... on Widget`
+#   def entity = _entities&.first             # (a multi-fragment selection types it as the union)
+```
+
+`optional: true` makes the aliases *lenient*: a query whose selection doesn't fit
+the path just omits the accessor instead of failing generation. Reach for it when
+the alias lives on a universal type like `Query` — where a strict alias would
+force *every* query to select the path — or when it only fits some selections.
+
+For anything beyond a passthrough projection — real logic, still typed — reopen
+the generated struct in your own file and add sig'd methods; Sorbet merges the
+bodies.
