@@ -1,3 +1,28 @@
+###  v0.4.6  (2026-07-30)
+Bug fixes from a full-library review (all with regression coverage):
+- alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
+  (`Meta::Sub`) instead of emitting a bare `Sub` that raised NameError; alias
+  names/segments are validated as identifiers (were interpolated verbatim,
+  allowing injection); `optional:` no longer swallows a reserved-name/collision
+  mistake; a real field named `first`/`last` resolves as a field.
+- Shared unions: a hoisted member selecting a mapped enum now emits its
+  `<NAME>_FROM_WIRE` table into `unions.rb` (was a NameError at `from_h`); a
+  fragment whose name collides with `Result`/`QUERY` is refused.
+- A named interface fragment holding inline `... on X` conditions now dispatches
+  instead of silently dropping those fields; fragment cycles raise a clear error
+  in the FakeClient/Anonymizer walkers instead of `SystemStackError`.
+- Malformed responses/inputs stay under `GraphWeaver::Error`: a non-2xx
+  `errors: null` body keeps its status; a 2xx non-object body is a `ServerError`;
+  `data!` on null-data/no-errors raises `QueryError`; `coerce(non-Hash)` raises
+  `InputError`.
+- Testing harness: FakeClient/Anonymizer merge duplicate result keys (were
+  fabricating shapes the generated struct couldn't cast); `fail_at` fires every
+  execute; symbol-keyed cassette variables no longer crash on reload; the
+  Anonymizer keeps concrete-fragment fields when data lacks `__typename`.
+- Federation: a user type named `link` is no longer dropped; an all-`@inaccessible`
+  schema raises a pointed error. Client accepts `retries: nil` on a schema
+  source; `register_scalar` rejects an anonymous class.
+
 ###  v0.4.5  (2026-07-30)
 - `alias:` paths gain list-element selectors: a `first`/`last` segment picks one
   element out of a list hop, always nilable — `alias: { entity: "_entities.first" }`
