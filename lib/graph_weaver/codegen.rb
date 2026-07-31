@@ -617,17 +617,24 @@ class GraphWeaver::Codegen
     node if node.is_a?(ObjectNode)
   end
 
-  # The concrete type conditions a selection mentions (inline fragments
-  # and named spreads), minus conditions naming the abstract type itself.
-  def concrete_conditions(core, selections)
-    selections.filter_map do |selection|
+  # The concrete type conditions a selection mentions, minus conditions naming
+  # the abstract type itself — recursing into named-fragment and inline bodies,
+  # so a `... on X` nested inside a spread (`{ ...NodeFields }` where NodeFields
+  # holds `... on X`) still drives dispatch instead of being silently dropped.
+  def concrete_conditions(core, selections, visiting = Set.new)
+    selections.flat_map do |selection|
       case selection
       when GraphQL::Language::Nodes::InlineFragment
-        selection.type&.name
+        [selection.type&.name, *concrete_conditions(core, selection.selections, visiting)]
       when GraphQL::Language::Nodes::FragmentSpread
-        @fragments.fetch(selection.name).type.name
+        next [] if visiting.include?(selection.name)
+
+        fragment = @fragments.fetch(selection.name)
+        [fragment.type.name, *concrete_conditions(core, fragment.selections, visiting | [selection.name])]
+      else
+        []
       end
-    end.uniq - [core.graphql_name]
+    end.compact.uniq - [core.graphql_name]
   end
 
   # result keys selected as plain fields (outside any type condition)

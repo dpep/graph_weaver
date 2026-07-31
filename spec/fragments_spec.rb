@@ -89,4 +89,39 @@ RSpec.describe "shared fragments" do
     expect { GraphWeaver::Codegen.generate(schema:, query: "query P { people { ...Nope } }", module_name: "P") }
       .to raise_error(GraphWeaver::ValidationError, /Nope/)
   end
+
+  describe "dispatch + cycles (review fixes)" do
+    let(:iface_schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { node: Node }
+        interface Node { id: ID! }
+        type User implements Node { id: ID! name: String! }
+        type Post implements Node { id: ID! title: String! }
+      GRAPHQL
+    end
+
+    it "dispatches a named interface fragment holding inline ... on X conditions" do
+      query = "query Q { node { ...NodeFields } }\n" \
+        "fragment NodeFields on Node { __typename id ... on User { name } ... on Post { title } }"
+      src = GraphWeaver::Codegen.generate(schema: iface_schema, query:, module_name: "Q")
+
+      expect(src).to include("Type = T.type_alias")  # a dispatch, not one interface-level struct
+      expect(src).to include("const :name, String")  # User's field survives
+      expect(src).to include("const :title, String") # Post's field survives
+    end
+
+    # codegen catches cycles via graphql-ruby's schema validation; the Selection
+    # guard is the backstop for the walkers that skip it (FakeClient, Anonymizer)
+    it "raises a clear error on a fragment cycle instead of overflowing the stack" do
+      host = Object.new.extend(GraphWeaver::Selection)
+      host.instance_variable_set(:@schema, iface_schema)
+      op = host.load_operation(
+        "query Q { node { id ...A } }\nfragment A on Node { id ...B }\nfragment B on Node { id ...A }",
+      )
+      node_selections = op.selections.first.selections
+
+      expect { host.each_field(iface_schema.get_type("Node"), node_selections) { |_k, _n| } }
+        .to raise_error(GraphWeaver::Error, /cycle/)
+    end
+  end
 end

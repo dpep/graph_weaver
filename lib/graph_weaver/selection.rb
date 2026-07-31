@@ -34,18 +34,24 @@ module GraphWeaver
     # Flatten a selection set as seen by `type`, yielding (result_key,
     # field_node) per field: plain fields yield directly; inline fragments
     # and named spreads recurse when their type condition applies.
-    def each_field(type, selections, &block)
+    def each_field(type, selections, visiting = Set.new, &block)
       selections.each do |selection|
         case selection
         when GraphQL::Language::Nodes::Field
           yield(selection.alias || selection.name, selection)
         when GraphQL::Language::Nodes::InlineFragment
-          each_field(type, selection.selections, &block) if applies?(selection.type&.name, type)
+          each_field(type, selection.selections, visiting, &block) if applies?(selection.type&.name, type)
         when GraphQL::Language::Nodes::FragmentSpread
           fragment = @fragments.fetch(selection.name) do
             raise ArgumentError, "unknown fragment: #{selection.name}"
           end
-          each_field(type, fragment.selections, &block) if applies?(fragment.type.name, type)
+          if visiting.include?(selection.name)
+            raise GraphWeaver::Error, "fragment cycle through #{selection.name}"
+          end
+
+          if applies?(fragment.type.name, type)
+            each_field(type, fragment.selections, visiting | [selection.name], &block)
+          end
         else
           raise GraphWeaver::Error, "unsupported selection: #{selection.class}"
         end
