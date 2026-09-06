@@ -54,13 +54,14 @@ The client is convenience, not the only door — construct and assign
 yourself for full control:
 
 ```ruby
-# zero-dependency Net::HTTP — persistent (keep-alive) connection,
-# mutex-serialized; timeouts raise retriable TransportError
+# zero-dependency Net::HTTP — a pool of persistent (keep-alive)
+# connections; timeouts raise retriable TransportError
 GraphWeaver::Transport::HTTP.new(
   url,
   headers: { ... },
   open_timeout: 10, read_timeout: 30,  # seconds (the defaults)
   keep_alive_timeout: 2,               # idle window before reconnecting
+  pool_size: 5,                        # concurrent requests in flight
 )
 
 # Faraday: a url (+ optional middleware block), or a ready connection
@@ -80,6 +81,15 @@ end
 
 GraphWeaver.client = ...   # the app default (a Client or any of the above)
 ```
+
+**Concurrency.** One transport is normally the whole app's transport
+(`GraphWeaver.client = api`), so it has to serve every thread.
+`Transport::HTTP` opens up to `pool_size:` sockets lazily and reuses the
+warmest one; requests beyond that queue for a free slot rather than
+opening unbounded connections. Raise it for a threaded server (Puma with
+`threads: 16`), lower it for a server that counts connections. A socket
+that errors is closed and its slot left empty, so the next call
+reconnects.
 
 ## Client resolution
 

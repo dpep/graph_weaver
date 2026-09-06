@@ -26,12 +26,41 @@ describe GraphWeaver::Transport::HTTP do
 
   it "drops a failed connection and reconnects on the next call" do
     PersonQuery.execute(executor, id: "1")
-    http = executor.instance_variable_get(:@http)
+    http = executor.instance_variable_get(:@idle).last
     expect(http).to receive(:request).and_raise(Errno::ECONNRESET)
 
     expect { PersonQuery.execute(executor, id: "1") }
       .to raise_error(GraphWeaver::TransportError)
+    expect(executor.instance_variable_get(:@idle)).to be_empty
     expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
+  end
+
+  describe "connection pool" do
+    # 4 threads, one call each, against a server that holds every request
+    # open. Serialized behind one socket the calls can only queue; with
+    # room in the pool they overlap — which is the whole point, and is
+    # invisible to a correctness-only spec.
+    def call_concurrently(transport, threads: 4)
+      reset_inflight!
+      Array.new(threads) { Thread.new { PersonQuery.execute(transport, id: "1") } }.each(&:join)
+    end
+
+    let(:slow) { described_class.new(slow_url, pool_size: 4) }
+    let(:serial) { described_class.new(slow_url, pool_size: 1) }
+
+    it "overlaps requests up to pool_size" do
+      call_concurrently(slow)
+      expect(peak_inflight).to be > 1
+    end
+
+    it "serializes when pool_size is 1" do
+      call_concurrently(serial)
+      expect(peak_inflight).to eq 1
+    end
+
+    it "rejects a pool that can't hold a connection" do
+      expect { described_class.new(url, pool_size: 0) }.to raise_error(ArgumentError, /pool_size/)
+    end
   end
 
   it "raises ServerError on a non-2xx response (reached the server)" do

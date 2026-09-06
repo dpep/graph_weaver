@@ -147,6 +147,17 @@ Codegen bug fixes from the library review (all with regression coverage):
     marker, is now recognized as composed rather than loaded as plain SDL
     (`core__Purpose` used to survive, and `@inaccessible` went unsubtracted).
 
+Transport improvements from the same review:
+- **`Transport::HTTP` pools its connections** (`pool_size:`, default 5) instead
+  of serializing every request behind one socket and one mutex. The mutex was
+  held across the whole network round trip, so one transport — which is what
+  `GraphWeaver.client = api` gives a Rails app — allowed exactly one request in
+  flight process-wide. Against a 10 ms-latency server, 8 threads × 10 calls:
+  1059 ms before, 281 ms with the default pool of 5 (~3.8×). Sockets still open
+  lazily, stay keep-alive, and are dropped on any error so the next call
+  reconnects. **Lower `pool_size:` if your server counts connections per
+  client**; raise it to match a threaded web server's thread count.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
