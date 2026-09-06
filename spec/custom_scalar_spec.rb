@@ -29,6 +29,12 @@ module MoneyDemo
     end
   end
 
+  # A codec that fails the way real ones do — JSON::ParserError,
+  # URI::InvalidURIError, Money::ParseError — not TypeError/ArgumentError.
+  module Strict
+    def self.parse(_str) = raise(JSON::ParserError, "not money")
+  end
+
   Product = Struct.new(:name, :price, keyword_init: true)
 
   class MoneyType < GraphQL::Schema::Scalar
@@ -292,6 +298,15 @@ describe "custom scalar deserialization" do
 
     expect(source).to include(%(require "date"))
     expect(source.index(%(require "date"))).to be < source.index("module PersonQuery")
+  end
+
+  it "brands a cast that raises outside TypeError/ArgumentError/KeyError" do
+    GraphWeaver.register_scalar("Money", MoneyDemo::Strict)
+    mod = Module.new
+    mod.module_eval(generate)
+
+    expect { mod.const_get(:StoreQuery).from_response!("data" => { "product" => { "name" => "W", "price" => "12" } }) }
+      .to raise_error(GraphWeaver::TypeError, /not money/)
   end
 
   it "rejects an anonymous class as a scalar type (would emit a literal nil)" do

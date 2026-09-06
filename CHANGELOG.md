@@ -71,6 +71,16 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- Generated `from_response` shape-checks the envelope, so a malformed one stays
+  under `GraphWeaver::Error`. A non-object `data`, a `Hash` (or an array of
+  strings) for `errors`, and non-object `extensions` all escaped as a raw Sorbet
+  `TypeError` — the `data` one from `from_h`'s sig, before the struct's own
+  rescue could see it. A body that isn't an object at all deserialized to an
+  empty envelope (`String#[]` answers `"data"` with nil); it now raises.
+- The generated `from_h` rescues `StandardError`, not just
+  `TypeError`/`ArgumentError`/`KeyError` — a registered scalar whose cast raises
+  anything else (`JSON::ParserError`, `URI::InvalidURIError`, your
+  `Money::ParseError`) escaped the umbrella. **Regenerate** to pick both up.
 - A document holding more than one operation is refused at generation. Only the
   first was ever typed, and the whole document went on the wire with no
   `operationName`, so the request came back "Must provide operation name" —

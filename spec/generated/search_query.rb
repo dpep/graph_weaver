@@ -51,9 +51,9 @@ module SearchQuery
             name: data.fetch("name"),
             birthday: data["birthday"]&.then { |v1| Date.iso8601(v1) },
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
@@ -80,9 +80,9 @@ module SearchQuery
             name: data.fetch("name"),
             species: Species.deserialize(data.fetch("species")),
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
@@ -98,9 +98,9 @@ module SearchQuery
           new(
             __typename: data.fetch("__typename"),
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
@@ -126,9 +126,9 @@ module SearchQuery
       new(
         search: data.fetch("search").map { |v1| SearchResult.from_h(v1) },
       )
-    rescue GraphWeaver::TypeError
-      raise # already wrapped by a nested struct — keep the innermost context
-    rescue TypeError, ArgumentError, KeyError => e
+    rescue GraphWeaver::Error
+      raise # already branded by a nested struct — keep the innermost context
+    rescue StandardError => e
       raise GraphWeaver::TypeError.new(struct: self, error: e)
     end
   end
@@ -170,7 +170,7 @@ module SearchQuery
   # "errors" => ..., "extensions" => ...} with wire-cased string keys.
   sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.from_response(response)
-    raw = response.to_h
+    raw = GraphWeaver.check_envelope!(response.to_h, Result)
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },

@@ -47,9 +47,9 @@ module NamedQuery
             name: data.fetch("name"),
             species: Species.deserialize(data.fetch("species")),
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
@@ -67,9 +67,9 @@ module NamedQuery
             __typename: data.fetch("__typename"),
             name: data.fetch("name"),
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
@@ -94,9 +94,9 @@ module NamedQuery
       new(
         named: data["named"]&.then { |v1| Named.from_h(v1) },
       )
-    rescue GraphWeaver::TypeError
-      raise # already wrapped by a nested struct — keep the innermost context
-    rescue TypeError, ArgumentError, KeyError => e
+    rescue GraphWeaver::Error
+      raise # already branded by a nested struct — keep the innermost context
+    rescue StandardError => e
       raise GraphWeaver::TypeError.new(struct: self, error: e)
     end
   end
@@ -138,7 +138,7 @@ module NamedQuery
   # "errors" => ..., "extensions" => ...} with wire-cased string keys.
   sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.from_response(response)
-    raw = response.to_h
+    raw = GraphWeaver.check_envelope!(response.to_h, Result)
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },

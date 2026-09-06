@@ -222,6 +222,26 @@ describe GraphWeaver::Codegen do
       expect { PersonQuery.from_response!("errors" => [{ "message" => "boom" }]) }
         .to raise_error(GraphWeaver::QueryError)
     end
+
+    # the sig on Result.from_h fires before the struct's own rescue, so these
+    # used to escape as raw Sorbet TypeErrors
+    {
+      "a non-object data" => { "data" => "nope" },
+      "an object for errors" => { "errors" => { "message" => "boom" } },
+      "an array of strings for errors" => { "errors" => ["boom"] },
+      "non-object extensions" => { "extensions" => "cost" },
+    }.each do |label, body|
+      it "brands #{label} under the error umbrella" do
+        expect { PersonQuery.from_response(body) }.to raise_error(GraphWeaver::TypeError)
+      end
+    end
+
+    it "brands a body that isn't an object at all" do
+      # String#[] answers "data" with nil, so this used to deserialize to an
+      # empty envelope rather than saying the server misbehaved
+      body = Object.new.tap { |o| o.define_singleton_method(:to_h) { "<html>502</html>" } }
+      expect { PersonQuery.from_response(body) }.to raise_error(GraphWeaver::TypeError, /must be an object/)
+    end
   end
 
   describe "unions and fragments" do

@@ -364,9 +364,9 @@ class GraphWeaver::Codegen
         out << "#{pad}      #{field.prop}: #{field_cast(field)},"
       end
       out << "#{pad}    )"
-      out << "#{pad}  rescue GraphWeaver::TypeError"
-      out << "#{pad}    raise # already wrapped by a nested struct — keep the innermost context"
-      out << "#{pad}  rescue TypeError, ArgumentError, KeyError => e"
+      out << "#{pad}  rescue GraphWeaver::Error"
+      out << "#{pad}    raise # already branded by a nested struct — keep the innermost context"
+      out << "#{pad}  rescue StandardError => e" # a scalar's cast may raise anything
       out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, error: e)"
       out << "#{pad}  end"
 
@@ -508,7 +508,7 @@ class GraphWeaver::Codegen
       out << "  # \"errors\" => ..., \"extensions\" => ...} with wire-cased string keys."
       out << "  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.from_response(response)"
-      out << "    raw = response.to_h"
+      out << "    raw = GraphWeaver.check_envelope!(response.to_h, Result)"
       out << "    GraphWeaver::Response[Result].new("
       out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
       out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"

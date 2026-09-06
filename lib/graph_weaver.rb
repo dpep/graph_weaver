@@ -59,6 +59,31 @@ module GraphWeaver
       target
     end
 
+    # Shape-check a raw response envelope, returning it. Generated
+    # from_response is public API taking anything with #to_h, so a malformed
+    # body has to brand rather than escape as a raw Sorbet TypeError from a sig
+    # (which fires before the struct's own rescue can see it). Lives here rather
+    # than unrolled into every generated module.
+    def check_envelope!(raw, struct)
+      unless raw.is_a?(Hash)
+        raise GraphWeaver::TypeError.new(struct:, message: "response must be an object, got #{raw.class}")
+      end
+
+      %w[data extensions].each do |key|
+        value = raw[key]
+        next if value.nil? || value.is_a?(Hash)
+
+        raise GraphWeaver::TypeError.new(struct:, message: "response #{key.inspect} must be an object, got #{value.class}")
+      end
+
+      errors = raw["errors"]
+      unless errors.nil? || (errors.is_a?(Array) && errors.all?(Hash))
+        raise GraphWeaver::TypeError.new(struct:, message: "response \"errors\" must be an array of objects")
+      end
+
+      raw
+    end
+
     # Conventional locations, factory_bot-style — LISTS, so extra
     # locations (a test-only dir, an engine's) can be appended and every
     # loader walks them all:
