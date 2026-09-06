@@ -57,6 +57,25 @@ describe "GraphWeaver.check_queries" do
     check(v1)
   end
 
+  # an app whose schema IS its own graphql-ruby class has no server to
+  # re-introspect: re-reading the dump compares the schema against a snapshot
+  # of itself, and reports phantom errors about a field just added
+  it "checks against the live class when the app default runs in-process" do
+    live = GraphQL::Schema.from_definition(
+      "type Media { id: ID! title: String }\ntype Query { media(id: ID!): Media search(term: String!): [Media!]! }",
+    )
+    path = File.join(@dir, "dump", "schema.graphql")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "type Media { id: ID! }\ntype Query { media(id: ID!): Media }\n") # stale
+    GraphWeaver.schema_path = path
+    GraphWeaver.client = GraphWeaver.new(live)
+
+    expect(GraphWeaver.check_queries(queries: @dir, fragments: [])).to be_empty
+  ensure
+    GraphWeaver.schema_path = nil
+    GraphWeaver.client = nil
+  end
+
   it "falls back to the local dump when it records no source url" do
     path = File.join(@dir, "dump", "schema.graphql")
     FileUtils.mkdir_p(File.dirname(path))

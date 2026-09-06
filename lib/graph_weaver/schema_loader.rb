@@ -690,7 +690,9 @@ module GraphWeaver::SchemaLoader
 
   def self.refresh_hint(path)
     missing = path ? "#{path} records no source url" : "no schema dump at #{GraphWeaver.schema_path}"
-    "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+    "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql " \
+      "(a dump taken from a schema class is rebuilt from code, not re-fetched — see " \
+      "docs/getting_started.md#your-apps-own-schema-in-process)"
   end
   private_class_method :refresh_hint
 
@@ -699,7 +701,9 @@ module GraphWeaver::SchemaLoader
   def self.source_transport(path)
     meta = provenance(path)
     unless meta&.key?("url")
-      raise GraphWeaver::Error, "#{path} records no source url — pass transport:"
+      raise GraphWeaver::Error,
+        "#{path} records no source url — it wasn't introspected from one. Pass transport:, " \
+        "or rebuild it from the schema class that produced it."
     end
 
     GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport

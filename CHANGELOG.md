@@ -592,6 +592,19 @@ three are now `federation__FieldSet` / `federation__Scope` /
 `federation__Policy`. `_Any` / `_Entity` / `_Service` keep their names — those
 are spec-mandated and queryable.
 
+**`rake graph_weaver:schema:check` no longer compares an in-process app's
+schema against itself.** For an app whose schema is its own graphql-ruby class
+there is no server to re-introspect, so the check degraded to re-reading the
+committed dump — reporting phantom errors about the app's own schema, a field
+you just added reading as "doesn't exist". When `GraphWeaver.client` executes
+in-process (a `Client` wrapping a schema class, or the class itself), the check
+now validates against the live class. Network clients are unchanged.
+
+**The two dead-end "records no source url" messages now say what to do.** A
+dump taken from a schema class is rebuilt from code, not re-fetched — both
+`schema:refresh` and `schema:verify` say that instead of naming a `URL=` that
+doesn't exist for you.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

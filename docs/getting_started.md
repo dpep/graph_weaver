@@ -141,11 +141,13 @@ rake graphql:schema:json     # rewrites app/graphql/schema.json
 rake graph_weaver:generate
 ```
 
-Run the dump step ahead of the checks in CI. Skip it and a stale dump
-reads as a confusing lie — `rake graph_weaver:schema:check` reporting
-`Field 'nickname' doesn't exist on type 'Pet'` about a field that does.
-(`graph_weaver:schema:verify` and `:refresh` are for servers you *don't*
-own; a dump taken from a schema class records no url, and they say so.)
+Run the dump step ahead of `rake graph_weaver:verify` in CI — that check
+compares committed Ruby against the committed dump, so a stale dump makes
+it fail on a query that is fine. `rake graph_weaver:schema:check` is
+unaffected: when `GraphWeaver.client` runs in-process it validates
+against the live class, not the dump. (`graph_weaver:schema:verify` and
+`:refresh` are for servers you *don't* own; a dump taken from a schema
+class records no url, and they say so.)
 
 ### A schema dump you already have
 

@@ -224,10 +224,14 @@ describe GraphWeaver::SchemaLoader do
       drifted = GraphQL::Schema.from_definition("type Query { renamed: String }")
       expect(described_class.stale?(path, transport: drifted)).to be true
 
-      # without transport: it needs a recorded url to rebuild one
+      # without transport: it needs a recorded url to rebuild one, and a dump
+      # from a schema class never records one — say so rather than dead-end
       expect {
         described_class.stale?(path)
-      }.to raise_error(GraphWeaver::Error, /no source url/)
+      }.to raise_error(
+        GraphWeaver::Error,
+        /records no source url — it wasn't introspected from one\. Pass transport:, or rebuild it from the schema class/,
+      )
     end
 
     it "refreshes the cache when the ttl has elapsed" do
@@ -316,8 +320,10 @@ describe GraphWeaver::SchemaLoader do
     it "names the fix when the dump records no url" do
       File.write(GraphWeaver.schema_path, JSON.generate(Demo::Schema.as_json))
 
-      expect { described_class.refresh! }
-        .to raise_error(GraphWeaver::Error, /records no source url.*URL=/)
+      expect { described_class.refresh! }.to raise_error(
+        GraphWeaver::Error,
+        /records no source url.*URL=.*rebuilt from code, not re-fetched.*getting_started/m,
+      )
     end
   end
 
