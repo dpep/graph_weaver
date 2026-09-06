@@ -111,6 +111,48 @@ describe "GraphWeaver.generate!" do
       GraphWeaver.generated_path = nil
     end
   end
+
+  describe "pruning" do
+    let(:queries) { File.join(@dir, "queries") }
+    let(:output) { File.join(@dir, "generated") }
+
+    def generate! = GraphWeaver.generate!(schema: Demo::Schema, queries:, output:, client: Demo::Schema)
+
+    def generated = Dir[File.join(output, "*.rb")].map { |path| File.basename(path) }.sort
+
+    before do
+      FileUtils.mkdir_p(queries)
+      File.write(File.join(queries, "person.graphql"), "query { person(id: 1) { name } }")
+      generate!
+    end
+
+    it "prunes the old file when a query is renamed" do
+      FileUtils.mv(File.join(queries, "person.graphql"), File.join(queries, "people.graphql"))
+      generate!
+
+      expect(generated).to eq %w[people_query.rb]
+    end
+
+    it "prunes the file when a query is deleted" do
+      File.delete(File.join(queries, "person.graphql"))
+      generate!
+
+      expect(generated).to be_empty
+    end
+
+    it "leaves hand-written files in the output directory alone" do
+      mine = File.join(output, "person_query_helpers.rb")
+      File.write(mine, "# mine, not GraphWeaver's\nmodule PersonQueryHelpers; end\n")
+      File.delete(File.join(queries, "person.graphql"))
+
+      generate!
+
+      expect(generated).to eq %w[person_query_helpers.rb]
+      expect(File.read(mine)).to start_with "# mine"
+      expect { GraphWeaver.verify_generated!(schema: Demo::Schema, queries:, output:, client: Demo::Schema) }
+        .not_to raise_error
+    end
+  end
 end
 
 describe "GraphWeaver.inputs_module" do
@@ -180,6 +222,24 @@ describe "GraphWeaver.verify_generated!" do
           client: Demo::Schema,
         )
       }.to raise_error(GraphWeaver::Error, /stale.*person_query\.rb/m)
+    end
+  end
+
+  it "flags a generated file the queries no longer produce" do
+    Dir.mktmpdir do |dir|
+      FileUtils.cp_r(File.join(root, "spec/generated/."), dir)
+      # a query that was renamed or deleted: its module lingers, load_generated!
+      # would keep requiring it
+      FileUtils.cp(File.join(dir, "person_query.rb"), File.join(dir, "gone_query.rb"))
+
+      expect {
+        GraphWeaver.verify_generated!(
+          schema: Demo::Schema,
+          queries: File.join(root, "spec/queries"),
+          output: dir,
+          client: Demo::Schema,
+        )
+      }.to raise_error(GraphWeaver::Error, /stale.*gone_query\.rb/m)
     end
   end
 
