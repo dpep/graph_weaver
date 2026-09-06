@@ -31,6 +31,10 @@ GraphWeaver::Testing::FakeClient.new(schema:, overrides: {
 })
 ```
 
+Keys are checked against the schema, spellchecked — `"Person.nmae"` raises
+rather than quietly pinning nothing and leaving the example green against
+random data.
+
 With rspec, the setup is two lines in `spec/support/graph_weaver.rb` —
 the require, plus an explicit opt-in to per-example fakes (deliberately
 not a default: silently swapping every example onto a fake would be

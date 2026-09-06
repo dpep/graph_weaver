@@ -89,6 +89,15 @@ defaults (`reset_scalars!(coerce: true)` restores them coercible) and
 `clear_scalars!` empties the registry. Register before generating — it's a
 codegen-time concern, baked into the emitted source.
 
+A scalar you never register is not an error — it generates as `T.untyped` and
+the wire value passes through untouched. It is, though, the one hole in an
+otherwise exact result type, so generation names the holes at `info` (see
+[logging](logging.md)):
+
+```
+3 unregistered custom scalars → T.untyped: CountryCode, FuzzyDateInt, Json (register with GraphWeaver.register_scalar)
+```
+
 ## Enums: map onto your own T::Enum
 
 By default each generated module grows its own `T::Enum` per GraphQL
