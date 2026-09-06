@@ -54,6 +54,10 @@ class GraphWeaver::Testing::FakeClient
   # sentinel: a simulated failure bubbling up to the nearest nullable spot
   NULL_BUBBLE = Object.new.freeze
 
+  # the schema responses are fabricated against — the way to reach it from
+  # an auto_fake spec, where GraphWeaver.client is one of these
+  attr_reader :schema
+
   def initialize(schema:, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
     errors: nil, fail_at: nil, corrupt: nil)
     config = GraphWeaver::Testing.config

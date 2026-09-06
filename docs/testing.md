@@ -57,6 +57,12 @@ they consult `GraphWeaver.client`). `mode:` picks value fabrication: `:faker`
 (semantic, field-name matched — raises if the gem is missing),
 `:literal` (plain type-derived), or nil to auto-detect faker.
 
+Need the schema itself inside an example — to sample a field, or build a
+query on the fly? `GraphWeaver::Testing.config.schema` reads back what
+`config.schema =` set, falling back to the committed dump; under
+`auto_fake` the client in play exposes the same object as
+`GraphWeaver.client.schema`.
+
 Test-only queries don't have to live in `app/` — the conventional paths
 are appendable lists, so the same support file can register a
 spec-local set that `load_generated!` (and the Railtie) pick up:

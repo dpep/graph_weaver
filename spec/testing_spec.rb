@@ -72,6 +72,10 @@ describe GraphWeaver::Testing do
       expect(person&.pets&.map(&:name)).to all(eq "generic") # field-name fallback
     end
 
+    it "exposes the schema it fabricates against" do
+      expect(fake.schema).to be Demo::Schema
+    end
+
     describe "override key validation" do
       def fake_with(overrides)
         GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, overrides:)
