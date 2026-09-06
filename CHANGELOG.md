@@ -9,6 +9,13 @@
     are supplied on load, for both fed-1 and `@link`-style subgraphs. Note the
     `@inaccessible` subtraction stays supergraph-only: a subgraph keeps those
     fields, because it is not the public contract.
+- A schema that won't build now raises `GraphWeaver::Error` naming the artifact
+  we took the source for (supergraph / subgraph / plain SDL / introspection),
+  instead of whatever graphql-ruby's internals happened to raise — a
+  `NoMethodError`, a `ParseError` pointing into a document you never wrote, a
+  bare `RuntimeError`. **Rescuing the raw graphql-ruby classes no longer
+  catches these.** The `@inaccessible` cascade also prunes a directive
+  definition's own arguments.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

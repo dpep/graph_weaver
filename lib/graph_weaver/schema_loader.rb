@@ -17,10 +17,10 @@ module GraphWeaver::SchemaLoader
   # so a cache round-trip is symmetrical with introspect:
   #      SchemaLoader.load(cached_json)  # from Rails.cache/redis/...
   def self.load(source)
-    return GraphQL::Schema.from_introspection(source) if source.is_a?(Hash)
+    return build_introspection(source) if source.is_a?(Hash)
 
     if source.lstrip.start_with?("{") # introspection JSON content
-      GraphQL::Schema.from_introspection(JSON.parse(source))
+      build_introspection(JSON.parse(source))
     elsif source.include?("\n") # multi-line: SDL content
       unless source.match?(/^\s*(schema|type|interface|union|enum|scalar|directive|input|")/)
         raise ArgumentError, "unsupported schema content: #{source.lstrip[0, 80].inspect}"
@@ -30,7 +30,7 @@ module GraphWeaver::SchemaLoader
     else # a file path
       case File.extname(source)
       when ".json"
-        GraphQL::Schema.from_introspection(JSON.parse(File.read(source)))
+        build_introspection(JSON.parse(File.read(source)))
       when ".graphql", ".gql"
         build_sdl(File.read(source))
       else
@@ -47,16 +47,59 @@ module GraphWeaver::SchemaLoader
   # federation directive definitions it applies but doesn't declare. Plain
   # SDL passes through.
   def self.build_sdl(sdl)
-    sdl = if federation_sdl?(sdl)
-      strip_federation(sdl)
-    elsif subgraph_sdl?(sdl)
-      add_subgraph_definitions(sdl)
-    else
-      sdl
+    kind = sdl_kind(sdl)
+    prepared = case kind
+    when :supergraph then strip_federation(sdl)
+    when :subgraph then add_subgraph_definitions(sdl)
+    else sdl
     end
-    GraphQL::Schema.from_definition(sdl)
+
+    build(kind) { GraphQL::Schema.from_definition(prepared) }
   end
   private_class_method :build_sdl
+
+  def self.build_introspection(result)
+    build(:introspection) { GraphQL::Schema.from_introspection(result) }
+  end
+  private_class_method :build_introspection
+
+  # Which artifact an SDL string is — it decides both the normalizing it
+  # needs and what to say when it won't build.
+  def self.sdl_kind(sdl)
+    if federation_sdl?(sdl)
+      :supergraph
+    elsif subgraph_sdl?(sdl)
+      :subgraph
+    else
+      :sdl
+    end
+  end
+  private_class_method :sdl_kind
+
+  SOURCE_KINDS = {
+    supergraph: "a federation supergraph SDL — if it's hand-written, check that nothing " \
+      "left in it still references an @inaccessible element",
+    subgraph: "a federation subgraph SDL — a directive it applies may be outside the " \
+      "subgraph spec; declare that one in the file",
+    sdl: "plain SDL — a supergraph is recognized by its @join__* markers, a subgraph by " \
+      "applied-but-undeclared @key/@shareable/…",
+    introspection: 'an introspection result — it should be the whole envelope, {"data": {"__schema": …}}',
+  }.freeze
+
+  # graphql-ruby reports a schema it can't build with whatever its internals
+  # happen to raise — NoMethodError, ParseError, a bare RuntimeError — often
+  # naming a document the caller never wrote (we reprint federation SDL before
+  # building). Keep those under the umbrella, and say which artifact we took
+  # the source for.
+  def self.build(kind)
+    yield
+  rescue GraphWeaver::Error
+    raise
+  rescue StandardError => e
+    raise GraphWeaver::Error,
+      "couldn't build a schema from #{SOURCE_KINDS.fetch(kind)} (#{e.class}: #{e.message})"
+  end
+  private_class_method :build
 
   # A composed Fed2 supergraph is marked by @join__* directives (every merged
   # type carries them); a plain schema has none.
@@ -256,6 +299,10 @@ module GraphWeaver::SchemaLoader
         args && args.any? ? field.merge(arguments: args.reject(&gone)) : field
       end
     end
+    # a directive definition's own arguments — the only top-level node with
+    # them, and Apollo's REFERENCED_INACCESSIBLE rule should already have
+    # rejected such a supergraph; belt and braces for hand-written ones
+    changes[:arguments] = node.arguments.reject(&gone) if node.respond_to?(:arguments) && node.arguments
     changes[:values] = node.values.reject(&gone) if node.respond_to?(:values) && node.values
     changes[:types] = node.types.reject { |t| removed.include?(t.name) } if node.respond_to?(:types) && node.types
     if node.respond_to?(:interfaces) && node.interfaces

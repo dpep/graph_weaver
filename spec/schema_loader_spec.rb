@@ -340,6 +340,36 @@ describe GraphWeaver::SchemaLoader do
         expect(described_class.load(sdl).query.graphql_name).to eq "RootQuery"
       end
 
+      it "cascades into a directive definition's own arguments" do
+        sdl = <<~GRAPHQL
+          directive @inaccessible on SCALAR
+          directive @join__type(graph: join__Graph!) repeatable on OBJECT
+          directive @mine(x: Secret) on FIELD_DEFINITION
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          scalar Secret @inaccessible
+          type Query @join__type(graph: A) { a: String @mine }
+        GRAPHQL
+
+        expect(described_class.load(sdl).get_type("Query").fields.keys).to eq %w[a]
+      end
+
+      it "brands an unbuildable schema, naming the artifact it took the source for" do
+        # a supergraph whose Query field points at a type nothing defines
+        expect {
+          described_class.load(<<~GRAPHQL)
+            directive @join__type(graph: join__Graph!) repeatable on OBJECT
+            enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+            type Query @join__type(graph: A) { thing: Nowhere }
+          GRAPHQL
+        }.to raise_error(GraphWeaver::Error, /supergraph SDL/)
+
+        expect { described_class.load("type Query {\n  thing: Nowhere\n}") }
+          .to raise_error(GraphWeaver::Error, /plain SDL/)
+
+        expect { described_class.load({ "data" => {} }) }
+          .to raise_error(GraphWeaver::Error, /introspection result/)
+      end
+
       it "raises a clear error when @inaccessible removes everything queryable" do
         sdl = <<~GRAPHQL
           directive @inaccessible on OBJECT
