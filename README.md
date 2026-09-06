@@ -65,11 +65,12 @@ you to your fellow stargazers).
 - **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
-- **Schema lifecycle as rake tasks**: commit the dump, re-introspect it on a schedule (`schema:refresh`), fail CI when the server has drifted (`schema:diff`) or when drift broke a query (`queries:check`, with line and column) or when the committed Ruby went stale (`verify`)
+- **Schema lifecycle as rake tasks**: `schema:refresh`, `schema:diff`, `queries:check`, `verify` — above
 - **Rails install generator**: `rails g graph_weaver:install <url|schema class|dump>` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
 - **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call by passing a client to `execute`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
-- **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
+- **Testing built in**: fakes, failure simulation, cassettes, rspec integration — above
+- **Type helpers**: mix your own methods onto a generated struct (`extend_type`), or project a nested field onto a typed flat accessor (`alias:`)
 - **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
 
 #### Usage
@@ -96,13 +97,8 @@ api = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"],
 # make it the app default — generated modules execute through it
 GraphWeaver.client = api
 
-# generate checked-in typed modules (rake graph_weaver:generate, or directly)
-source = GraphWeaver::Codegen.generate(
-  schema: api.schema,
-  query: File.read("queries/person.graphql"),
-  module_name: "PersonQuery",
-)
-File.write("app/queries/person_query.rb", source)
+# write the checked-in typed modules: app/graphql/queries -> app/graphql/generated
+GraphWeaver.generate!   # what `rake graph_weaver:generate` calls
 
 # at runtime
 PersonQuery.execute(id: "1")                        # via GraphWeaver.client
@@ -113,12 +109,11 @@ Module names derive from the **file** name plus the operation it defines —
 `person.graphql` → `PersonQuery`, `adopt.graphql` (a `mutation`) →
 `AdoptMutation` — for `parse(path)`, `load_queries!` and the rake task alike.
 The operation name written inside the file names no module; it goes on the wire
-as `operationName`. Leave it off and the module's own name is written into the
-document instead, so every request is attributable. Parsing a raw query string
-uses the operation name instead (`query GetPerson` → `GetPerson`). Pass `module_name:`/`name:`
-to override. Pass `client:` (a constant) to
-bake a default client into the generated module. Prefer Faraday? Ask for
-it — `GraphWeaver.new(url, transport: :faraday)`; middleware blocks and
+as `operationName`, and an anonymous document is named after its module so every
+request is still attributable. Full rules, plus `client:` to bake a default
+client into a module, in
+[generated modules](docs/generated_modules.md#generating). Prefer Faraday? Ask
+for it — `GraphWeaver.new(url, transport: :faraday)`; middleware blocks and
 ready connections in [transports](docs/transports.md).
 
 In development, skip the build step entirely — modules from `client.parse`
@@ -146,7 +141,7 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
   JS project
 - **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
   variables (enums, input objects), fragments/unions/interfaces,
-  `@skip`/`@include`, naming, clients, dynamic mode
+  `@skip`/`@include`, naming, type helpers, clients, dynamic mode
 - **[Against a real API](docs/real_world.md)** — the exploratory tour:
   introspect a live endpoint (GitHub end to end), dynamic mode, schema caching
 - **[Federation](docs/federation.md)** — Apollo Federation: supergraph vs API
@@ -182,4 +177,4 @@ gem install graph_weaver
 ## Development
 
 - `make check` — regenerate spec fixtures, run specs, typecheck
-- `make integration` — one-off checks against the live GitHub and Countries APIs
+- `make integration` — one-off checks against live APIs (GitHub needs a token) and a federation gateway (needs node)
