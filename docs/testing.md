@@ -195,3 +195,23 @@ needs the supergraph and nothing else, so this runs in CI with the SDL alone —
 no subgraph has to be loadable. The reasons group by category so one glance
 says whether the gap is one construct or many; the run above is against the
 demo graph in `spec/support/federation`, not a real app's mix.
+
+### How the refusals are kept honest
+
+A double that quietly answered *differently* from the router would be worse
+than no double at all, so
+[`spec/integration/router_parity_spec.rb`](../spec/integration/router_parity_spec.rb)
+serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
+supergraph, and runs every corpus query through both. Three outcomes, one of
+them a defect: match, refuse, or answer differently. On 26 queries — the corpus
+plus nine boundary probes — the local router is byte-identical to the gateway
+on 16, refuses 10, and is wrong on none; a second example checks the gateway
+answers all ten refusals cleanly, so each is a capability gap rather than a
+broken query. `make integration` runs it (node required).
+
+Where the ten fall says what moving the boundary would cost: eight are ordinary
+entity joins across a boundary (`User.reviews` reached from `accounts`) and one
+splits its root fields between two subgraphs — nine that entity stitching would
+solve — while the tenth is a `@requires` chain, which needs a dependency DAG
+rather than one pass. Nothing is refused for being exotic; they're refused
+because the router would fetch twice and merge.
