@@ -1,7 +1,7 @@
 # Testing
 
 Everything here is a *client* — the one interface queries run
-through: anything with `execute(query, variables:)` returning
+through: anything with `execute(query, variables:, operation_name:)` returning
 `{"data" => ..., "errors" => ...}` (see [transports](transports.md)).
 Fakes, failures, and cassettes all slot in wherever a real transport
 would.

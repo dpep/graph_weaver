@@ -27,8 +27,10 @@ app/graphql/
     *_query.rb       # one module per query — generated, checked in, never edited
 ```
 
-One operation per file: the whole document goes on the wire and nothing sends
-`operationName`, so a file holding two operations is refused at generation.
+One operation per file, and a file holding two is refused at generation — a
+convention, not a limitation. Requests do carry `operationName`, so a second
+operation would run fine; what has no answer is naming, since a module takes
+its name from the **file** (`person.graphql` → `PersonQuery`).
 
 The schema dump is step 0 — codegen reads it, never a live endpoint.
 `cache: true` on a url client writes it on first introspection
@@ -124,6 +126,7 @@ when to regenerate.)
 ```ruby
 module PersonQuery
   QUERY = "..."                  # the operation, verbatim
+  OPERATION_NAME = "Person"      # its name, nil when the document is anonymous
 
   class Result < T::Struct       # the response shape, exactly as selected
     class Person < T::Struct
@@ -152,6 +155,11 @@ end
   `GraphWeaver::QueryError`.
 - `from_response` / `from_response!` are the **network-free half** of the
   pair — same envelope, but from a response hash you already have (see below).
+- `OPERATION_NAME` rides along on every request as the spec's
+  `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
+  limits and slow-query reports on the operation instead of lumping every
+  request together. Name your operations (`query Person($id: ID!)`) — an
+  anonymous one has no name to send.
 
 ## Deserializing a response from another client
 
@@ -357,7 +365,7 @@ field name on collision.
 
 ## Clients
 
-A client is anything with `execute(query, variables:)` whose result `to_h`s
+A client is anything with `execute(query, variables:, operation_name:)` whose result `to_h`s
 into `{"data" => ..., "errors" => ...}`. Resolution: per call → per module →
 baked constant → `GraphWeaver.client` — the
 canonical list lives in [transports](transports.md#client-resolution).

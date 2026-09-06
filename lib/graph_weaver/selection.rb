@@ -20,14 +20,15 @@ module GraphWeaver
         .to_h { |fragment| [fragment.name, fragment] }
 
       operations = doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition)
-      # The whole document goes on the wire and nothing sends operationName, so
-      # a second operation is typed by nobody and rejected by the server ("Must
-      # provide operation name") — refuse rather than type the first silently.
+      # One file, one operation. Requests do carry operationName now, so a
+      # second operation would run fine on the wire — what has no answer is
+      # naming: a module is named after its FILE (person.graphql =>
+      # PersonQuery), and one file can't name two. A convention, not a limit.
       if operations.size > 1
         names = operations.map { |op| op.name ? "'#{op.name}'" : "an anonymous operation" }
         raise GraphWeaver::Error,
           "document defines #{operations.size} operations (#{names.join(", ")}) — " \
-          "split them into one file each"
+          "split them into one file each, since a module is named after its file"
       end
 
       operations.first

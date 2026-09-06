@@ -1,4 +1,33 @@
 ## Unreleased
+**Requests now send `operationName`** — every graph_weaver request used to be
+anonymous in Apollo Studio, Hasura, and any APM that keys traces, rate limits
+and slow-query reports on it. Generated modules emit their operation name as
+`OPERATION_NAME` beside `QUERY` and send it on the wire; a raw query string
+handed to a transport falls back to the name in the document. In-process
+execution passes it to `Schema.execute(operation_name:)`, which also makes a
+multi-operation document selectable there.
+
+To get the benefit, **name your operations** — `query Person($id: ID!)`, not
+`query($id: ID!)` — and regenerate. An anonymous operation still works and
+sends no `operationName`.
+
+Three breaking changes come with it:
+- **The client-slot contract widened to
+  `execute(query, variables:, operation_name: nil)`.** If you wrote your own
+  transport, client, or test double, add the kwarg — a client that doesn't
+  accept it now raises `ArgumentError: unknown keyword: :operation_name`. A
+  graphql-ruby `Schema` class already takes it, so bare schemas in the client
+  slot are unaffected. Subclasses of `GraphWeaver::Transport` only implement
+  `post(body)` and need no change.
+- **Cassettes are keyed on `operationName` too**, so two operations in one
+  document can't collide. Cassettes recorded from a *named* operation before
+  this release no longer match — re-record them
+  (`GRAPHWEAVER_RECORD=1 bundle exec rspec`). Anonymous ones are unaffected.
+- **`GraphWeaver::Transport.log_tag` takes an operation name, not a query
+  string** (`log_tag(query)` → `log_tag(operation_name)`); the constant
+  `Transport::OPERATION_NAME` is now `Transport::OPERATION_NAME_PATTERN`, since
+  generated modules define an `OPERATION_NAME` of their own.
+
 Codegen bug fixes from the library review (all with regression coverage):
 - Narrowing (`... on X` and nothing else) now reads the match off `__typename`
   when the selection carries it, instead of off "the object came back empty".

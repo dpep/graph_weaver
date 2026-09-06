@@ -4,7 +4,9 @@ Cassettes record real API responses and replay them in tests — above the
 transport (a client wrapping a client), so there's no HTTP
 interception and they work identically over HTTP, Faraday, or in-process
 execution. A cassette is a YAML file of `{query, variables, response}`
-entries, matched on the normalized query + variables.
+entries, matched on the normalized query + variables + `operationName` —
+the request's identity as the server sees it, so two operations in one
+document don't collide.
 
 ## The workflow
 
