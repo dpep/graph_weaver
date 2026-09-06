@@ -66,8 +66,8 @@ you to your fellow stargazers).
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
 - **Schema lifecycle as rake tasks**: commit the dump, re-introspect it on a schedule (`schema:refresh`), fail CI when the server has drifted (`schema:diff`) or when drift broke a query (`queries:check`, with line and column) or when the committed Ruby went stale (`verify`)
-- **Rails install generator**: `rails g graph_weaver:install --url=...` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
-- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
+- **Rails install generator**: `rails g graph_weaver:install <url|schema class|dump>` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
+- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call by passing a client to `execute`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
 - **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step

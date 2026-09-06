@@ -51,9 +51,7 @@ the query.
 the query that caused it, while `verify_generated!` reported the tree as
 current. Generation now refuses `$client`, `$variables` and `$transport` — the
 three locals the generated `execute` body owns — naming the fix. **Rename such
-a variable in the query (`query($clientId: ID!)`) before regenerating.** A
-single input-object variable whose *field* is one of those names (which you
-can't rename) simply keeps its wrapping kwarg instead of being flattened.
+a variable in the query (`query($clientId: ID!)`) before regenerating.**
 
 **`auto_coerce` no longer erases the typing of String/ID variables.** It mapped
 both to `#to_s`, which widened their kwargs to `T.anything` — the majority of
@@ -193,13 +191,13 @@ is needed. `client:` still means what it meant (a constant name to bake as
   running app. **Regenerate**: if you register anything in an initializer,
   your committed generated files are wrong, and `rake graph_weaver:verify`
   will now say so.
-- `generate`, `verify` and `schema:verify` report a `GraphWeaver::Error` the
+- `generate`, `verify` and `schema:diff` report a `GraphWeaver::Error` the
   way `schema:refresh` already did — the message, and a non-zero exit,
   instead of a rake backtrace through codegen.
 
 **`rails g graph_weaver:install` takes any source `GraphWeaver.new` takes.**
-The endpoint moves from `--url=` to a positional argument, and a schema class
-or an existing dump work the same way:
+The source is one positional argument — an endpoint, a schema class or an
+existing dump all work the same way:
 
 ```sh
 rails g graph_weaver:install https://api.example.com/graphql
@@ -207,10 +205,9 @@ rails g graph_weaver:install MyApp::Schema        # in-process, no socket
 rails g graph_weaver:install db/schema.graphql    # a dump you already have
 ```
 
-`--url=` no longer exists — pass the url as the argument. The initializer
-reflects the form chosen: a schema class is resolved in a `to_prepare` block
-(it is autoloaded, so an initializer can not read it, and a dev reload
-replaces the class object), and a dump you already have becomes
+The initializer reflects the form chosen: a schema class is resolved in a
+`to_prepare` block (it is autoloaded, so an initializer can not read it, and a
+dev reload replaces the class object), and a dump you already have becomes
 `GraphWeaver.schema_path` rather than being copied. `--auth` and the
 introspection step are url-only; a source that can not use them, a constant
 that does not resolve, and a class that is not a schema are all refused
@@ -299,12 +296,6 @@ Codegen bug fixes from the library review (all with regression coverage):
   raised `key not found`. The narrowing guard sees the fragment's own directive
   too. Conversely, a field selected both conditionally and unconditionally is no
   longer over-nilable: one unguaranteed selection doesn't unmake the guarantee.
-- A GraphQL enum used as BOTH a result field and a variable now generates one
-  Ruby class, so a value read out of a result can be passed straight back in
-  (it used to raise `TypeError: expected T.any(M::Species, String), got
-  M::Result::Pet::Species`). **The result-side constant moves**: reach for
-  `M::Species::Dog`, not `M::Result::Pet::Species::Dog`, when the enum is also
-  a variable type. An enum that appears only in results is unchanged.
 - List variables coerce per element, so an enum inside a list accepts its wire
   value the way a scalar enum already did (`sort: ["POPULARITY_DESC"]` used to
   raise `NoMethodError: undefined method 'serialize' for String`). Input-object
@@ -337,7 +328,7 @@ Codegen bug fixes from the library review (all with regression coverage):
   host now says so — `"graphql.anilist.co" looks like a host; did you mean
   "https://graphql.anilist.co"?` — instead of pointing at the file system.
 - Cassette recording accepts a `GraphWeaver::Client` — the call
-  `docs/cassettes.md` has always shown (`Cassette.use("github", client: live)`),
+  `docs/cassettes.md` shows (`Testing.cassette("github", client: live)`),
   which failed with `ArgumentError: missing keywords`. And a client that can't
   `execute` is now rejected on the spot, with its class named, rather than
   surfacing later as `NoMethodError … for an instance of Hash`.
@@ -385,11 +376,10 @@ Codegen bug fixes from the library review (all with regression coverage):
   ones always were: `GraphWeaver.extend_type("Medai", …)` (or `register_scalar` /
   `register_enum`) used to be a silent no-op, which is the failure mode
   `docs/getting_started.md` step 3 walks you straight into — it now raises at
-  generation with the spellchecked hint. File generation has no client overlay,
-  so globals were the only path there and nothing checked them. **If you keep
-  registrations for a schema you don't generate against, scope them to their
-  client** (`client.register_enum(…)`) rather than registering globally. The
-  built-in scalars are exempt — a schema with no `Date` isn't a mistake.
+  generation with the spellchecked hint. Registrations are global (see above),
+  so **drop any that names a type the schema you generate against doesn't
+  have**. The built-in scalars are exempt — a schema with no `Date` isn't a
+  mistake.
 - `extend_type(requires:)` and `register_enum(requires:)` check each path is
   loadable at registration, as `register_scalar(requires:)` already did and
   `docs/scalars.md` already promised — a typo fails now, not in the generated
@@ -461,9 +451,7 @@ Transport improvements from the same review:
   overrides both; a prebuilt `Faraday::Connection` keeps whatever it carries.
 - **`Transport::Faraday` takes `open_timeout:`/`read_timeout:` and defaults them
   to 10s/30s**, the same as `Transport::HTTP`. It had no timeout knobs at all,
-  so it inherited net/http's 60s/60s — 6× and 2× the documented defaults, on the
-  transport an app is *more* likely to get, since Faraday is auto-selected
-  whenever it's loaded and it rides in transitively via stripe/octokit. Both
+  so it inherited net/http's 60s/60s — 6× and 2× the documented defaults. Both
   timeouts now also thread through the client: `GraphWeaver.new(url,
   read_timeout: 5)` works whichever transport is picked. Passing a timeout
   alongside a prebuilt `Faraday::Connection` raises, as `headers:` already did.
@@ -534,9 +522,9 @@ Developer-experience fixes (all with regression coverage):
   which is how to reach it under `auto_fake`, where `GraphWeaver.client` is the
   fake; `Testing.config.schema` reads back too.
 New:
-- **`rake graph_weaver:schema:check` — which of your queries a schema change
+- **`rake graph_weaver:queries:check` — which of your queries a schema change
   broke.** Re-introspects the url the dump records (leaving the dump alone) and
-  validates every checked-in `.graphql` against the server as it is now,
+  validates every checked-in query against the server as it is now,
   reporting file plus line:col plus message and exiting non-zero on any
   failure, so it drops into CI. `GraphWeaver.check_queries` returns the same
   thing as data (`{path => [{"message", "line", "column"}]}`, empty when
@@ -630,13 +618,12 @@ Error-message and console ergonomics from the same review:
   arrived as one joined line with no file at all, because `generate!` had the
   path in hand and never passed it to codegen, so thirty query files left you
   hunting for a bare `4:5`. `ValidationError#errors` and `#to_h` keep the shape
-  `rake graph_weaver:schema:check` reads; only the message text changed, and
+  `rake graph_weaver:queries:check` reads; only the message text changed, and
   **it is multi-line now** — update anything matching on it.
 - **`register_enum("Species", PetKind, {"DOG" => :dog})` says the value map is a
   keyword**, and shows the call with `map:` in it. Guessing the map as a third
   positional argument used to get Ruby's `wrong number of arguments (given 3,
-  expected 2)`, which never mentions `map:`. Both `GraphWeaver.register_enum`
-  and `client.register_enum`.
+  expected 2)`, which never mentions `map:`.
 - **`load_queries!` logs when it replaces an already-loaded module**, at
   `:info`, before swapping the constant: `replacing PersonQuery — objects built
   from the previous module stay instances of it`. Reloading is unchanged and
@@ -644,7 +631,7 @@ Error-message and console ergonomics from the same review:
   orphans, which is how a console session ends up with an `is_a?` that fails
   for no visible reason.
 **Rails install generator.**
-`rails g graph_weaver:install --url=https://api.example.com/graphql` writes
+`rails g graph_weaver:install https://api.example.com/graphql` writes
 `config/initializers/graph_weaver.rb`, the `app/graphql/queries` and
 `app/graphql/generated` directories, `graphql.config.yml` (schema autocomplete
 and validation for `.graphql` files in VS Code / RubyMine) and the schema dump
@@ -677,7 +664,7 @@ three are now `federation__FieldSet` / `federation__Scope` /
 `federation__Policy`. `_Any` / `_Entity` / `_Service` keep their names — those
 are spec-mandated and queryable.
 
-**`rake graph_weaver:schema:check` no longer compares an in-process app's
+**`rake graph_weaver:queries:check` no longer compares an in-process app's
 schema against itself.** For an app whose schema is its own graphql-ruby class
 there is no server to re-introspect, so the check degraded to re-reading the
 committed dump — reporting phantom errors about the app's own schema, a field
