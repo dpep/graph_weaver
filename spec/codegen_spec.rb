@@ -762,6 +762,35 @@ describe GraphWeaver::Codegen do
 
       expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
     end
+
+    it "prefers a per-call and then a per-module client over the baked constant" do
+      baked = GraphWeaver.parse(
+        schema: Demo::Schema,
+        client: Demo::Schema,
+        query: "query People { people { name } }",
+      )
+      fake = Class.new do
+        def execute(*, **) = { "data" => { "people" => [{ "name" => "Fake" }] } }
+      end.new
+
+      expect(baked.client).to eq Demo::Schema
+      expect(baked.execute.data!.people.map(&:name)).to eq ["Daniel"]
+
+      baked.client = fake
+      expect(baked.execute.data!.people.map(&:name)).to eq ["Fake"]
+      expect(baked.execute(Demo::Schema).data!.people.map(&:name)).to eq ["Daniel"]
+    end
+
+    it "resolves the baked constant on first use, not when the module loads" do
+      # a generated file may load before the initializer that builds its client
+      late = GraphWeaver.parse(
+        schema: Demo::Schema,
+        client: "NotYetDefined::Client",
+        query: "query People { people { name } }",
+      )
+
+      expect { late.client }.to raise_error(NameError, /NotYetDefined/)
+    end
   end
 
   describe "GraphWeaver.execute (one-shot)" do

@@ -176,21 +176,8 @@ module StargazersQuery
     end
   end
 
-  @client = T.let(nil, T.untyped)
-
-  class << self
-    extend T::Sig
-
-    sig { params(client: T.untyped).void }
-    attr_writer :client
-
-    # default client (a GraphWeaver::Client or any transport) for
-    # execute: per-module override, else the app default
-    sig { returns(T.untyped) }
-    def client
-      @client || GraphWeaver.client!
-    end
-  end
+  # client / client= — see GraphWeaver::QueryModule
+  extend GraphWeaver::QueryModule
 
   sig { params(client: T.untyped, owner: String, name: String, first: Integer).returns(GraphWeaver::Response[Result]) }
   def self.execute(client = nil, owner:, name:, first:)

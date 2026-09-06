@@ -136,21 +136,11 @@ module SearchQuery
     end
   end
 
-  @client = T.let(nil, T.untyped)
+  # client / client= — see GraphWeaver::QueryModule
+  extend GraphWeaver::QueryModule
 
-  class << self
-    extend T::Sig
-
-    sig { params(client: T.untyped).void }
-    attr_writer :client
-
-    # default client (a GraphWeaver::Client or any transport) for
-    # execute: per-module override, else the app default
-    sig { returns(T.untyped) }
-    def client
-      @client || Demo::Schema
-    end
-  end
+  # the baked default client, resolved on first use
+  DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
   sig { params(client: T.untyped, term: String).returns(GraphWeaver::Response[Result]) }
   def self.execute(client = nil, term:)
