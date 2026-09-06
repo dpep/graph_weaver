@@ -34,7 +34,8 @@ app/graphql/
 the file defines — `person.graphql` → `PersonQuery` in `person_query.rb`,
 `save_list_entry.graphql` → `SaveListEntryMutation` in
 `save_list_entry_mutation.rb`. The operation name written *inside* the file
-never names the module (it goes on the wire as `operationName`). The same rule
+never names the module (it goes on the wire as `operationName`); leave it off
+and the module's name is written into the document instead. The same rule
 runs at all three doors: `generate!`, `GraphWeaver.parse(path)`, and
 `client.load_queries!`.
 
@@ -150,7 +151,7 @@ when to regenerate.)
 ```ruby
 module PersonQuery
   QUERY = "..."                  # the operation, verbatim
-  OPERATION_NAME = "Person"      # its name, nil when the document is anonymous
+  OPERATION_NAME = "PersonQuery"  # its name — the module's, when the file's is anonymous
 
   class Result < T::Struct       # the response shape, exactly as selected
     class Person < T::Struct
@@ -182,8 +183,11 @@ end
 - `OPERATION_NAME` rides along on every request as the spec's
   `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
   limits and slow-query reports on the operation instead of lumping every
-  request together. Name your operations (`query Person($id: ID!)`) — an
-  anonymous one has no name to send.
+  request together. **You don't have to name your operations**: an anonymous
+  document is named after the module, in the emitted `QUERY` *and* in
+  `OPERATION_NAME` — both, since a server rejects an `operationName` its
+  document doesn't declare. Name it yourself (`query Person($id: ID!)`) and
+  the document is left exactly as written.
 
 ## Deserializing a response from another client
 

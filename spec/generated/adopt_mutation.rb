@@ -12,7 +12,7 @@ module AdoptMutation
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    mutation($input: AdoptionInput!) {
+    mutation AdoptMutation($input: AdoptionInput!) {
       adopt(input: $input) {
         id
         name
@@ -22,7 +22,7 @@ module AdoptMutation
   GRAPHQL
 
   # sent as the request's operationName — what an APM keys traces on
-  OPERATION_NAME = T.let(nil, T.nilable(String))
+  OPERATION_NAME = T.let("AdoptMutation", T.nilable(String))
 
   Species = GraphQLEnums::Species
 

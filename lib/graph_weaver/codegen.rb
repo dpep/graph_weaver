@@ -271,11 +271,30 @@ class GraphWeaver::Codegen
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
 
-    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
+    # An anonymous operation takes the module's name — declared in the document
+    # AND sent as operationName, which have to agree (a server rejects an
+    # operationName the document doesn't declare). The conventional .graphql
+    # file names nothing, so without this every trace arrives anonymous.
+    operation_name = operation.name || @module_name.split("::").last
+    @query = declare_operation_name(operation, operation_name) unless operation.name
+
+    emit_module(root, variables, representation_nodes(operation, root_type), operation_name)
       .tap { report_untyped_scalars }
   end
 
   private
+
+  # Insert `name` into the operation's own declaration, leaving the rest of the
+  # document exactly as written — re-printing the AST would reformat the query
+  # the reader reviews. The module name is already constrained to
+  # /[A-Z]\w*(::[A-Z]\w*)*/, so its last segment is always a legal GraphQL name.
+  def declare_operation_name(operation, name)
+    at = @query.lines.first(operation.line - 1).sum(&:length) + operation.col - 1
+    keyword = @query[at..].to_s[/\A(?:query|mutation|subscription)\b/]
+    return "#{@query[0, at]}query #{name} #{@query[at..]}" unless keyword # `{ ... }` shorthand
+
+    "#{@query[0, at + keyword.length]} #{name}#{@query[(at + keyword.length)..]}"
+  end
 
   # The operation's variables as execute's kwarg surface: one VarDef each,
   # typed from the AST. A variable is optional when nullable or defaulted —

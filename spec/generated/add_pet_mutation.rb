@@ -9,7 +9,7 @@ module AddPetMutation
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    mutation($name: String!, $species: Species!) {
+    mutation AddPetMutation($name: String!, $species: Species!) {
       addPet(name: $name, species: $species) {
         id
         name
@@ -19,7 +19,7 @@ module AddPetMutation
   GRAPHQL
 
   # sent as the request's operationName — what an APM keys traces on
-  OPERATION_NAME = T.let(nil, T.nilable(String))
+  OPERATION_NAME = T.let("AddPetMutation", T.nilable(String))
 
   Species = GraphQLEnums::Species
 

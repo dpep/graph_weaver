@@ -28,12 +28,17 @@ describe GraphWeaver::Transport::HTTP do
     expect(headers["user-agent"]).to eq ["graph_weaver/#{GraphWeaver::VERSION}"]
   end
 
-  it "sends the operation name a named query declares, and nothing for an anonymous one" do
+  it "sends an operation name for every generated query, named or not" do
     SearchQuery.execute(executor, term: "el")
     expect(JSON.parse(@requests.last[:body])["operationName"]).to eq "Search"
 
+    # person.graphql declares an anonymous operation — the documented shape —
+    # so the module names it after itself, in the document and on the wire.
+    # Sending a name the document doesn't declare would be rejected.
     PersonQuery.execute(executor, id: "1")
-    expect(JSON.parse(@requests.last[:body])).not_to have_key "operationName"
+    body = JSON.parse(@requests.last[:body])
+    expect(body["operationName"]).to eq "PersonQuery"
+    expect(body["query"]).to start_with "query PersonQuery($id: ID!)"
   end
 
   it "lets the caller override the defaults" do

@@ -9,6 +9,21 @@ a variable in the query (`query($clientId: ID!)`) before regenerating.** A
 single input-object variable whose *field* is one of those names (which you
 can't rename) simply keeps its wrapping kwarg instead of being flattened.
 
+**An anonymous operation is now named after its module — in the query text and
+in `OPERATION_NAME`.** Requests started carrying `operationName` so servers and
+APMs can attribute traffic, but the constant was only set when the `.graphql`
+document named its operation — and anonymous is what the docs show, so every
+trace arrived `anonymous` and the feature did nothing for the documented happy
+path. `person.graphql` holding `query($id: ID!) { ... }` now emits
+`query PersonQuery($id: ID!) { ... }` with `OPERATION_NAME = "PersonQuery"`.
+Both halves move together: a server rejects an `operationName` its document
+doesn't declare. A document that names its own operation is left untouched.
+
+**Re-record cassettes for anonymous operations.** Cassette entries key on
+`operationName`, and those were recorded with the key omitted, so they no
+longer match (`Recorder` / `Cassette.use` with a live client, or delete the
+cassette).
+
 **`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
 `generate!` and `check_queries` read the singular (the first entry) while
 `load_queries!` walked the whole list, so a second queries directory produced

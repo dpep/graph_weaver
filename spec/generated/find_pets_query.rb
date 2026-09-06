@@ -10,7 +10,7 @@ module FindPetsQuery
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    query($where: PetFilter) {
+    query FindPetsQuery($where: PetFilter) {
       findPets(where: $where) {
         name
         species
@@ -20,7 +20,7 @@ module FindPetsQuery
   GRAPHQL
 
   # sent as the request's operationName — what an APM keys traces on
-  OPERATION_NAME = T.let(nil, T.nilable(String))
+  OPERATION_NAME = T.let("FindPetsQuery", T.nilable(String))
 
   Species = GraphQLEnums::Species
 

@@ -190,7 +190,8 @@ describe GraphWeaver::Testing::Cassette do
 
     it "anonymized cassettes still cast through generated modules" do
       GraphWeaver::Testing::Recorder.new(live, path)
-        .execute(PersonQuery::QUERY, variables: { "id" => "1" })
+        .execute(PersonQuery::QUERY, variables: { "id" => "1" },
+          operation_name: PersonQuery::OPERATION_NAME)
       described_class.new(path).anonymize!(schema: Demo::Schema, seed: 5)
 
       person = PersonQuery.execute!(GraphWeaver::Testing::Replayer.new(path), id: "1").person

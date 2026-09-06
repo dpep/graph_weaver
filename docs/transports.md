@@ -142,9 +142,10 @@ ones it leaves unset are filled in.
 **Request body.** `{"query": ..., "variables": ...}`, plus
 `"operationName"` when the operation has a name — the field Apollo Studio,
 Hasura and most APMs key traces, rate limits and slow-query reports on.
-Generated modules send their `OPERATION_NAME`; a raw query string handed
-straight to a transport falls back to the name in the document. An
-anonymous operation sends no `operationName` key at all.
+Generated modules always send one — an anonymous document is named after its
+module at generation, so the name is declared in the query too. A raw query
+string handed straight to a transport falls back to the name in the document,
+and a genuinely anonymous one sends no `operationName` key at all.
 
 **Concurrency.** One transport is normally the whole app's transport
 (`GraphWeaver.client = api`), so it has to serve every thread.

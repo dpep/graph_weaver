@@ -180,9 +180,23 @@ describe GraphWeaver::Codegen do
       expect(PersonQuery::QUERY).to be_frozen
     end
 
-    it "emits the operation's name beside QUERY, nil when the document is anonymous" do
+    it "emits the operation's name beside QUERY, naming an anonymous one itself" do
       expect(SearchQuery::OPERATION_NAME).to eq "Search"
-      expect(PersonQuery::OPERATION_NAME).to be_nil
+      expect(SearchQuery::QUERY).to start_with "query Search("
+
+      # the constant and the document have to agree — a server rejects an
+      # operationName the document doesn't declare
+      expect(PersonQuery::OPERATION_NAME).to eq "PersonQuery"
+      expect(PersonQuery::QUERY).to start_with "query PersonQuery("
+    end
+
+    it "names a query-shorthand document too" do
+      source = described_class.generate(
+        schema: Demo::Schema, module_name: "PeopleQuery", query: "{ people { name } }",
+      )
+
+      expect(source).to include("QUERY = T.let(<<~'GRAPHQL', String)\n    query PeopleQuery { people { name } }")
+      expect(source).to include('OPERATION_NAME = T.let("PeopleQuery", T.nilable(String))')
     end
 
     # the client slot stays duck-typed: a graphql-ruby schema class takes

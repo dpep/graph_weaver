@@ -58,7 +58,7 @@ response. Its payload carries:
 |-----|--|
 | `:url` | the endpoint — nil in-process |
 | `:schema` | the schema class, in-process only |
-| `:operation` | the document's operation name, nil when anonymous — what a trace keys on |
+| `:operation` | the operation name sent with the request (a generated module always has one) — what a trace keys on |
 | `:status` | the HTTP status, added once the response lands |
 
 Your callable **must** call the block and return its value. A failure

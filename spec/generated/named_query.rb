@@ -9,7 +9,7 @@ module NamedQuery
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    query($name: String!) {
+    query NamedQuery($name: String!) {
       named(name: $name) {
         __typename
         name
@@ -21,7 +21,7 @@ module NamedQuery
   GRAPHQL
 
   # sent as the request's operationName — what an APM keys traces on
-  OPERATION_NAME = T.let(nil, T.nilable(String))
+  OPERATION_NAME = T.let("NamedQuery", T.nilable(String))
 
   Species = GraphQLEnums::Species
 
