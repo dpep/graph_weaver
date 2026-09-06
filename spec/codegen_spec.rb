@@ -991,6 +991,13 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  it "rejects a document holding more than one operation" do
+    query = "query A { people { name } } query B { people { id } }"
+
+    expect { GraphWeaver::Codegen.generate(schema: Demo::Schema, query:, module_name: "Q") }
+      .to raise_error(GraphWeaver::Error, /2 operations \('A', 'B'\)/)
+  end
+
   describe "hostile result keys" do
     let(:schema) do
       GraphQL::Schema.from_definition("type Query { person: Person }\ntype Person { name: String! class: String! }")

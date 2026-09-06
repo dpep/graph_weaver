@@ -71,6 +71,10 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- A document holding more than one operation is refused at generation. Only the
+  first was ever typed, and the whole document went on the wire with no
+  `operationName`, so the request came back "Must provide operation name" —
+  **split multi-operation files into one operation each.**
 - Result keys are checked before they become props, so generation refuses what
   used to be an unloadable file. Two keys that underscore to the same prop
   (`{ name Name: name }` — a plain alias, no exotic schema needed) raised

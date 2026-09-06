@@ -19,7 +19,18 @@ module GraphWeaver
         .grep(GraphQL::Language::Nodes::FragmentDefinition)
         .to_h { |fragment| [fragment.name, fragment] }
 
-      doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
+      operations = doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition)
+      # The whole document goes on the wire and nothing sends operationName, so
+      # a second operation is typed by nobody and rejected by the server ("Must
+      # provide operation name") — refuse rather than type the first silently.
+      if operations.size > 1
+        names = operations.map { |op| op.name ? "'#{op.name}'" : "an anonymous operation" }
+        raise GraphWeaver::Error,
+          "document defines #{operations.size} operations (#{names.join(", ")}) — " \
+          "split them into one file each"
+      end
+
+      operations.first
     end
 
     # The schema type an operation's selections start from.
