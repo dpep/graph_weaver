@@ -74,6 +74,8 @@ class GraphWeaver::Codegen
     @unions_namespace = unions_namespace
     @hoistable_unions = hoistable_unions || []
     @used_unions = []
+    # scalars this generation had no registration for (see report_untyped_scalars)
+    @untyped_scalars = []
     @client_const = self.class.client_const(client)
 
     if client && @client_const.nil?
@@ -156,7 +158,7 @@ class GraphWeaver::Codegen
     enum_types.sort.each { |name| variable_core(@schema.get_type(name)) }
     input_types.sort.each { |name| input_node(@schema.get_type(name)) }
 
-    emit_inputs_files
+    emit_inputs_files.tap { report_untyped_scalars }
   end
 
   # The shared unions artifact: each named shared fragment a query hoisted,
@@ -197,7 +199,7 @@ class GraphWeaver::Codegen
       UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
     end
 
-    emit_unions_file(unions)
+    emit_unions_file(unions).tap { report_untyped_scalars }
   end
 
   # module-level constants every generated query module defines — a hoisted
@@ -285,7 +287,7 @@ class GraphWeaver::Codegen
 
     root = object_node(root_type, operation.selections, "Result")
 
-    emit_module(root, variables, representation_nodes(operation, root_type))
+    emit_module(root, variables, representation_nodes(operation, root_type)).tap { report_untyped_scalars }
   end
 
   private
@@ -1088,9 +1090,27 @@ class GraphWeaver::Codegen
     scalar =
       (coordinate && (@scalars[coordinate] || GraphWeaver::Codegen.scalar_registry[coordinate])) ||
       @scalars[name.to_s] ||
-      GraphWeaver::Codegen.scalar(name)
+      GraphWeaver::Codegen.scalar_registry[name.to_s]
+    if scalar.nil?
+      @untyped_scalars << name.to_s
+      scalar = GraphWeaver::Codegen.scalar(name)
+    end
     @requires.concat(scalar.requires)
     Scalar.new(scalar)
+  end
+
+  # An unregistered custom scalar passes through as T.untyped — legitimate
+  # (nobody needs a codec for every scalar), but it's the one hole in an
+  # otherwise exact result type, so name the holes rather than leave them
+  # silent. Informational: not a warning, never an error.
+  def report_untyped_scalars
+    names = @untyped_scalars.uniq.sort
+    return if names.empty?
+
+    GraphWeaver.log(:info) do
+      "#{names.size} unregistered custom scalar#{"s" unless names.one?} → T.untyped: " \
+        "#{names.join(", ")} (register with GraphWeaver.register_scalar)"
+    end
   end
 
   # rebuild the NON_NULL/LIST wrappers around the core node
