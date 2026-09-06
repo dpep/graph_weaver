@@ -156,27 +156,10 @@ class GraphWeaver::Codegen
       end
     end
 
-    # requires: is a require path or list of them; each must be a non-empty
-    # String (it is emitted verbatim as `require "..."`), caught here rather
-    # than as a syntax error in the generated file. When a real class was
-    # given as type:, we're in a runtime with its deps loaded, so we also
-    # `require` each path to prove it resolves (a no-op for already-loaded
-    # libs, and it surfaces a typo now). With only a type-name string we
-    # can't assume the lib is installed at codegen time, so we don't try.
+    # With only a type-name string we can't assume the lib is installed at
+    # codegen time, so the paths aren't loaded — only shape-checked.
     def normalize_requires(requires)
-      Array(requires).each do |req|
-        unless req.is_a?(String) && !req.empty?
-          raise ArgumentError, "requires: must be a String or Array of Strings, got #{req.inspect}"
-        end
-
-        next unless @klass
-
-        begin
-          require req
-        rescue LoadError => e
-          raise ArgumentError, "requires: #{req.inspect} is not loadable (#{e.message})"
-        end
-      end
+      GraphWeaver::Codegen.normalize_requires!(requires, load: !@klass.nil?)
     end
 
     # coerce: true round-trips through cast+serialize, so it needs both; a
@@ -195,7 +178,34 @@ class GraphWeaver::Codegen
     end
   end
 
+  # Pre-registered rather than user intent (see register_builtin_scalars!), so
+  # generation doesn't hold a schema to them.
+  BUILTIN_SCALARS = %w[ID String Int Float Boolean Date].freeze
+
   class << self
+    # requires: is a require path or list of them; each must be a non-empty
+    # String (it is emitted verbatim as `require "..."` atop the generated
+    # file), caught here rather than as a syntax error in the generated file.
+    # load: when the registration handed us live constants — a class, a T::Enum,
+    # a helper module — we're in a runtime with its deps loaded, so each path is
+    # required to prove it resolves: a typo fails now, not in the generated file
+    # (a no-op for already-loaded libs).
+    def normalize_requires!(requires, load:)
+      Array(requires).each do |req|
+        unless req.is_a?(String) && !req.empty?
+          raise ArgumentError, "requires: must be a String or Array of Strings, got #{req.inspect}"
+        end
+
+        next unless load
+
+        begin
+          require req
+        rescue LoadError => e
+          raise ArgumentError, "requires: #{req.inspect} is not loadable (#{e.message})"
+        end
+      end
+    end
+
     # Register (or override) how a GraphQL custom scalar deserializes into
     # a Ruby object and serializes back onto the wire. See ScalarType for
     # the accepted cast:/serialize:/requires: forms. Later registrations

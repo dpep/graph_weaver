@@ -71,6 +71,19 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- **Global registrations are validated against the schema**, like client-scoped
+  ones always were: `GraphWeaver.extend_type("Medai", …)` (or `register_scalar` /
+  `register_enum`) used to be a silent no-op, which is the failure mode
+  `docs/getting_started.md` step 3 walks you straight into — it now raises at
+  generation with the spellchecked hint. File generation has no client overlay,
+  so globals were the only path there and nothing checked them. **If you keep
+  registrations for a schema you don't generate against, scope them to their
+  client** (`client.register_enum(…)`) rather than registering globally. The
+  built-in scalars are exempt — a schema with no `Date` isn't a mistake.
+- `extend_type(requires:)` and `register_enum(requires:)` check each path is
+  loadable at registration, as `register_scalar(requires:)` already did and
+  `docs/scalars.md` already promised — a typo fails now, not in the generated
+  file.
 - Docs: `docs/testing.md` passed the client to generated `execute` as a `client:`
   kwarg — it's positional. `README.md` had module naming backwards for the
   documented path (a file's module comes from the **file** name, not the

@@ -32,7 +32,7 @@ class GraphWeaver::Codegen
       @type = type
       @map = map || {}
       @fallback = fallback
-      @requires = Array(requires)
+      @requires = GraphWeaver::Codegen.normalize_requires!(requires, load: true)
 
       if fallback && !type.values.include?(fallback)
         raise ArgumentError, "fallback: must be a #{type} member, got #{fallback.inspect}"
@@ -182,7 +182,7 @@ class GraphWeaver::Codegen
       end
 
       entry[:mixins].concat(mixins)
-      entry[:requires].concat(Array(requires))
+      entry[:requires].concat(GraphWeaver::Codegen.normalize_requires!(requires, load: true))
       (entry[:aliases] ||= {}).merge!(aliases)
       entry
     end

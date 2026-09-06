@@ -279,12 +279,11 @@ class GraphWeaver::Codegen
 
   private
 
-  # A client-scoped registration names a type in a specific schema — a
-  # typo'd name would otherwise be a silent no-op, the most confusing
-  # failure mode available. Called eagerly by Client#register_* when the
-  # schema is already loaded, and again at generation (covers clients
-  # whose schema introspects lazily). Global registrations skip this:
-  # they may target a different client's server.
+  # A registration names a type in a specific schema — a typo'd name would
+  # otherwise be a silent no-op, the most confusing failure mode available.
+  # Called eagerly by Client#register_* when the schema is already loaded, and
+  # again at generation for every registration in play, client-scoped or global
+  # (file generation has no client overlay, so globals are the only path there).
   def self.validate_registration!(schema, kind, name)
     # register_scalar("Type.field", ...) overrides one field's scalar — validate
     # the field exists and is a scalar, not that a type named "Type.field" exists.
@@ -385,9 +384,19 @@ class GraphWeaver::Codegen
     { message: error.message, line: loc && loc["line"], column: loc && loc["column"] }
   end
 
+  # Every registration this generation could consult, client-scoped overlay and
+  # global registry alike. The built-in scalars are pre-registered entries in
+  # the same global table rather than user intent, so they're exempt — a schema
+  # with no Date scalar is not a mistake.
   def validate_registrations!
-    { "enum" => @enums, "scalar" => @scalars, "type" => @types }.each do |kind, registry|
-      registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
+    {
+      "enum" => [@enums, GraphWeaver::Codegen.enum_registry],
+      "scalar" => [@scalars, GraphWeaver::Codegen.scalar_registry.except(*BUILTIN_SCALARS)],
+      "type" => [@types, GraphWeaver::Codegen.type_registry],
+    }.each do |kind, registries|
+      registries.each do |registry|
+        registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
+      end
     end
   end
 

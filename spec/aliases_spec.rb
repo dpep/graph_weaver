@@ -219,4 +219,16 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
       expect(gen2({ t: "first.id" }, "query W { widget { first { id } } }")).to include("def t = first&.id")
     end
   end
+
+  describe "registration validation" do
+    it "flags a global registration that names no type in the schema" do
+      GraphWeaver.extend_type("Widgt", alias: { tag: "meta.tag" })
+      expect { generate }.to raise_error(GraphWeaver::Error, /did you mean 'Widget'/)
+    end
+
+    it "checks requires: for loadability at registration" do
+      expect { GraphWeaver.extend_type("Widget", Comparable, requires: "no/such/lib") }
+        .to raise_error(ArgumentError, /not loadable/)
+    end
+  end
 end
