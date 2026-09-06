@@ -101,7 +101,7 @@ otherwise exact result type, so generation names the holes at `info` (see
 ## Enums: map onto your own T::Enum
 
 By default each generated module grows its own `T::Enum` per GraphQL
-enum — `AddPetQuery::Species`, `SearchQuery::Result::...::Species`, one
+enum — `AddPetMutation::Species`, `SearchQuery::Result::...::Species`, one
 per module that touches it. That's fine until your app has its own
 domain enum, and then the boundary shuffle starts:
 
@@ -114,12 +114,12 @@ end
 
 # without a mapping, every call site converts by hand, in both directions
 kind = PetKind.deserialize(pet.species.serialize.downcase)      # response -> domain
-AddPetQuery.execute!(species: kind.serialize.upcase)            # domain -> wire
+AddPetMutation.execute!(species: kind.serialize.upcase)            # domain -> wire
 ```
 
 Two enums for one concept, glue at every crossing, and each generated
 module has its *own* incompatible `Species`, so a pet from `SearchQuery`
-and a pet from `AddPetQuery` don't even compare. Register the mapping
+and a pet from `AddPetMutation` don't even compare. Register the mapping
 once and the seam disappears — generated code speaks your enum
 everywhere, casting wire values in and serializing members out:
 
@@ -129,7 +129,7 @@ api.register_enums("Species" => PetKind, "Role" => Role)     # or per client, in
 
 pet.species                                   # => PetKind::Dog — compare, case, persist directly
 pet.species == other_pet.species              # same type across every query
-AddPetQuery.execute!(species: PetKind::Cat)   # or "CAT" — members and wire values both work
+AddPetMutation.execute!(species: PetKind::Cat)   # or "CAT" — members and wire values both work
 ```
 
 **When to reach for it**: the enum has a life outside the API — it's

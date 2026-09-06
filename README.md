@@ -105,9 +105,11 @@ PersonQuery.execute(id: "1")                        # via GraphWeaver.client
 PersonQuery.execute(other_client, id: "1")          # or per call
 ```
 
-Module names derive from the **file** name — `person.graphql` →
-`PersonQuery`, for both `parse(path)` and the rake task, whatever the
-operation inside is called. Parsing a raw query string uses the operation
+Module names derive from the **file** name plus the operation it defines —
+`person.graphql` → `PersonQuery`, `adopt.graphql` (a `mutation`) →
+`AdoptMutation` — for `parse(path)`, `load_queries!` and the rake task alike.
+The operation name written inside the file names nothing; it goes on the wire
+as `operationName`. Parsing a raw query string uses the operation
 name instead (`query GetPerson` → `GetPerson`). Pass `module_name:`/`name:`
 to override. Pass `client:` (a constant) to
 bake a default client into the generated module. Prefer Faraday? Ask for

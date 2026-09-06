@@ -25,12 +25,24 @@ app/graphql/
     inputs.rb        # manifest: requires + forward declarations
     inputs/          # one file per shared type (input structs, enums)
     *_query.rb       # one module per query — generated, checked in, never edited
+    *_mutation.rb    # ...and per mutation
 ```
+
+**Naming.** A module is named after its **file**, suffixed with the operation
+the file defines — `person.graphql` → `PersonQuery` in `person_query.rb`,
+`save_list_entry.graphql` → `SaveListEntryMutation` in
+`save_list_entry_mutation.rb`. The operation name written *inside* the file
+never names the module (it goes on the wire as `operationName`). The same rule
+runs at all three doors: `generate!`, `GraphWeaver.parse(path)`, and
+`client.load_queries!`.
+
+Change a file's `query` to `mutation` and its constant changes with it; the
+next `generate!` prunes the old file, and `verify` fails until you regenerate.
 
 One operation per file, and a file holding two is refused at generation — a
 convention, not a limitation. Requests do carry `operationName`, so a second
-operation would run fine; what has no answer is naming, since a module takes
-its name from the **file** (`person.graphql` → `PersonQuery`).
+operation would run fine; what has no answer is naming, since one file can't
+name two modules.
 
 The schema dump is step 0 — codegen reads it, never a live endpoint.
 `cache: true` on a url client writes it on first introspection
@@ -204,7 +216,7 @@ mutation($name: String!, $species: Species!, $note: String) { ... }
 ```
 
 ```ruby
-AddPetQuery.execute!(name: "Rex", species: AddPetQuery::Species::Dog)
+AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 ```
 
 - required vs optional falls out of nullability and defaults: nullable or
@@ -223,7 +235,7 @@ mutation($input: AdoptionInput!) { adopt(input: $input) { ... } }
 ```
 
 ```ruby
-AdoptQuery.execute!(name: "Rex", species: "DOG", nickname: "Rexy")
+AdoptMutation.execute!(name: "Rex", species: "DOG", nickname: "Rexy")
 ```
 
 The wrapping level is rebuilt on the wire, and each field type-checks
@@ -235,7 +247,7 @@ nested inputs accept hashes; unknown keys raise with a spellchecked
 hint rather than silently dropping):
 
 ```ruby
-AdoptQuery.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
+AdoptMutation.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 ```
 
 In the generate! workflow, input types (and the enums they use) are
@@ -249,13 +261,13 @@ with `generate!(inputs_module:)`. Per-type files keep schema drift
 reviewable: a migration diffs exactly the types it touched, and types
 the schema drops are pruned on regeneration (`verify` flags strays).
 Query modules alias what they touch,
-so `AdoptQuery::AdoptionInput` still works and shared types keep one
+so `AdoptMutation::AdoptionInput` still works and shared types keep one
 identity across modules — three filtered Hasura queries cost one ~11k-line
 inputs file plus ~90 lines each, instead of ~35k lines of duplicates.
 Deeply nested types live unaliased in the shared module
 (`GraphQLInputs::PetFilter`). Dynamic `parse` stays self-contained.
 
-The structs themselves are module-level (`AdoptQuery::AdoptionInput`):
+The structs themselves are module-level (`AdoptMutation::AdoptionInput`):
 typed consts plus a compact per-field `FIELDS` table that the
 `GraphWeaver::InputStruct` runtime drives — `serialize` (aliased `to_h`)
 produces the wire hash with nil optionals omitted, `coerce` builds from

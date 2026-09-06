@@ -93,6 +93,29 @@ module GraphWeaver
       raw
     end
 
+    # The module a .graphql file generates, and the basename of the file it
+    # generates into: the camelized file name plus the operation's own word.
+    #
+    #      person.graphql          => PersonQuery       (person_query.rb)
+    #      save_list_entry.graphql => SaveListEntryMutation
+    #                                 (save_list_entry_mutation.rb)
+    #
+    # Every naming site goes through here — generate!, parse(path), and
+    # load_queries! — so the constant a file produces is the same one
+    # whichever door you came in by.
+    def module_name(path, source)
+      "#{Inflect.camelize(File.basename(path, ".*"))}#{operation_suffix(source)}"
+    end
+
+    # "Mutation" for a mutation document, "Query" for everything else.
+    def operation_suffix(source)
+      operation = GraphQL.parse(source).definitions
+        .grep(GraphQL::Language::Nodes::OperationDefinition).first
+      (operation&.operation_type == "mutation") ? "Mutation" : "Query"
+    rescue GraphQL::ParseError
+      "Query" # unparseable: codegen brands the real error a moment later
+    end
+
     # Conventional locations, factory_bot-style — LISTS, so extra
     # locations (a test-only dir, an engine's) can be appended and every
     # loader walks them all:
@@ -342,10 +365,11 @@ module GraphWeaver
       plan = Dir[File.join(queries, "*.graphql")].sort.map do |path|
         base = File.basename(path, ".graphql")
         source = File.read(path)
+        suffix = operation_suffix(source)
         codegen = Codegen.new(
           schema:,
           query: Codegen.inline_fragments(source, shared, path),
-          module_name: "#{Inflect.camelize(base)}Query",
+          module_name: "#{Inflect.camelize(base)}#{suffix}",
           client:,
           inputs_namespace: inputs_module,
           unions_namespace: unions_module,
@@ -354,7 +378,7 @@ module GraphWeaver
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
         used_unions |= codegen.used_union_names
-        ["#{base}_query.rb", out]
+        ["#{base}_#{suffix.downcase}.rb", out]
       end
 
       if inputs_module && used.values.any?(&:any?)
@@ -505,8 +529,9 @@ module GraphWeaver
     #
     #      PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
     #
-    # query is a .graphql/.gql path (module name derived from the file
-    # name) or a raw query string (name derived from the operation name,
+    # query is a .graphql/.gql path (module name derived from the file name
+    # and the operation — see #module_name) or a raw query string (name
+    # derived from the operation name,
     # falling back to "Query" for anonymous operations — collisions are
     # impossible since each parse gets its own container). Pass name: to
     # override, client: to bake the module's default client/transport.
@@ -514,8 +539,8 @@ module GraphWeaver
       fragments: fragments_paths)
       path = query if query.end_with?(".graphql", ".gql")
       if path
-        name ||= "#{Inflect.camelize(File.basename(path, ".*"))}Query"
         query = File.read(path)
+        name ||= module_name(path, query)
       end
       query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 

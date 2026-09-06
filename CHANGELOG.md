@@ -350,6 +350,23 @@ you must do:** nothing, unless you were relying on a lingering module — the
 next `generate!` removes it, and CI's `rake graph_weaver:verify` will name it
 first.
 
+**Mutations now generate `…Mutation` modules, not `…Query`.**
+`save_list_entry.graphql` holding a `mutation` produces
+`SaveListEntryMutation` in `save_list_entry_mutation.rb`;
+`SaveListEntryQuery.execute!` read wrong for a write. Queries are unchanged.
+The rule is one rule — the camelized file name plus the operation the file
+defines — and all three naming sites follow it: `generate!`,
+`GraphWeaver.parse(path)`, and `client.load_queries!`. The operation name
+written *inside* the file still names nothing; it goes on the wire as
+`operationName`.
+
+**What you must do:** regenerate (`rake graph_weaver:generate`) and rename the
+call sites of any mutation module — `AdoptQuery` → `AdoptMutation`, including
+nested constants like `AdoptQuery::AdoptionInput`. Regeneration prunes the old
+`*_query.rb` files, and `rake graph_weaver:verify` names anything missed.
+Changing a file's `query` to `mutation` from here on renames its constant the
+same way, which CI now catches rather than letting it drift.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

@@ -1,8 +1,8 @@
 
 require "graph_weaver/testing" # FakeClient walks the same Selection module codegen does
 
-require_relative "generated/add_pet_query"
-require_relative "generated/adopt_query"
+require_relative "generated/add_pet_mutation"
+require_relative "generated/adopt_mutation"
 require_relative "generated/find_pets_query"
 require_relative "generated/named_query"
 require_relative "generated/person_query"
@@ -395,14 +395,14 @@ describe GraphWeaver::Codegen do
 
   describe "mutations and typed variables" do
     it "executes mutations with typed kwargs, serializing enum variables" do
-      result = AddPetQuery.execute(name: "Rex", species: AddPetQuery::Species::Dog).data!
+      result = AddPetMutation.execute(name: "Rex", species: AddPetMutation::Species::Dog).data!
 
       expect(result.add_pet.name).to eq "Rex"
       # one Species class per module: the value read out of the result is the
       # very one execute takes back in
-      expect(result.add_pet.species).to eq AddPetQuery::Species::Dog
-      expect(AddPetQuery.execute(name: "Rex", species: result.add_pet.species).data!.add_pet.species)
-        .to eq AddPetQuery::Species::Dog
+      expect(result.add_pet.species).to eq AddPetMutation::Species::Dog
+      expect(AddPetMutation.execute(name: "Rex", species: result.add_pet.species).data!.add_pet.species)
+        .to eq AddPetMutation::Species::Dog
     end
 
     it "accepts wire strings for enums inside a list variable, like a scalar one" do
@@ -456,7 +456,7 @@ describe GraphWeaver::Codegen do
     end
 
     it "hints when a result field is called by its camelCase wire name" do
-      result = AddPetQuery.execute!(name: "Rex", species: "DOG")
+      result = AddPetMutation.execute!(name: "Rex", species: "DOG")
 
       expect { result.addPet }.to raise_error(NoMethodError, /use 'add_pet'/)
       expect { result.add_pet.bogusField }.to raise_error(NoMethodError) do |e|
@@ -465,7 +465,7 @@ describe GraphWeaver::Codegen do
     end
 
     it "suggests the nearest prop for a typo, in either casing" do
-      result = AddPetQuery.execute!(name: "Rex", species: "DOG")
+      result = AddPetMutation.execute!(name: "Rex", species: "DOG")
 
       expect { result.addPt }.to raise_error(NoMethodError, /did you mean 'add_pet'\?/)
       expect { result.add_pt }.to raise_error(NoMethodError, /did you mean 'add_pet'\?/)
@@ -473,17 +473,17 @@ describe GraphWeaver::Codegen do
     end
 
     it "flattens a single input-object variable into typed kwargs" do
-      pet = AdoptQuery.execute!(name: "Rex", species: AdoptQuery::Species::Dog).adopt
+      pet = AdoptMutation.execute!(name: "Rex", species: AdoptMutation::Species::Dog).adopt
       expect(pet.name).to eq "Rex"
-      expect(pet.species).to eq AdoptQuery::Species::Dog
+      expect(pet.species).to eq AdoptMutation::Species::Dog
 
       # enums accept their wire value; optional fields ride along when
       # set, stay off the wire when nil
-      expect(AdoptQuery.execute!(name: "Rex", species: "DOG", nickname: "Rexy").adopt.name).to eq "Rexy"
+      expect(AdoptMutation.execute!(name: "Rex", species: "DOG", nickname: "Rexy").adopt.name).to eq "Rexy"
 
       # bad shapes fail loudly at the boundary
-      expect { AdoptQuery.execute!(species: "DOG") }.to raise_error(ArgumentError)
-      expect { AdoptQuery.execute!(name: "Rex", species: "DRAGON") }.to raise_error(GraphWeaver::InputError)
+      expect { AdoptMutation.execute!(species: "DOG") }.to raise_error(ArgumentError)
+      expect { AdoptMutation.execute!(name: "Rex", species: "DRAGON") }.to raise_error(GraphWeaver::InputError)
     end
 
     describe "@oneOf inputs" do
@@ -528,33 +528,33 @@ describe GraphWeaver::Codegen do
     end
 
     it "still generates the input struct — nested inputs, building by hand" do
-      nicknamed = AdoptQuery::AdoptionInput.new(
+      nicknamed = AdoptMutation::AdoptionInput.new(
         name: "Rex",
-        species: AdoptQuery::Species::Dog,
+        species: AdoptMutation::Species::Dog,
         nickname: "Rexy",
       )
       expect(nicknamed.serialize).to include("nickname" => "Rexy", "species" => "DOG")
       expect(nicknamed.to_h).to eq nicknamed.serialize
 
-      bare = AdoptQuery::AdoptionInput.new(name: "Rex", species: AdoptQuery::Species::Dog)
+      bare = AdoptMutation::AdoptionInput.new(name: "Rex", species: AdoptMutation::Species::Dog)
       expect(bare.serialize).not_to have_key("nickname")
 
       # coerce: underscored Symbol/String keys, enums as wire values
-      coerced = AdoptQuery::AdoptionInput.coerce({ "name" => "Rex", species: "CAT" })
-      expect(coerced.species).to eq AdoptQuery::Species::Cat
+      coerced = AdoptMutation::AdoptionInput.coerce({ "name" => "Rex", species: "CAT" })
+      expect(coerced.species).to eq AdoptMutation::Species::Cat
 
       # a typo'd key raises with a hint instead of silently dropping
-      expect { AdoptQuery::AdoptionInput.coerce({ name: "Rex", species: "CAT", nickame: "Rexy" }) }
+      expect { AdoptMutation::AdoptionInput.coerce({ name: "Rex", species: "CAT", nickame: "Rexy" }) }
         .to raise_error(GraphWeaver::InputError, /nickame \(did you mean 'nickname'\?\)/)
     end
 
     it "raises a branded, structured InputError for bad input (rescue for a 422)" do
       # every bad-input shape lands under one rescuable error…
       bad = {
-        "unknown key" => -> { AdoptQuery::AdoptionInput.coerce(name: "Rex", species: "CAT", nickame: "x") },
-        "out-of-range enum" => -> { AdoptQuery::AdoptionInput.coerce(name: "Rex", species: "DRAGON") },
-        "missing required field" => -> { AdoptQuery::AdoptionInput.coerce(species: "CAT") },
-        "wrong-typed field" => -> { AdoptQuery::AdoptionInput.coerce(name: 123, species: "CAT") },
+        "unknown key" => -> { AdoptMutation::AdoptionInput.coerce(name: "Rex", species: "CAT", nickame: "x") },
+        "out-of-range enum" => -> { AdoptMutation::AdoptionInput.coerce(name: "Rex", species: "DRAGON") },
+        "missing required field" => -> { AdoptMutation::AdoptionInput.coerce(species: "CAT") },
+        "wrong-typed field" => -> { AdoptMutation::AdoptionInput.coerce(name: 123, species: "CAT") },
       }
       bad.each_value do |build|
         expect(&build).to raise_error(GraphWeaver::InputError)
@@ -563,7 +563,7 @@ describe GraphWeaver::Codegen do
 
       # …and it carries a machine-readable to_h for the response body
       error = begin
-        AdoptQuery::AdoptionInput.coerce(name: "Rex", species: "CAT", nickame: "x")
+        AdoptMutation::AdoptionInput.coerce(name: "Rex", species: "CAT", nickame: "x")
       rescue GraphWeaver::InputError => e
         e
       end

@@ -17,7 +17,7 @@ describe "GraphWeaver.generate!" do
 
     expect(written.map { |path| path.delete_prefix("#{@dir}/") }).to eq %w[
       inputs/species.rb inputs/adoption_input.rb inputs/pet_filter.rb inputs.rb
-      add_pet_query.rb adopt_query.rb find_pets_query.rb named_query.rb person_query.rb search_query.rb
+      add_pet_mutation.rb adopt_mutation.rb find_pets_query.rb named_query.rb person_query.rb search_query.rb
     ]
     # byte-identical to the checked-in fixtures (same generator, same inputs)
     expect(File.read(File.join(@dir, "person_query.rb")))
@@ -47,7 +47,7 @@ describe "GraphWeaver.generate!" do
 
     manifest = File.read(File.join(output, "inputs.rb"))
     expect(manifest).to include "module GithubInputs"
-    expect(File.read(File.join(output, "adopt_query.rb"))).to include "GithubInputs::AdoptionInput"
+    expect(File.read(File.join(output, "adopt_mutation.rb"))).to include "GithubInputs::AdoptionInput"
   end
 
   it "loads per-schema layouts via glob path entries" do
@@ -152,6 +152,33 @@ describe "GraphWeaver.generate!" do
       expect { GraphWeaver.verify_generated!(schema: Demo::Schema, queries:, output:, client: Demo::Schema) }
         .not_to raise_error
     end
+  end
+end
+
+describe "module naming by operation" do
+  around do |example|
+    Dir.mktmpdir { |dir| @dir = dir; example.run }
+  end
+
+  before do
+    File.write(File.join(@dir, "adopt.graphql"), "mutation { addPet(name: \"Rex\", species: DOG) { id } }")
+    File.write(File.join(@dir, "person.graphql"), "query { person(id: 1) { name } }")
+  end
+
+  it "names mutations …Mutation and queries …Query at every site" do
+    output = File.join(@dir, "generated")
+    written = GraphWeaver.generate!(schema: Demo::Schema, queries: @dir, output:, client: Demo::Schema)
+    expect(written.map { |path| File.basename(path) }).to eq %w[adopt_mutation.rb person_query.rb]
+    expect(File.read(File.join(output, "adopt_mutation.rb"))).to include "module AdoptMutation"
+
+    expect(GraphWeaver.parse(schema: Demo::Schema, query: File.join(@dir, "adopt.graphql")).name)
+      .to end_with "AdoptMutation"
+    expect(GraphWeaver.parse(schema: Demo::Schema, query: File.join(@dir, "person.graphql")).name)
+      .to end_with "PersonQuery"
+
+    namespace = Module.new
+    GraphWeaver.new(Demo::Schema).load_queries!(@dir, namespace:)
+    expect(namespace.constants.sort).to eq %i[AdoptMutation PersonQuery]
   end
 end
 

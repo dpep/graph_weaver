@@ -1,7 +1,7 @@
 require "graph_weaver/testing"
 require_relative "generated/person_query"
 require_relative "generated/search_query"
-require_relative "generated/add_pet_query"
+require_relative "generated/add_pet_mutation"
 
 describe GraphWeaver::Testing do
   after { GraphWeaver::Testing.reset! }
@@ -24,8 +24,8 @@ describe GraphWeaver::Testing do
         expect(%w[Person Pet]).to include(member.__typename)
       end
 
-      pet = AddPetQuery.execute!(fake, name: "Rex", species: AddPetQuery::Species::Dog).add_pet
-      expect([AddPetQuery::Species::Dog, AddPetQuery::Species::Cat])
+      pet = AddPetMutation.execute!(fake, name: "Rex", species: AddPetMutation::Species::Dog).add_pet
+      expect([AddPetMutation::Species::Dog, AddPetMutation::Species::Cat])
         .to include(pet.species)
     end
 
