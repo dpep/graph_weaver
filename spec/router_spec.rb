@@ -70,25 +70,124 @@ describe GraphWeaver::Testing::Router do
     end
   end
 
+  describe "a query that crosses a subgraph boundary" do
+    def subgraphs = router.trace.map { |fetch| fetch[:subgraph] }
+
+    it "splits at the crossing and stitches the entity back" do
+      response = router.execute("{ me { username reviews { id body } } }")
+
+      expect(response.fetch("data")).to eq({
+        "me" => {
+          "username" => "dpep",
+          "reviews" => [{ "id" => "r1", "body" => "Love it" }, { "id" => "r2", "body" => "Too expensive" }],
+        },
+      })
+      expect(subgraphs).to eq ["accounts", "reviews"]
+    end
+
+    # the key travels under a reserved alias so it can't collide with a
+    # response key the caller asked for, and never reaches the caller
+    it "injects the @key it needs and strips it back out" do
+      router.execute("{ me { username reviews { body } } }")
+      keys, entities = router.trace
+
+      expect(keys[:query]).to include "_gw_id: id"
+      expect(entities[:variables]).to eq({ "representations" => [{ "id" => "1", "__typename" => "User" }] })
+    end
+
+    it "fetches every node at one level in one _entities call" do
+      response = router.execute("{ users { username reviews { body product { name } } } }")
+
+      expect(response.dig("data", "users", 1, "reviews", 0, "product", "name")).to eq "Chair"
+      # two users in one fetch, then all three of their reviews' products in one more
+      expect(subgraphs).to eq ["accounts", "reviews", "products"]
+      expect(router.trace.last[:variables].fetch("representations").size).to eq 3
+    end
+
+    # both selections carry a plan under the same response key, and keeping
+    # only the last one would silently drop the other's fetch
+    it "keeps every subplan when two selections share a response key" do
+      response = router.execute("{ reviews { product { name } product { upc } } }")
+
+      expect(response.dig("data", "reviews", 0, "product")).to eq({ "name" => "Table", "upc" => "p1" })
+    end
+
+    it "runs root fields that span subgraphs as one fetch each" do
+      response = router.execute("{ me { username } topProducts(first: 1) { name } }")
+
+      expect(response.fetch("data"))
+        .to eq({ "me" => { "username" => "dpep" }, "topProducts" => [{ "name" => "Table" }] })
+      expect(subgraphs).to eq ["accounts", "products"]
+    end
+
+    it "reads a @provides copy in place and fetches only the rest" do
+      response = router.execute("{ reviews { author { username email } } }")
+
+      expect(response.dig("data", "reviews", 0, "author"))
+        .to eq({ "username" => "dpep", "email" => "pepper.daniel@gmail.com" })
+      expect(subgraphs).to eq ["reviews", "accounts"]
+    end
+
+    it "leaves a skipped stitched field absent rather than null" do
+      query = "query($hide: Boolean!) { me { username reviews @skip(if: $hide) { body } } }"
+
+      expect(router.execute(query, variables: { "hide" => true }).fetch("data"))
+        .to eq({ "me" => { "username" => "dpep" } })
+    end
+
+    # A stitched fetch can put a null where the composed schema says non-null,
+    # and nothing re-applies GraphQL's propagation rules over a merged tree
+    # unless the router does: without it this comes back populated, with a
+    # null inside, and the real router answers data: null.
+    describe "a null the merged tree can't hold" do
+      it "propagates it the way the composed schema says" do
+        # products can't resolve the orphan's upc, so Review.product — a
+        # Product! inside a [Review!]! — comes back null
+        expect(router.execute("{ orphanReviews { body product { name } } }"))
+          .to eq({ "data" => nil })
+      end
+
+      it "re-paths a subgraph error out of _entities, without inventing a location" do
+        response = router.execute("{ topProducts(first: 4) { name shippingEstimate } }")
+
+        expect(response.fetch("data")).to be_nil
+        expect(response.fetch("errors"))
+          .to eq [{ "message" => "carrier unavailable", "path" => ["topProducts", 3, "shippingEstimate"] }]
+      end
+    end
+  end
+
   describe "refusing" do
     it "refuses before any subgraph runs" do
-      expect { router.execute("{ me { username reviews { body } } }") }.to raise_error(Unplannable)
+      expect { router.execute("{ reviews { product { shippingEstimate } } }") }.to raise_error(Unplannable)
       expect(router.trace).to be_empty
     end
 
     it "is a GraphWeaver::Error, so one rescue catches it" do
-      expect { router.execute("{ me { reviews { body } } }") }.to raise_error(GraphWeaver::Error)
-      expect(refusal("{ me { reviews { body } } }").to_h)
-        .to include("category" => "crosses_subgraph")
+      expect { router.execute("{ reviews { product { shippingEstimate } } }") }
+        .to raise_error(GraphWeaver::Error)
+      expect(refusal("{ reviews { product { shippingEstimate } } }").to_h)
+        .to include("category" => "requires")
     end
 
-    it "names the field, both subgraphs, and what to do — a boundary crossing" do
-      error = refusal("{ me { username reviews { body } } }")
+    # Apollo's router injects the @key under its own name and lets it win, so
+    # this comes back as the user's id rather than their username. Matching
+    # the router matters more than being right — and we can be neither.
+    it "names the alias colliding with a @key the fetch needs" do
+      error = refusal("{ me { id: username reviews { body } } }")
 
-      expect(error.category).to eq :crosses_subgraph
-      expect(error.message).to eq "User.reviews is resolved by reviews, and this operation runs in " \
-        "accounts — the local router hands one query to one subgraph verbatim and doesn't stitch " \
-        "across a boundary. Run this one against a real router."
+      expect(error.category).to eq :shadowed_key
+      expect(error.detail).to eq 'User.reviews is fetched on User\'s "id", and this selection ' \
+        'aliases username as "id" over it'
+      expect(error.message).to end_with "Rename the alias."
+    end
+
+    it "names the abstract type it can't build a representation for" do
+      error = refusal("{ feed { ... on Review { body author { email } } } }")
+
+      expect(error.category).to eq :abstract_boundary
+      expect(error.detail).to eq "this operation selects ...on Review inside FeedItem and part of " \
+        "it resolves outside reviews"
     end
 
     it "names the field sets — a @requires the running subgraph can't satisfy" do
@@ -101,22 +200,12 @@ describe GraphWeaver::Testing::Router do
         "Run this one against a real router."
     end
 
-    it "names every root field and its subgraph — root fields that span" do
-      error = refusal("{ me { username } topProducts(first: 2) { name } }")
-
-      expect(error.category).to eq :root_fields_span
-      expect(error.detail).to eq "this operation's root fields span subgraphs: " \
-        "Query.me (accounts), Query.topProducts (products)"
-      expect(error.message).to end_with "Split it into one operation per subgraph, or run this one " \
-        "against a real router."
-    end
-
-    # a union whose members live in different subgraphs, plus a subscription
-    # root — neither shape the demo graph has
+    # a union whose members live in different subgraphs, a mutation whose
+    # roots do, and a subscription — none of them shapes the demo graph has
     SPLIT_UNION = <<~SDL
       schema @link(url: "https://specs.apollo.dev/link/v1.0")
         @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
-      { query: Query, subscription: Subscription }
+      { query: Query, mutation: Mutation, subscription: Subscription }
       directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
       directive @join__graph(name: String!, url: String!) on ENUM_VALUE
       directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | UNION
@@ -128,6 +217,10 @@ describe GraphWeaver::Testing::Router do
       }
       type Query @join__type(graph: A) @join__type(graph: B) {
         search: [Result!]! @join__field(graph: A)
+      }
+      type Mutation @join__type(graph: A) @join__type(graph: B) {
+        publish: Doc @join__field(graph: A)
+        annotate: Note @join__field(graph: B)
       }
       type Subscription @join__type(graph: A) { ticks: Int @join__field(graph: A) }
       union Result @join__type(graph: A) @join__type(graph: B)
@@ -154,6 +247,18 @@ describe GraphWeaver::Testing::Router do
     it "refuses a subscription" do
       expect { split.execute("subscription { ticks }") }
         .to raise_error(Unplannable, /\Athis document is a subscription — the local router plans/)
+    end
+
+    # query roots resolve independently, so the router just fetches each in
+    # its own subgraph; mutation roots run in series, and splitting them
+    # would run them in whatever order the plan happened to
+    it "refuses a mutation whose root fields span subgraphs" do
+      split.execute("mutation { publish { id } annotate { id } }")
+      raise "expected a refusal"
+    rescue Unplannable => e
+      expect(e.category).to eq :root_fields_span
+      expect(e.detail).to eq "this mutation's root fields span subgraphs: " \
+        "Mutation.publish (a), Mutation.annotate (b)"
     end
 
     it "refuses introspection mixed with data fields" do
