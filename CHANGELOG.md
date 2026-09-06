@@ -619,6 +619,13 @@ check the schema. **Update your CI:**
 `graph_weaver:schema:refresh` are unchanged. No aliases — the old names are
 gone.
 
+**The instrumentation payload now carries `:status` in-process too.** `InProcess`
+brands a resolver raise as `ServerError(500)` precisely so callers needn't
+branch on which side of the seam a query ran — but the payload had no `:status`
+in-process and no `:schema` over the wire, so a subscriber had to branch
+anyway. A successful in-process execute now sets `:status` to 200; a failure
+still rides the exception the hook already sees.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
