@@ -426,6 +426,22 @@ Error-message and console ergonomics from the same review:
   still what the method is for; it just isn't silent about the structs it
   orphans, which is how a console session ends up with an `is_a?` that fails
   for no visible reason.
+**Rails install generator.**
+`rails g graph_weaver:install --url=https://api.example.com/graphql` writes
+`config/initializers/graph_weaver.rb`, the `app/graphql/queries` and
+`app/graphql/generated` directories, `graphql.config.yml` (schema autocomplete
+and validation for `.graphql` files in VS Code / RubyMine) and the schema dump
+— replacing the console step the getting-started guide used to open with.
+`--auth` names the ENV var holding the token (default `GRAPHWEAVER_AUTH`),
+`--no-schema` skips the introspection. Re-running prompts on conflict like any
+Rails generator.
+
+**`rake graph_weaver:schema:refresh` can now create the first dump.** It read
+its url from an existing dump's provenance stamp, so it couldn't bootstrap one
+— pass `URL=https://api.example.com/graphql` and it will, and both the
+no-dump and no-provenance messages now name that fix. The same logic is
+`GraphWeaver::SchemaLoader.refresh!(url:, auth:)`, which is what the generator
+calls.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

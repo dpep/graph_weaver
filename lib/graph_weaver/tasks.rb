@@ -46,14 +46,12 @@ namespace :graph_weaver do
       puts "#{path} matches the server"
     end
 
-    desc "Re-introspect the recorded url and rewrite the local dump"
+    desc "Re-introspect and rewrite the local dump (URL= to bootstrap the first one)"
     task :refresh do
-      path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
-      meta = GraphWeaver::SchemaLoader.provenance(path) or abort "#{path} records no source url"
-
-      transport = GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport
-      GraphWeaver::SchemaLoader.introspect(transport, cache: path, ttl: 0)
-      puts "refreshed #{path} from #{meta["url"]}"
+      path, url = GraphWeaver::SchemaLoader.refresh!(url: ENV["URL"])
+      puts "refreshed #{path} from #{url}"
+    rescue GraphWeaver::Error => e
+      abort e.message
     end
 
     desc "Report checked-in queries that no longer validate against the server's schema"

@@ -2,11 +2,11 @@
 
 The setup that ships: queries live as `.graphql` files, generation writes
 `# typed: strict` Ruby you check in, and CI fails when anything drifts.
-Mostly copy/paste. (Exploring an API from a console instead? Start with
-[dynamic mode](real_world.md) — no build step.)
+In Rails one generator does the setup. (Exploring an API from a console
+instead? Start with [dynamic mode](real_world.md) — no build step.)
 
 Rails is assumed below; the [non-Rails note](#not-rails) at the bottom
-covers the one difference.
+covers the differences.
 
 ## 1. Install
 
@@ -15,55 +15,61 @@ covers the one difference.
 gem "graph_weaver"
 ```
 
-## 2. Bootstrap the schema dump
+## 2. Run the generator
 
-Codegen reads a schema dump at `app/graphql/schema.json`
-(`GraphWeaver.schema_path`). You never write this file by hand —
-`cache: true` writes it on first introspection. Bootstrap once from a
-console:
-
-```ruby
-GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"], cache: true).schema
+```sh
+rails g graph_weaver:install --url=https://api.example.com/graphql
 ```
 
-Skip this step and the generate task tells you exactly that — the error
-message is the documentation. Prefer PR-reviewable diffs? `cache: :graphql`
-writes SDL instead of introspection JSON; both generate identical code.
-
-Note `cache:`/`ttl:` apply only to url clients — a schema source (a live
-class or a dump) never introspects, so passing them raises.
-
-## 3. Wire the client
-
-```ruby
-# config/initializers/graph_weaver.rb
-GraphWeaver.client = GraphWeaver.new(
-  "https://api.example.com/graphql",
-  auth: ENV["API_TOKEN"],
-  cache: true,   # reuses the committed dump; delete the file to re-introspect
-)
-
-# custom scalars/enums/type helpers — register globally, so the rake
-# tasks bake them into generated source
-GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+```
+      create  config/initializers/graph_weaver.rb
+      create  app/graphql/queries/.keep
+      create  app/graphql/generated/.keep
+      create  graphql.config.yml
+  introspect  app/graphql/schema.json from https://api.example.com/graphql
 ```
 
-`GraphWeaver.client =` is the load-bearing line: generated modules
-without a baked transport resolve to it at execute time (the full
-[resolution order](transports.md#client-resolution)). The generated
-modules themselves load at boot automatically (the Railtie requires
-everything under `generated_path`, after your initializers run) —
-outside Rails, call `GraphWeaver.load_generated!` wherever your app
-boots.
+| flag | |
+|---|---|
+| `--url` | the endpoint to introspect (required) |
+| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, the same one `rake graph_weaver:schema:verify` reads |
+| `--no-schema` | skip the introspection; `rake graph_weaver:schema:refresh URL=...` does it later |
 
-## 4. Rake tasks — nothing to do
+Re-running is safe — every file goes through the usual Rails conflict
+prompt, so an initializer you've edited is never overwritten silently.
 
-In Rails the `graph_weaver:*` tasks register themselves (a Railtie), and
-they depend on `:environment`, so your initializer — and its
-registrations, which are baked into generated source — runs first.
-Outside Rails, add `require "graph_weaver/tasks"` to your Rakefile.
+What it wrote:
 
-## 5. Write a query, generate, commit
+- **`config/initializers/graph_weaver.rb`.** `GraphWeaver.client =` is the
+  load-bearing line: generated modules without a baked transport resolve to
+  it at execute time (the full
+  [resolution order](transports.md#client-resolution)). Custom
+  scalars/enums/type helpers register here too — the rake tasks bake them
+  into generated source, so they have to run first:
+
+  ```ruby
+  GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+  ```
+
+- **`app/graphql/schema.json`.** The schema dump codegen reads
+  (`GraphWeaver.schema_path`) — never written by hand, always committed.
+  `cache: true` in the initializer reuses it; delete the file to
+  re-introspect. Prefer PR-reviewable diffs? `cache: :graphql` writes SDL
+  instead; both generate identical code. (`cache:`/`ttl:` apply only to url
+  clients — a schema source never introspects, so passing them raises.)
+- **`graphql.config.yml`.** Five lines of YAML that give VS Code and
+  RubyMine schema autocomplete, hover docs, and validation as you type in
+  `.graphql` files — no JS project, no `npm install`. Details and the honest
+  limits in [editors](editors.md).
+- **`app/graphql/queries/`, `app/graphql/generated/`.** Where you write
+  queries and where generation writes Ruby.
+
+Rake needs no wiring either: in Rails the `graph_weaver:*` tasks register
+themselves (a Railtie) and depend on `:environment`, so your initializer —
+and its registrations — runs first. The generated modules load at boot the
+same way, after `config/initializers`.
+
+## 3. Write a query, generate, commit
 
 ```graphql
 # app/graphql/queries/person.graphql
@@ -88,19 +94,9 @@ PersonQuery.execute!(id: "1").person&.name   # typed, via GraphWeaver.client
 
 ### Autocomplete while you write the query
 
-Drop five lines at the repo root and VS Code or RubyMine validates the
-`.graphql` files as you type, with schema autocomplete and hover docs —
-no JS project, no `npm install`:
-
-```yaml
-# graphql.config.yml
-schema: app/graphql/schema.json
-documents:
-  - app/graphql/queries/**/*.graphql
-  - app/graphql/fragments/**/*.graphql
-```
-
-Details and the honest limits in [editors](editors.md).
+`graphql.config.yml` is already there, so VS Code and RubyMine validate the
+`.graphql` files as you type, with schema autocomplete and hover docs — see
+[editors](editors.md).
 
 ### Shared fragments
 
@@ -147,7 +143,7 @@ union stays inlined in that query). Named like the inputs module from the output
 path (`GraphQLUnions`, or `GithubUnions` in a multi-schema layout); override
 with `GraphWeaver.unions_module=`.
 
-## 6. Test against fakes
+## 4. Test against fakes
 
 ```ruby
 # spec/support/graph_weaver.rb
@@ -163,7 +159,7 @@ stubs, and `rspec --seed 1234` reproduces the fake data along with test
 order. Pin values with `overrides:`, simulate failures with `Failure.*`
 — see [testing](testing.md).
 
-## 7. Verify in CI
+## 5. Verify in CI
 
 ```sh
 rake graph_weaver:verify          # generated code fresh? fails on any drift
@@ -234,8 +230,24 @@ and marked "do not edit," so excluding `generated/**` from rubocop is also fine.
 
 ## Not Rails?
 
-Everything above works the same, minus the Railtie conveniences: add
-`require "graph_weaver/tasks"` to your Rakefile yourself, and — since
-there's no `:environment` hook to run your registrations — require the
-file that does them from the Rakefile too. `GraphWeaver.load_generated!`
-goes wherever your app boots instead of an initializer.
+There's no generator, but what it writes is short — a few lines wherever
+your app boots, two directories, and the schema dump:
+
+```ruby
+GraphWeaver.client = GraphWeaver.new(
+  "https://api.example.com/graphql",
+  auth: ENV["GRAPHWEAVER_AUTH"],
+  cache: true,
+)
+GraphWeaver.load_generated!   # no Railtie to require the generated files
+```
+
+```sh
+mkdir -p app/graphql/queries app/graphql/generated
+rake graph_weaver:schema:refresh URL=https://api.example.com/graphql
+```
+
+Add `require "graph_weaver/tasks"` to your Rakefile for the rake tasks —
+and, since there's no `:environment` hook to run your registrations,
+require the file that does them from the Rakefile too. `graphql.config.yml`
+is copy/paste from [editors](editors.md).

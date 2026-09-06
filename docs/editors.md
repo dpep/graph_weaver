@@ -79,4 +79,4 @@ So the division of labour is:
 | Did the server break my queries? | `rake graph_weaver:schema:check` |
 
 The last two are the Ruby-side answers, and they need no JS at all — see
-[getting started](getting_started.md#7-verify-in-ci).
+[getting started](getting_started.md#5-verify-in-ci).

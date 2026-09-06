@@ -43,14 +43,17 @@ server has drifted, and `:check` names the queries that drift broke, with the
 line and column of each error. `rake graph_weaver:verify` fails when the
 committed Ruby is stale. That's the whole schema lifecycle as rake tasks
 rather than a CI pipeline you assemble yourself — see
-[getting started](docs/getting_started.md#7-verify-in-ci).
+[getting started](docs/getting_started.md#5-verify-in-ci).
 
 Generation is **deterministic**: the same schema and queries produce
 byte-identical files, on any machine, in any order — sorted throughout and
 enforced by a spec. Regenerating never shows a diff you didn't earn.
 
-New here? The **[getting started](docs/getting_started.md)** guide walks the
-production setup end to end — initializer, codegen, fakes, CI. Or run the
+New here? In Rails it's one command —
+`rails g graph_weaver:install --url=https://api.example.com/graphql` writes
+the initializer, the `app/graphql` layout, the editor config and the schema
+dump. The **[getting started](docs/getting_started.md)** guide walks the
+production setup end to end — codegen, fakes, CI. Or run the
 **[examples](examples/)**, smallest first: `examples/countries.rb` (public
 API, no auth, all dynamic), `examples/rick_and_morty.rb` (filtering,
 pagination, a block-built type helper), and `examples/github/run.rb`
@@ -63,6 +66,7 @@ you to your fellow stargazers).
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
 - **Schema lifecycle as rake tasks**: commit the dump, re-introspect it on a schedule (`schema:refresh`), fail CI when the server has drifted (`schema:verify`) or when drift broke a query (`schema:check`, with line and column) or when the committed Ruby went stale (`verify`)
+- **Rails install generator**: `rails g graph_weaver:install --url=...` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
 - **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
@@ -135,7 +139,7 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 #### Dig deeper
 
 - **[Getting started](docs/getting_started.md)** — the production path in Rails,
-  step by step: initializer, rake tasks, fakes, CI, Sorbet or not
+  step by step: the install generator, rake tasks, fakes, CI, Sorbet or not
 - **[Editor support](docs/editors.md)** — five lines of YAML give VS Code and
   RubyMine schema autocomplete and validation in your `.graphql` files, with no
   JS project
