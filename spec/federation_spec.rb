@@ -462,6 +462,16 @@ describe "federation / _entities representations" do
     expect(reps.variant(serial: "s-1")).to eq({ "__typename" => "Variant", "serial" => "s-1" })
   end
 
+  it "names the fix for an entity the selection never reached" do
+    # builders are query-driven, so Warehouse has none — and a bare
+    # NoMethodError points at nothing
+    expect { reps.warehouse(id: "w-1") }.to raise_error(NoMethodError) do |e|
+      expect(e.message).to include("no representation builder for Warehouse")
+      expect(e.message).to include("this query builds: listing, product, variant")
+      expect(e.message).to include("... on Warehouse { __typename }")
+    end
+  end
+
   it "raises on a representation that satisfies no key" do
     expect { reps.variant }.to raise_error(GraphWeaver::InputError, /Variant.*"id".*"serial"/)
 

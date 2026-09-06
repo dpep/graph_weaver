@@ -333,6 +333,20 @@ class GraphWeaver::Codegen
         out << "    end"
       end
 
+      # Builders are query-driven, so an entity the `_entities` selection
+      # doesn't name has none — a bare NoMethodError there points at nothing.
+      out << ""
+      out << "    BUILDERS = T.let(#{nodes.map(&:method_name).sort.inspect}.freeze, T::Array[String])"
+      out << "    private_constant :BUILDERS"
+      out << ""
+      out << "    sig { params(name: Symbol, args: T.untyped, block: T.untyped).returns(T.noreturn) }"
+      out << "    def self.method_missing(name, *args, &block)"
+      out << '      type = GraphWeaver::Inflect.camelize(name.to_s)'
+      out << '      raise NoMethodError, "no representation builder for #{type} (this query builds: ' \
+        '#{BUILDERS.join(", ")}) — if #{type} is an entity of this subgraph, name it in the ' \
+        '_entities selection (`... on #{type} { __typename }`) and regenerate"'
+      out << "    end"
+
       out << "  end"
       out << ""
     end

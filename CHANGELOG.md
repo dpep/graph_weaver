@@ -1,4 +1,9 @@
 ## Unreleased
+**`Representations.<entity>` for an entity the query didn't select now says
+what to do.** Builders are query-driven, so `Representations.warehouse(...)`
+raised a bare `NoMethodError` naming nothing. It now names the builders this
+query does have and the selection to add (`... on Warehouse { __typename }`).
+
 **Shared-fragment directories are scanned recursively, and `.gql` files count.**
 The scan was `fragments/*.graphql`, so `fragments/person/fields.graphql` — how
 anyone with sixty fragments organizes them — was skipped in silence, and a
