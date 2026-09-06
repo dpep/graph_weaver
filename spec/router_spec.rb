@@ -70,77 +70,165 @@ describe GraphWeaver::Testing::Router do
     end
   end
 
+  describe "a query that crosses a subgraph boundary" do
+    def subgraphs = router.trace.map { |fetch| fetch[:subgraph] }
+
+    it "splits at the crossing and stitches the entity back" do
+      response = router.execute("{ me { username reviews { id body } } }")
+
+      expect(response.fetch("data")).to eq({
+        "me" => {
+          "username" => "dpep",
+          "reviews" => [{ "id" => "r1", "body" => "Love it" }, { "id" => "r2", "body" => "Too expensive" }],
+        },
+      })
+      expect(subgraphs).to eq ["accounts", "reviews"]
+    end
+
+    # the key travels under a reserved alias so it can't collide with a
+    # response key the caller asked for, and never reaches the caller
+    it "injects the @key it needs and strips it back out" do
+      router.execute("{ me { username reviews { body } } }")
+      keys, entities = router.trace
+
+      expect(keys[:query]).to include "_gw_id: id"
+      expect(entities[:variables]).to eq({ "representations" => [{ "id" => "1", "__typename" => "User" }] })
+    end
+
+    it "fetches every node at one level in one _entities call" do
+      response = router.execute("{ users { username reviews { body product { name } } } }")
+
+      expect(response.dig("data", "users", 1, "reviews", 0, "product", "name")).to eq "Chair"
+      # two users in one fetch, then all three of their reviews' products in one more
+      expect(subgraphs).to eq ["accounts", "reviews", "products"]
+      expect(router.trace.last[:variables].fetch("representations").size).to eq 3
+    end
+
+    # both selections carry a plan under the same response key, and keeping
+    # only the last one would silently drop the other's fetch
+    it "keeps every subplan when two selections share a response key" do
+      response = router.execute("{ reviews { product { name } product { upc } } }")
+
+      expect(response.dig("data", "reviews", 0, "product")).to eq({ "name" => "Table", "upc" => "p1" })
+    end
+
+    # a @requires field set is supplied by the ROUTER: it fetches those
+    # fields from the subgraph that holds them and hands them back in the
+    # representation, which makes the plan a chain rather than one pass
+    it "fetches a @requires field set before the field that needs it" do
+      response = router.execute("{ reviews { id product { shippingEstimate } } }")
+
+      expect(response.dig("data", "reviews").map { |r| r.dig("product", "shippingEstimate") })
+        .to eq [50, 450, 25]
+      # reviews for the reviews, products for price+weight, reviews again for
+      # the estimate those feed
+      expect(subgraphs).to eq ["reviews", "products", "reviews"]
+      expect(router.trace[1][:variables].fetch("representations").first.keys)
+        .to contain_exactly("upc", "__typename")
+      expect(router.trace[2][:variables].fetch("representations").first.keys)
+        .to contain_exactly("upc", "price", "weight", "__typename")
+    end
+
+    # the required fields don't exist, so nothing that needs them can resolve
+    it "nulls a @requires field whose first fetch finds no entity" do
+      expect(router.execute("{ orphanReviews { product { shippingEstimate } } }"))
+        .to eq({ "data" => nil })
+    end
+
+    it "runs root fields that span subgraphs as one fetch each" do
+      response = router.execute("{ me { username } topProducts(first: 1) { name } }")
+
+      expect(response.fetch("data"))
+        .to eq({ "me" => { "username" => "dpep" }, "topProducts" => [{ "name" => "Table" }] })
+      expect(subgraphs).to eq ["accounts", "products"]
+    end
+
+    it "reads a @provides copy in place and fetches only the rest" do
+      response = router.execute("{ reviews { author { username email } } }")
+
+      expect(response.dig("data", "reviews", 0, "author"))
+        .to eq({ "username" => "dpep", "email" => "pepper.daniel@gmail.com" })
+      expect(subgraphs).to eq ["reviews", "accounts"]
+    end
+
+    it "leaves a skipped stitched field absent rather than null" do
+      query = "query($hide: Boolean!) { me { username reviews @skip(if: $hide) { body } } }"
+
+      expect(router.execute(query, variables: { "hide" => true }).fetch("data"))
+        .to eq({ "me" => { "username" => "dpep" } })
+    end
+
+    # A stitched fetch can put a null where the composed schema says non-null,
+    # and nothing re-applies GraphQL's propagation rules over a merged tree
+    # unless the router does: without it this comes back populated, with a
+    # null inside, and the real router answers data: null.
+    describe "a null the merged tree can't hold" do
+      it "propagates it the way the composed schema says" do
+        # products can't resolve the orphan's upc, so Review.product — a
+        # Product! inside a [Review!]! — comes back null
+        expect(router.execute("{ orphanReviews { body product { name } } }"))
+          .to eq({ "data" => nil })
+      end
+
+      it "re-paths a subgraph error out of _entities, without inventing a location" do
+        response = router.execute("{ topProducts(first: 4) { name shippingEstimate } }")
+
+        expect(response.fetch("data")).to be_nil
+        expect(response.fetch("errors"))
+          .to eq [{ "message" => "carrier unavailable", "path" => ["topProducts", 3, "shippingEstimate"] }]
+      end
+    end
+  end
+
   describe "refusing" do
     it "refuses before any subgraph runs" do
-      expect { router.execute("{ me { username reviews { body } } }") }.to raise_error(Unplannable)
+      expect { router.execute("{ me { id: username reviews { body } } }") }.to raise_error(Unplannable)
       expect(router.trace).to be_empty
     end
 
     it "is a GraphWeaver::Error, so one rescue catches it" do
-      expect { router.execute("{ me { reviews { body } } }") }.to raise_error(GraphWeaver::Error)
-      expect(refusal("{ me { reviews { body } } }").to_h)
-        .to include("category" => "crosses_subgraph")
+      expect { router.execute("{ me { id: username reviews { body } } }") }
+        .to raise_error(GraphWeaver::Error)
+      expect(refusal("{ me { id: username reviews { body } } }").to_h)
+        .to include("category" => "shadowed_key")
     end
 
-    it "names the field, both subgraphs, and what to do — a boundary crossing" do
-      error = refusal("{ me { username reviews { body } } }")
+    # Apollo's router injects the @key under its own name and lets it win, so
+    # this comes back as the user's id rather than their username. Matching
+    # the router matters more than being right — and we can be neither.
+    it "names the alias colliding with a @key the fetch needs" do
+      error = refusal("{ me { id: username reviews { body } } }")
 
-      expect(error.category).to eq :crosses_subgraph
-      expect(error.message).to eq "User.reviews is resolved by reviews, and this operation runs in " \
-        "accounts — the local router hands one query to one subgraph verbatim and doesn't stitch " \
-        "across a boundary. Run this one against a real router."
+      expect(error.category).to eq :shadowed_key
+      expect(error.detail).to eq 'User.reviews is fetched on User\'s "id", and this selection ' \
+        'aliases username as "id" over it'
+      expect(error.message).to end_with "Rename the alias."
     end
 
-    it "names the field sets — a @requires the running subgraph can't satisfy" do
-      error = refusal("{ reviews { product { shippingEstimate } } }")
+    it "names the abstract type it can't build a representation for" do
+      error = refusal("{ feed { ... on Review { body author { email } } } }")
 
-      expect(error.category).to eq :requires
-      expect(error.message).to eq 'Product.shippingEstimate runs in reviews and @requires ' \
-        '"price weight", which reviews doesn\'t hold (price, weight come from products) — the ' \
-        "router fetches those first and hands them back, a chain the local router doesn't plan. " \
-        "Run this one against a real router."
+      expect(error.category).to eq :abstract_boundary
+      expect(error.detail).to eq "this operation selects ...on Review inside FeedItem and part of " \
+        "it resolves outside reviews"
     end
 
-    it "names every root field and its subgraph — root fields that span" do
-      error = refusal("{ me { username } topProducts(first: 2) { name } }")
+    # a @requires the supergraph places nowhere is a graph nothing can serve,
+    # so there is no fetch to chain
+    it "names a @requires field no subgraph holds" do
+      sdl = File.read(RouterGraph::SUPERGRAPH)
+        .sub('price: Int! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)',
+          'price: Int! @join__field(graph: REVIEWS, external: true)')
+      unplaced = described_class.new(supergraph: sdl, subgraphs: RouterGraph::SUBGRAPHS)
 
-      expect(error.category).to eq :root_fields_span
-      expect(error.detail).to eq "this operation's root fields span subgraphs: " \
-        "Query.me (accounts), Query.topProducts (products)"
-      expect(error.message).to end_with "Split it into one operation per subgraph, or run this one " \
-        "against a real router."
+      expect { unplaced.execute("{ reviews { product { shippingEstimate } } }") }
+        .to raise_error(Unplannable, /\AProduct\.shippingEstimate @requires "price", and the supergraph places Product\.price in no subgraph —/)
     end
 
-    # a union whose members live in different subgraphs, plus a subscription
-    # root — neither shape the demo graph has
-    SPLIT_UNION = <<~SDL
-      schema @link(url: "https://specs.apollo.dev/link/v1.0")
-        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
-      { query: Query, subscription: Subscription }
-      directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
-      directive @join__graph(name: String!, url: String!) on ENUM_VALUE
-      directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | UNION
-      directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
-      scalar join__FieldSet
-      enum join__Graph {
-        A @join__graph(name: "a", url: "http://a")
-        B @join__graph(name: "b", url: "http://b")
-      }
-      type Query @join__type(graph: A) @join__type(graph: B) {
-        search: [Result!]! @join__field(graph: A)
-      }
-      type Subscription @join__type(graph: A) { ticks: Int @join__field(graph: A) }
-      union Result @join__type(graph: A) @join__type(graph: B)
-        @join__unionMember(graph: A, member: "Doc")
-        @join__unionMember(graph: B, member: "Note") = Doc | Note
-      type Doc @join__type(graph: A) { id: ID! }
-      type Note @join__type(graph: B) { id: ID! }
-    SDL
-
-    # nothing here is ever executed — every one of these refuses at plan time
+    # a union split across subgraphs, a mutation whose roots are, and a
+    # subscription — none of them shapes the demo graph has
     let(:split) do
-      stand_in = RouterGraph::Accounts::Schema
-      described_class.new(supergraph: SPLIT_UNION, subgraphs: { "a" => stand_in, "b" => stand_in })
+      described_class.new(supergraph: SplitGraph::SUPERGRAPH, subgraphs: SplitGraph::SUBGRAPHS)
     end
 
     it "refuses a fragment on a type the running subgraph doesn't declare" do
@@ -154,6 +242,23 @@ describe GraphWeaver::Testing::Router do
     it "refuses a subscription" do
       expect { split.execute("subscription { ticks }") }
         .to raise_error(Unplannable, /\Athis document is a subscription — the local router plans/)
+    end
+
+    # query roots resolve independently, so the router just fetches each in
+    # its own subgraph; mutation roots run in series, and splitting them
+    # would run them in whatever order the plan happened to
+    it "refuses a mutation whose root fields span subgraphs" do
+      begin
+        split.execute("mutation { publish { id } annotate { id } }")
+        raise "expected a refusal"
+      rescue Unplannable => e
+        expect(e.category).to eq :root_fields_span
+        expect(e.detail).to eq "this mutation's root fields span subgraphs: " \
+          "Mutation.publish (a), Mutation.annotate (b)"
+      end
+
+      split.execute("mutation { publish { id } }") # the same shape, one subgraph
+      expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
     end
 
     it "refuses introspection mixed with data fields" do
@@ -200,16 +305,40 @@ describe GraphWeaver::Testing::Router do
   end
 
   describe "construction" do
-    it "requires every subgraph in the supergraph, and only those" do
-      expect { described_class.new(supergraph: RouterGraph::SUPERGRAPH, subgraphs: { "accounts" => RouterGraph::Accounts::Schema }) }
-        .to raise_error(ArgumentError, /missing products, reviews/)
+    it "works out the subgraph map from what each schema defines" do
+      auto = described_class.new(supergraph: RouterGraph::SUPERGRAPH)
 
+      expect(auto.execute("{ me { username reviews { body } } }").dig("data", "me", "username"))
+        .to eq "dpep"
+      expect(auto.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts", "reviews"]
+    end
+
+    it "fills in the entries a partial map leaves out" do
+      partial = described_class.new(
+        supergraph: RouterGraph::SUPERGRAPH,
+        subgraphs: { "reviews" => RouterGraph::Reviews::Schema },
+      )
+
+      expect(partial.execute("{ me { username } }").dig("data", "me", "username")).to eq "dpep"
+    end
+
+    # a swapped pair used to surface as a mystery three fetches later
+    it "names what a mis-wired entry doesn't define" do
+      expect {
+        described_class.new(
+          supergraph: RouterGraph::SUPERGRAPH,
+          subgraphs: RouterGraph::SUBGRAPHS.merge("accounts" => RouterGraph::Products::Schema),
+        )
+      }.to raise_error(ArgumentError, /\Asubgraphs\["accounts"\] is RouterGraph::Products::Schema, which doesn't define .*Query\.me/)
+    end
+
+    it "names a subgraph the supergraph doesn't have" do
       expect {
         described_class.new(
           supergraph: RouterGraph::SUPERGRAPH,
           subgraphs: RouterGraph::SUBGRAPHS.merge("billing" => RouterGraph::Accounts::Schema),
         )
-      }.to raise_error(ArgumentError, /unknown billing/)
+      }.to raise_error(ArgumentError, /names billing, which this supergraph doesn't have/)
     end
 
     # bounding the maintenance tail across federation spec versions: a

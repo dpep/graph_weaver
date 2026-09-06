@@ -17,41 +17,61 @@ describe GraphWeaver::Testing::Coverage do
     )
   end
 
-  it "counts what the router can plan, and where it lands" do
-    expect(coverage.plannable).to eq 10
-    expect(coverage.results.size).to eq 17
-    expect(coverage.percent).to eq 59
-    expect(coverage.report.lines.first).to eq "10/17 queries plannable locally (59%)\n"
-    expect(coverage.report.lines[1]).to eq "  accounts 4, reviews 4, products 2\n"
+  # everything is read in the constructor, so the directory can go
+  def coverage_of(queries)
+    Dir.mktmpdir do |dir|
+      queries.each { |name, source| File.write(File.join(dir, name), source) }
+      return described_class.new(supergraph: RouterGraph::SUPERGRAPH, queries: dir, fragments: [])
+    end
   end
 
-  # the reason column is the product: one construct or many decides whether
-  # the full planner is worth building
-  it "groups the refusals by what stopped them, largest first" do
-    expect(coverage.refused.map(&:category).tally)
-      .to eq({ crosses_subgraph: 5, requires: 1, root_fields_span: 1 })
+  it "counts what the router can plan, and where it lands" do
+    expect(coverage.plannable).to eq 17
+    expect(coverage.results.size).to eq 17
+    expect(coverage.percent).to eq 100
+    expect(coverage.report.lines.first).to eq "17/17 queries plannable locally (100%)\n"
+    # a query that stitches names every subgraph it touches
+    expect(coverage.report.lines[1]).to eq "  accounts 4, reviews 4, products+reviews 3, " \
+      "accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1"
+    expect(coverage.refused).to be_empty
+  end
 
-    expect(coverage.report).to include "  crosses a subgraph boundary (5)"
-    expect(coverage.report).to include "    dashboard.graphql", "User.reviews is resolved by reviews"
-    expect(coverage.report.index("crosses a subgraph boundary"))
-      .to be < coverage.report.index("@requires needs a fetch chain")
+  # The planner replaced a pass-through with a stitcher, and what must not
+  # have cost anything is a query the pass-through already answered: each of
+  # these still resolves in the one subgraph it always did.
+  it "still plans every query it planned before stitching, in one subgraph" do
+    single = coverage.results.select { |result| result.subgraph && !result.subgraph.include?("+") }
+
+    expect(single.map { |result| File.basename(result.path) }).to eq %w[
+      account_badge.graphql catalog.graphql feed.graphql product_detail.graphql profile.graphql
+      recent_reviews.graphql review_bylines.graphql review_detail.graphql user_directory.graphql
+      user_lookup.graphql
+    ]
+  end
+
+  # the reason column is the product: which construct is left decides
+  # whether closing the rest of the gap is worth it
+  it "groups the refusals by what stopped them, largest first" do
+    report = coverage_of(
+      "shadowed.graphql" => "{ me { id: username reviews { body } } }",
+      "aliased.graphql" => "{ me { id: username reviews { id } } }",
+      "polymorphic.graphql" => "{ feed { ... on Review { body author { email } } } }",
+    )
+
+    expect(report.refused.map(&:category).tally).to eq({ shadowed_key: 2, abstract_boundary: 1 })
+    expect(report.report).to include "  an alias shadowing an injected @key (2)"
+    expect(report.report).to include "    shadowed.graphql", "aliases username"
+    expect(report.report.index("an alias shadowing an injected @key"))
+      .to be < report.report.index("an abstract type at a subgraph boundary")
   end
 
   it "plans without any subgraph being loadable" do
     # nothing here names a subgraph schema — the supergraph is the whole input
-    expect(coverage.results.map(&:subgraph).compact.uniq).to contain_exactly("accounts", "products", "reviews")
+    expect(coverage.results.filter_map(&:subgraph).flat_map { |where| where.split("+") }.uniq)
+      .to contain_exactly("accounts", "products", "reviews")
   end
 
   describe "a query set it can't read" do
-    around do |example|
-      Dir.mktmpdir { |dir| example.run(@dir = dir) }
-    end
-
-    def coverage_of(queries)
-      queries.each { |name, source| File.write(File.join(@dir, name), source) }
-      described_class.new(supergraph: RouterGraph::SUPERGRAPH, queries: @dir, fragments: [])
-    end
-
     it "reports a query that no longer validates, rather than crashing on it" do
       report = coverage_of("stale.graphql" => "{ me { nosuch } }", "ok.graphql" => "{ me { id } }")
 

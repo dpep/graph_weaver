@@ -41,13 +41,38 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
   PROBES = {
     "aliased key" => ['{ me { id: username reviews { body } } }', {}],
     "skip on a crossing field" => ['query($hide: Boolean!) { me { username reviews @skip(if: $hide) { body } } }', { "hide" => true }],
+    "include on an injected key's own field" => ['query($show: Boolean!) { me { id @include(if: $show) reviews { body } } }', { "show" => false }],
     "entity list under an entity list" => ['{ users { username reviews { body product { name } } } }', {}],
     "same entity, two aliases" => ['{ a: me { username } b: me { email } }', {}],
+    "same entity, two aliases, one stitching" => ['{ a: me { username } b: me { email reviews { body } } }', {}],
     "null hole" => ['{ user(id: "99") { username } }', {}],
+    "null parent, so no representation" => ['{ user(id: "99") { username reviews { body } } }', {}],
     "typename everywhere" => ['{ __typename me { __typename username } }', {}],
     "introspection" => ["{ __schema { queryType { name } } }", {}],
     "duplicate field, merged" => ["{ reviews { body } reviews { id } }", {}],
+    "duplicate stitched field, merged" => ["{ me { reviews { body } reviews { id } } }", {}],
+    "one response key, two subplans" => ["{ reviews { product { name } product { upc } } }", {}],
     "variable in a nested selection" => ['query($upc: String!) { product(upc: $upc) { name } }', { "upc" => "p3" }],
+    "variable used only inside a stitched subtree" => ['query($id: ID!) { review(id: $id) { body author { email } } }', { "id" => "r3" }],
+    "@provides copy beside a field only the owner has" => ["{ reviews { author { username email } } }", {}],
+    "an entity reached from two directions at once" => ["{ topProducts(first: 1) { name shippingEstimate reviews { body } } }", {}],
+    "@requires fetched from a third subgraph first" => ["{ reviews { product { shippingEstimate } } }", {}],
+    "a @requires chain beside a plain join" => ["{ reviews { id product { name shippingEstimate } } }", {}],
+    "a @requires chain over an entity list" => ["{ users { reviews { product { name shippingEstimate reviews { body } } } } }", {}],
+    "root fields split three ways" => ["{ me { username } topProducts(first: 1) { name } reviews { body } }", {}],
+  }.freeze
+
+  # Probes where a subgraph *fails*. A stitched fetch can leave a null where
+  # the composed schema says non-null, and what the router does with that —
+  # null the whole subtree, and re-path the error out of `_entities` — is the
+  # part a merge gets silently wrong. These are the ones that would answer
+  # differently rather than not at all, so they're the point of the oracle.
+  FAULTS = {
+    "resolver error under a stitched fetch" => ["{ topProducts(first: 4) { name shippingEstimate } }", {}],
+    "error re-pathed out of _entities" => ["{ topProducts(first: 4) { name reviews { body } shippingEstimate } }", {}],
+    "entity fetch nulls a non-null field" => ["{ orphanReviews { body product { name price } } }", {}],
+    "the null a whole response propagates to" => ["{ orphanReviews { product { name } } }", {}],
+    "a @requires chain whose first fetch finds nothing" => ["{ orphanReviews { product { shippingEstimate } } }", {}],
   }.freeze
 
   before(:all) do
@@ -131,6 +156,10 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
         normalize(router.execute(query, variables:))
       rescue GraphWeaver::Testing::Unplannable => e
         return [:refused, e.detail]
+      rescue StandardError => e
+        # a planner that blows up is wrong, not refusing — report it as the
+        # diff it is rather than ending the run
+        return [:wrong, "gateway: #{JSON.generate(expected)}\n  local: #{e.class}: #{e.message}"]
       end
 
     return [:match, nil] if expected == actual
@@ -138,12 +167,15 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     [:wrong, "gateway: #{JSON.generate(expected)}\n  local: #{JSON.generate(actual)}"]
   end
 
+  # yields [name, query, variables, clean] — clean meaning the gateway
+  # answers it without errors, which every case but FAULTS does
   def each_case
     Dir[File.join(QUERY_DIR, "*.graphql")].sort.each do |path|
       name = File.basename(path)
-      yield name, File.read(path), VARIABLES.fetch(name, {})
+      yield name, File.read(path), VARIABLES.fetch(name, {}), true
     end
-    PROBES.each { |name, (query, variables)| yield name, query, variables }
+    PROBES.each { |name, (query, variables)| yield name, query, variables, true }
+    FAULTS.each { |name, (query, variables)| yield name, query, variables, false }
   end
 
   it "never answers differently from the router — it matches or it refuses" do
@@ -151,7 +183,7 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     wrong = []
     refusals = []
 
-    each_case do |name, query, variables|
+    each_case do |name, query, variables, _clean|
       verdict, detail = compare(query, variables)
       tally[verdict] += 1
       wrong << "#{name}\n  #{detail}" if verdict == :wrong
@@ -169,10 +201,29 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
   it "refuses only queries the gateway can actually answer" do
     # a refusal has to be a capability gap, not a broken query — otherwise
     # the local router is hiding bugs rather than declining work
-    each_case do |name, query, variables|
+    each_case do |name, query, variables, clean|
+      next unless clean
       next unless compare(query, variables).first == :refused
 
       expect(via_gateway(query, variables)["errors"]).to be_nil, "#{name} fails on the gateway too"
     end
   end
+
+  # The planner replaced a pass-through with a stitcher, and the one thing
+  # that must not have cost anything is a query the pass-through answered.
+  it "plans every query it planned before stitching, in one fetch" do
+    each_case do |name, query, variables, _clean|
+      next unless VERBATIM.include?(name)
+
+      expect(compare(query, variables)).to eq([:match, nil]), name
+      expect(router.trace.size).to eq(1), "#{name} now takes #{router.trace.size} fetches"
+    end
+  end
+
+  # what the single-subgraph router planned, before the planner existed
+  VERBATIM = %w[
+    account_badge.graphql catalog.graphql feed.graphql product_detail.graphql profile.graphql
+    recent_reviews.graphql review_bylines.graphql review_detail.graphql user_directory.graphql
+    user_lookup.graphql
+  ].freeze
 end

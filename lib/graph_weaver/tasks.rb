@@ -18,7 +18,8 @@
 #      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
 #      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
 #      rake graph_weaver:schema:refresh  # re-introspect and rewrite the dump
-#      rake graph_weaver:federation:coverage  # what the local test router can plan
+#      rake graph_weaver:federation:coverage   # what the local test router can plan
+#      rake graph_weaver:federation:subgraphs  # which schema serves which subgraph
 require_relative "../graph_weaver"
 
 namespace :graph_weaver do
@@ -54,7 +55,7 @@ namespace :graph_weaver do
     # (GRAPHWEAVER_AUTH supplies a token for private APIs)
 
     desc "Fail when the server's schema has drifted from the local dump"
-    task :diff do
+    task diff: :environment do
       path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
       if GraphWeaver::SchemaLoader.stale?(path)
         abort "#{path} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
@@ -67,7 +68,7 @@ namespace :graph_weaver do
     end
 
     desc "Re-introspect and rewrite the local dump (URL= to bootstrap the first one)"
-    task :refresh do
+    task refresh: :environment do
       path, url = GraphWeaver::SchemaLoader.refresh!(url: ENV["URL"])
       puts "refreshed #{path} from #{url}"
     rescue GraphWeaver::Error => e
@@ -94,6 +95,45 @@ namespace :graph_weaver do
   end
 
   namespace :federation do
+    desc "Show which loaded schema serves each subgraph, as a paste-ready map (SUPERGRAPH=)"
+    task subgraphs: :environment do
+      require "graph_weaver/testing"
+
+      supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
+      unless supergraph
+        abort "pass the composed supergraph: rake graph_weaver:federation:subgraphs " \
+          "SUPERGRAPH=supergraph.graphql"
+      end
+
+      # Testing::Router derives this map itself; this is for reading what
+      # detection sees when it refuses, and for committing the map instead.
+      table = GraphWeaver::SchemaLoader.routing_table(supergraph)
+      rows = table.subgraphs.map do |name|
+        found = GraphWeaver::Testing::Subgraphs.candidates(table, name)
+        sought = GraphWeaver::Testing::Subgraphs.expected(table, name)
+        [name, found, sought]
+      end
+      width = rows.map { |name, found, _| %("#{name}" => #{found.first&.name || "nil"},).length }.max
+
+      puts "subgraphs: {"
+      rows.each do |name, found, sought|
+        entry = %(  "#{name}" => #{found.one? ? found.first.name : "nil"},).ljust(width + 2)
+        # fields first: every schema has a Query, so only the fields say why
+        evidence = (sought.grep(/\./) | sought).first(3).join(", ")
+        note = if found.one?
+          "# matched: defines #{evidence}"
+        elsif found.any?
+          "# AMBIGUOUS: #{found.map(&:name).sort.join(", ")} all match — pick one"
+        else
+          "# no loaded schema defines #{evidence} — fill this in"
+        end
+        puts "#{entry}  #{note}"
+      end
+      puts "}"
+    rescue GraphWeaver::Error => e
+      abort e.message
+    end
+
     desc "Report how many queries the local test router can plan (SUPERGRAPH=, QUERIES=)"
     task coverage: :environment do
       require "graph_weaver/testing"
@@ -117,7 +157,7 @@ namespace :graph_weaver do
 
   namespace :cassettes do
     desc "Anonymize every cassette in Testing.config.cassette_dir (PII-safe to commit)"
-    task :anonymize do
+    task anonymize: :environment do
       require "graph_weaver/testing"
 
       schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)

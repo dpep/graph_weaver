@@ -132,39 +132,152 @@ sockets:
 ```ruby
 GraphWeaver.client = GraphWeaver::Testing::Router.new(
   supergraph: Rails.root.join("supergraph.graphql"),
-  subgraphs: { "accounts" => Accounts::Schema, "products" => Products::Schema },
   context: { current_user: user },
 )
 ```
 
+Or wire it once and every example runs against your real resolvers, with no
+per-test setup:
+
+```ruby
+# spec/spec_helper.rb — require "graph_weaver/rspec"
+GraphWeaver::Testing.configure do |config|
+  config.router = { supergraph: Rails.root.join("supergraph.graphql") }
+end
+```
+
+The router is built once for the suite and installed as `GraphWeaver.client`
+for each example; the prior client is restored after. An example that runs as
+someone else sets `GraphWeaver.client.context = { current_user: user }`, and
+the configured context is restored before the next one. `auto_fake` and
+`router` both install a client for every example, so configuring both refuses
+— pick the one you want.
+
+### Which schema serves which subgraph
+
+`subgraphs:` is optional. Left out, each one is **derived from what the loaded
+schemas define**: a schema serves subgraph `s` when it defines every type and
+field the routing table says `s` resolves. That's evidence rather than a guess
+— matching on class names would be one (`Accounts::Schema`, `AccountsSchema`,
+`Subgraphs::Accounts`), and a wrong guess points a suite at the wrong resolvers
+and still passes. So exactly one match is used, and anything else refuses,
+naming the candidates or what it looked for.
+
+Name them yourself when you'd rather have the wiring committed, or when
+detection can't settle it — including partially, with the rest derived:
+
+```ruby
+subgraphs: { "accounts" => Accounts::Schema }   # products, reviews derived
+```
+
+Either way the map is **checked**: a schema that doesn't define what the
+supergraph says its subgraph resolves fails at construction, naming what's
+missing, rather than surfacing as a mystery three fetches later.
+
+```
+subgraphs["accounts"] is Products::Schema, which doesn't define User,
+User.email, User.username, Query.me, Query.user and 1 more — the supergraph
+says accounts resolves them. Did two entries get swapped?
+```
+
+Detection only sees what's **loaded**, and in Rails an autoloaded schema isn't
+until something references it — so the not-found message says so. To see what
+detection sees (and get a map to paste):
+
+```
+$ rake graph_weaver:federation:subgraphs SUPERGRAPH=supergraph.graphql
+subgraphs: {
+  "accounts" => Accounts::Schema,  # matched: defines Query.me, Query.user, Query.users
+  "products" => Products::Schema,  # matched: defines Product.name, Product.price, Product.weight
+  "reviews" => nil,                # no loaded schema defines Query.feed, Review.author, Query — fill this in
+}
+```
+
 Fakes fabricate plausible data; this runs your actual resolvers, with your
 actual `context`, against the schema the router serves. `router.trace` records
-the fetch each `execute` made (subgraph, query, variables) — the same line goes
-to `GraphWeaver.logger` at `:debug`.
+the fetches one `execute` made, in order (subgraph, query, variables) — the same
+lines go to `GraphWeaver.logger` at `:debug`.
 
-**It is not a router.** It plans exactly one shape: an operation whose every
-field resolves in a **single subgraph**, handed to that subgraph verbatim.
-Anything crossing a boundary raises `GraphWeaver::Testing::Unplannable` (a
-`GraphWeaver::Error`), at plan time, before any subgraph runs. Apollo's planner
-is ~20k lines and the interesting part is the stitching; a double that
-approximated it would let a test pass on an answer production disagrees with,
-which is the most expensive thing this library can produce. So it refuses:
+### What it plans
 
-```
-User.reviews is resolved by reviews, and this operation runs in accounts — the
-local router hands one query to one subgraph verbatim and doesn't stitch across
-a boundary. Run this one against a real router.
+An operation that resolves in **one subgraph** goes over verbatim. One that
+**crosses a boundary** is split at the crossing: the plan injects the entity's
+`@key` under a reserved alias, refetches it from the owning subgraph through
+`_entities(representations:)`, and stitches the answer back.
+
+```ruby
+router.execute("{ me { username reviews { id body } } }")
+router.trace.map { _1[:subgraph] }   # => ["accounts", "reviews"]
 ```
 
-What it *does* plan past the obvious: a `@provides` copy (the router reads that
-copy too, so nothing leaves the subgraph), unions and fragments whose types are
-all in one subgraph, mutations, and introspection — answered from the composed
-API schema, never from a subgraph, which would reply with its own slice.
+Every node at one level goes in **one** `_entities` call, so a list of users
+and all their reviews' products is three fetches, not one per row. Root fields
+that resolve in different subgraphs get one fetch each. A `@provides` copy is
+read in place — the router does that too, so nothing leaves the subgraph for a
+field the copy already holds.
 
-Two things it refuses at construction, before a single query: a supergraph
-carrying a `@join__*` construct the routing table hasn't been taught (an
-incomplete table makes every answer a guess), and a `subgraphs:` hash that
-doesn't name every subgraph in the supergraph.
+A **`@requires` field set** is supplied by the router rather than by the
+subgraph that declares the field, so it's a fetch before the fetch:
+
+```ruby
+router.execute("{ reviews { product { shippingEstimate } } }")
+router.trace.map { _1[:subgraph] }   # => ["reviews", "products", "reviews"]
+```
+
+`shippingEstimate` resolves in `reviews` and `@requires "price weight"`, which
+`products` owns — so the plan fetches those into hidden keys, hands them back
+in the representation, and only then asks for the estimate. One hop: the key
+for the first fetch has to come from the subgraph already in hand, so a chain
+can't grow a chain. When that first fetch finds no entity the required fields
+don't exist, so the field that needs them is null and propagation takes it from
+there.
+
+Three things it does that a naive merge doesn't, and that being wrong about
+would be worse than refusing:
+
+- **Null propagation over the merged tree.** A stitched fetch can put a null
+  where the composed schema says non-null, and no subgraph is in a position to
+  notice. The router re-applies GraphQL's propagation rules to the merged
+  result, so a subtree the real router would have nulled comes back null here.
+- **Error re-pathing.** A subgraph reports `_entities.2.shippingEstimate`; you
+  get `topProducts.2.shippingEstimate`. `locations` are dropped rather than
+  pointing into a query you never wrote.
+- **`@skip`/`@include` on a stitched field.** A skipped field comes back
+  *absent*, not null.
+
+### What it refuses
+
+Everything it can't plan **faithfully** raises
+`GraphWeaver::Testing::Unplannable` (a `GraphWeaver::Error`), at plan time,
+before any subgraph runs — so a refusal is never a half-executed query.
+Apollo's planner is ~20k lines; a double that approximated the rest of it would
+let a test pass on an answer production disagrees with, which is the most
+expensive thing this library can produce.
+
+```
+User.reviews is fetched on User's "id", and this selection aliases username as
+"id" over it — Apollo's router resolves that collision in favour of its own
+injected key and a spec-conformant server doesn't, so there is no one answer to
+agree with. Rename the alias.
+```
+
+What's left, and why:
+
+| Refusal | Why |
+|---|---|
+| an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
+| an abstract type at a boundary | a representation names one concrete `__typename`, and the router doesn't resolve a type per object to build one |
+| a nested `@key`/`@requires` field set | representations are built from flat field sets only |
+| no usable `@key` | nothing to build a representation from |
+| a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them would run them in whatever order the plan happened to (query roots are independent, so those are fine) |
+
+It also refuses at construction, before a single query, a supergraph carrying
+a `@join__*` construct the routing table hasn't been taught — an incomplete
+table makes every answer a guess — and any subgraph map it can't settle
+(above).
+
+Introspection is answered from the composed API schema, never from a subgraph,
+which would reply with its own slice — the one split a real router also makes.
 
 ### Is it worth wiring up? Measure.
 
@@ -174,27 +287,19 @@ rather than guess:
 
 ```
 $ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
-10/17 queries plannable locally (59%)
-  accounts 4, reviews 4, products 2
+17/17 queries plannable locally (100%)
+  accounts 4, reviews 4, products+reviews 3, accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1
 
-refused (7)
-
-  crosses a subgraph boundary (5)
-    dashboard.graphql        User.reviews is resolved by reviews, and this operation runs in accounts
-    ...
-
-  @requires needs a fetch chain (1)
-    shipping.graphql         Product.shippingEstimate runs in reviews and @requires "price weight", ...
-
-  root fields span subgraphs (1)
-    home.graphql             this operation's root fields span subgraphs: Query.me (accounts), Query.topProducts (products)
+refused (0)
 ```
 
 `QUERIES=` picks the directory (default `GraphWeaver.queries_path`). Planning
 needs the supergraph and nothing else, so this runs in CI with the SDL alone —
-no subgraph has to be loadable. The reasons group by category so one glance
-says whether the gap is one construct or many; the run above is against the
-demo graph in `spec/support/federation`, not a real app's mix.
+no subgraph has to be loadable. The second line says which subgraphs each query
+touches, so a graph whose queries all sit in one is visibly a different
+situation from one that stitches everywhere; the reasons group by category, so
+one glance says whether the gap is one construct or many. The run above is
+against the demo graph in `spec/support/federation`, not a real app's mix.
 
 ### How the refusals are kept honest
 
@@ -203,15 +308,18 @@ than no double at all, so
 [`spec/integration/router_parity_spec.rb`](../spec/integration/router_parity_spec.rb)
 serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
 supergraph, and runs every corpus query through both. Three outcomes, one of
-them a defect: match, refuse, or answer differently. On 26 queries — the corpus
-plus nine boundary probes — the local router is byte-identical to the gateway
-on 16, refuses 10, and is wrong on none; a second example checks the gateway
-answers all ten refusals cleanly, so each is a capability gap rather than a
-broken query. `make integration` runs it (node required).
+them a defect: match, refuse, or answer differently. On 43 queries — the corpus,
+twenty boundary probes, and five where a subgraph deliberately fails — the local
+router is byte-identical to the gateway on 42, refuses 1, and is wrong on none.
+A second example checks the gateway answers every refusal cleanly, so each is a
+capability gap rather than a broken query, and a third pins the ten queries the
+pass-through router used to answer: still one fetch each, still identical.
+`make integration` runs it (node required).
 
-Where the ten fall says what moving the boundary would cost: eight are ordinary
-entity joins across a boundary (`User.reviews` reached from `accounts`) and one
-splits its root fields between two subgraphs — nine that entity stitching would
-solve — while the tenth is a `@requires` chain, which needs a dependency DAG
-rather than one pass. Nothing is refused for being exotic; they're refused
-because the router would fetch twice and merge.
+The five deliberate failures are the ones that matter most. A resolver that
+errors under a stitched fetch, an entity nothing can resolve, and a `@requires`
+fetch that comes back empty all put a null where the composed schema says
+non-null — and a merge that doesn't re-propagate hands back a populated tree
+where the real router answers `data: null`. That is the failure mode this whole
+design exists to make impossible, so it's tested against the real thing rather
+than against an expectation someone wrote down.

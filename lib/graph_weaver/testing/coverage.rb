@@ -21,7 +21,9 @@ module GraphWeaver
     # Planning needs the supergraph and nothing else, so this runs without
     # any subgraph being loadable, in CI or on a laptop with the SDL alone.
     class Coverage
-      # one query file's verdict: `category` nil means the router can plan it
+      # One query file's verdict: `category` nil means the router can plan
+      # it, and `subgraph` is where it runs — "accounts+reviews" when the
+      # plan stitches across a boundary.
       Result = Struct.new(:path, :subgraph, :category, :detail)
 
       # the label each verdict groups under
@@ -110,8 +112,7 @@ module GraphWeaver
         errors = @planner.validate(document)
         return Result.new(path, nil, :invalid, errors.first["message"]) if errors.any?
 
-        plan = @planner.plan(document)
-        Result.new(path, plan.introspection ? "(introspection)" : plan.subgraph, nil, nil)
+        Result.new(path, @planner.plan(document).where, nil, nil)
       rescue Unplannable => e
         Result.new(path, nil, e.category, e.detail)
       rescue GraphQL::ParseError, GraphWeaver::Error => e

@@ -865,6 +865,15 @@ module GraphWeaver::SchemaLoader
     # which subgraphs declare a type, by name
     def declared_in(type_name) = @declared_in[type_name] || []
 
+    # every type the supergraph places, in the order it declares them —
+    # owners/declared_in answer questions about one, this is the list
+    def types = @declared_in.keys
+
+    # The fields of a type the supergraph routes explicitly. A field with no
+    # @join__field isn't here: it lives wherever its type does, so the
+    # supergraph names no subgraph for it (see owners).
+    def fields(type_name) = (@fields[type_name] || {}).keys
+
     # The @key field sets a subgraph will answer an `_entities` fetch on, each
     # as a list of dotted paths ("id organization { id }" => ["id",
     # "organization.id"]). A `resolvable: false` key declares a shape this
