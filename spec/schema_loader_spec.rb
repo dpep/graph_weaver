@@ -252,6 +252,23 @@ describe GraphWeaver::SchemaLoader do
         described_class.introspect(failing.new)
       }.to raise_error(GraphWeaver::Error, /introspection failed/)
     end
+
+    # the newcomer's mistake: a REST base url, a GraphiQL page, a proxy that
+    # ate the path — 200, valid JSON, no __schema
+    it "names the endpoint when a 200 body isn't an introspection result" do
+      not_graphql = Class.new do
+        def url = "https://httpbin.org/post"
+
+        def execute(_query, variables:, operation_name: nil)
+          { "json" => { "query" => "query IntrospectionQuery { ... }" } }
+        end
+      end
+
+      expect { described_class.introspect(not_graphql.new) }.to raise_error(
+        GraphWeaver::Error,
+        %r{introspection at https://httpbin\.org/post returned no __schema — is that a GraphQL endpoint\? got: .*IntrospectionQuery},
+      )
+    end
   end
 
   describe ".refresh!" do

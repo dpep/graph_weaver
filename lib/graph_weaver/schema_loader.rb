@@ -589,11 +589,20 @@ module GraphWeaver::SchemaLoader
       GraphWeaver.log(:info) { "schema cache miss: #{cache}" }
     end
 
-    result = GraphWeaver.log_timed(:info, "introspected #{transport.respond_to?(:url) ? transport.url : transport.class}") do
+    result = GraphWeaver.log_timed(:info, "introspected #{endpoint(transport)}") do
       transport.execute(GraphQL::Introspection.query, variables: {}).to_h
     end
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
+    end
+    # a 200 of well-formed JSON that isn't an introspection result — a REST
+    # base url, a GraphiQL page, a proxy that ate the path. from_introspection
+    # would raise a bare NoMethodError on the missing "__schema" key.
+    data = result["data"]
+    unless data.is_a?(Hash) && data["__schema"]
+      raise GraphWeaver::Error,
+        "introspection at #{endpoint(transport)} returned no __schema — is that a GraphQL " \
+        "endpoint? got: #{result.inspect[0, 200]}"
     end
 
     schema = GraphQL::Schema.from_introspection(result)
@@ -616,6 +625,13 @@ module GraphWeaver::SchemaLoader
 
     schema
   end
+
+  # What to call the thing we introspected, for a log line or an error: its
+  # url when it has one, else the class (a schema class, a fake).
+  def self.endpoint(transport)
+    (transport.respond_to?(:url) && transport.url) || transport.class
+  end
+  private_class_method :endpoint
 
   # The conventional schema dump, whatever its format: schema_path or the
   # first sibling extension that exists. nil when none is on disk.

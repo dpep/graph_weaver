@@ -575,6 +575,14 @@ no-dump and no-provenance messages now name that fix. The same logic is
 `GraphWeaver::SchemaLoader.refresh!(url:, auth:)`, which is what the generator
 calls.
 
+**Pointing a client at a url that isn't a GraphQL endpoint now says so.** A
+REST base url, a GraphiQL page or a proxy that ate the path answers 200 with
+well-formed JSON, and `.schema` raised a bare `KeyError`/`NoMethodError` out of
+graphql-ruby — unbranded, no url, and it escaped `rescue GraphWeaver::Error`
+(a 404 on the same path was already branded and clear). Introspection now
+checks for `data.__schema` and raises `GraphWeaver::Error` naming the endpoint
+and the first 200 characters of what came back.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
