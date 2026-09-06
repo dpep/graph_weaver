@@ -9,10 +9,8 @@ Ruby object (and serializes back when used as a variable). A field typed
 GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
 ```
 
-There is one registry, and it is global — the same one `rake
-graph_weaver:generate` reads, so a registration made in an initializer types
-your checked-in code and your console identically. Register before generating:
-it's a codegen-time concern, baked into the emitted source.
+Registration is global and codegen-time: `rake graph_weaver:generate` reads the
+same registry an initializer writes, so register before you generate.
 
 Pass a `Type.field` **coordinate** instead of a scalar name to override just
 that one field — so the same scalar can deserialize as different Ruby types
@@ -24,9 +22,8 @@ GraphWeaver.register_scalar("User.birthday", Date)     # this field only
 ```
 
 A field override wins over the scalar-name registration — which is also how two
-servers that disagree about a `DateTime` coexist in one process. (GraphQL names
-can't contain `.`, so the coordinate is unambiguous — and it's validated against
-the schema, so a typo'd field raises.)
+servers that disagree about a `DateTime` coexist in one process. Coordinates are
+validated against the schema, so a typo'd field raises.
 
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
@@ -36,12 +33,10 @@ probing the deserialize side and pairing its serializer:
 | `.parse`          | `Type.parse(v)` | `v.to_s`     |
 | `.load`           | `Type.load(v)`  | `Type.dump(v)` |
 
-so the common case needs nothing more. Probing the *deserialize* side is
-deliberate — every object has `#to_s`, so inferring off it would wrongly wrap
-plain types like `String`/`Integer`; requiring a `.parse`/`.load` the type
-actually defines avoids that (and is why the built-in scalars — `Date`, `ID`,
-`Int`, and friends, pre-registered and detailed below — can be registered with
-their real class constants). Override explicitly when you need to:
+so the common case needs nothing more. Only the *deserialize* side is probed —
+every object has `#to_s`, so a type defining neither `.parse` nor `.load` stays
+pass-through rather than getting wrapped (which is how the built-ins name their
+real classes). Override explicitly when you need to:
 
 - a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
   `serialize: :to_json` → `expr.to_json`
@@ -64,34 +59,31 @@ StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the ho
 StoreQuery.execute(budget: Money.new(1200))  # passed straight through
 ```
 
-Bad input still explodes (the cast raises), so some safety survives; coercion
-needs both a cast and a serialize. Off by default — the strict typed kwarg is the norm.
+Bad input still explodes (the cast raises), and coercion needs both a cast and a
+serialize. Off by default — the strict typed kwarg is the norm.
 
-`coerce:` also takes a **Symbol** naming a conversion method, for built-ins where
-a plain method is the whole story — `coerce: :to_f` makes a variable accept
-`5`/`"5"` and `.to_f` it, sending a native number (not `"5.0"`) on the wire. The
-convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`), so
-rather than opting in each, flip the default:
+`coerce:` also takes a **Symbol** naming a conversion method — `coerce: :to_f`
+makes a variable accept `5`/`"5"` and `.to_f` it, sending a native number (not
+`"5.0"`) on the wire. The convertible built-ins already know theirs
+(`Float`→`:to_f`, `Int`→`:to_i`), so rather than opting in each, flip the
+default:
 
 ```ruby
 GraphWeaver.auto_coerce = true
 ```
 
-Resolved lazily at generation time (set it any time before you generate),
-it gives convertible built-ins their conversion and any scalar with a full
+Resolved lazily at generation time (set it any time before you generate), it
+gives convertible built-ins their conversion and any scalar with a full
 cast/serialize pair (`Date`, your `Money`) parse-style coercion; an explicit
-`coerce:` on a registration always wins. `Boolean` has no lossless one-method
-conversion, so it stays strict — and so do `String`/`ID`: `#to_s` is a cast
-that can't fail, so auto-coercing it would only widen every String/ID kwarg to
-`T.anything`, erasing static typing on the majority of real variables to buy
-nothing. `register_scalar("ID", String, coerce: :to_s)` opts in deliberately.
+`coerce:` on a registration always wins. `Boolean`, `String` and `ID` stay
+strict — `#to_s` is a cast that can't fail, so widening them would erase static
+typing on most real variables to buy nothing;
+`register_scalar("ID", String, coerce: :to_s)` opts in deliberately.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
 `register_scalar` overrides them; `GraphWeaver.reset_scalars!` restores the
-defaults (`reset_scalars!(coerce: true)` restores them coercible) and
-`clear_scalars!` empties the registry. Register before generating — it's a
-codegen-time concern, baked into the emitted source.
+defaults and `clear_scalars!` empties the registry.
 
 A scalar you never register is not an error — it generates as `T.untyped` and
 the wire value passes through untouched. It is, though, the one hole in an
@@ -121,9 +113,8 @@ kind = PetKind.deserialize(pet.species.serialize.downcase)      # response -> do
 AddPetMutation.execute!(species: kind.serialize.upcase)            # domain -> wire
 ```
 
-Two enums for one concept and glue at every crossing. Register the mapping
-once and the seam disappears — generated code speaks your enum everywhere,
-casting wire values in and serializing members out:
+Register the mapping once and the seam disappears — generated code speaks your
+enum everywhere, casting wire values in and serializing members out:
 
 ```ruby
 GraphWeaver.register_enum("Species", PetKind)
@@ -189,11 +180,7 @@ fakes/cassettes get the behavior automatically; registrations are additive
 including struct's — so a helper that reads a wire field (`name`, `birthday`)
 doesn't resolve it and fails with "method does not exist on the module." Write
 such a helper at `# typed: false`, or reach the field through `T.unsafe(self)`
-— either way its body isn't statically checked against the selection. (Sorbet's
-`requires_ancestor` is the escape in principle, but it needs an experimental
-flag and a concrete ancestor, which a per-query struct isn't.) The only place a
-field-reading derivation type-checks natively is *inside* the struct body, where
-the field is in scope — which is codegen's job, not a mixin's.
+— either way its body isn't statically checked against the selection.
 
 For quick decoration, build the mixin inline — the block is
 `module_eval`'d into a fresh module auto-named under
@@ -205,11 +192,9 @@ GraphWeaver.extend_type("Pet") do
 end
 ```
 
-Same runtime behavior, less static reach: the block becomes a runtime module
-with no source on disk, so `srb tc` can't see its methods at all — fine in
-dynamic `parse`, but in a checked-in `# typed: strict` file it's an unresolved
-reference. Prefer a named module (and mind the field-access caveat above) where
-static checking matters — complexity on demand.
+Same runtime behavior, no static reach: the module has no source on disk, so
+`srb tc` can't see its methods at all — fine in a console or dynamic `parse`,
+an unresolved reference in a checked-in `# typed: strict` file.
 
 ### Flat accessors with `alias:`
 
@@ -226,9 +211,7 @@ GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
 #   def tag = meta&.tag
 ```
 
-So a hand-written value object that only existed to expose `tag` flat over
-`data.dig("meta", "tag")` drops away — the generated struct answers `.tag`
-directly. Forms:
+Forms:
 
 ```ruby
 alias: { tag: "meta.tag" }              # explicit accessor name

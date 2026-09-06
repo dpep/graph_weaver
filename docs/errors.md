@@ -53,26 +53,9 @@ actually send (`GraphWeaver::GraphQLError::THROTTLE_CODES` — Shopify's
 `THROTTLED`, GitHub's `RATE_LIMITED`, and friends); pass that constant to
 `Retry`'s `retry_codes:` instead of hand-writing the strings.
 
-Or skip the hand-rolling — `Retry` wraps any transport with
-configurable retries:
-
-```ruby
-transport = GraphWeaver::Retry.new(
-  GraphWeaver::Transport::HTTP.new(url),
-  tries: 5,                        # total attempts
-  backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
-  base: 0.5, max: 30,              # seconds, clamped at max:
-  jitter: true,                    # randomize each delay by 50-100%
-  retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
-)
-```
-
-Defaults match the rescue block above: transport failures always retry,
-`ServerError` on 5xx plus 408/429 (the rest of 4xx is your bug — retrying
-won't fix it; override with `retry_if:`), and GraphQL-level codes only
-when listed in `retry_codes:`. A `Retry-After` on the response sets the
-delay itself, clamped to `max:`. Exhausting `tries:` re-raises the last
-error.
+Or skip the hand-rolling: [`Retry`](transports.md#retries) wraps any client and
+already defaults to exactly the policy above — transport failures always,
+`ServerError` on 5xx plus 408/429, and GraphQL error codes you name.
 
 **Top-level scalar variables** fail like any Ruby method call, *outside* the
 hierarchy on purpose — passing the wrong Ruby type for a scalar kwarg is a
@@ -82,10 +65,9 @@ String"), a missing required one a plain `ArgumentError` ("missing keyword: :id"
 
 **Input-object variables** are the caller-input case, so they're *inside* the
 hierarchy. When you pass an input object as a hash (or struct) it's built
-through the generated `coerce`, and any problem there — an unknown/typo'd key, a
-missing required field, an out-of-range enum, a wrong-typed field — raises
-`GraphWeaver::InputError`. That's one rescue point for turning invalid input
-into a 422:
+through the generated `coerce`, and anything wrong in there raises
+`GraphWeaver::InputError` — one rescue point for turning invalid input into a
+422:
 
 ```ruby
 rescue GraphWeaver::InputError => e

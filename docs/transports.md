@@ -40,26 +40,12 @@ lazily, and `parse`/`execute` bound to both.
   introspects, so passing them raises
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
+Nothing is sniffed for — what you pass is what you get, and the client
+logs which transport it built at `info`.
+
 To wire generated modules that don't bake a client, make it the app's
 default: `GraphWeaver.client = github`. Anything satisfying the execute
 contract works there — testing's auto_fake swaps in a fake per example.
-
-**Transport pick**: always the zero-dependency `Transport::HTTP`, unless
-you ask for Faraday:
-
-```ruby
-GraphWeaver.new(url)                       # Transport::HTTP
-GraphWeaver.new(url, transport: :faraday)  # Transport::Faraday
-GraphWeaver.new(url) { |conn| ... }        # Transport::Faraday (the block is its)
-```
-
-Nothing is sniffed for. Faraday rides along transitively in most bundles
-(stripe, octokit, ...), so auto-detecting it would let an unrelated gem
-change your transport — and with it your timeouts and your connection
-reuse, since Faraday's default `net_http` adapter opens a fresh
-connection per request while `Transport::HTTP` pools persistent ones.
-Same code, same transport, whatever else the Gemfile drags in. The
-client logs which transport it built at `info`.
 
 ## Building blocks
 
@@ -96,11 +82,8 @@ end
 GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
 
 # One Faraday::Connection is reused for the transport's lifetime, but
-# socket keep-alive depends on the ADAPTER: Faraday's default net_http
-# adapter opens a fresh connection per request (10 TCP connections for
-# 10 requests, and over HTTPS a TLS handshake each time). For persistent
-# sockets and a thread-safe pool, pick a persistent adapter — the
-# transport logs the adapter it ended up with at :info:
+# socket keep-alive depends on the ADAPTER (see below) — the transport
+# logs the one it ended up with at :info:
 GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.adapter :net_http_persistent
 end
@@ -116,7 +99,9 @@ GraphWeaver.new(MySchema, context: { current_user: user })   # same, via a clien
 GraphWeaver.client = ...   # the app default (a Client or any of the above)
 ```
 
-**Keeping Faraday's sockets alive.** `:net_http_persistent` is the
+**Keeping Faraday's sockets alive.** Faraday's default `net_http` adapter
+opens a fresh connection per request — 10 TCP connections for 10 requests,
+and over HTTPS a TLS handshake each time. `:net_http_persistent` is the
 adapter that gets Faraday the connection reuse and thread-safe pooling
 `Transport::HTTP` has by default. It needs two gems, and the version
 pairing matters — **Faraday 2.x requires `faraday-net_http_persistent`
@@ -128,8 +113,7 @@ gem "net-http-persistent"                      # the HTTP client
 gem "faraday-net_http_persistent", "~> 2.0"    # the Faraday adapter for it
 ```
 
-graph_weaver depends on neither and never selects the adapter for you —
-picking transports for people is exactly what the default stopped doing.
+graph_weaver depends on neither and never selects an adapter for you.
 
 **Headers.** Both transports send `Content-Type: application/json`,
 `Accept: application/graphql-response+json, application/json;q=0.9` (the
