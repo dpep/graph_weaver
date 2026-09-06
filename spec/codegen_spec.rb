@@ -109,7 +109,7 @@ describe GraphWeaver::Codegen do
 
       expect {
         GraphWeaver.parse(schema: schema_with_input("serialize: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T2")
-      }.to raise_error(GraphWeaver::Error, /generated #serialize/)
+      }.to raise_error(GraphWeaver::Error, /Tricky\.serialize.*every struct defines/)
     end
 
     it "refuses variables whose kwarg would be a Ruby keyword" do
@@ -988,6 +988,30 @@ describe GraphWeaver::Codegen do
 
       render = ->(opt) { opt.is_a?(user::Contact::Email) ? :email : :phone }
       expect([u.primary, u.secondary].map(&render)).to eq(%i[email phone])
+    end
+  end
+
+  describe "hostile result keys" do
+    let(:schema) do
+      GraphQL::Schema.from_definition("type Query { person: Person }\ntype Person { name: String! class: String! }")
+    end
+
+    def generate(selection)
+      GraphWeaver::Codegen.generate(schema:, query: "query Q { person { #{selection} } }", module_name: "Q")
+    end
+
+    it "rejects two result keys that underscore to the same prop" do
+      expect { generate("name Name: name") }
+        .to raise_error(GraphWeaver::Error, /both map to the prop 'name'/)
+    end
+
+    it "rejects a field whose prop is a method every struct already answers" do
+      # T::Props refuses to redefine #class, so the file would raise at require
+      expect { generate("class") }.to raise_error(GraphWeaver::Error, /alias it in the query/)
+    end
+
+    it "accepts the aliased spelling the error suggests" do
+      expect(generate("classValue: class")).to include("const :class_value, String")
     end
   end
 

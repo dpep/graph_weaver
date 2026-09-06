@@ -71,6 +71,14 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- Result keys are checked before they become props, so generation refuses what
+  used to be an unloadable file. Two keys that underscore to the same prop
+  (`{ name Name: name }` — a plain alias, no exotic schema needed) raised
+  `ArgumentError: Attempted to redefine prop :name` at require time; so did a
+  field named `class`, `hash`, `send` or `frozen?`, which `T::Props` won't let a
+  struct redefine. **Alias the field in the query** (`classValue: class`) — the
+  error names the key and the spelling. The same reserved set now covers input
+  fields, which only checked Ruby keywords and `serialize`/`to_h` before.
 - **Global registrations are validated against the schema**, like client-scoped
   ones always were: `GraphWeaver.extend_type("Medai", …)` (or `register_scalar` /
   `register_enum`) used to be a silent no-op, which is the failure mode

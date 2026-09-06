@@ -210,6 +210,11 @@ class GraphWeaver::Codegen
     BEGIN END __FILE__ __LINE__ __ENCODING__
   ].to_set.freeze
   GENERATED_METHODS = %w[serialize to_h].to_set.freeze
+  # ...plus every method a struct instance already answers: T::Props refuses to
+  # redefine those (`class`, `hash`, `send`, `to_s`), so the generated file
+  # would raise ArgumentError at require time. Derived rather than listed, so
+  # it tracks whatever the Ruby and sorbet-runtime in play actually define.
+  RESERVED_PROPS = (RUBY_KEYWORDS + GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
 
   def generate
     begin
@@ -410,11 +415,13 @@ class GraphWeaver::Codegen
     # same union selected two ways (unblockOptions vs selectedOption) shares
     # one Ruby type, so consumers get one exhaustive `case ... T.absurd`.
     union_cache = {}
+    props = {}
 
     gather_conditional(type, selections).each do |key, occurrences|
       field_nodes = occurrences.map(&:first)
       field_name = field_nodes.first.name
       prop = underscore(key)
+      check_output_prop!(type, key, prop, props)
 
       child = if field_name == "__typename"
         NonNull.new(scalar_node("String"))
@@ -508,6 +515,26 @@ class GraphWeaver::Codegen
 
     node.aliases = resolve_aliases(node)
     node
+  end
+
+  # Both ways a result key can fail to become a prop — a name the struct
+  # already answers, or a second key that underscores onto an earlier one.
+  # Either emits a file that raises ArgumentError at require time, so refuse
+  # here; an alias in the query fixes both. `props` accumulates prop => key.
+  def check_output_prop!(type, key, prop, props)
+    if RESERVED_PROPS.include?(prop)
+      raise GraphWeaver::Error,
+        "#{type.graphql_name}.#{key} would become prop '#{prop}', which every generated struct " \
+        "already defines — alias it in the query (`#{prop}Value: #{key}`)"
+    end
+
+    if (earlier = props[prop])
+      raise GraphWeaver::Error,
+        "result keys #{earlier.inspect} and #{key.inspect} on #{type.graphql_name} both map to the " \
+        "prop '#{prop}' — alias one to a distinct name"
+    end
+
+    props[prop] = key
   end
 
   # Resolve each registered alias (extend_type alias:) for this struct's type
@@ -841,10 +868,10 @@ class GraphWeaver::Codegen
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
       prop = underscore(argument.graphql_name)
       # prop readers are bare method calls in the generated struct
-      if RUBY_KEYWORDS.include?(prop) || GENERATED_METHODS.include?(prop)
+      if RESERVED_PROPS.include?(prop)
         raise GraphWeaver::Error,
           "input field #{core.graphql_name}.#{argument.graphql_name} would become prop '#{prop}', " \
-          "which collides with #{RUBY_KEYWORDS.include?(prop) ? "a Ruby keyword" : "the struct's generated ##{prop}"}"
+          "which collides with #{RUBY_KEYWORDS.include?(prop) ? "a Ruby keyword" : "a method every struct defines"}"
       end
 
       child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
