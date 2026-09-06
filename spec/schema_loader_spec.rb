@@ -95,9 +95,9 @@ describe GraphWeaver::SchemaLoader do
           @calls = 0
         end
 
-        def execute(query, variables:)
+        def execute(query, variables:, operation_name: nil)
           @calls += 1
-          Demo::Schema.execute(query, variables:)
+          Demo::Schema.execute(query, variables:, operation_name:)
         end
       end.new
     end
@@ -190,8 +190,8 @@ describe GraphWeaver::SchemaLoader do
       with_url = Class.new do
         def url = "https://api.example.com/graphql"
 
-        def execute(query, variables:)
-          Demo::Schema.execute(query, variables:)
+        def execute(query, variables:, operation_name: nil)
+          Demo::Schema.execute(query, variables:, operation_name:)
         end
       end
 
@@ -243,7 +243,7 @@ describe GraphWeaver::SchemaLoader do
 
     it "surfaces introspection failures" do
       failing = Class.new do
-        def execute(_query, variables:)
+        def execute(_query, variables:, operation_name: nil)
           { "errors" => [{ "message" => "introspection disabled" }] }
         end
       end

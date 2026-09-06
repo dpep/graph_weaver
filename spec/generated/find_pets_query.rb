@@ -18,6 +18,9 @@ module FindPetsQuery
     }
   GRAPHQL
 
+  # sent as the request's operationName — what an APM keys traces on
+  OPERATION_NAME = T.let(nil, T.nilable(String))
+
   PetFilter = GraphQLInputs::PetFilter
   Species = GraphQLInputs::Species
 
@@ -83,7 +86,7 @@ module FindPetsQuery
     variables["where"] = PetFilter.coerce(where).serialize unless where.nil?
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables: variables))
+    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
   sig { params(client: T.untyped, where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped]))).returns(Result) }

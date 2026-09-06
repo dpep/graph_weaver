@@ -20,6 +20,9 @@ module AdoptQuery
     }
   GRAPHQL
 
+  # sent as the request's operationName — what an APM keys traces on
+  OPERATION_NAME = T.let(nil, T.nilable(String))
+
   AdoptionInput = GraphQLInputs::AdoptionInput
   Species = GraphQLInputs::Species
 
@@ -87,7 +90,7 @@ module AdoptQuery
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables: variables))
+    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
   sig { params(client: T.untyped, name: String, species: T.any(Species, String), birthday: T.nilable(Date), nickname: T.nilable(String)).returns(Result) }

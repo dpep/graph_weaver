@@ -1,4 +1,4 @@
-query($term: String!) {
+query Search($term: String!) {
   search(term: $term) {
     __typename
     ... on Named {

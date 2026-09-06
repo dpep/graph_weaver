@@ -286,7 +286,8 @@ class GraphWeaver::Codegen
 
     root = object_node(root_type, operation.selections, "Result")
 
-    emit_module(root, variables, representation_nodes(operation, root_type)).tap { report_untyped_scalars }
+    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
+      .tap { report_untyped_scalars }
   end
 
   private

@@ -232,11 +232,11 @@ class GraphWeaver::Codegen
         file
       end
 
-    # The whole generated file: header, requires, the QUERY heredoc,
-    # enum tables, input structs (dependency-ordered, forward-declared
-    # when cyclic), the Result tree, and execute — assembled from the
-    # generator's walked state.
-    def emit_module(root, variables, representations = [])
+    # The whole generated file: header, requires, the QUERY heredoc and
+    # its OPERATION_NAME, enum tables, input structs (dependency-ordered,
+    # forward-declared when cyclic), the Result tree, and execute —
+    # assembled from the generator's walked state.
+    def emit_module(root, variables, representations = [], operation_name = nil)
       flatten = flatten_input(variables)
       aliases = @inputs_namespace ? shared_alias_names(variables, flatten) : []
       # hoisted unions the result tree references, aliased so <Name>::Type and
@@ -274,6 +274,9 @@ class GraphWeaver::Codegen
       out << "  QUERY = T.let(<<~'#{delimiter}', String)"
       @query.each_line { |line| out << "    #{line}".rstrip }
       out << "  #{delimiter}"
+      out << ""
+      out << "  # sent as the request's operationName — what an APM keys traces on"
+      out << "  OPERATION_NAME = T.let(#{operation_name.inspect}, T.nilable(String))"
       out << ""
       if @inputs_namespace
         emit_shared_aliases(out, aliases)
@@ -517,7 +520,7 @@ class GraphWeaver::Codegen
 
       out << ""
       out << "    transport = GraphWeaver.resolve_transport(client || self.client)"
-      out << "    from_response(transport.execute(QUERY, variables: variables))"
+      out << "    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))"
       out << "  end"
       out << ""
       out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"

@@ -141,9 +141,9 @@ describe GraphWeaver::Client do
     it "is self-contained: the app default never leaks into an explicit client" do
       recorded = []
       recorder = Class.new do
-        define_method(:execute) do |query, variables:|
+        define_method(:execute) do |query, variables:, operation_name: nil|
           recorded << query
-          Demo::Schema.execute(query, variables:)
+          Demo::Schema.execute(query, variables:, operation_name:)
         end
       end
 

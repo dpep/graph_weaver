@@ -69,7 +69,7 @@ describe GraphWeaver::Codegen do
     GRAPHQL
 
     executor = Class.new do
-      def execute(_query, variables:)
+      def execute(_query, variables:, operation_name: nil)
         { "data" => { "pokemon_v2_pokemon" => [{ "id" => 1, "name" => "bulbasaur" }] } }
       end
     end
@@ -161,6 +161,17 @@ describe GraphWeaver::Codegen do
       expect(PersonQuery::QUERY).to be_frozen
     end
 
+    it "emits the operation's name beside QUERY, nil when the document is anonymous" do
+      expect(SearchQuery::OPERATION_NAME).to eq "Search"
+      expect(PersonQuery::OPERATION_NAME).to be_nil
+    end
+
+    # the client slot stays duck-typed: a graphql-ruby schema class takes
+    # operation_name: as a kwarg, so widening the contract didn't shut it out
+    it "runs against a bare graphql-ruby schema class in the client slot" do
+      expect(SearchQuery.execute(Demo::Schema, term: "el").data!.search).not_to be_empty
+    end
+
     it "executes and casts into the generated structs" do
       expect(response).to be_a GraphWeaver::Response
       expect(result).to be_a PersonQuery::Result
@@ -172,7 +183,7 @@ describe GraphWeaver::Codegen do
 
     it "returns errors in the envelope; data! raises QueryError" do
       failing = Class.new do
-        def execute(_query, variables:)
+        def execute(_query, variables:, operation_name: nil)
           { "errors" => [{ "message" => "boom", "extensions" => { "code" => "OOPS" } }] }
         end
       end
@@ -187,7 +198,7 @@ describe GraphWeaver::Codegen do
       expect(PersonQuery.execute!(id: "1").person&.name).to eq "Daniel"
 
       failing = Class.new do
-        def execute(_query, variables:) = { "errors" => [{ "message" => "boom" }] }
+        def execute(_query, variables:, operation_name: nil) = { "errors" => [{ "message" => "boom" }] }
       end
       expect { PersonQuery.execute!(failing.new, id: "1") }
         .to raise_error(GraphWeaver::QueryError)
@@ -401,7 +412,7 @@ describe GraphWeaver::Codegen do
       GRAPHQL
       sent = nil
       executor = Class.new do
-        define_method(:execute) do |_query, variables:|
+        define_method(:execute) do |_query, variables:, operation_name: nil|
           sent = variables
           { "data" => { "items" => [] } }
         end
@@ -585,7 +596,7 @@ describe GraphWeaver::Codegen do
       executor = Class.new do
         attr_reader :variables
 
-        def execute(_query, variables:)
+        def execute(_query, variables:, operation_name: nil)
           @variables = variables
           { "data" => { "pokemon" => [{ "id" => 25, "name" => "pikachu" }] } }
         end
@@ -785,9 +796,9 @@ describe GraphWeaver::Codegen do
       recorded = []
       recorder = Class.new do
         define_method(:initialize) { |log| @log = log }
-        define_method(:execute) do |query, variables:|
+        define_method(:execute) do |query, variables:, operation_name: nil|
           @log << variables
-          Demo::Schema.execute(query, variables:)
+          Demo::Schema.execute(query, variables:, operation_name:)
         end
       end
 
@@ -808,7 +819,7 @@ describe GraphWeaver::Codegen do
 
     it "a Client source runs through that client" do
       begin
-        GraphWeaver.client = Class.new { def execute(*) = { "errors" => [{ "message" => "wrong" }] } }.new
+        GraphWeaver.client = Class.new { def execute(*, **) = { "errors" => [{ "message" => "wrong" }] } }.new
         result = GraphWeaver.execute!(
           GraphWeaver.new(Demo::Schema),
           "query($id: ID!) { person(id: $id) { name } }",
@@ -872,7 +883,7 @@ describe GraphWeaver::Codegen do
 
     it "deserializes each field to its own Ruby type end to end (client-scoped)" do
       executor = Class.new do
-        def execute(_query, variables:)
+        def execute(_query, variables:, operation_name: nil)
           { "data" => { "event" => { "startsAt" => "2020-01-02T03:04:05Z", "createdOn" => "2021-06-15" } } }
         end
       end.new

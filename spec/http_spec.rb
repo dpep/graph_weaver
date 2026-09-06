@@ -2,6 +2,7 @@ require "socket"
 require "tempfile"
 require "webrick/https"
 require_relative "generated/person_query"
+require_relative "generated/search_query"
 
 # Generated modules run against a remote server by swapping the client:
 # same structs, same casting, HTTP transport.
@@ -25,6 +26,14 @@ describe GraphWeaver::Transport::HTTP do
     expect(headers["content-type"]).to eq ["application/json"]
     expect(headers["accept"]).to eq ["application/graphql-response+json, application/json;q=0.9"]
     expect(headers["user-agent"]).to eq ["graph_weaver/#{GraphWeaver::VERSION}"]
+  end
+
+  it "sends the operation name a named query declares, and nothing for an anonymous one" do
+    SearchQuery.execute(executor, term: "el")
+    expect(JSON.parse(@requests.last[:body])["operationName"]).to eq "Search"
+
+    PersonQuery.execute(executor, id: "1")
+    expect(JSON.parse(@requests.last[:body])).not_to have_key "operationName"
   end
 
   it "lets the caller override the defaults" do

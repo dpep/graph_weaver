@@ -9,7 +9,7 @@ module SearchQuery
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    query($term: String!) {
+    query Search($term: String!) {
       search(term: $term) {
         __typename
         ... on Named {
@@ -28,6 +28,9 @@ module SearchQuery
       species
     }
   GRAPHQL
+
+  # sent as the request's operationName — what an APM keys traces on
+  OPERATION_NAME = T.let("Search", T.nilable(String))
 
   class Result < T::Struct
     extend T::Sig
@@ -156,7 +159,7 @@ module SearchQuery
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables: variables))
+    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
   sig { params(client: T.untyped, term: String).returns(Result) }

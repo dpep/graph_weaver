@@ -21,7 +21,7 @@ module GraphWeaver
 
     # Capture/replay above the transport (no HTTP interception): a
     # cassette is a YAML file of {query, variables, response} entries,
-    # keyed on the normalized query + variables.
+    # keyed on the normalized query + variables + operationName.
     #
     #      # record against a real client, replay when the file exists:
     #      client = GraphWeaver::Testing::Cassette.use("github", client: real)
@@ -61,18 +61,20 @@ module GraphWeaver
         end
       end
 
-      def lookup(query, variables)
-        wanted = self.class.key(query, variables)
-      @entries.find { |entry| entry["key"] == wanted }
+      def lookup(query, variables, operation_name = nil)
+        wanted = self.class.key(query, variables, operation_name)
+        @entries.find { |entry| entry["key"] == wanted }
       end
 
-      def record(query, variables, response)
+      def record(query, variables, response, operation_name = nil)
         entry = {
-          "key" => self.class.key(query, variables),
+          "key" => self.class.key(query, variables, operation_name),
           "query" => query,
-          "variables" => self.class.normalize_variables(variables),
-          "response" => response,
         }
+        entry["operationName"] = operation_name if operation_name
+        entry["variables"] = self.class.normalize_variables(variables)
+        entry["response"] = response
+
         @entries.reject! { |existing| existing["key"] == entry["key"] }
         @entries << entry
         save
@@ -91,8 +93,14 @@ module GraphWeaver
         self
       end
 
-      def self.key(query, variables)
-        { "query" => query.gsub(/\s+/, " ").strip, "variables" => normalize_variables(variables) }
+      # The request's identity, exactly as the server sees it. operationName
+      # is part of that: it picks the operation the document runs, so two
+      # requests with identical text but different names are different
+      # requests. Omitted when anonymous, so those keys stay as they were.
+      def self.key(query, variables, operation_name = nil)
+        key = { "query" => query.gsub(/\s+/, " ").strip, "variables" => normalize_variables(variables) }
+        key["operationName"] = operation_name if operation_name
+        key
       end
 
       # JSON round-trip so symbol keys become strings — otherwise YAML.dump
@@ -131,13 +139,13 @@ module GraphWeaver
         end
       end
 
-      def execute(query, variables: {})
-        response = @client.execute(query, variables:).to_h
+      def execute(query, variables: {}, operation_name: nil)
+        response = @client.execute(query, variables:, operation_name:).to_h
         if @anonymizer && (data = response["data"])
           response = response.merge("data" => @anonymizer.anonymize(query, data))
         end
 
-        @cassette.record(query, variables, response)
+        @cassette.record(query, variables, response, operation_name)
         response
       end
     end
@@ -149,8 +157,8 @@ module GraphWeaver
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
       end
 
-      def execute(query, variables: {})
-        entry = @cassette.lookup(query, variables)
+      def execute(query, variables: {}, operation_name: nil)
+        entry = @cassette.lookup(query, variables, operation_name)
         raise MissingRecording.new(path: @cassette.path, query:) unless entry
 
         entry["response"]

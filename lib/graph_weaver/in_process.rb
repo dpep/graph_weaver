@@ -41,22 +41,21 @@ class GraphWeaver::InProcess
     @context = context
   end
 
-  def execute(query, variables: {})
-    payload = {
-      url: nil, schema: @schema.to_s, operation: GraphWeaver::Transport.operation_name(query)
-    }
+  def execute(query, variables: {}, operation_name: nil)
+    operation_name ||= GraphWeaver::Transport.operation_name(query)
+    payload = { url: nil, schema: @schema.to_s, operation: operation_name }
 
     GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
-      perform(query, variables)
+      perform(query, variables, operation_name)
     end
   end
 
   # The query itself. Separate from execute so the instrumenter wraps a
   # call rather than a block this method returns out of.
-  private def perform(query, variables)
+  private def perform(query, variables, operation_name)
     # same tag/truncation as the network transports, so one log reads the
     # same whichever side of the seam a query ran on
-    tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(query)
+    tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
 
     GraphWeaver.log(:debug) do
       "in-process #{@schema} #{tag} variables=#{JSON.generate(variables)}\n" \
@@ -64,7 +63,7 @@ class GraphWeaver::InProcess
     end
 
     GraphWeaver.log_timed(:debug, "in-process #{@schema} #{tag} completed") do
-      @schema.execute(query, variables:, context: @context)
+      @schema.execute(query, variables:, operation_name:, context: @context)
     end
   rescue GraphWeaver::Error
     raise

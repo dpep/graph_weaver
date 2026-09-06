@@ -20,9 +20,9 @@ describe GraphWeaver::Testing::Cassette do
         @calls = 0
       end
 
-      def execute(query, variables:)
+      def execute(query, variables:, operation_name: nil)
         @calls += 1
-        Demo::Schema.execute(query, variables:)
+        Demo::Schema.execute(query, variables:, operation_name:)
       end
     end.new
   end
@@ -48,6 +48,22 @@ describe GraphWeaver::Testing::Cassette do
       expect {
         replay.execute(PersonQuery::QUERY, variables: { "id" => "2" })
       }.to raise_error(GraphWeaver::Testing::MissingRecording, /no recording|re-record/)
+    end
+
+    it "keys on the operation name, so one document's two operations don't collide" do
+      document = <<~GQL
+        query One { named(name: "Daniel") { name } }
+        query Two { named(name: "Shelby") { name } }
+      GQL
+      recorder = GraphWeaver::Testing::Recorder.new(live, path)
+      recorder.execute(document, operation_name: "One")
+      recorder.execute(document, operation_name: "Two")
+
+      replay = GraphWeaver::Testing::Replayer.new(path)
+      expect(replay.execute(document, operation_name: "One").dig("data", "named", "name")).to eq "Daniel"
+      expect(replay.execute(document, operation_name: "Two").dig("data", "named", "name")).to eq "Shelby"
+      expect { replay.execute(document, operation_name: "Three") }
+        .to raise_error(GraphWeaver::Testing::MissingRecording)
     end
 
     it "Cassette.use records when the file is missing, replays when present" do

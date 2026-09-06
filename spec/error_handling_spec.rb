@@ -17,7 +17,7 @@ describe "error handling" do
   # an executor that reached a server and got this GraphQL response body back
   def run(payload)
     executor = Object.new
-    executor.define_singleton_method(:execute) { |_query, variables:| payload }
+    executor.define_singleton_method(:execute) { |_query, variables:, operation_name: nil| payload }
     mod.execute(executor, id: "1")
   end
 
@@ -322,7 +322,7 @@ describe "error handling" do
     # the checked-in fixture module, so generated structs have real names
     def run_generated(payload)
       executor = Object.new
-      executor.define_singleton_method(:execute) { |_query, variables:| payload }
+      executor.define_singleton_method(:execute) { |_query, variables:, operation_name: nil| payload }
       PersonQuery.execute(executor, id: "1")
     end
 

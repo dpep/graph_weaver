@@ -28,6 +28,15 @@ describe GraphWeaver::InProcess do
     expect(client.execute("query { me }").to_h.dig("data", "me")).to eq "dpep"
   end
 
+  it "runs the operation the caller names out of a multi-operation document" do
+    document = "query Me { me }\nquery Boom { boom }"
+
+    expect(client.execute(document, operation_name: "Me").to_h.dig("data", "me")).to eq "dpep"
+    # decisive: unasked, the document's first operation would have run
+    expect { client.execute(document, operation_name: "Boom") }
+      .to raise_error(GraphWeaver::ServerError, /kaboom/)
+  end
+
   it "brands a resolver raise, keeping the original as #cause" do
     expect { client.execute("query { boom }") }
       .to raise_error(GraphWeaver::ServerError, /kaboom/) { |e|

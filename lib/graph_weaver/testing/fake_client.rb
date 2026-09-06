@@ -73,7 +73,10 @@ class GraphWeaver::Testing::FakeClient
     @corrupt = wrap(corrupt)
   end
 
-  def execute(query, variables: {})
+  # operation_name: is accepted for contract parity and ignored — one
+  # document holds one operation, so there is nothing to select between
+  # (see Selection#load_operation).
+  def execute(query, variables: {}, operation_name: nil)
     operation = load_operation(query)
     root_type = operation_root_type(operation)
 

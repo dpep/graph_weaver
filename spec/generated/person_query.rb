@@ -21,6 +21,9 @@ module PersonQuery
     }
   GRAPHQL
 
+  # sent as the request's operationName — what an APM keys traces on
+  OPERATION_NAME = T.let(nil, T.nilable(String))
+
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
@@ -104,7 +107,7 @@ module PersonQuery
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables: variables))
+    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
   sig { params(client: T.untyped, id: String).returns(Result) }

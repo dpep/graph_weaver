@@ -20,7 +20,11 @@ RSpec.shared_context "graphql http server" do
 
     answer = lambda do |request, response|
       payload = JSON.parse(request.body)
-      result = Demo::Schema.execute(payload["query"], variables: payload["variables"] || {})
+      result = Demo::Schema.execute(
+        payload["query"],
+        variables: payload["variables"] || {},
+        operation_name: payload["operationName"],
+      )
       response["Content-Type"] = "application/json"
       response.body = JSON.generate(result.to_h)
     end

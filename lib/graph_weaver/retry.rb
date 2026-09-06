@@ -75,14 +75,14 @@ class GraphWeaver::Retry
     @client.url if @client.respond_to?(:url)
   end
 
-  def execute(query, variables: {})
+  def execute(query, variables: {}, operation_name: nil)
     attempt = 0
     failure = T.let(nil, T.nilable(Exception))
 
     loop do
       attempt += 1
       begin
-        response = @client.execute(query, variables:)
+        response = @client.execute(query, variables:, operation_name:)
         return response unless attempt < @tries && retryable_response?(response)
       rescue *@on => e
         raise if attempt >= @tries || !@retry_if.call(e)

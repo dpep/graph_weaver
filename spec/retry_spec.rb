@@ -1,5 +1,6 @@
 require "graph_weaver/testing"
 require_relative "generated/person_query"
+require_relative "generated/search_query"
 
 describe GraphWeaver::Retry do
   let(:failure) { GraphWeaver::Testing::Failure }
@@ -21,6 +22,21 @@ describe GraphWeaver::Retry do
     person = PersonQuery.execute!(executor, id: "1").person
     expect(person).not_to be_nil
     expect(slept.size).to eq 2
+  end
+
+  it "carries the operation name down to the client on every attempt" do
+    seen = []
+    counting = Class.new do
+      define_method(:execute) do |_query, variables: {}, operation_name: nil|
+        seen << operation_name
+        raise GraphWeaver::TransportError, "nope" if seen.size < 2
+
+        { "data" => { "search" => [] } }
+      end
+    end.new
+
+    SearchQuery.execute(described_class.new(counting, tries: 2, sleeper:), term: "x")
+    expect(seen).to eq %w[Search Search]
   end
 
   it "re-raises after tries are exhausted" do
@@ -80,7 +96,7 @@ describe GraphWeaver::Retry do
   def throttling(retry_after, status: 429)
     headers = retry_after ? { "retry-after" => retry_after } : {}
     Class.new do
-      define_method(:execute) do |_query, variables: {}|
+      define_method(:execute) do |_query, variables: {}, operation_name: nil|
         raise GraphWeaver::ServerError.new(status:, body: "slow down", headers:)
       end
     end.new

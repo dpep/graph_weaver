@@ -84,7 +84,7 @@ module GraphWeaver
         @response = response
       end
 
-      def execute(_query, variables: {})
+      def execute(_query, variables: {}, operation_name: nil)
         @response.call
       end
     end
@@ -99,10 +99,10 @@ module GraphWeaver
         @calls = 0
       end
 
-      def execute(query, variables: {})
+      def execute(query, variables: {}, operation_name: nil)
         client = @clients[[@calls, @clients.size - 1].min]
         @calls += 1
-        client.execute(query, variables:)
+        client.execute(query, variables:, operation_name:)
       end
     end
   end

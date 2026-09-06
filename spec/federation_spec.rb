@@ -484,7 +484,7 @@ describe "federation / _entities representations" do
   it "feeds execute, which returns the entities in order" do
     sent = nil
     client = Class.new do
-      define_method(:execute) do |_query, variables:|
+      define_method(:execute) do |_query, variables:, operation_name: nil|
         sent = variables
         { "data" => { "_entities" => [{ "__typename" => "Variant", "id" => "v-1", "color" => "red" }, nil] } }
       end
