@@ -43,9 +43,37 @@ describe GraphWeaver::SchemaLoader do
     codegen_parity(described_class.load(Demo::Schema.as_json))
   end
 
-  it "rejects other formats" do
-    expect { described_class.load("schema.yaml") }.to raise_error(ArgumentError)
-    expect { described_class.load("not a schema at all") }.to raise_error(ArgumentError)
+  it "loads single-line SDL — what you'd type in a console" do
+    schema = described_class.load("type Query { hi: String }")
+    expect(schema.get_type("Query").fields.keys).to eq %w[hi]
+  end
+
+  it "rejects other formats, under the Error umbrella" do
+    expect { described_class.load("schema.yaml") }.to raise_error(GraphWeaver::Error, /unsupported/)
+    expect { described_class.load("not a schema at all") }.to raise_error(GraphWeaver::Error, /unsupported/)
+    expect { described_class.load("nope\nnot this either") }.to raise_error(GraphWeaver::Error, /unsupported/)
+    expect { described_class.load("no/such/schema.graphql") }
+      .to raise_error(GraphWeaver::Error, %r{can't read the schema at no/such/schema.graphql})
+  end
+
+  # the near miss worth naming: the cause is the missing scheme, not the format
+  it "points a bare host at the url it meant" do
+    expect { described_class.load("graphql.anilist.co") }
+      .to raise_error(GraphWeaver::Error, %r{did you mean "https://graphql.anilist.co"})
+
+    # a file whose format we simply don't read isn't a host
+    expect { described_class.load("schema.yaml") }.to raise_error(GraphWeaver::Error) do |e|
+      expect(e.message).not_to include("host")
+    end
+  end
+
+  # the path/content disambiguation the SDL sniffing must not break
+  it "still reads a path that starts with an SDL keyword" do
+    Dir.mkdir(File.join(@dir, "types"))
+    path = File.join(@dir, "types", "schema.graphql")
+    File.write(path, Demo::Schema.to_definition)
+
+    Dir.chdir(@dir) { codegen_parity(described_class.load("types/schema.graphql")) }
   end
 
   describe ".locate" do

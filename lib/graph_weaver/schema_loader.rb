@@ -21,23 +21,62 @@ module GraphWeaver::SchemaLoader
 
     if source.lstrip.start_with?("{") # introspection JSON content
       build_introspection(JSON.parse(source))
-    elsif source.include?("\n") # multi-line: SDL content
-      unless source.match?(/^\s*(schema|type|interface|union|enum|scalar|directive|input|")/)
-        raise ArgumentError, "unsupported schema content: #{source.lstrip[0, 80].inspect}"
-      end
-
+    elsif sdl_content?(source) # SDL content, one line or many
       build_sdl(source)
-    else # a file path
-      case File.extname(source)
-      when ".json"
-        build_introspection(JSON.parse(File.read(source)))
-      when ".graphql", ".gql"
-        build_sdl(File.read(source))
-      else
-        raise ArgumentError, "unsupported schema format: #{source}"
-      end
+    elsif source.include?("\n") # content, but nothing we recognize
+      raise GraphWeaver::Error, "unsupported schema content: #{source.lstrip[0, 80].inspect}"
+    else
+      load_path(source)
     end
   end
+
+  # SDL content rather than a file path. Anchored at the start and requiring
+  # a delimiter after the keyword, so `types/schema.graphql` isn't read as a
+  # `type` definition — and a one-line `type Query { hi: String }`, the shape
+  # you'd type in a console, still is.
+  SDL_CONTENT = /\A\s*(?:\#|"|(?:schema|type|interface|union|enum|scalar|directive|input|extend)\b[\s{(@])/
+
+  def self.sdl_content?(source)
+    source.match?(SDL_CONTENT)
+  end
+  private_class_method :sdl_content?
+
+  def self.load_path(path)
+    case File.extname(path)
+    when ".json"
+      build_introspection(JSON.parse(read_schema(path)))
+    when ".graphql", ".gql"
+      build_sdl(read_schema(path))
+    else
+      raise GraphWeaver::Error,
+        "unsupported schema format: #{path} — expected a .json (introspection) or " \
+        ".graphql/.gql (SDL) path, or the content itself#{url_hint(path)}"
+    end
+  end
+  private_class_method :load_path
+
+  def self.read_schema(path)
+    File.read(path)
+  rescue SystemCallError => e
+    raise GraphWeaver::Error, "can't read the schema at #{path}: #{e.message}"
+  end
+  private_class_method :read_schema
+
+  # A bare host is the near miss worth naming: "unsupported schema format"
+  # sends you looking at the filesystem when the cause is the missing scheme.
+  HOST_LIKE = %r{\A[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:/\S*)?\z}i
+  # dotted-but-not-a-host: a file whose extension we simply don't read
+  FILE_SUFFIXES = %w[yaml yml txt xml sdl md rb erb].freeze
+
+  def self.url_hint(source)
+    return unless source.match?(HOST_LIKE)
+
+    suffix = source[%r{\A[^/:]+}].to_s[/[^.]+\z/].to_s
+    return if FILE_SUFFIXES.include?(suffix.downcase)
+
+    %( — "#{source}" looks like a host; did you mean "https://#{source}"?)
+  end
+  private_class_method :url_hint
 
   # Build a schema from SDL, first normalizing whichever federation artifact
   # it is: a composed supergraph gets its composition machinery stripped (so

@@ -16,6 +16,15 @@
   bare `RuntimeError`. **Rescuing the raw graphql-ruby classes no longer
   catches these.** The `@inaccessible` cascade also prunes a directive
   definition's own arguments.
+- **Single-line SDL loads.** `SchemaLoader.load("type Query { hi: String }")` —
+  the shape you type in a console — was rejected as "unsupported schema format",
+  because a string had to contain a newline to count as content rather than a
+  path.
+- Rejecting a schema source is branded too, so the error class no longer depends
+  on which branch rejected it: an unsupported format and an unreadable file both
+  raise `GraphWeaver::Error` (were `ArgumentError` and `Errno::ENOENT`). A bare
+  host now says so — `"graphql.anilist.co" looks like a host; did you mean
+  "https://graphql.anilist.co"?` — instead of pointing at the file system.
 - Cassette recording accepts a `GraphWeaver::Client` — the call
   `docs/cassettes.md` has always shown (`Cassette.use("github", client: live)`),
   which failed with `ArgumentError: missing keywords`. And a client that can't
