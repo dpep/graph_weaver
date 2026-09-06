@@ -1,4 +1,11 @@
 ## Unreleased
+**A supergraph's routing table is now readable:
+`GraphWeaver::SchemaLoader.routing_table(supergraph)`.** `load` strips the
+`@join__*` machinery to get the API schema; this keeps it — `owners("Product",
+"shippingEstimate") # => ["reviews"]`, each type's `@key` field sets, and which
+copies are `@external`. A `@join__` directive it hasn't been taught lands in
+`unsupported` rather than being skipped.
+
 **`Representations.<entity>` for an entity the query didn't select now says
 what to do.** Builders are query-driven, so `Representations.warehouse(...)`
 raised a bare `NoMethodError` naming nothing. It now names the builders this
