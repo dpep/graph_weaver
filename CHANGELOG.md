@@ -1,4 +1,38 @@
 ## Unreleased
+### Testing::Router now plans a real query, not just a single-subgraph one
+
+`GraphWeaver::Testing::Router` used to hand one operation to one subgraph
+verbatim and refuse anything that crossed a boundary. It now splits at the
+crossing, refetches the entity from its `@key` through
+`_entities(representations:)`, and stitches — batching every node at a level
+into one call, running root query fields that span subgraphs as one fetch
+each, and fetching a `@requires` field set from the subgraph that holds it
+before the field that needs it. On the demo corpus that moves 10/17 queries
+plannable to 17/17. It still refuses, at plan time, every shape it can't
+answer the way a real router would.
+
+`subgraphs:` is now **optional**: each subgraph's Ruby schema is derived from
+what the loaded schemas define, and refuses rather than guesses when two
+match or none do. An explicit map (or a partial one) still wins, and is now
+checked the same way — a mis-wired entry fails at construction naming what it
+doesn't define, instead of surfacing three fetches later.
+
+- **New:** `config.router = { supergraph: "supergraph.graphql" }` in
+  `graph_weaver/rspec` runs every example against your real subgraph
+  resolvers. Mutually exclusive with `auto_fake`.
+- **New:** `rake graph_weaver:federation:subgraphs` prints the subgraph map
+  detection sees, with the evidence for each match.
+- **New:** `Testing::Router#context` is settable, so one example can run as a
+  different user without rebuilding the router.
+- `Testing::Unplannable`'s `:requires` category is **gone** — the gap it named
+  is closed. `:root_fields_span` now applies only to mutations (query roots
+  are planned). New categories: `:no_key`, `:abstract_boundary`,
+  `:nested_field_set`, `:shadowed_key`.
+- The coverage report's second line now names every subgraph a query touches
+  (`accounts+reviews`), not just the one it ran in.
+- `rake graph_weaver:schema:diff`, `schema:refresh` and `cassettes:anonymize`
+  now load the Rails environment first, so an initializer's settings apply.
+
 **`GraphWeaver::Testing::Router` — a local federation router for tests.** Give
 it a supergraph and your subgraph schema classes and it satisfies the client
 slot, so `GraphWeaver.client = router` runs every generated module against real
