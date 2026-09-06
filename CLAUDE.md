@@ -101,6 +101,32 @@ Both must pass. Sorbet sigs are runtime-checked by sorbet-runtime, so a wrong
 sig surfaces as an rspec failure, not only a `srb tc` error — a green suite
 validates the sigs against real usage.
 
+## Drive it from a throwaway app when the host seam changes
+
+**The suite cannot test the gem's relationship with its host.** It is not a Rails
+app, so anything that depends on Rails' boot order, Zeitwerk, or rake's task
+graph is structurally invisible to it — and both bugs found that way were silent
+in development and only appeared in production boot or when registrations
+mattered:
+
+- `rake graph_weaver:generate` never ran `:environment`, because the task asked
+  `Rake::Task.task_defined?("environment")` at *load* time and Rails defines it
+  *after* railties' `rake_tasks` blocks. Every `register_scalar`/`extend_type` in
+  an initializer was silently dropped at generation, and `verify` reported the
+  result up to date.
+- `app/graphql/generated` sits under a Zeitwerk root while its files define
+  top-level constants, so eager loading raised `NameError`. Lazy dev boot was
+  fine; production was not.
+
+So when the railtie, the rake tasks, the generator, or the documented install
+path changes, spin up a scratch Rails app outside the repo, point its Gemfile at
+your checkout, and actually use it. Worth exercising: **both** a remote endpoint
+and the app's own graphql-ruby schema in-process; `RAILS_ENV=production` boot and
+`rails zeitwerk:check`; a registration in `config/initializers` that must reach
+generated output; the rake tasks end to end; and the testing harness from inside
+the app's own specs. The app is disposable — rebuilding it is cheaper than the
+bugs it catches.
+
 ## Version bumps
 
 Bump `lib/graph_weaver/version.rb` and, in the **same commit**:
