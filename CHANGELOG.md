@@ -261,6 +261,26 @@ Developer-experience fixes (all with regression coverage):
 - `FakeClient#schema` reads back the schema responses are fabricated against,
   which is how to reach it under `auto_fake`, where `GraphWeaver.client` is the
   fake; `Testing.config.schema` reads back too.
+New:
+- **`rake graph_weaver:schema:check` — which of your queries a schema change
+  broke.** Re-introspects the url the dump records (leaving the dump alone) and
+  validates every checked-in `.graphql` against the server as it is now,
+  reporting file plus line:col plus message and exiting non-zero on any
+  failure, so it drops into CI. `GraphWeaver.check_queries` returns the same
+  thing as data (`{path => [{"message", "line", "column"}]}`, empty when
+  everything validates); pass `schema:` to check a schema you already have
+  without touching the network. Complements `graph_weaver:verify`, which asks
+  the different question of whether the committed Ruby is stale.
+- `verify_generated!` (and `rake graph_weaver:verify`) compares generated files
+  with line endings normalized, so a checkout under git's `autocrlf` no longer
+  reports every generated file as stale.
+- New [editor support](docs/editors.md) doc: the `graphql.config.yml` that gives
+  VS Code and RubyMine validation, autocomplete and hover docs in your
+  `.graphql` files — no JS project, no gem code, five lines of YAML.
+- **Byte-identical generation is now a stated guarantee**, not just a property:
+  the same schema and queries produce the same files on any machine, in any
+  order (`docs/generated_modules.md`). It was already true and spec-enforced;
+  it was documented nowhere.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

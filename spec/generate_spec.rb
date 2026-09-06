@@ -147,6 +147,26 @@ describe "GraphWeaver.verify_generated!" do
     ).to be true
   end
 
+  it "passes on a CRLF checkout — git's autocrlf isn't staleness" do
+    Dir.mktmpdir do |dir|
+      source = File.join(root, "spec/generated")
+      Dir[File.join(source, "**/*.rb")].each do |file|
+        target = File.join(dir, file.delete_prefix("#{source}/"))
+        FileUtils.mkdir_p(File.dirname(target))
+        File.write(target, File.read(file).gsub("\n", "\r\n"))
+      end
+
+      expect(
+        GraphWeaver.verify_generated!(
+          schema: Demo::Schema,
+          queries: File.join(root, "spec/queries"),
+          output: dir,
+          client: Demo::Schema,
+        ),
+      ).to be true
+    end
+  end
+
   it "raises naming the stale files" do
     Dir.mktmpdir do |dir|
       FileUtils.cp(Dir[File.join(root, "spec/generated/*.rb")], dir)

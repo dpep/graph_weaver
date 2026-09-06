@@ -207,7 +207,9 @@ module GraphWeaver
       plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
-        target unless File.exist?(target) && File.read(target) == source
+        # git's autocrlf rewrites line endings on checkout — a Windows working
+        # copy is not stale generated code, so don't fail CI over it
+        target unless File.exist?(target) && File.read(target).gsub("\r\n", "\n") == source.gsub("\r\n", "\n")
       end
       # strays: a shared-artifact file the current schema + queries no longer produce
       stale += shared_artifacts(output) - plan.map { |f, _| File.join(output, f) }
@@ -218,6 +220,63 @@ module GraphWeaver
 
       true
     end
+
+    # Which checked-in queries no longer validate — breaking-change
+    # detection scoped to the operations you actually ship. Reports rather
+    # than raising, keyed by file, JSON-ready like every #to_h here:
+    #
+    #      GraphWeaver.check_queries
+    #      # => { "app/graphql/queries/person.graphql" =>
+    #      #      [{ "message" => "Field 'titel' doesn't exist on type 'Person'",
+    #      #         "line" => 4, "column" => 5 }] }
+    #
+    # Empty means every query validates. schema: defaults to a FRESH
+    # introspection of the url the dump records — the whole point is
+    # checking against the server as it is now — and the dump is left
+    # alone; pass schema: and nothing touches the network.
+    #
+    # A different question from verify_generated!, which asks whether the
+    # committed Ruby matches the committed schema. `rake
+    # graph_weaver:schema:check` prints this and exits non-zero.
+    def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
+      schema ||= refreshed_schema
+      shared = Codegen.load_fragments(fragments)
+
+      Dir[File.join(queries, "*.graphql")].sort.each_with_object({}) do |path, failures|
+        errors = validation_errors(schema, File.read(path), shared)
+        failures[path] = errors if errors.any?
+      end
+    end
+
+    # The schema check_queries defaults to: a fresh introspection of the url
+    # the local dump recorded, so no refresh step (and no rewritten dump) is
+    # needed first. Dumps with no url — hand-written SDL, a composed
+    # supergraph — have nothing to re-read, so they're checked as they are.
+    def refreshed_schema
+      # locate_schema! raises the conventional "no schema dump" message
+      path = SchemaLoader.locate_path or locate_schema!
+      meta = SchemaLoader.provenance(path)
+      return SchemaLoader.load(path) unless meta&.key?("url")
+
+      SchemaLoader.introspect(new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport)
+    end
+    private :refreshed_schema
+
+    # One query's schema-validation errors as JSON-ready hashes, with the
+    # source position graphql-ruby reports. Unparseable counts as an error
+    # too — it doesn't validate either, and inline_fragments (which parses
+    # first) has already branded it with its position.
+    def validation_errors(schema, source, shared)
+      # path omitted: the caller keys the report by file, so branding the
+      # message with it too would just print the path twice
+      schema.validate(Codegen.inline_fragments(source, shared)).map do |error|
+        location = error.to_h["locations"]&.first || {}
+        { "message" => error.message, "line" => location["line"], "column" => location["column"] }
+      end
+    rescue GraphWeaver::ValidationError => e
+      e.errors.map { |detail| detail.transform_keys(&:to_s) }
+    end
+    private :validation_errors
 
     # Load the generated modules — one line in an initializer or spec
     # helper (loading happens only when you call this; skip it and

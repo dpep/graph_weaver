@@ -10,8 +10,9 @@
 # initializer). Register custom scalars before the tasks run — they're
 # baked into generated source.
 #
-#      rake graph_weaver:generate   # queries_path -> generated_path
-#      rake graph_weaver:verify     # fail if generated files are stale (CI)
+#      rake graph_weaver:generate       # queries_path -> generated_path
+#      rake graph_weaver:verify         # fail if generated files are stale (CI)
+#      rake graph_weaver:schema:check   # fail if a query no longer validates (CI)
 require_relative "../graph_weaver"
 
 # in Rails, run app config first (initializers register scalars/enums/
@@ -32,7 +33,7 @@ namespace :graph_weaver do
   end
 
   namespace :schema do
-    # both tasks re-introspect from the url recorded in the dump
+    # all three re-introspect from the url recorded in the dump
     # (GRAPHWEAVER_AUTH supplies a token for private APIs)
 
     desc "Fail when the server's schema has drifted from the local dump"
@@ -53,6 +54,22 @@ namespace :graph_weaver do
       transport = GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport
       GraphWeaver::SchemaLoader.introspect(transport, cache: path, ttl: 0)
       puts "refreshed #{path} from #{meta["url"]}"
+    end
+
+    desc "Report checked-in queries that no longer validate against the server's schema"
+    task check: GRAPH_WEAVER_DEPS do
+      failures = GraphWeaver.check_queries
+      failures.each do |path, errors|
+        puts path
+        errors.each do |error|
+          position = [error["line"], error["column"]].compact.join(":")
+          puts "  #{position.empty? ? "" : "#{position}  "}#{error["message"]}"
+        end
+        puts
+      end
+
+      abort "#{failures.size} invalid #{(failures.size == 1) ? "query" : "queries"}" if failures.any?
+      puts "every query validates against the schema"
     end
   end
 

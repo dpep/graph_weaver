@@ -26,6 +26,29 @@ result.person&.birthday   # => Date (custom scalars deserialize)
 result.person&.nmae       # => srb tc: Method `nmae` does not exist
 ```
 
+Typed structs are the part every generator gets right. What decides whether
+you're still happy six months in:
+
+**You can test them.** Generation makes result types *precise*, which makes
+them expensive to construct by hand — and most generators stop there, leaving
+you to write the fixtures. GraphWeaver ships the fabricator: schema-correct
+fakes seeded from your own schema (`rspec --seed` reproduces the data),
+field-level failure simulation (`fail_at:`, `corrupt:`, `Failure` + `Sequence`),
+record/replay cassettes with anonymization, and rspec integration you turn on
+in one line. See [testing](docs/testing.md).
+
+**The schema keeps itself honest.** `cache: true` commits the dump;
+`rake graph_weaver:schema:refresh` re-introspects it, `:verify` fails when the
+server has drifted, and `:check` names the queries that drift broke, with the
+line and column of each error. `rake graph_weaver:verify` fails when the
+committed Ruby is stale. That's the whole schema lifecycle as rake tasks
+rather than a CI pipeline you assemble yourself — see
+[getting started](docs/getting_started.md#7-verify-in-ci).
+
+Generation is **deterministic**: the same schema and queries produce
+byte-identical files, on any machine, in any order — sorted throughout and
+enforced by a spec. Regenerating never shows a diff you didn't earn.
+
 New here? The **[getting started](docs/getting_started.md)** guide walks the
 production setup end to end — initializer, codegen, fakes, CI. Or run the
 **[examples](examples/)**, smallest first: `examples/countries.rb` (public
@@ -39,6 +62,7 @@ you to your fellow stargazers).
 - **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
+- **Schema lifecycle as rake tasks**: commit the dump, re-introspect it on a schedule (`schema:refresh`), fail CI when the server has drifted (`schema:verify`) or when drift broke a query (`schema:check`, with line and column) or when the committed Ruby went stale (`verify`)
 - **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: schema-correct fakes, failure simulation, record/replay cassettes with anonymization, rspec integration
@@ -110,6 +134,9 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 
 - **[Getting started](docs/getting_started.md)** — the production path in Rails,
   step by step: initializer, rake tasks, fakes, CI, Sorbet or not
+- **[Editor support](docs/editors.md)** — five lines of YAML give VS Code and
+  RubyMine schema autocomplete and validation in your `.graphql` files, with no
+  JS project
 - **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
   variables (enums, input objects), fragments/unions/interfaces,
   `@skip`/`@include`, naming, clients, dynamic mode
