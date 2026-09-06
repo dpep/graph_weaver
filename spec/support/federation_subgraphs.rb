@@ -97,10 +97,10 @@ module FederationDemo
     end
   end
 
-  # A subgraph whose entities exercise the @key shapes past the easy one:
-  # Product declares a compound key AND an alternative single key (either
-  # resolves it), Listing's key reaches into a nested selection, and
-  # Warehouse is an entity the catalog query never selects.
+  # A subgraph whose entities exercise the @key shapes past the easy one —
+  # one shape each: Product's key is compound, Listing's reaches into a
+  # nested selection, Variant declares two alternative keys (either resolves
+  # it), and Warehouse is an entity a query can leave untouched.
   module Catalog
     class Organization < BaseObject
       graphql_name "Organization"
@@ -111,9 +111,7 @@ module FederationDemo
     class Product < BaseObject
       graphql_name "Product"
       key fields: "upc sku"
-      key fields: :id
 
-      field :id, ID, null: false
       field :upc, String, null: false
       field :sku, Integer, null: false
       field :title, String, null: false
@@ -126,6 +124,16 @@ module FederationDemo
       field :id, ID, null: false
       field :organization, Organization, null: false
       field :price, Int, null: false
+    end
+
+    class Variant < BaseObject
+      graphql_name "Variant"
+      key fields: :id
+      key fields: :serial
+
+      field :id, ID, null: false
+      field :serial, String, null: false
+      field :color, String, null: false
     end
 
     class Warehouse < BaseObject
@@ -141,6 +149,7 @@ module FederationDemo
 
       field :product, Product, null: true
       field :listing, Listing, null: true
+      field :variant, Variant, null: true
       field :warehouse, Warehouse, null: true
     end
 

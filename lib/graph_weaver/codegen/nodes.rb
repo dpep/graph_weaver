@@ -362,4 +362,30 @@ class GraphWeaver::Codegen
     # building a struct field from a caller-supplied plain hash value
     def hash_coerce(expr, _depth) = "#{class_name}.coerce(#{expr})"
   end
+
+  # One entity's `Representations` builder: the typed constructor for the
+  # references an `_entities(representations:)` query takes. `key_sets` are
+  # the type's @key field sets as dotted paths ("organization.id"), in
+  # declaration order; `params` the union of their top-level fields, which
+  # is what the generated method takes as kwargs. Not part of the node
+  # protocol — nothing casts or serializes through it — it's a shape emit
+  # walks, sitting beside the result tree rather than inside it.
+  class RepresentationNode
+    # `wire` is the GraphQL field name, `value` the emitted expression that
+    # puts the kwarg on the wire (a registered scalar serializes here)
+    Param = Struct.new(:kwarg, :wire, :type, :value, :required)
+
+    attr_reader :method_name, :graphql_type, :key_fields, :key_sets, :params
+
+    # key_fields are the @key(fields:) strings as written, kept for the
+    # comment above the builder — "organization { id }" reads better there
+    # than the flattened path it becomes
+    def initialize(method_name, graphql_type, key_fields, key_sets, params)
+      @method_name = method_name
+      @graphql_type = graphql_type
+      @key_fields = key_fields
+      @key_sets = key_sets
+      @params = params
+    end
+  end
 end

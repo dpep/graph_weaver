@@ -20,6 +20,7 @@ require "sorbet-runtime"
 # this file holds the public API and the query walk.
 require_relative "hints"
 require_relative "input_struct"
+require_relative "representation"
 require_relative "inflect"
 require_relative "selection"
 require_relative "codegen/enum_type"
@@ -196,7 +197,7 @@ class GraphWeaver::Codegen
 
   # module-level constants every generated query module defines — a hoisted
   # union aliased to one of these would clash at load
-  HOISTED_UNION_RESERVED = %w[Result QUERY].to_set.freeze
+  HOISTED_UNION_RESERVED = %w[Result QUERY Representations].to_set.freeze
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
 
@@ -279,10 +280,121 @@ class GraphWeaver::Codegen
 
     root = object_node(root_type, operation.selections, "Result")
 
-    emit_module(root, variables)
+    emit_module(root, variables, representation_nodes(operation, root_type))
   end
 
   private
+
+  # Builders for the entity types this query's representation-taking fields
+  # can return. The hook is the schema, not the field name: the subgraph spec
+  # types a representation as `_Any`, so a field taking one is asking for
+  # entity references, and the entity types are the @key'd members its
+  # selection names. Query-driven like everything else — a subgraph with
+  # fifty entities emits builders only for the ones the query reaches.
+  def representation_nodes(operation, root_type)
+    # `_entities` is a root field, and the spec defines it nowhere else
+    gather_conditional(root_type, operation.selections).each_value.flat_map { |occurrences|
+      fields = occurrences.map(&:first)
+      definition = @schema.get_field(root_type.graphql_name, fields.first.name)
+      next [] unless definition && representation_field?(definition)
+
+      core = unwrap(definition.type)
+      next [] unless %w[UNION INTERFACE].include?(core.kind.name)
+
+      selected_members(core, fields.flat_map(&:selections))
+    }.uniq(&:graphql_name).filter_map { |entity| representation_node(entity) }.tap do |nodes|
+      collision = nodes.group_by(&:method_name).find { |_, group| group.size > 1 }
+      if collision
+        types = collision.last.map(&:graphql_type).join(" and ")
+        raise GraphWeaver::Error,
+          "entities #{types} both build Representations.#{collision.first} — one of them can't be represented"
+      end
+    end
+  end
+
+  # The subgraph spec's representation scalar. A field taking one is the
+  # entity resolver, whatever it's called.
+  REPRESENTATION_SCALAR = "_Any"
+
+  def representation_field?(definition)
+    definition.arguments.each_value.any? { |argument| unwrap(argument.type).graphql_name == REPRESENTATION_SCALAR }
+  end
+
+  # A `@key` this subgraph resolves. Matched by local name, since a fed-2
+  # subgraph linking the spec under a namespace applies @federation__key;
+  # `resolvable: false` declares a key the subgraph explicitly does NOT
+  # answer for, so it can't stand behind a representation.
+  def resolvable_keys(type)
+    return [] unless type.respond_to?(:directives)
+
+    type.directives.filter_map do |directive|
+      name = directive.graphql_name
+      next unless name == "key" || name.end_with?("__key")
+
+      arguments = directive.arguments.keyword_arguments
+      next if arguments[:resolvable] == false
+
+      arguments[:fields]&.to_s
+    end
+  end
+
+  # An entity's builder, or nil when the type isn't one (no resolvable @key).
+  def representation_node(entity)
+    key_fields = resolvable_keys(entity)
+    key_sets = key_fields.map { |fields| key_paths(entity, fields) }
+    return if key_sets.empty?
+
+    method_name = underscore(entity.graphql_name)
+    if RUBY_KEYWORDS.include?(method_name)
+      raise GraphWeaver::Error,
+        "entity #{entity.graphql_name} would build Representations.#{method_name}, which generated code can't declare (a Ruby keyword)"
+    end
+
+    RepresentationNode.new(method_name, entity.graphql_name, key_fields, key_sets,
+      key_params(entity, key_sets, required: key_sets.one?))
+  end
+
+  # A @key field set is a GraphQL selection set — "upc sku", or a nested
+  # "id organization { id }" — so parse it and flatten to the leaf paths the
+  # wire hash needs. Dotted, since a GraphQL name can't contain a dot.
+  def key_paths(entity, fields)
+    selections = GraphQL.parse("{ #{fields} }").definitions.first.selections
+    leaf_paths(selections)
+  rescue GraphQL::ParseError => e
+    raise GraphWeaver::Error, "#{entity.graphql_name} @key(fields: #{fields.inspect}) isn't a selection set: #{e.message}"
+  end
+
+  def leaf_paths(selections, prefix = [])
+    selections.flat_map do |node|
+      path = prefix + [node.name]
+      node.selections.empty? ? [path.join(".")] : leaf_paths(node.selections, path)
+    end
+  end
+
+  # The kwargs a builder takes: every key set's top-level field, once. Typed
+  # from the schema — a leaf key field gets its registered scalar's Ruby
+  # type, a nested one an open Hash whose shape the runtime checks.
+  def key_params(entity, key_sets, required:)
+    key_sets.flatten.map { |path| path.split(".").first }.uniq.map do |name|
+      field = @schema.get_field(entity.graphql_name, name)
+      unless field
+        raise GraphWeaver::Error, "#{entity.graphql_name} @key names #{name.inspect}, which the type doesn't declare"
+      end
+
+      kwarg = underscore(name)
+      core = unwrap(field.type)
+      if core.kind.name == "SCALAR"
+        node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
+        value = node.serialize_identity? ? kwarg : "#{kwarg}&.then { |v1| #{node.serialize("v1", 2)} }"
+        RepresentationNode::Param.new(kwarg, name, required ? node.bare_type : node.prop_type, value, required)
+      else
+        # a nested key set, or an enum/composite one — passed through, and
+        # narrowed to the declared sub-paths by the runtime
+        type = "T::Hash[T.untyped, T.untyped]"
+        RepresentationNode::Param.new(kwarg, name, required ? type : "T.nilable(#{type})", kwarg, required)
+      end
+    end
+  end
 
   # A registration names a type in a specific schema — a typo'd name would
   # otherwise be a silent no-op, the most confusing failure mode available.
