@@ -56,6 +56,9 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "variable used only inside a stitched subtree" => ['query($id: ID!) { review(id: $id) { body author { email } } }', { "id" => "r3" }],
     "@provides copy beside a field only the owner has" => ["{ reviews { author { username email } } }", {}],
     "an entity reached from two directions at once" => ["{ topProducts(first: 1) { name shippingEstimate reviews { body } } }", {}],
+    "@requires fetched from a third subgraph first" => ["{ reviews { product { shippingEstimate } } }", {}],
+    "a @requires chain beside a plain join" => ["{ reviews { id product { name shippingEstimate } } }", {}],
+    "a @requires chain over an entity list" => ["{ users { reviews { product { name shippingEstimate reviews { body } } } } }", {}],
     "root fields split three ways" => ["{ me { username } topProducts(first: 1) { name } reviews { body } }", {}],
   }.freeze
 
@@ -69,6 +72,7 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "error re-pathed out of _entities" => ["{ topProducts(first: 4) { name reviews { body } shippingEstimate } }", {}],
     "entity fetch nulls a non-null field" => ["{ orphanReviews { body product { name price } } }", {}],
     "the null a whole response propagates to" => ["{ orphanReviews { product { name } } }", {}],
+    "a @requires chain whose first fetch finds nothing" => ["{ orphanReviews { product { shippingEstimate } } }", {}],
   }.freeze
 
   before(:all) do
@@ -152,6 +156,10 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
         normalize(router.execute(query, variables:))
       rescue GraphWeaver::Testing::Unplannable => e
         return [:refused, e.detail]
+      rescue StandardError => e
+        # a planner that blows up is wrong, not refusing — report it as the
+        # diff it is rather than ending the run
+        return [:wrong, "gateway: #{JSON.generate(expected)}\n  local: #{e.class}: #{e.message}"]
       end
 
     return [:match, nil] if expected == actual

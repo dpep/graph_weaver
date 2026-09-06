@@ -112,6 +112,29 @@ describe GraphWeaver::Testing::Router do
       expect(response.dig("data", "reviews", 0, "product")).to eq({ "name" => "Table", "upc" => "p1" })
     end
 
+    # a @requires field set is supplied by the ROUTER: it fetches those
+    # fields from the subgraph that holds them and hands them back in the
+    # representation, which makes the plan a chain rather than one pass
+    it "fetches a @requires field set before the field that needs it" do
+      response = router.execute("{ reviews { id product { shippingEstimate } } }")
+
+      expect(response.dig("data", "reviews").map { |r| r.dig("product", "shippingEstimate") })
+        .to eq [50, 450, 25]
+      # reviews for the reviews, products for price+weight, reviews again for
+      # the estimate those feed
+      expect(subgraphs).to eq ["reviews", "products", "reviews"]
+      expect(router.trace[1][:variables].fetch("representations").first.keys)
+        .to contain_exactly("upc", "__typename")
+      expect(router.trace[2][:variables].fetch("representations").first.keys)
+        .to contain_exactly("upc", "price", "weight", "__typename")
+    end
+
+    # the required fields don't exist, so nothing that needs them can resolve
+    it "nulls a @requires field whose first fetch finds no entity" do
+      expect(router.execute("{ orphanReviews { product { shippingEstimate } } }"))
+        .to eq({ "data" => nil })
+    end
+
     it "runs root fields that span subgraphs as one fetch each" do
       response = router.execute("{ me { username } topProducts(first: 1) { name } }")
 
@@ -159,15 +182,15 @@ describe GraphWeaver::Testing::Router do
 
   describe "refusing" do
     it "refuses before any subgraph runs" do
-      expect { router.execute("{ reviews { product { shippingEstimate } } }") }.to raise_error(Unplannable)
+      expect { router.execute("{ me { id: username reviews { body } } }") }.to raise_error(Unplannable)
       expect(router.trace).to be_empty
     end
 
     it "is a GraphWeaver::Error, so one rescue catches it" do
-      expect { router.execute("{ reviews { product { shippingEstimate } } }") }
+      expect { router.execute("{ me { id: username reviews { body } } }") }
         .to raise_error(GraphWeaver::Error)
-      expect(refusal("{ reviews { product { shippingEstimate } } }").to_h)
-        .to include("category" => "requires")
+      expect(refusal("{ me { id: username reviews { body } } }").to_h)
+        .to include("category" => "shadowed_key")
     end
 
     # Apollo's router injects the @key under its own name and lets it win, so
@@ -190,14 +213,16 @@ describe GraphWeaver::Testing::Router do
         "it resolves outside reviews"
     end
 
-    it "names the field sets — a @requires the running subgraph can't satisfy" do
-      error = refusal("{ reviews { product { shippingEstimate } } }")
+    # a @requires the supergraph places nowhere is a graph nothing can serve,
+    # so there is no fetch to chain
+    it "names a @requires field no subgraph holds" do
+      sdl = File.read(RouterGraph::SUPERGRAPH)
+        .sub('price: Int! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)',
+          'price: Int! @join__field(graph: REVIEWS, external: true)')
+      unplaced = described_class.new(supergraph: sdl, subgraphs: RouterGraph::SUBGRAPHS)
 
-      expect(error.category).to eq :requires
-      expect(error.message).to eq 'Product.shippingEstimate runs in reviews and @requires ' \
-        '"price weight", which reviews doesn\'t hold (price, weight come from products) — the ' \
-        "router fetches those first and hands them back, a chain the local router doesn't plan. " \
-        "Run this one against a real router."
+      expect { unplaced.execute("{ reviews { product { shippingEstimate } } }") }
+        .to raise_error(Unplannable, /\AProduct\.shippingEstimate @requires "price", and the supergraph places Product\.price in no subgraph —/)
     end
 
     # a union split across subgraphs, a mutation whose roots are, and a

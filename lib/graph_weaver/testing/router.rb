@@ -53,11 +53,6 @@ module GraphWeaver
           "root mutation fields run in series and the local router can't serialize across " \
             "subgraphs. Split it into one operation per subgraph, or run this one against a real router.",
         ],
-        requires: [
-          "@requires needs a fetch chain",
-          "the router fetches those first and hands them back, a chain the local router doesn't " \
-            "plan. Run this one against a real router.",
-        ],
         no_owner: [
           "the routing table names no subgraph",
           "nothing can route a field the supergraph doesn't place. Run this one against a real router.",
@@ -111,19 +106,22 @@ module GraphWeaver
     #
     #      GraphWeaver::Testing::Router.new(
     #        supergraph: Rails.root.join("supergraph.graphql"),
-    #        subgraphs: { "accounts" => Accounts::Schema, "products" => Products::Schema },
     #        context: { current_user: user },
     #      )
     #
-    # It plans the two shapes a router spends its life on: an operation that
-    # resolves in one subgraph, handed over verbatim, and one that crosses a
+    # (`subgraphs:` is optional — see {Subgraphs}.)
+    #
+    # It plans the shapes a router spends its life on: an operation that
+    # resolves in one subgraph, handed over verbatim; one that crosses a
     # boundary — split at the crossing, refetched from the owning subgraph
-    # through `_entities(representations:)`, and stitched back. Everything it
-    # can't plan *faithfully* raises {Unplannable}, before any subgraph runs,
-    # so a refusal can never be a half-executed query. Apollo's planner is
-    # twenty thousand lines; a double that approximated the rest of it would
-    # let a test pass on an answer production disagrees with, which is the
-    # most expensive thing this library can produce.
+    # through `_entities(representations:)`, and stitched back; and a
+    # `@requires` field set, fetched from the subgraph that holds it and
+    # handed back in the representation. Everything it can't plan
+    # *faithfully* raises {Unplannable}, before any subgraph runs, so a
+    # refusal can never be a half-executed query. Apollo's planner is twenty
+    # thousand lines; a double that approximated the rest of it would let a
+    # test pass on an answer production disagrees with, which is the most
+    # expensive thing this library can produce.
     #
     # Introspection is answered from the composed API schema — never from a
     # subgraph, which would reply with its own slice. That is the one split a
@@ -250,17 +248,26 @@ module GraphWeaver
       def stitch(step, nodes, operation, variables, errors)
         return if nodes.empty?
 
-        step.deferrals.group_by(&:subgraph).each do |target, deferrals|
+        blocked = prefetch(step, nodes, operation, variables, errors)
+
+        # a @requires fetch and a plain one need different node sets, so they
+        # can't share a call even into the same subgraph — which is the split
+        # a real router makes too
+        step.deferrals.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
+          fetched = chained ? nodes.reject { |(node, _)| blocked.include?(node.object_id) } : nodes
           paths = deferrals.flat_map(&:representation).uniq
-          representations = nodes.map do |(node, _)|
+          representations = fetched.map do |(node, _)|
             paths.to_h { |path| [path, node[PREFIX + path]] }.merge("__typename" => step.type_name)
           end
 
-          result = entities_fetch(target, step.type_name, deferrals, representations, operation, variables)
-          entities = result.dig("data", "_entities") || []
-          Array(result["errors"]).each { |error| errors << rewrite(error, nodes) }
+          entities = []
+          if fetched.any?
+            result = entities_fetch(target, step.type_name, deferrals.map(&:node), representations, operation, variables)
+            entities = result.dig("data", "_entities") || []
+            Array(result["errors"]).each { |error| errors << rewrite(error, fetched) }
+          end
 
-          nodes.each_with_index do |(node, _), index|
+          fetched.each_with_index do |(node, _), index|
             entity = entities[index]
             deferrals.each do |deferral|
               # @skip/@include leave a key ABSENT rather than null, and
@@ -269,6 +276,11 @@ module GraphWeaver
 
               node[deferral.response_key] = entity && entity[deferral.response_key]
             end
+          end
+
+          # nothing supplied its @requires, so nothing can resolve the field
+          (nodes - fetched).each do |(node, _)|
+            deferrals.each { |deferral| node[deferral.response_key] = nil }
           end
 
           deferrals.each do |deferral|
@@ -283,6 +295,33 @@ module GraphWeaver
         end
 
         nodes.each { |(node, _)| strip!(node, step) }
+      end
+
+      # The @requires fields the router has to hand back, fetched into hidden
+      # keys before the fetch whose representation carries them. Returns the
+      # nodes the holding subgraph didn't recognize: their required fields
+      # don't exist, so nothing depending on them can resolve.
+      def prefetch(step, nodes, operation, variables, errors)
+        blocked = []
+        step.prefetches.each do |prefetch|
+          representations = nodes.map do |(node, _)|
+            prefetch.key.to_h { |path| [path, node[PREFIX + path]] }.merge("__typename" => step.type_name)
+          end
+          selections = prefetch.paths.map do |path|
+            GraphQL::Language::Nodes::Field.new(name: path, field_alias: PREFIX + path)
+          end
+
+          result = entities_fetch(prefetch.subgraph, step.type_name, selections, representations, operation, variables)
+          entities = result.dig("data", "_entities") || []
+          Array(result["errors"]).each { |error| errors << rewrite(error, nodes) }
+
+          nodes.each_with_index do |(node, _), index|
+            entity = entities[index]
+            blocked << node.object_id if entity.nil?
+            prefetch.paths.each { |path| node[PREFIX + path] = entity && entity[PREFIX + path] }
+          end
+        end
+        blocked
       end
 
       # Every object the plan's next level applies to, with the response path
@@ -325,8 +364,7 @@ module GraphWeaver
         run_subgraph(step.subgraph, document, variables)
       end
 
-      def entities_fetch(subgraph, type_name, deferrals, representations, operation, variables)
-        nodes = deferrals.map(&:node)
+      def entities_fetch(subgraph, type_name, nodes, representations, operation, variables)
         entities = GraphQL::Language::Nodes::Field.new(
           name: "_entities",
           arguments: [GraphQL::Language::Nodes::Argument.new(
@@ -494,12 +532,18 @@ module GraphWeaver
         # only carries deferrals deeper, a deferral is refetched elsewhere.
         # Both are lists: two selections can share a response key, and each
         # brings its own subtree.
-        Step = Struct.new(:subgraph, :type_name, :selections, :injected, :children, :deferrals,
-          keyword_init: true) do
+        Step = Struct.new(:subgraph, :type_name, :selections, :injected, :prefetches, :children,
+          :deferrals, keyword_init: true) do
           def subgraphs
-            [subgraph] + children.flat_map { |_key, child| child.subgraphs } + deferrals.flat_map(&:subgraphs)
+            [subgraph] + prefetches.map(&:subgraph) +
+              children.flat_map { |_key, child| child.subgraphs } + deferrals.flat_map(&:subgraphs)
           end
         end
+
+        # A @requires field set the router has to supply: fetch those fields
+        # from the subgraph that holds them, into hidden keys on the object,
+        # before the fetch whose representation carries them.
+        Prefetch = Struct.new(:subgraph, :key, :paths, keyword_init: true)
 
         # A field this subgraph can't resolve: refetch the parent entity from
         # `subgraph` and read it there.
@@ -583,7 +627,8 @@ module GraphWeaver
         private
 
         def step(subgraph, type_name)
-          Step.new(subgraph:, type_name:, selections: [], injected: [], children: [], deferrals: [])
+          Step.new(subgraph:, type_name:, selections: [], injected: [], prefetches: [],
+            children: [], deferrals: [])
         end
 
         def pick_operation(document, name)
@@ -662,10 +707,15 @@ module GraphWeaver
 
             owners = owners!(type_name, node.name)
             field = @table.field(type_name, node.name)
-            if owners.include?(subgraph) || provided.include?(node.name)
+            resolves_here = owners.include?(subgraph) || provided.include?(node.name)
+            if resolves_here && held?(type_name, field, subgraph)
               descend(here, type_name, node, subgraph, field, fragments, depth)
             else
-              defer(here, type_name, node, subgraph, owners, field, fragments, selections, depth)
+              # a field whose @requires this subgraph can't supply is refetched
+              # even when it resolves here — the fields have to arrive in a
+              # representation, and only an entity fetch carries one
+              defer(here, type_name, node, subgraph, resolves_here ? subgraph : owners.first,
+                field, fragments, selections, depth)
             end
           end
 
@@ -674,7 +724,6 @@ module GraphWeaver
 
         # The field resolves in this subgraph but something under it doesn't.
         def descend(step, type_name, node, subgraph, field, fragments, depth)
-          check_requires!(type_name, node, subgraph, field)
           child = plan_child(type_name, node, subgraph, field, fragments, depth)
 
           step.selections << node.merge(selections: child.selections)
@@ -691,25 +740,23 @@ module GraphWeaver
           plan_step(child_type, selections, subgraph, fragments, provides(field), depth + 1)
         end
 
-        # The field resolves somewhere else: refetch this object there from
-        # its @key, and read the field off the entity that comes back.
-        def defer(step, type_name, node, subgraph, owners, field, fragments, siblings, depth)
-          target = owners.first
+        # Refetch this object from its @key in the subgraph that resolves the
+        # field, and read the field off the entity that comes back. `target`
+        # is this subgraph when the field lives here but @requires fields it
+        # doesn't hold — the router refetches for those too.
+        def defer(step, type_name, node, subgraph, target, field, fragments, siblings, depth)
           key = usable_key(type_name, node, subgraph, target)
           requires = requires_paths(type_name, node, field)
+          check_shadowing!(type_name, node, siblings, (key + requires).uniq)
 
-          unreachable = requires.reject { |path| @table.owners(type_name, path).include?(subgraph) }
-          if unreachable.any?
-            holders = unreachable.flat_map { |path| @table.owners(type_name, path) }.uniq
-            refuse :requires,
-              "#{type_name}.#{node.name} runs in #{target} and @requires #{field.requires.inspect}, " \
-              "which #{subgraph} can't supply (#{unreachable.join(", ")} " \
-              "#{holders.any? ? "come from #{holders.join(" or ")}" : "belong to no subgraph"})"
-          end
+          # a @requires field this subgraph doesn't hold is fetched from the
+          # one that does and handed back in the representation — a fetch
+          # before the fetch, which is what makes this a chain
+          elsewhere = requires.reject { |path| @table.owners(type_name, path).include?(subgraph) }
+          prefetch(step, type_name, node, subgraph, elsewhere)
 
-          injected = (key + requires).uniq
-          check_shadowing!(type_name, node, siblings, injected)
-          injected.each { |path| inject(step, path) }
+          ((key + requires).uniq - elsewhere).each { |path| inject(step, path) }
+          elsewhere.each { |path| step.injected << path } # fetched, not selected here
 
           child = plan_child(type_name, node, target, field, fragments, depth) if node.selections.any?
 
@@ -722,10 +769,27 @@ module GraphWeaver
           )
         end
 
-        def inject(step, path)
-          return if step.injected.include?(path)
+        # One fetch per subgraph holding a @requires field this one doesn't,
+        # ahead of the fetch that needs them. Only one hop: the key for each
+        # has to come from `subgraph` itself, so a chain can't grow a chain.
+        def prefetch(step, type_name, node, subgraph, paths)
+          paths.group_by { |path| requires_holder(type_name, node, path) }.each do |holder, held|
+            key = usable_key(type_name, node, subgraph, holder)
+            key.each { |path| inject(step, path) }
+            step.prefetches << Prefetch.new(subgraph: holder, key:, paths: held)
+          end
+        end
 
-          step.injected << path
+        def requires_holder(type_name, node, path)
+          @table.owners(type_name, path).first ||
+            refuse(:no_owner, "#{type_name}.#{node.name} @requires #{path.inspect}, and the " \
+              "supergraph places #{type_name}.#{path} in no subgraph")
+        end
+
+        def inject(step, path)
+          return if step.selections.any? { |field| field.alias == Router::PREFIX + path }
+
+          step.injected << path unless step.injected.include?(path)
           step.selections << GraphQL::Language::Nodes::Field.new(name: path, field_alias: Router::PREFIX + path)
         end
 
@@ -784,21 +848,15 @@ module GraphWeaver
 
         # A @requires field set is supplied by the ROUTER: it fetches those
         # fields elsewhere and hands them back in the representation. So a
-        # field that stays put is only answerable when its own subgraph
-        # already holds every one of them — which, since @requires fields are
-        # @external there, it essentially never does.
-        def check_requires!(type_name, node, subgraph, field)
-          return unless field&.requires
+        # field is only answerable in place when its own subgraph already
+        # holds every one of them — which, since @requires fields are
+        # @external there, it essentially never does. When it doesn't, the
+        # field is planned as a fetch chain instead (see prefetch).
+        def held?(type_name, field, subgraph)
+          return true unless field&.requires
 
-          missing = requires_paths(type_name, node, field)
-            .reject { |path| @table.owners(type_name, path).include?(subgraph) }
-          return if missing.empty?
-
-          holders = missing.flat_map { |path| @table.owners(type_name, path) }.uniq
-          refuse :requires,
-            "#{type_name}.#{node.name} runs in #{subgraph} and @requires #{field.requires.inspect}, " \
-            "which #{subgraph} doesn't hold (#{missing.join(", ")} " \
-            "#{holders.any? ? "come from #{holders.join(" or ")}" : "belong to no subgraph"})"
+          GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(field.requires)
+            .all? { |path| @table.owners(type_name, path).include?(subgraph) }
         end
 
         # Every field these selections reach is answerable by `subgraph`, so
@@ -831,11 +889,7 @@ module GraphWeaver
           return false unless owners.include?(subgraph) || provided.include?(node.name)
 
           field = @table.field(type_name, node.name)
-          if field&.requires
-            held = GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(field.requires)
-              .all? { |path| @table.owners(type_name, path).include?(subgraph) }
-            return false unless held
-          end
+          return false unless held?(type_name, field, subgraph)
           return true if node.selections.empty?
 
           child = raw_child_type(type_name, node.name) or return false

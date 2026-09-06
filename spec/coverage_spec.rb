@@ -26,23 +26,14 @@ describe GraphWeaver::Testing::Coverage do
   end
 
   it "counts what the router can plan, and where it lands" do
-    expect(coverage.plannable).to eq 16
+    expect(coverage.plannable).to eq 17
     expect(coverage.results.size).to eq 17
-    expect(coverage.percent).to eq 94
-    expect(coverage.report.lines.first).to eq "16/17 queries plannable locally (94%)\n"
+    expect(coverage.percent).to eq 100
+    expect(coverage.report.lines.first).to eq "17/17 queries plannable locally (100%)\n"
     # a query that stitches names every subgraph it touches
-    expect(coverage.report.lines[1]).to eq "  accounts 4, reviews 4, accounts+reviews 2, " \
-      "products 2, products+reviews 2, accounts+products 1, accounts+products+reviews 1\n"
-  end
-
-  # the reason column is the product: which construct is left decides
-  # whether closing the rest of the gap is worth it
-  it "says what stopped the rest" do
-    expect(coverage.refused.map(&:category).tally).to eq({ requires: 1 })
-
-    expect(coverage.report).to include "  @requires needs a fetch chain (1)"
-    expect(coverage.report)
-      .to include "    reviewed_product_shipping.graphql", 'Product.shippingEstimate runs in reviews'
+    expect(coverage.report.lines[1]).to eq "  accounts 4, reviews 4, products+reviews 3, " \
+      "accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1"
+    expect(coverage.refused).to be_empty
   end
 
   # The planner replaced a pass-through with a stitcher, and what must not
@@ -58,17 +49,20 @@ describe GraphWeaver::Testing::Coverage do
     ]
   end
 
+  # the reason column is the product: which construct is left decides
+  # whether closing the rest of the gap is worth it
   it "groups the refusals by what stopped them, largest first" do
     report = coverage_of(
       "shadowed.graphql" => "{ me { id: username reviews { body } } }",
       "aliased.graphql" => "{ me { id: username reviews { id } } }",
-      "chained.graphql" => "{ reviews { product { shippingEstimate } } }",
+      "polymorphic.graphql" => "{ feed { ... on Review { body author { email } } } }",
     )
 
-    expect(report.refused.map(&:category).tally).to eq({ shadowed_key: 2, requires: 1 })
+    expect(report.refused.map(&:category).tally).to eq({ shadowed_key: 2, abstract_boundary: 1 })
     expect(report.report).to include "  an alias shadowing an injected @key (2)"
+    expect(report.report).to include "    shadowed.graphql", "aliases username"
     expect(report.report.index("an alias shadowing an injected @key"))
-      .to be < report.report.index("@requires needs a fetch chain")
+      .to be < report.report.index("an abstract type at a subgraph boundary")
   end
 
   it "plans without any subgraph being loadable" do
