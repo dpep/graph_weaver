@@ -13,6 +13,33 @@ describe GraphWeaver::Transport::Faraday do
     expect(result.person&.birthday).to eq Date.new(1990, 6, 15)
   end
 
+  it "sends the graphql-over-http Accept header and an attributable User-Agent" do
+    PersonQuery.execute(described_class.new(url), id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["content-type"]).to eq ["application/json"]
+    expect(headers["accept"]).to eq ["application/graphql-response+json, application/json;q=0.9"]
+    expect(headers["user-agent"]).to eq ["graph_weaver/#{GraphWeaver::VERSION}"]
+  end
+
+  it "lets the caller override the defaults" do
+    executor = described_class.new(url, headers: { "Accept" => "application/json", "User-Agent" => "myapp/1" })
+    PersonQuery.execute(executor, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["accept"]).to eq ["application/json"]
+    expect(headers["user-agent"]).to eq ["myapp/1"]
+  end
+
+  it "fills in the defaults a prebuilt connection left blank" do
+    executor = described_class.new(Faraday.new(url:, headers: { "User-Agent" => "mine/1" }))
+    PersonQuery.execute(executor, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["user-agent"]).to eq ["mine/1"]
+    expect(headers["accept"]).to eq ["application/graphql-response+json, application/json;q=0.9"]
+  end
+
   it "accepts an existing Faraday connection" do
     connection = Faraday.new(url:, headers: { "X-Client" => "custom" })
     executor = described_class.new(connection)

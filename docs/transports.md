@@ -82,6 +82,15 @@ end
 GraphWeaver.client = ...   # the app default (a Client or any of the above)
 ```
 
+**Headers.** Both transports send `Content-Type: application/json`,
+`Accept: application/graphql-response+json, application/json;q=0.9` (the
+media type [GraphQL-over-HTTP](https://graphql.github.io/graphql-over-http/draft/)
+requires a conforming client to accept, with the legacy type as
+fallback), and `User-Agent: graph_weaver/<version>` so a server operator
+can attribute the traffic. Anything you pass in `headers:` wins over
+these. A prebuilt `Faraday::Connection` owns its own headers; only the
+ones it leaves unset are filled in.
+
 **Concurrency.** One transport is normally the whole app's transport
 (`GraphWeaver.client = api`), so it has to serve every thread.
 `Transport::HTTP` opens up to `pool_size:` sockets lazily and reuses the

@@ -5,6 +5,7 @@ require "json"
 require "sorbet-runtime"
 
 require_relative "errors"
+require_relative "version"
 
 # Base class for the bundled network transports — Transport::HTTP
 # (zero-dependency net/http, loaded by default) and Transport::Faraday
@@ -20,6 +21,17 @@ class GraphWeaver::Transport
   extend T::Sig
   extend T::Helpers
   abstract!
+
+  # What every request sends unless the caller says otherwise.
+  # graphql-over-http requires a conforming client to accept
+  # application/graphql-response+json; the q=0.9 fallback keeps servers
+  # that only speak the legacy media type working. The User-Agent is what
+  # lets a server operator attribute the traffic.
+  DEFAULT_HEADERS = {
+    "Content-Type" => "application/json",
+    "Accept" => "application/graphql-response+json, application/json;q=0.9",
+    "User-Agent" => "graph_weaver/#{GraphWeaver::VERSION}",
+  }.freeze
 
   # the endpoint this transport talks to — recorded into cached schema
   # dumps as provenance (see SchemaLoader.introspect)

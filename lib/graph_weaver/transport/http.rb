@@ -50,7 +50,7 @@ module GraphWeaver
 
       sig { override.params(body: String).returns([Integer, T.untyped]) }
       def post(body)
-        request = Net::HTTP::Post.new(@uri, { "Content-Type" => "application/json" }.merge(@headers))
+        request = Net::HTTP::Post.new(@uri, DEFAULT_HEADERS.merge(@headers))
         request.body = body
 
         response = with_connection { |http| http.request(request) }

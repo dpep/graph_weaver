@@ -16,6 +16,24 @@ describe GraphWeaver::Transport::HTTP do
     expect(person&.pets&.map(&:name)).to eq %w[Shelby Brownie]
   end
 
+  it "sends the graphql-over-http Accept header and an attributable User-Agent" do
+    PersonQuery.execute(executor, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["content-type"]).to eq ["application/json"]
+    expect(headers["accept"]).to eq ["application/graphql-response+json, application/json;q=0.9"]
+    expect(headers["user-agent"]).to eq ["graph_weaver/#{GraphWeaver::VERSION}"]
+  end
+
+  it "lets the caller override the defaults" do
+    custom = described_class.new(url, headers: { "Accept" => "application/json", "User-Agent" => "myapp/1" })
+    PersonQuery.execute(custom, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["accept"]).to eq ["application/json"]
+    expect(headers["user-agent"]).to eq ["myapp/1"]
+  end
+
   it "reuses one connection across calls (keep-alive)" do
     expect(Net::HTTP).to receive(:start).once.and_call_original
 

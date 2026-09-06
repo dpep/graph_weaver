@@ -41,8 +41,10 @@ module GraphWeaver
 
           url_or_connection
         else
-          # Faraday appends the default adapter when the block doesn't set one
-          ::Faraday.new(url: url_or_connection, headers:, &block)
+          # Faraday appends the default adapter when the block doesn't set
+          # one. Our defaults go on the connection so ours is the
+          # User-Agent, not Faraday's stock one; caller headers still win.
+          ::Faraday.new(url: url_or_connection, headers: DEFAULT_HEADERS.merge(headers), &block)
         end
         @url = @connection.url_prefix.to_s
       end
@@ -52,7 +54,8 @@ module GraphWeaver
       sig { override.params(body: String).returns([Integer, T.untyped]) }
       def post(body)
         response = @connection.post do |request|
-          request.headers["Content-Type"] = "application/json"
+          # a prebuilt connection owns its headers — only fill the blanks
+          DEFAULT_HEADERS.each { |name, value| request.headers[name] ||= value }
           request.body = body
         end
 

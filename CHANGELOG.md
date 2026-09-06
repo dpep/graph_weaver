@@ -157,6 +157,13 @@ Transport improvements from the same review:
   lazily, stay keep-alive, and are dropped on any error so the next call
   reconnects. **Lower `pool_size:` if your server counts connections per
   client**; raise it to match a threaded web server's thread count.
+- Both transports now send `Accept: application/graphql-response+json,
+  application/json;q=0.9` — the media type GraphQL-over-HTTP requires a
+  conforming client to accept, so a spec-conformant server can finally use the
+  newer status-code semantics — and `User-Agent: graph_weaver/<version>`, so
+  server operators can attribute the traffic. Previously the only header sent
+  was `Content-Type`, and net/http supplied `Accept: */*`. `headers:` still
+  overrides both; a prebuilt `Faraday::Connection` keeps whatever it carries.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
