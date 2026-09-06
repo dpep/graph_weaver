@@ -393,6 +393,23 @@ nested constants like `AdoptQuery::AdoptionInput`. Regeneration prunes the old
 Changing a file's `query` to `mutation` from here on renames its constant the
 same way, which CI now catches rather than letting it drift.
 
+**Rails install generator.**
+`rails g graph_weaver:install --url=https://api.example.com/graphql` writes
+`config/initializers/graph_weaver.rb`, the `app/graphql/queries` and
+`app/graphql/generated` directories, `graphql.config.yml` (schema autocomplete
+and validation for `.graphql` files in VS Code / RubyMine) and the schema dump
+— replacing the console step the getting-started guide used to open with.
+`--auth` names the ENV var holding the token (default `GRAPHWEAVER_AUTH`),
+`--no-schema` skips the introspection. Re-running prompts on conflict like any
+Rails generator.
+
+**`rake graph_weaver:schema:refresh` can now create the first dump.** It read
+its url from an existing dump's provenance stamp, so it couldn't bootstrap one
+— pass `URL=https://api.example.com/graphql` and it will, and both the
+no-dump and no-provenance messages now name that fix. The same logic is
+`GraphWeaver::SchemaLoader.refresh!(url:, auth:)`, which is what the generator
+calls.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

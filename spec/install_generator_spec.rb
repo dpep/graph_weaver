@@ -18,6 +18,16 @@ describe "GraphWeaver::Generators::InstallGenerator" do
 
       def self.class_option(name, **opts) = class_options[name] = opts
 
+      # Thor::Group collects its commands in method_added, in definition
+      # order — reflection order isn't guaranteed, so mirror that rather
+      # than reading it back off the class
+      def self.commands = @commands ||= []
+
+      def self.method_added(name)
+        super
+        commands << name if name != :initialize && public_method_defined?(name)
+      end
+
       attr_reader :options, :actions
 
       def initialize(options = {})
@@ -41,7 +51,7 @@ describe "GraphWeaver::Generators::InstallGenerator" do
   def run_generator(**options)
     klass = generator_class
     generator = klass.new({ url: "https://api.example.com/graphql" }.merge(options))
-    klass.public_instance_methods(false).each { |name| generator.public_send(name) }
+    klass.commands.each { |name| generator.public_send(name) }
     generator.actions
   ensure
     GraphWeaver.send(:remove_const, :Generators) if GraphWeaver.const_defined?(:Generators, false)
@@ -108,7 +118,7 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     actions = run_generator
 
     expect(created(actions).keys).to include "config/initializers/graph_weaver.rb"
-    expect(actions.last(2).flatten.join).to include "401 Unauthorized", "graph_weaver:schema:refresh"
+    expect(actions.flatten.join).to include "401 Unauthorized", "rake graph_weaver:schema:refresh"
   end
 
   it "leaves conflicts to Thor rather than forcing them" do

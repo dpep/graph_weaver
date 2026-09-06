@@ -118,7 +118,7 @@ fresh?" — local, every CI run; `graph_weaver:schema:verify` asks "has the
 *server* drifted from the dump?" — network, needs the recorded url, run
 on a schedule. When the server *has* moved,
 `rake graph_weaver:schema:check` names the queries that no longer validate
-against it and where — see [getting started](getting_started.md#7-verify-in-ci).
+against it and where — see [getting started](getting_started.md#5-verify-in-ci).
 
 In development, skip the build entirely — `client.load_queries!` parses
 every query file into modules with the same names generation would use
