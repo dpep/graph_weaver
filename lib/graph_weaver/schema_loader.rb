@@ -663,7 +663,7 @@ module GraphWeaver::SchemaLoader
   # Re-introspect a dump's source and compare — true when the server has
   # drifted from what's on disk. transport: overrides the transport (auth
   # etc); by default one is built from the dump's recorded url. Wired up
-  # as `rake graph_weaver:schema:verify` / `:refresh`.
+  # as `rake graph_weaver:schema:diff` / `:refresh`.
   def self.stale?(path, transport: nil)
     transport ||= source_transport(path)
     fresh = introspect(transport)

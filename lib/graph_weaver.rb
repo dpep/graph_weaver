@@ -261,7 +261,7 @@ module GraphWeaver
     #
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
-    # graph_weaver:schema:check` prints this and exits non-zero.
+    # graph_weaver:queries:check` prints this and exits non-zero.
     def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)

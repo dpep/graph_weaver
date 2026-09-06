@@ -38,10 +38,10 @@ record/replay cassettes with anonymization, and rspec integration you turn on
 in one line. See [testing](docs/testing.md).
 
 **The schema keeps itself honest.** `cache: true` commits the dump;
-`rake graph_weaver:schema:refresh` re-introspects it, `:verify` fails when the
-server has drifted, and `:check` names the queries that drift broke, with the
-line and column of each error. `rake graph_weaver:verify` fails when the
-committed Ruby is stale. That's the whole schema lifecycle as rake tasks
+`rake graph_weaver:schema:refresh` re-introspects it, `schema:diff` fails when
+the server has drifted, and `queries:check` names the queries that drift broke,
+with the line and column of each error. `rake graph_weaver:verify` fails when
+the committed Ruby is stale. That's the whole schema lifecycle as rake tasks
 rather than a CI pipeline you assemble yourself — see
 [getting started](docs/getting_started.md#5-verify-in-ci).
 
@@ -65,7 +65,7 @@ you to your fellow stargazers).
 - **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
-- **Schema lifecycle as rake tasks**: commit the dump, re-introspect it on a schedule (`schema:refresh`), fail CI when the server has drifted (`schema:verify`) or when drift broke a query (`schema:check`, with line and column) or when the committed Ruby went stale (`verify`)
+- **Schema lifecycle as rake tasks**: commit the dump, re-introspect it on a schedule (`schema:refresh`), fail CI when the server has drifted (`schema:diff`) or when drift broke a query (`queries:check`, with line and column) or when the committed Ruby went stale (`verify`)
 - **Rails install generator**: `rails g graph_weaver:install --url=...` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
 - **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `executor:`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`

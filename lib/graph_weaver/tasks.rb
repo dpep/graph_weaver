@@ -10,9 +10,14 @@
 # initializer). Register custom scalars before the tasks run — they're
 # baked into generated source.
 #
-#      rake graph_weaver:generate       # queries_path -> generated_path
-#      rake graph_weaver:verify         # fail if generated files are stale (CI)
-#      rake graph_weaver:schema:check   # fail if a query no longer validates (CI)
+# Each task names its own subject — generated code, the schema dump, the
+# queries — so which question you're asking is the task name:
+#
+#      rake graph_weaver:generate        # queries_path -> generated_path
+#      rake graph_weaver:verify          # fail if generated files are stale (CI)
+#      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
+#      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
+#      rake graph_weaver:schema:refresh  # re-introspect and rewrite the dump
 require_relative "../graph_weaver"
 
 namespace :graph_weaver do
@@ -44,11 +49,11 @@ namespace :graph_weaver do
   end
 
   namespace :schema do
-    # all three re-introspect from the url recorded in the dump
+    # both re-introspect from the url recorded in the dump
     # (GRAPHWEAVER_AUTH supplies a token for private APIs)
 
     desc "Fail when the server's schema has drifted from the local dump"
-    task :verify do
+    task :diff do
       path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
       if GraphWeaver::SchemaLoader.stale?(path)
         abort "#{path} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
@@ -67,7 +72,9 @@ namespace :graph_weaver do
     rescue GraphWeaver::Error => e
       abort e.message
     end
+  end
 
+  namespace :queries do
     desc "Report checked-in queries that no longer validate against the server's schema"
     task check: :environment do
       failures = GraphWeaver.check_queries

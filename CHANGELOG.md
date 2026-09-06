@@ -602,8 +602,22 @@ now validates against the live class. Network clients are unchanged.
 
 **The two dead-end "records no source url" messages now say what to do.** A
 dump taken from a schema class is rebuilt from code, not re-fetched — both
-`schema:refresh` and `schema:verify` say that instead of naming a `URL=` that
+`schema:refresh` and `schema:diff` say that instead of naming a `URL=` that
 doesn't exist for you.
+
+**Two rake tasks are renamed so each one names its own subject.** There were
+three checks and two of them were called `verify`, while the one people run
+most — "did schema drift break my queries?" — lived under `schema:` and doesn't
+check the schema. **Update your CI:**
+
+| Was | Now | Asks |
+|---|---|---|
+| `graph_weaver:schema:check` | `graph_weaver:queries:check` | do my checked-in queries still validate? |
+| `graph_weaver:schema:verify` | `graph_weaver:schema:diff` | has the server drifted from the dump? |
+
+`graph_weaver:verify` (is the committed Ruby fresh?) and
+`graph_weaver:schema:refresh` are unchanged. No aliases — the old names are
+gone.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

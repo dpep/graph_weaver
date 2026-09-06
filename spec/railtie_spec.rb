@@ -28,7 +28,7 @@ describe "GraphWeaver::Railtie" do
     expect(tasks.size).to eq 1
     tasks.first.call
     expect(Rake::Task.task_defined?("graph_weaver:generate")).to be true
-    expect(Rake::Task.task_defined?("graph_weaver:schema:verify")).to be true
+    expect(Rake::Task.task_defined?("graph_weaver:schema:diff")).to be true
   end
 
   # Rails defines :environment AFTER every railtie's rake_tasks block, so the

@@ -90,7 +90,7 @@ describe "GraphWeaver.check_queries" do
   end
 end
 
-describe "rake graph_weaver:schema:check" do
+describe "rake graph_weaver:queries:check" do
   before(:context) do
     require "rake"
     Rake::Task.tasks.each(&:clear) if Rake::Task.tasks.any?
@@ -101,12 +101,12 @@ describe "rake graph_weaver:schema:check" do
   # escape into the suite — so run the task by hand and report both
   # streams plus the exit status the shell would see
   def run_task
-    Rake::Task["graph_weaver:schema:check"].reenable
+    Rake::Task["graph_weaver:queries:check"].reenable
     out, err = StringIO.new, StringIO.new
     $stdout, $stderr = out, err
     status = 0
     begin
-      Rake::Task["graph_weaver:schema:check"].invoke
+      Rake::Task["graph_weaver:queries:check"].invoke
     rescue SystemExit => e
       status = e.status
     end

@@ -41,7 +41,7 @@ initializer that fits:
 
 | flag | |
 |---|---|
-| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, the same one `rake graph_weaver:schema:verify` reads. Url only |
+| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, the same one `rake graph_weaver:schema:diff` reads. Url only |
 | `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh URL=...` does it later |
 
 Re-running is safe — every file goes through the usual Rails conflict
@@ -143,9 +143,9 @@ rake graph_weaver:generate
 
 Run the dump step ahead of `rake graph_weaver:verify` in CI — that check
 compares committed Ruby against the committed dump, so a stale dump makes
-it fail on a query that is fine. `rake graph_weaver:schema:check` is
+it fail on a query that is fine. `rake graph_weaver:queries:check` is
 unaffected: when `GraphWeaver.client` runs in-process it validates
-against the live class, not the dump. (`graph_weaver:schema:verify` and
+against the live class, not the dump. (`graph_weaver:schema:diff` and
 `:refresh` are for servers you *don't* own; a dump taken from a schema
 class records no url, and they say so.)
 
@@ -258,9 +258,9 @@ instead of the dump with `config.schema = MyApp::Schema`.
 ## 5. Verify in CI
 
 ```sh
-rake graph_weaver:verify          # generated code fresh? fails on any drift
-rake graph_weaver:schema:verify   # server drifted? re-introspects and compares
-rake graph_weaver:schema:check    # did that drift break any of your queries?
+rake graph_weaver:verify         # generated code fresh? fails on any drift
+rake graph_weaver:schema:diff    # server drifted? re-introspects and compares
+rake graph_weaver:queries:check  # did that drift break any of your queries?
 ```
 
 Three different questions.
@@ -269,12 +269,12 @@ Three different questions.
 the current schema + queries + registrations would produce — run it in
 every CI build. No network.
 
-`graph_weaver:schema:verify` asks whether the *server* has moved since the
+`graph_weaver:schema:diff` asks whether the *server* has moved since the
 dump was taken. It needs network, a dump with a recorded source url
 (introspected dumps have one), and `GRAPHWEAVER_AUTH` for private APIs;
 run it on a schedule and refresh with `rake graph_weaver:schema:refresh`.
 
-`graph_weaver:schema:check` answers the question that actually matters
+`graph_weaver:queries:check` answers the question that actually matters
 when it *has* moved: **which of your queries no longer validate, and
 why.** It re-introspects the recorded url (without rewriting the dump) and
 validates every `.graphql` file against the schema as it is right now,
