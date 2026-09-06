@@ -92,7 +92,7 @@ describe "Apollo Federation, live", :integration do
     # a stale query hitting the ROUTER directly (raw transport — the
     # client's own validation would catch this before the wire) comes
     # back with Apollo's validation code, which schema_stale? recognizes
-    raw = router.executor.execute("query { nosuch }", variables: {})
+    raw = router.transport!.execute("query { nosuch }", variables: {})
     error = GraphWeaver::GraphQLError.from_h(raw["errors"].first)
     expect(error.code).to eq "GRAPHQL_VALIDATION_FAILED"
     expect(error.validation?).to be true

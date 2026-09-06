@@ -72,11 +72,11 @@ error-handling paths are testable without a server that misbehaves on cue:
 ```ruby
 Failure = GraphWeaver::Testing::Failure
 
-PersonQuery.execute(id: "1", client: Failure.transport)             # TransportError (cause preserved)
-PersonQuery.execute(id: "1", client: Failure.server(status: 502))   # ServerError
-PersonQuery.execute(id: "1", client: Failure.throttled)             # QueryError, code THROTTLED
-PersonQuery.execute(id: "1", client: Failure.stale_schema)          # schema_stale? => true
-PersonQuery.execute(id: "1", client: Failure.graphql("boom", data: {...}))  # partial failure
+PersonQuery.execute(Failure.transport, id: "1")             # TransportError (cause preserved)
+PersonQuery.execute(Failure.server(status: 502), id: "1")   # ServerError
+PersonQuery.execute(Failure.throttled, id: "1")             # QueryError, code THROTTLED
+PersonQuery.execute(Failure.stale_schema, id: "1")          # schema_stale? => true
+PersonQuery.execute(Failure.graphql("boom", data: {...}), id: "1")  # partial failure
 
 # retries: clients run in sequence (the last repeats) — here, two
 # transport failures and then a FakeClient serving good responses

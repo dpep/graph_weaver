@@ -27,8 +27,8 @@ result = RepoQuery.execute!(cassette, owner: "dpep", name: "graph_weaver")
 
    (`Testing.config.record = true` is the programmatic equivalent.)
 
-Replaying an unrecorded request raises `MissingRecording` with the query
-and the path — no silent fabrication.
+Replaying an unrecorded request raises `GraphWeaver::Testing::MissingRecording`
+with the query and the path — no silent fabrication.
 
 ## Anonymization
 

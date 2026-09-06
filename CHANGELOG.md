@@ -21,6 +21,14 @@
   which failed with `ArgumentError: missing keywords`. And a client that can't
   `execute` is now rejected on the spot, with its class named, rather than
   surfacing later as `NoMethodError … for an instance of Hash`.
+- Generated structs answer `respond_to?` the way `method_missing` behaves, so
+  `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- Docs: `docs/testing.md` passed the client to generated `execute` as a `client:`
+  kwarg — it's positional. `README.md` had module naming backwards for the
+  documented path (a file's module comes from the **file** name, not the
+  operation name). `docs/federation.md` covers subgraph SDL, federation v1
+  supergraphs, and that `@inaccessible` is subtracted only on the supergraph
+  path. `docs/cassettes.md` names `MissingRecording` correctly.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
