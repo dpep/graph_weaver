@@ -163,10 +163,11 @@ module GraphWeaver
     def unions_module = @unions_module || "GraphQLUnions"
     def enums_module = @enums_module || "GraphQLEnums"
 
-    # Generate every .graphql query in a directory into checked-in Ruby
-    # files. Paths default to the conventions above; schema: defaults to
-    # the dump at schema_path (any supported extension), and also takes a
-    # Client (its schema — the console object, no dump needed):
+    # Generate every query in a directory — .graphql/.gql, subdirectories
+    # included — into checked-in Ruby files. Paths default to the conventions
+    # above; schema: defaults to the dump at schema_path (any supported
+    # extension), and also takes a Client (its schema — the console object,
+    # no dump needed):
     #
     #      GraphWeaver.generate!   # queries_path -> generated_path
     #
@@ -266,7 +267,7 @@ module GraphWeaver
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
 
-      Dir[File.join(queries, "*.graphql")].sort.each_with_object({}) do |path, failures|
+      Dir[File.join(queries, Codegen::DOCUMENT_GLOB)].sort.each_with_object({}) do |path, failures|
         errors = validation_errors(schema, File.read(path), shared)
         failures[path] = errors if errors.any?
       end
@@ -372,14 +373,23 @@ module GraphWeaver
       shared = Codegen.load_fragments(fragments)
       collect = ->(codegen) { codegen.variable_type_names.each { |kind, names| used[kind] |= names } }
 
-      plan = Dir[File.join(queries, "*.graphql")].sort.map do |path|
-        base = File.basename(path, ".graphql")
+      seen = {} # module name => the file that produced it, for the collision message
+
+      plan = Dir[File.join(queries, Codegen::DOCUMENT_GLOB)].sort.map do |path|
+        base = File.basename(path, File.extname(path))
         source = File.read(path)
         suffix = operation_suffix(source)
+        name = "#{Inflect.camelize(base)}#{suffix}"
+        if (earlier = seen[name])
+          raise Error, "duplicate query module #{name} — #{earlier} and #{path} both generate it; " \
+            "the module name comes from the file name alone (directories don't namespace it), so rename one"
+        end
+        seen[name] = path
+
         codegen = Codegen.new(
           schema:,
           query: Codegen.inline_fragments(source, shared, path),
-          module_name: "#{Inflect.camelize(base)}#{suffix}",
+          module_name: name,
           client:,
           inputs_namespace: inputs_module,
           unions_namespace: unions_module,

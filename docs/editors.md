@@ -14,8 +14,8 @@ page.
 # graphql.config.yml — repo root
 schema: app/graphql/schema.json
 documents:
-  - app/graphql/queries/**/*.graphql
-  - app/graphql/fragments/**/*.graphql
+  - app/graphql/queries/**/*.{graphql,gql}
+  - app/graphql/fragments/**/*.{graphql,gql}
 ```
 
 That's the whole setup. The paths are graph_weaver's conventions

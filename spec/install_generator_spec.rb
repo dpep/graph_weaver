@@ -93,8 +93,8 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     expect(config["schema"]).to eq GraphWeaver.schema_path
     # fragments too, or an editor reports `Unknown fragment`
     expect(config["documents"]).to eq [
-      "app/graphql/queries/**/*.graphql",
-      "app/graphql/fragments/**/*.graphql",
+      "app/graphql/queries/**/*.{graphql,gql}",
+      "app/graphql/fragments/**/*.{graphql,gql}",
     ]
   end
 

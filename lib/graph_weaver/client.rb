@@ -100,9 +100,9 @@ class GraphWeaver::Client
     GraphWeaver.parse(schema: self, query:, name:)
   end
 
-  # Parse every .graphql query in a directory into typed modules, named
-  # like generation would name them — the no-build-step analog of
-  # generate! + load_generated!:
+  # Parse every query in a directory (subdirectories included) into typed
+  # modules, named like generation would name them — the no-build-step
+  # analog of generate! + load_generated!:
   #
   #      github.load_queries!                        # queries/person.graphql => ::PersonQuery
   #      github.load_queries!(namespace: Github)     # => Github::PersonQuery
@@ -111,7 +111,7 @@ class GraphWeaver::Client
   # Reloadable (constants are replaced), so it suits consoles and dev.
   # Returns the modules.
   def load_queries!(dir = nil, namespace: Object)
-    Dir[File.join(dir || GraphWeaver.queries_path, "*.graphql")].sort.map do |path|
+    Dir[File.join(dir || GraphWeaver.queries_path, GraphWeaver::Codegen::DOCUMENT_GLOB)].sort.map do |path|
       name = GraphWeaver.module_name(path, File.read(path))
       if namespace.const_defined?(name, false)
         # the constant moves, its instances don't — a struct built before the

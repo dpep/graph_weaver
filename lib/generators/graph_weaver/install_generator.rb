@@ -192,8 +192,8 @@ module GraphWeaver
           # https://github.com/dpep/graph_weaver/blob/main/docs/editors.md
           schema: #{schema_path}
           documents:
-            - #{GraphWeaver.queries_path}/**/*.graphql
-            - #{GraphWeaver.fragments_path}/**/*.graphql
+            - #{GraphWeaver.queries_path}/**/*.{graphql,gql}
+            - #{GraphWeaver.fragments_path}/**/*.{graphql,gql}
         YAML
       end
     end

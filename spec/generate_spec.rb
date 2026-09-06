@@ -361,3 +361,56 @@ describe "GraphWeaver.auto_coerce" do
     expect(pet.name).to eq "Rex"
   end
 end
+
+describe "query directory scanning" do
+  around do |example|
+    Dir.mktmpdir { |dir| @dir = dir; example.run }
+  end
+
+  let(:queries) { File.join(@dir, "queries") }
+
+  def write(name, source)
+    path = File.join(queries, name)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, source)
+    path
+  end
+
+  before do
+    write("admin/pets.graphql", "query { people { name } }")
+    write("owners.gql", "query { people { name } }")
+  end
+
+  it "generates from nested queries and .gql files" do
+    output = File.join(@dir, "generated")
+    written = GraphWeaver.generate!(schema: Demo::Schema, queries:, output:, client: Demo::Schema)
+
+    # flat output: a directory organizes the queries, it doesn't namespace them
+    expect(written.map { |path| File.basename(path) }).to eq %w[pets_query.rb owners_query.rb]
+    # .gql keeps its extension out of the module name
+    expect(File.read(File.join(output, "owners_query.rb"))).to include "module OwnersQuery"
+  end
+
+  it "checks nested queries and .gql files" do
+    write("admin/pets.graphql", "query { people { nmae } }")
+    write("owners.gql", "query { people { nmae } }")
+
+    failures = GraphWeaver.check_queries(schema: Demo::Schema, queries:, fragments: [])
+    expect(failures.keys.map { |path| path.delete_prefix("#{queries}/") })
+      .to eq %w[admin/pets.graphql owners.gql]
+  end
+
+  it "loads nested queries and .gql files into modules" do
+    namespace = Module.new
+    GraphWeaver.new(Demo::Schema).load_queries!(queries, namespace:)
+
+    expect(namespace.constants.sort).to eq %i[OwnersQuery PetsQuery]
+  end
+
+  it "refuses two files that generate the same module, naming both" do
+    write("pets.graphql", "query { people { name } }")
+
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir, client: Demo::Schema) }
+      .to raise_error(GraphWeaver::Error, %r{PetsQuery.*queries/admin/pets\.graphql.*queries/pets\.graphql}m)
+  end
+end

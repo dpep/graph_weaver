@@ -10,6 +10,16 @@ anyone with sixty fragments organizes them — was skipped in silence, and a
 `.gql` file was ignored even though `parse("x.gql")` reads one. A duplicate
 fragment name now names both files that define it.
 
+**Query directories are scanned the same way — recursively, `.gql` included.**
+`queries/admin/pets.graphql` produced nothing at all: no file, no error.
+`generate!`, `check_queries` and `client.load_queries!` now walk the tree, and
+`.gql` no longer leaks its extension into the module name. Directories organize
+queries but do not namespace them — `queries/admin/pets.graphql` is still
+`PetsQuery` in `pets_query.rb` — so two files with the same base name are
+refused at generation, naming both, rather than one silently overwriting the
+other's generated file. The scaffolded `graphql.config.yml` matches
+(`**/*.{graphql,gql}`).
+
 **`execute` now takes one kwarg per declared variable, always — a single
 required input-object variable is no longer flattened into per-field kwargs.**
 `mutation($input: AdoptionInput!)` generated `execute!(name:, species:, …)`,

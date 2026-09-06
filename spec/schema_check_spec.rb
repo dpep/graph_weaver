@@ -21,6 +21,10 @@ describe "GraphWeaver.check_queries" do
   around do |example|
     Dir.mktmpdir do |dir|
       @dir = dir
+      # queries in their own directory: the scan is recursive, so a dump
+      # written alongside them would be read as a query
+      @queries = File.join(dir, "queries")
+      FileUtils.mkdir_p(@queries)
       write("title.graphql", "query($id: ID!) {\n  media(id: $id) {\n    title\n  }\n}\n")
       write("search.graphql", "query($term: String!) { search(term: $term) { id } }\n")
       write("still_good.graphql", "query($id: ID!) { media(id: $id) { id } }\n")
@@ -28,9 +32,9 @@ describe "GraphWeaver.check_queries" do
     end
   end
 
-  def write(name, source) = File.write(File.join(@dir, name), source)
+  def write(name, source) = File.write(File.join(@queries, name), source)
 
-  def check(schema) = GraphWeaver.check_queries(schema:, queries: @dir, fragments: [])
+  def check(schema) = GraphWeaver.check_queries(schema:, queries: @queries, fragments: [])
 
   it "reports nothing while the queries still validate" do
     expect(check(v1)).to be_empty
@@ -40,9 +44,9 @@ describe "GraphWeaver.check_queries" do
     failures = check(v2)
 
     expect(failures.keys.map { |path| File.basename(path) }).to eq %w[search.graphql title.graphql]
-    expect(failures[File.join(@dir, "title.graphql")])
+    expect(failures[File.join(@queries, "title.graphql")])
       .to eq [{ "message" => "Field 'title' doesn't exist on type 'Media'", "line" => 3, "column" => 5 }]
-    expect(failures[File.join(@dir, "search.graphql")].first["message"])
+    expect(failures[File.join(@queries, "search.graphql")].first["message"])
       .to match(/\$term.*String!.*Int!/)
   end
 
@@ -70,7 +74,7 @@ describe "GraphWeaver.check_queries" do
     GraphWeaver.schema_path = path
     GraphWeaver.client = GraphWeaver.new(live)
 
-    expect(GraphWeaver.check_queries(queries: @dir, fragments: [])).to be_empty
+    expect(GraphWeaver.check_queries(queries: @queries, fragments: [])).to be_empty
   ensure
     GraphWeaver.schema_path = nil
     GraphWeaver.client = nil
@@ -83,7 +87,7 @@ describe "GraphWeaver.check_queries" do
     GraphWeaver.schema_path = path
 
     expect(GraphWeaver::SchemaLoader).not_to receive(:introspect)
-    expect(GraphWeaver.check_queries(queries: @dir, fragments: []).keys.map { |f| File.basename(f) })
+    expect(GraphWeaver.check_queries(queries: @queries, fragments: []).keys.map { |f| File.basename(f) })
       .to eq %w[search.graphql title.graphql]
   ensure
     GraphWeaver.schema_path = nil
