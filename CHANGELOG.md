@@ -1,4 +1,13 @@
 ## Unreleased
+**`GraphWeaver::Testing::Router` — a local federation router for tests.** Give
+it a supergraph and your subgraph schema classes and it satisfies the client
+slot, so `GraphWeaver.client = router` runs every generated module against real
+resolvers in-process: no gateway, no node, no sockets. It plans one shape — a
+query whose every field resolves in a single subgraph, passed to that subgraph
+verbatim — and raises `Unplannable` (a `GraphWeaver::Error`) for anything that
+crosses a boundary, at plan time, before any subgraph runs. See
+[docs/testing.md](docs/testing.md#a-local-federation-router).
+
 **A supergraph's routing table is now readable:
 `GraphWeaver::SchemaLoader.routing_table(supergraph)`.** `load` strips the
 `@join__*` machinery to get the API schema; this keeps it — `owners("Product",
