@@ -246,19 +246,28 @@ class GraphWeaver::Codegen
 
   # A single-condition narrowing of an abstract field (`... on Pet { ... }`
   # and nothing else): the member struct when the runtime type matches,
-  # nil when it doesn't — a non-match's response object carries no
-  # matching fields, so the hash arrives empty. Always nilable, whatever
-  # the schema's nullability, because narrowing filters.
+  # nil when it doesn't. Always nilable, whatever the schema's nullability,
+  # because narrowing filters.
+  #
+  # typename: is the member's GraphQL name when the selection also carries an
+  # unconditional `__typename` — then the match is read off the tag. Without
+  # it there is nothing to read but the object's emptiness: a non-match
+  # carries none of the selected fields, so the hash arrives empty.
   class NarrowedNode < Node
-    def initialize(of)
+    def initialize(of, typename: nil)
       @of = of
+      @typename = typename
     end
 
     def class_name = @of.class_name
     def bare_type = @of.bare_type
 
     def cast(expr, depth)
-      "(#{expr}.empty? ? nil : #{@of.cast(expr, depth)})"
+      if @typename
+        "(#{expr}[\"__typename\"] == #{@typename.inspect} ? #{@of.cast(expr, depth)} : nil)"
+      else
+        "(#{expr}.empty? ? nil : #{@of.cast(expr, depth)})"
+      end
     end
 
     def nested = @of

@@ -424,18 +424,21 @@ class GraphWeaver::Codegen
               (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
             # a single `... on X` condition: narrow to X's struct — nil
             # when the runtime type doesn't match (narrowing filters).
-            # Narrowing reads "no fields came back" as "type didn't
-            # match", so a fragment whose every field hides behind
-            # @skip/@include would make a real match indistinguishable
-            # from a miss ({} either way) — refuse rather than guess.
-            unless unconditional_field?(member, sub_selections)
+            # With `__typename` selected the match is read off the tag;
+            # without one there is nothing to read but emptiness, and a
+            # fragment whose every field hides behind @skip/@include would
+            # make a real match indistinguishable from a miss ({} either
+            # way) — refuse rather than guess.
+            tag = member.graphql_name if dispatchable_typename?(core, sub_selections)
+            unless tag || unconditional_field?(member, sub_selections)
               raise GraphWeaver::Error,
                 "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
-                "@skip/@include — an all-conditional selection makes a match indistinguishable from nil"
+                "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
+                "makes a match indistinguishable from nil"
             end
 
             name = pick_name(member.graphql_name, key, taken)
-            nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name)) }
+            nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name), typename: tag) }
           elsif @unions_namespace && (frag = lone_shared_spread(sub_selections)) &&
               @hoistable_unions.include?(frag)
             # a whole-union field spread as a named shared fragment: hoist to
@@ -470,7 +473,7 @@ class GraphWeaver::Codegen
 
       # a field under @skip/@include may be absent from the response no
       # matter what the schema says — its type must admit nil
-      if field_nodes.any? { |n| n.directives.any? { |d| %w[skip include].include?(d.name) } }
+      if field_nodes.any? { |n| conditional?(n) }
         child = child.of if child.is_a?(NonNull)
       end
 
@@ -658,9 +661,18 @@ class GraphWeaver::Codegen
   # field guaranteed to be present in a matching response?
   def unconditional_field?(member, selections)
     each_field(member, selections) do |_key, node|
-      return true if node.directives.none? { |d| %w[skip include].include?(d.name) }
+      return true if !conditional?(node)
     end
     false
+  end
+
+  # Is the response guaranteed to carry a plain "__typename" key for this
+  # abstract selection? Every dispatch reads the tag unguarded, so an alias
+  # (which files it under another key) or an @skip/@include (which may drop
+  # it) means there is no tag to dispatch on.
+  def dispatchable_typename?(type, selections)
+    nodes = gather(type, selections)["__typename"]
+    !!nodes&.any? { |node| node.name == "__typename" && !conditional?(node) }
   end
 
   # rebuild LIST wrappers but drop NON_NULLs — a narrowed member is nil
@@ -684,10 +696,11 @@ class GraphWeaver::Codegen
   # deterministic output. Dispatch reads __typename, so the query must select
   # it; for interfaces the interface-level fields gather into every member.
   def union_members(type, selections)
-    unless gather(type, selections).key?("__typename")
+    unless dispatchable_typename?(type, selections)
       raise ArgumentError,
-        "select __typename on #{type.graphql_name} so the union can dispatch — " \
-        "or narrow to a single `... on Type` condition (no dispatch needed)"
+        "select __typename on #{type.graphql_name} so the union can dispatch — unaliased and " \
+        "not under @skip/@include, since from_h reads it on every response — or narrow to a " \
+        "single `... on Type` condition (no dispatch needed)"
     end
 
     @schema.possible_types(type).sort_by(&:graphql_name).to_h do |possible|

@@ -1,3 +1,18 @@
+## Unreleased
+
+Codegen bug fixes from the library review (all with regression coverage):
+- Narrowing (`... on X` and nothing else) now reads the match off `__typename`
+  when the selection carries it, instead of off "the object came back empty".
+  Selecting `__typename` guaranteed a non-empty object, so **every non-matching
+  member was cast into `X`'s struct** — loudly when it had a non-null field,
+  silently when all its fields were nullable. Regenerate: any query mixing
+  `__typename` with a single type condition (the `_entities { __typename
+  ... on Widget { … } }` federation shape) was mistyped and now filters
+  correctly.
+- A dispatched union/interface now requires its `__typename` to be unaliased and
+  free of `@skip`/`@include` — `from_h` reads it unguarded, so either would have
+  raised at runtime. Fix the selection if generation now refuses it.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

@@ -69,6 +69,15 @@ module GraphWeaver
       out
     end
 
+    # Directives that can drop a selection from the response whatever the
+    # schema says — the reason a conditional field's generated type is nilable.
+    CONDITIONAL_DIRECTIVES = %w[skip include].freeze
+
+    # Is this AST node (field, inline fragment, or spread) behind @skip/@include?
+    def conditional?(node)
+      node.directives.any? { |directive| CONDITIONAL_DIRECTIVES.include?(directive.name) }
+    end
+
     # A fragment's type condition applies when it names this type exactly,
     # or an interface/union this type belongs to (`... on Named { ... }`).
     def applies?(condition, type)

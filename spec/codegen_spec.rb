@@ -249,6 +249,17 @@ describe GraphWeaver::Codegen do
 
       expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
     end
+
+    it "requires the dispatched __typename to be unconditional" do
+      # from_h reads data.fetch("__typename") on every response
+      expect {
+        GraphWeaver.parse(
+          schema: Demo::Schema,
+          query: 'query($d: Boolean!) { search(term: "x") { __typename @skip(if: $d) ' \
+            "... on Pet { species } ... on Person { email } } }",
+        )
+      }.to raise_error(ArgumentError, /not under @skip/)
+    end
   end
 
   describe "narrowed abstract selections" do
@@ -285,6 +296,22 @@ describe GraphWeaver::Codegen do
       results = mod.execute!.search
       expect(results&.first).to be_nil # Daniel is a Person — narrowed away
       expect(results&.last&.name).to eq "Shelby"
+    end
+
+    it "narrows on the tag when __typename is selected alongside the condition" do
+      # selecting __typename means a non-match is never an empty object, so
+      # emptiness can't tell a Pet from a Person whose fields all came back nil
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: 'query { search(term: "el") { __typename ... on Person { email } } }',
+      )
+
+      results = mod.from_response!("data" => { "search" => [
+        { "__typename" => "Person", "email" => "d@e.f" },
+        { "__typename" => "Pet" },
+      ] }).search
+
+      expect(results&.map(&:class)).to eq [mod::Result::Person, NilClass]
     end
   end
 

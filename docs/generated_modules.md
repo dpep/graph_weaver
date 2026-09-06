@@ -249,11 +249,14 @@ mod.execute!(where:)
   possible type, `Type = T.type_alias { T.any(...) }`, and a `from_h`
   dispatching on `__typename` — which generation therefore *requires* in
   the selection (the wire response carries no type tag unless you ask).
-  Two narrower shapes skip the dispatch (and the `__typename`) entirely:
-  interface-level fields only → one shared struct; a single `... on X`
-  condition and nothing else → `X`'s struct, always nilable — a
-  non-matching runtime type comes back as `nil`, so narrowing doubles as
-  filtering. When a whole union field is selected as one named *shared*
+  Two narrower shapes skip the dispatch module entirely: interface-level
+  fields only → one shared struct; a single `... on X` condition and
+  nothing else → `X`'s struct, always nilable — a non-matching runtime
+  type comes back as `nil`, so narrowing doubles as filtering. Narrowing
+  reads the match off `__typename` when the selection carries it, and off
+  "the object came back empty" when it doesn't (which is why an
+  all-`@skip`/`@include` narrowed fragment without a `__typename` is
+  refused: a match would be indistinguishable from a miss). When a whole union field is selected as one named *shared*
   fragment (`{ ...FeedItemFields }`), that type is hoisted once into the
   `GraphQLUnions` module and each query aliases it — so the same union is one
   Ruby type family across queries, not a fresh dispatch module per query. Like
