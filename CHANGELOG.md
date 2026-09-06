@@ -34,6 +34,10 @@ Codegen bug fixes from the library review (all with regression coverage):
   M::Result::Pet::Species`). **The result-side constant moves**: reach for
   `M::Species::Dog`, not `M::Result::Pet::Species::Dog`, when the enum is also
   a variable type. An enum that appears only in results is unchanged.
+- List variables coerce per element, so an enum inside a list accepts its wire
+  value the way a scalar enum already did (`sort: ["POPULARITY_DESC"]` used to
+  raise `NoMethodError: undefined method 'serialize' for String`). Input-object
+  and custom-scalar elements coerce in lists too.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

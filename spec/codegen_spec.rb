@@ -367,6 +367,25 @@ describe GraphWeaver::Codegen do
         .to eq AddPetQuery::Species::Dog
     end
 
+    it "accepts wire strings for enums inside a list variable, like a scalar one" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        enum Sort { ASC DESC }
+        type Query { items(sort: [Sort!], one: Sort): [String!]! }
+      GRAPHQL
+      sent = nil
+      executor = Class.new do
+        define_method(:execute) do |_query, variables:|
+          sent = variables
+          { "data" => { "items" => [] } }
+        end
+      end.new
+
+      mod = GraphWeaver.parse(schema:, query: "query Q($sort: [Sort!], $one: Sort) { items(sort: $sort, one: $one) }")
+      mod.execute!(executor, sort: ["DESC", mod::Sort::Asc], one: "ASC")
+
+      expect(sent).to eq("sort" => %w[DESC ASC], "one" => "ASC")
+    end
+
     it "types a result enum and the same variable enum as one class" do
       # separate classes for one GraphQL enum failed both srb tc and the runtime
       # sig on the obvious move: read a value out, feed it back in
