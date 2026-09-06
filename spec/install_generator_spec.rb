@@ -18,6 +18,9 @@ describe "GraphWeaver::Generators::InstallGenerator" do
 
       def self.class_option(name, **opts) = class_options[name] = opts
 
+      # Thor exposes a declared argument as a reader on the instance
+      def self.argument(name, **) = attr_reader(name)
+
       # Thor::Group collects its commands in method_added, in definition
       # order — reflection order isn't guaranteed, so mirror that rather
       # than reading it back off the class
@@ -30,8 +33,9 @@ describe "GraphWeaver::Generators::InstallGenerator" do
 
       attr_reader :options, :actions
 
-      def initialize(options = {})
+      def initialize(source, options = {})
         defaults = self.class.class_options.to_h { |name, opts| [name, opts[:default]] }
+        @source = source
         @options = defaults.merge(options)
         @actions = []
       end
@@ -48,9 +52,9 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     GraphWeaver::Generators::InstallGenerator
   end
 
-  def run_generator(**options)
+  def run_generator(source = URL, **options)
     klass = generator_class
-    generator = klass.new({ url: "https://api.example.com/graphql" }.merge(options))
+    generator = klass.new(source, options)
     klass.commands.each { |name| generator.public_send(name) }
     generator.actions
   ensure
@@ -61,7 +65,16 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     actions.filter_map { |kind, path, content| [path, content] if kind == :create_file }.to_h
   end
 
-  before { allow(GraphWeaver::SchemaLoader).to receive(:refresh!).and_return(["app/graphql/schema.json", "https://api.example.com/graphql"]) }
+  def initializer(actions) = created(actions)["config/initializers/graph_weaver.rb"]
+
+  URL = "https://api.example.com/graphql"
+
+  before do
+    # the generator refuses bad input with Thor::Error; thor is not a dependency here
+    stub_const("Thor::Error", Class.new(StandardError))
+    allow(GraphWeaver::SchemaLoader).to receive(:refresh!).and_return(["app/graphql/schema.json", URL])
+    allow(GraphWeaver::SchemaLoader).to receive(:introspect)
+  end
 
   it "scaffolds the conventional layout" do
     files = created(run_generator)
@@ -72,17 +85,6 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       "app/graphql/generated/.keep",
       "graphql.config.yml",
     ]
-  end
-
-  it "wires the initializer to the url and auth var it was given" do
-    initializer = created(run_generator(auth: "GITHUB_TOKEN"))["config/initializers/graph_weaver.rb"]
-
-    expect(initializer).to include <<~RUBY.chomp
-      GraphWeaver.client = GraphWeaver.new(
-        "https://api.example.com/graphql",
-        auth: ENV["GITHUB_TOKEN"],
-    RUBY
-    expect(initializer).to include "register_scalar", "extend_type" # pointers, not a wall of options
   end
 
   it "writes an editor config the plugins can read, fragments included" do
@@ -96,36 +98,98 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     ]
   end
 
-  it "bootstraps the schema dump through the refresh path" do
-    ENV["GITHUB_TOKEN"] = "s3cret"
-    actions = run_generator(auth: "GITHUB_TOKEN")
-
-    expect(GraphWeaver::SchemaLoader).to have_received(:refresh!)
-      .with(url: "https://api.example.com/graphql", auth: "s3cret")
-    expect(actions).to include([:say_status, :introspect, "app/graphql/schema.json from https://api.example.com/graphql"])
-  ensure
-    ENV.delete("GITHUB_TOKEN")
-  end
-
-  it "skips the fetch on --no-schema" do
-    run_generator(schema: false)
-
-    expect(GraphWeaver::SchemaLoader).not_to have_received(:refresh!)
-  end
-
-  it "keeps the scaffolded files when introspection fails" do
-    allow(GraphWeaver::SchemaLoader).to receive(:refresh!).and_raise(GraphWeaver::Error, "401 Unauthorized")
-    actions = run_generator
-
-    expect(created(actions).keys).to include "config/initializers/graph_weaver.rb"
-    expect(actions.flatten.join).to include "401 Unauthorized", "rake graph_weaver:schema:refresh"
-  end
-
   it "leaves conflicts to Thor rather than forcing them" do
     # create_file prompts with a diff on a re-run — unless it's handed
     # force:, which would silently clobber an edited initializer
     writes = run_generator.select { |kind,| kind == :create_file }
 
     expect(writes.map(&:size)).to all(eq(3)) # [:create_file, path, content] — no options
+  end
+
+  context "a url" do
+    it "wires the initializer to the url and auth var it was given" do
+      expect(initializer(run_generator(auth: "GITHUB_TOKEN"))).to include <<~RUBY.chomp
+        GraphWeaver.client = GraphWeaver.new(
+          "#{URL}",
+          auth: ENV["GITHUB_TOKEN"],
+      RUBY
+    end
+
+    it "points at GRAPHWEAVER_AUTH by default" do
+      expect(initializer(run_generator)).to include 'ENV["GRAPHWEAVER_AUTH"]'
+      expect(initializer(run_generator)).to include "register_scalar", "extend_type" # pointers, not a wall of options
+    end
+
+    it "bootstraps the schema dump through the refresh path" do
+      ENV["GITHUB_TOKEN"] = "s3cret"
+      actions = run_generator(auth: "GITHUB_TOKEN")
+
+      expect(GraphWeaver::SchemaLoader).to have_received(:refresh!).with(url: URL, auth: "s3cret")
+      expect(actions).to include([:say_status, :introspect, "app/graphql/schema.json from #{URL}"])
+    ensure
+      ENV.delete("GITHUB_TOKEN")
+    end
+
+    it "skips the fetch on --no-schema" do
+      run_generator(schema: false)
+
+      expect(GraphWeaver::SchemaLoader).not_to have_received(:refresh!)
+    end
+
+    it "keeps the scaffolded files when introspection fails" do
+      allow(GraphWeaver::SchemaLoader).to receive(:refresh!).and_raise(GraphWeaver::Error, "401 Unauthorized")
+      actions = run_generator
+
+      expect(created(actions).keys).to include "config/initializers/graph_weaver.rb"
+      expect(actions.flatten.join).to include "401 Unauthorized", "rake graph_weaver:schema:refresh"
+    end
+  end
+
+  context "a schema class" do
+    before { stub_const("MyApp::Schema", Class.new { def self.execute(*) = {} }) }
+
+    # the class is autoloaded and replaced on every dev reload, so the
+    # initializer resolves it per reload rather than capturing one copy
+    it "resolves the class at boot, not at install" do
+      expect(initializer(run_generator("MyApp::Schema"))).to include <<~RUBY.chomp
+        Rails.application.config.to_prepare do
+      RUBY
+      expect(initializer(run_generator("MyApp::Schema"))).to include "GraphWeaver.new(MyApp::Schema)"
+    end
+
+    it "dumps the schema the class already is" do
+      actions = run_generator("MyApp::Schema")
+
+      expect(GraphWeaver::SchemaLoader).to have_received(:introspect)
+        .with(MyApp::Schema, cache: GraphWeaver.schema_path, ttl: 0)
+      expect(actions).to include([:say_status, :introspect, "app/graphql/schema.json from MyApp::Schema"])
+    end
+
+    it "names the fix for a constant that isn't one, before writing anything" do
+      expect { run_generator("MyApp::Shcema") }
+        .to raise_error Thor::Error, /uninitialized constant MyApp::Shcema.*rails g graphql:install/m
+    end
+
+    it "rejects a class that can't execute" do
+      stub_const("MyApp::Pet", Class.new)
+
+      expect { run_generator("MyApp::Pet") }.to raise_error Thor::Error, /isn't a graphql-ruby schema/
+    end
+  end
+
+  context "a schema dump" do
+    it "points at the dump the app already has rather than writing another" do
+      actions = run_generator("db/schema.graphql")
+
+      expect(initializer(actions)).to include 'GraphWeaver.schema_path = "db/schema.graphql"'
+      expect(YAML.safe_load(created(actions)["graphql.config.yml"])["schema"]).to eq "db/schema.graphql"
+      expect(GraphWeaver::SchemaLoader).not_to have_received(:refresh!)
+      expect(GraphWeaver::SchemaLoader).not_to have_received(:introspect)
+    end
+  end
+
+  it "refuses --auth for a source that never authenticates" do
+    expect { run_generator("db/schema.graphql", auth: "TOKEN") }
+      .to raise_error Thor::Error, /--auth applies to a url/
   end
 end
