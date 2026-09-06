@@ -240,6 +240,7 @@ class GraphWeaver::Codegen
 
     validate_registrations!
 
+    # per-run walk state, cleared so one Codegen can generate more than once
     @variable_enums = {}
     @variable_inputs = {}
     @mapped_enums = {}
@@ -263,10 +264,21 @@ class GraphWeaver::Codegen
       raise ArgumentError, "module_name: must be a constant name, got #{@module_name.inspect}"
     end
 
+    variables = build_variables(operation)
+    root = object_node(root_type, operation.selections, "Result")
+
+    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
+      .tap { report_untyped_scalars }
+  end
+
+  private
+
+  # The operation's variables as execute's kwarg surface: one VarDef each,
+  # typed from the AST. A variable is optional when nullable or defaulted —
+  # optional kwargs default to nil and are omitted from the wire.
+  def build_variables(operation)
     variables = operation.variables.map do |var|
       node = ast_type_ref(var.type)
-      # a variable is optional when nullable or defaulted; optional kwargs
-      # default to nil and are omitted from the wire
       required = node.non_null? && var.default_value.nil?
       kwarg = underscore(var.name)
       # kwargs are declared and forwarded bare in generated source
@@ -287,13 +299,8 @@ class GraphWeaver::Codegen
         "variables #{wire} both map to the kwarg '#{collision.first}:' — rename one"
     end
 
-    root = object_node(root_type, operation.selections, "Result")
-
-    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
-      .tap { report_untyped_scalars }
+    variables
   end
-
-  private
 
   # Builders for the entity types this query's representation-taking fields
   # can return. The hook is the schema, not the field name: the subgraph spec
