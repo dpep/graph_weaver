@@ -407,6 +407,12 @@ Error-message and console ergonomics from the same review:
   positional argument used to get Ruby's `wrong number of arguments (given 3,
   expected 2)`, which never mentions `map:`. Both `GraphWeaver.register_enum`
   and `client.register_enum`.
+- **`load_queries!` logs when it replaces an already-loaded module**, at
+  `:info`, before swapping the constant: `replacing PersonQuery — objects built
+  from the previous module stay instances of it`. Reloading is unchanged and
+  still what the method is for; it just isn't silent about the structs it
+  orphans, which is how a console session ends up with an `is_a?` that fails
+  for no visible reason.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

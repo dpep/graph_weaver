@@ -128,6 +128,24 @@ describe GraphWeaver::Client do
       end
     end
 
+    it "load_queries! logs what replacing a loaded module means for its objects" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
+        namespace = Module.new
+        client = GraphWeaver.new(url)
+        client.load_queries!(dir, namespace:)
+
+        io = StringIO.new
+        GraphWeaver.logger = Logger.new(io, level: Logger::INFO)
+        client.load_queries!(dir, namespace:)
+
+        expect(io.string)
+          .to include("replacing PersonQuery — objects built from the previous module stay instances of it")
+      ensure
+        GraphWeaver.logger = nil
+      end
+    end
+
     it "load_queries! walks every configured queries_path" do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
