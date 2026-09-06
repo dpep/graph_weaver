@@ -85,6 +85,14 @@ GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.adapter :net_http_persistent   # gem "net-http-persistent"
 end
 
+# In-process: a live graphql-ruby schema class, no socket. The class
+# alone works in any client slot; the wrapper adds a request context,
+# the same debug logging the network transports emit, and errors branded
+# under GraphWeaver::Error (a resolver raise becomes a ServerError,
+# status 500, with the original as #cause).
+GraphWeaver::InProcess.new(MySchema, context: { current_user: user })
+GraphWeaver.new(MySchema, context: { current_user: user })   # same, via a client
+
 GraphWeaver.client = ...   # the app default (a Client or any of the above)
 ```
 

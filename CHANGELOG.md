@@ -174,6 +174,18 @@ Transport improvements from the same review:
   alongside a prebuilt `Faraday::Connection` raises, as `headers:` already did.
   The Faraday transport also logs its adapter at `:info` — the default
   `net_http` one opens a connection per request, which was invisible.
+- **New `GraphWeaver::InProcess`**, wrapping a live graphql-ruby schema class —
+  `GraphWeaver.new(MySchema, context: { current_user: user })`. In-process
+  execution worked but was blind in three ways: nothing supplied a `context:`,
+  so a resolver reading `context[:current_user]` got nil (surfacing as "Cannot
+  return null for non-nullable field Query.me"); all logging lived in
+  `Transport#execute`, which an in-process schema bypasses, so not one line at
+  DEBUG; and a resolver raise came out as a bare `RuntimeError` where the same
+  failure over HTTP is a `ServerError`, so `rescue GraphWeaver::Error` caught
+  one and missed the other. A resolver raise is now a `ServerError` (status
+  500) with the original kept as `#cause` — in-process, the real backtrace is
+  the point. **A bare schema class still works in any client slot**; the
+  wrapper is an upgrade, not a requirement.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

@@ -19,9 +19,10 @@ require_relative "transport/http"
 #
 # The first argument is a url (a transport is built; the schema comes
 # from introspection on first use, cached per cache:/ttl:) or a schema
-# source — a live schema class (which also executes in-process), or a
-# path/SDL/introspection dump via SchemaLoader. Pass transport: to
-# bring your own transport for a schema source.
+# source — a live schema class (which also executes in-process, through
+# an InProcess wrapper that takes context:), or a path/SDL/introspection
+# dump via SchemaLoader. Pass transport: to bring your own transport for
+# a schema source.
 #
 # Clients are independent: each has its own transport, schema, and
 # scalar registrations, so one app can talk to several GraphQL servers —
@@ -30,9 +31,10 @@ class GraphWeaver::Client
   URL = %r{\Ahttps?://}i
 
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
-    open_timeout: nil, read_timeout: nil, &middleware)
+    open_timeout: nil, read_timeout: nil, context: nil, &middleware)
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, "pass a url or transport:, not both" if transport
+      raise ArgumentError, "context: applies to a schema class executing in-process" if context
 
       built = build_transport(source, auth:, headers:, open_timeout:, read_timeout:, &middleware)
       @transport = wrap_retries(built, retries)
@@ -48,7 +50,17 @@ class GraphWeaver::Client
       # a live schema class doubles as an in-process transport; a loaded
       # dump has no resolvers, so it is type information only
       @schema = source.is_a?(Module) ? source : GraphWeaver::SchemaLoader.load(source)
-      @transport = transport || (source if source.is_a?(Module))
+
+      if context && !(source.is_a?(Module) && transport.nil?)
+        # nothing would ever read it — a dump has no resolvers, and an
+        # explicit transport carries its own
+        raise ArgumentError, "context: applies to a schema class executing in-process"
+      end
+
+      # InProcess adds context:, logging and branded errors to the bare
+      # schema class, which stays usable on its own everywhere else
+      @transport = transport ||
+        (GraphWeaver::InProcess.new(source, context: context || {}) if source.is_a?(Module))
     end
 
     @cache = cache
