@@ -230,11 +230,15 @@ class GraphWeaver::Codegen
   # legal Ruby local is unreachable by a GraphQL variable name, so this is a
   # guard rather than a rename.
   RESERVED_KWARGS = %w[client variables transport].to_set.freeze
-  # ...plus every method a struct instance already answers: T::Props refuses to
-  # redefine those (`class`, `hash`, `send`, `to_s`), so the generated file
-  # would raise ArgumentError at require time. Derived rather than listed, so
-  # it tracks whatever the Ruby and sorbet-runtime in play actually define.
-  RESERVED_PROPS = (RUBY_KEYWORDS + GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
+  # Every method a struct instance already answers: T::Props refuses to redefine
+  # those (`class`, `hash`, `send`, `to_s`), so the generated file would raise
+  # ArgumentError at require time. Derived rather than listed, so it tracks
+  # whatever the Ruby and sorbet-runtime in play actually define.
+  STRUCT_METHODS = (GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
+  # Output structs also reserve keywords: an alias delegator's path starts with
+  # a bare prop, and a result key — unlike an input field — can be renamed in
+  # the query, so there's always a way out.
+  RESERVED_PROPS = (RUBY_KEYWORDS + STRUCT_METHODS).freeze
 
   def generate
     begin
@@ -911,11 +915,14 @@ class GraphWeaver::Codegen
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
       prop = underscore(argument.graphql_name)
-      # prop readers are bare method calls in the generated struct
-      if RESERVED_PROPS.include?(prop)
+      # Keywords are fine here: nothing reads an input prop bare (serialize goes
+      # through public_send), and `const :in` is legal — which matters, since a
+      # schema's field name is not the user's to rename. `Tricky.in` filters are
+      # standard Hasura/Gatsby shape.
+      if STRUCT_METHODS.include?(prop)
         raise GraphWeaver::Error,
           "input field #{core.graphql_name}.#{argument.graphql_name} would become prop '#{prop}', " \
-          "which collides with #{RUBY_KEYWORDS.include?(prop) ? "a Ruby keyword" : "a method every struct defines"}"
+          "which collides with a method every struct defines"
       end
 
       child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }

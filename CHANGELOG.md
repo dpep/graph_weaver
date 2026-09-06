@@ -1,4 +1,16 @@
 ## Unreleased
+**An input field named after a Ruby keyword no longer makes a schema
+ungeneratable.** `StringQueryOperatorInput.in` — the standard Hasura/Gatsby
+filter shape — raised "would become prop 'in', which collides with a Ruby
+keyword", with no way out: an input field is the schema's name, not yours, and
+`extend_type alias:` is output-only. But `prop :in` is legal Ruby, and nothing
+reads an input prop bare (`serialize` goes through `public_send`), so the
+refusal was over-broad. Input fields named `in`, `end`, `def`, `nil` and the
+rest now generate. A field colliding with a method every struct defines
+(`serialize`, `to_h`, `class`, `hash`) is still refused — those break at
+require time. Output structs are unchanged: a result key *can* be renamed, in
+the query.
+
 **A variable named `$client` no longer generates a file that won't parse.**
 `query($client: ID!)` emitted `def self.execute(client = nil, client:)` — a
 `SyntaxError` raised at app boot from `load_generated!`, arbitrarily far from

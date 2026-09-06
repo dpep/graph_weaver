@@ -102,14 +102,27 @@ describe GraphWeaver::Codegen do
       expect(wire).to eq({ "result" => "kept", "value" => "also kept" })
     end
 
-    it "refuses input fields that collide with keywords or generated methods" do
-      expect {
-        GraphWeaver.parse(schema: schema_with_input("nil: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T1")
-      }.to raise_error(GraphWeaver::Error, /Tricky\.nil.*Ruby keyword/)
+    it "accepts input fields named after Ruby keywords" do
+      # `in`/`nin` filters are standard Hasura/Gatsby shape, and a schema's
+      # field name is not the user's to rename — so this has to generate
+      schema = schema_with_input("in: [String!] end: String def: String nil: String")
+      mod = GraphWeaver.parse(
+        schema:,
+        query: "mutation Save($input: Tricky!) { save(input: $input) }",
+        client: Demo::Schema, # never called; serialize is pure
+      )
 
-      expect {
-        GraphWeaver.parse(schema: schema_with_input("serialize: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T2")
-      }.to raise_error(GraphWeaver::Error, /Tricky\.serialize.*every struct defines/)
+      expect(mod::Tricky.coerce({ in: %w[a b], end: "z" }).serialize).to eq({ "in" => %w[a b], "end" => "z" })
+    end
+
+    it "refuses input fields that collide with a method every struct defines" do
+      # `class` is both a keyword and Object#class — T::Props refuses to redefine it
+      %w[serialize class].each do |field|
+        expect {
+          GraphWeaver.parse(schema: schema_with_input("#{field}: String"),
+            query: "mutation($input: Tricky!) { save(input: $input) }", name: "T#{field}")
+        }.to raise_error(GraphWeaver::Error, /Tricky\.#{field}.*every struct defines/)
+      end
     end
 
     it "refuses variables whose kwarg would be a Ruby keyword" do
@@ -138,13 +151,15 @@ describe GraphWeaver::Codegen do
 
     it "keeps the wrapping variable when a flattened input field would collide" do
       # the user can't rename a schema field, so decline to flatten instead
-      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
-        input Wrap { client: ID! }
-        type Query { thing(wrap: Wrap!): String }
-      GRAPHQL
-      source = described_class.generate(schema:, query: "query Q($wrap: Wrap!) { thing(wrap: $wrap) }", module_name: "W")
+      %w[client in].each do |field|
+        schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+          input Wrap { #{field}: ID! }
+          type Query { thing(wrap: Wrap!): String }
+        GRAPHQL
+        source = described_class.generate(schema:, query: "query Q($wrap: Wrap!) { thing(wrap: $wrap) }", module_name: "W")
 
-      expect(source).to include("def self.execute(client = nil, wrap:)")
+        expect(source).to include("def self.execute(client = nil, wrap:)")
+      end
     end
   end
 

@@ -23,9 +23,10 @@ class GraphWeaver::Codegen
 
       input = var.node.of
       return unless input.is_a?(InputNode)
-      # a field whose prop is one of execute's own locals can't be a kwarg, and
-      # unlike a variable name the user can't rename it — keep the wrapping level
-      return if input.fields.any? { |field| RESERVED_KWARGS.include?(field.prop) }
+      # Flattening is the one place an input field's name has to be a legal Ruby
+      # identifier — a keyword, or one of execute's own locals, can't be a kwarg.
+      # Unlike a variable name the user can't rename it, so keep the wrapping level.
+      return if input.fields.any? { |field| RESERVED_KWARGS.include?(field.prop) || RUBY_KEYWORDS.include?(field.prop) }
 
       input
     end
