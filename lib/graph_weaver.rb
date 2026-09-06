@@ -51,7 +51,12 @@ module GraphWeaver
     # Generated modules call this on every execute, so any slot in the
     # resolution chain can hold either kind.
     def resolve_transport(target)
-      target.is_a?(Client) ? target.transport! : target
+      return target.transport! if target.is_a?(Client)
+      unless target.respond_to?(:execute)
+        raise Error, "client must respond to #execute(query, variables:), got #{target.class}"
+      end
+
+      target
     end
 
     # Conventional locations, factory_bot-style — LISTS, so extra

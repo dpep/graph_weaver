@@ -196,6 +196,18 @@ describe GraphWeaver::Testing::Cassette do
       expect(reloaded.lookup(query, { "id" => "1" })).not_to be_nil
     end
 
+    it "records against a Client, the call the docs show" do
+      recorder = described_class.use(path, client: GraphWeaver.new(Demo::Schema))
+
+      expect(PersonQuery.execute!(recorder, id: "1").person&.name).to eq "Daniel"
+      expect(described_class.new(path).size).to eq 1
+    end
+
+    it "rejects a client that can't execute, instead of failing at the call site" do
+      expect { GraphWeaver.resolve_transport({}) }
+        .to raise_error(GraphWeaver::Error, /must respond to #execute.*Hash/)
+    end
+
     it "keeps concrete-fragment fields when the recorded data has no __typename" do
       query = "query { named { name ... on Pet { species } } }"
       response = { "data" => { "named" => { "name" => "Shelby", "species" => "DOG" } } }

@@ -16,6 +16,11 @@
   bare `RuntimeError`. **Rescuing the raw graphql-ruby classes no longer
   catches these.** The `@inaccessible` cascade also prunes a directive
   definition's own arguments.
+- Cassette recording accepts a `GraphWeaver::Client` — the call
+  `docs/cassettes.md` has always shown (`Cassette.use("github", client: live)`),
+  which failed with `ArgumentError: missing keywords`. And a client that can't
+  `execute` is now rejected on the spot, with its class named, rather than
+  surfacing later as `NoMethodError … for an instance of Hash`.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

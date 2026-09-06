@@ -116,7 +116,9 @@ module GraphWeaver
     # the caller sees too, so assertions written now hold on replay.
     class Recorder
       def initialize(client, cassette, anonymize: nil)
-        @client = client
+        # the recorder speaks the transport contract (execute(q, variables:)),
+        # not Client#execute(q, **variables) — unwrap like every other call site
+        @client = GraphWeaver.resolve_transport(client)
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
 
         config = Testing.config
