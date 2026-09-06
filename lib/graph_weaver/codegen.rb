@@ -60,7 +60,6 @@ class GraphWeaver::Codegen
     hoistable_unions: nil, path: nil)
     @schema = schema
     @query = query.strip
-    # the file this query came from, named in validation errors
     @path = path
     @module_name = module_name
     @default_module_name = default_module_name
@@ -492,8 +491,9 @@ class GraphWeaver::Codegen
   def self.parse_document(query, path = nil)
     GraphQL.parse(query)
   rescue GraphQL::ParseError => e
+    prefix = [path, e.line, e.col].compact.join(":")
     raise GraphWeaver::ValidationError.new(
-      [{ message: "#{[path, e.line, e.col].compact.join(":")} #{e.message}", line: e.line, column: e.col }],
+      [{ message: prefix.empty? ? e.message : "#{prefix} #{e.message}", line: e.line, column: e.col }],
     )
   end
 
