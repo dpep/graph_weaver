@@ -1,4 +1,17 @@
 ## Unreleased
+**`execute` now takes one kwarg per declared variable, always — a single
+required input-object variable is no longer flattened into per-field kwargs.**
+`mutation($input: AdoptionInput!)` generated `execute!(name:, species:, …)`,
+but adding any second variable generated `execute!(input:, …)` instead — so an
+unrelated edit to a query silently reshaped every call site, and the rule
+couldn't be stated without its exception. It also made a schema's own field
+names load-bearing: a field named `client` or `in` can't be a kwarg and can't
+be renamed, so flattening quietly declined and the surface moved again.
+**Rewrite affected call sites to pass the input as one kwarg:**
+`AdoptMutation.execute!(input: { name: "Rex", species: "DOG" })`, or
+`input: AdoptMutation::AdoptionInput.new(name: "Rex", species: Species::Dog)`
+for the field-by-field static check.
+
 **An input field named after a Ruby keyword no longer makes a schema
 ungeneratable.** `StringQueryOperatorInput.in` — the standard Hasura/Gatsby
 filter shape — raised "would become prop 'in', which collides with a Ruby
