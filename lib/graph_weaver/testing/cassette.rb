@@ -7,15 +7,30 @@ require "yaml"
 
 module GraphWeaver
   module Testing
-    # Raised by Replayer when a request has no recording.
+    # Raised by Replayer when a request has no recording. The query
+    # usually matches and the variables don't, so the variables lead and
+    # the recorded ones for the same query come next — the diff you'd
+    # otherwise do by eye against the YAML.
     class MissingRecording < GraphWeaver::Error
-      def initialize(path:, query:)
-        super(<<~MSG.strip)
-          no recording for this request in #{path} — re-record it
-          (Recorder / Cassette.use with a live client, or delete
-          the cassette to start over). Query:
-          #{query.strip[0, 200]}
-        MSG
+      # how many recorded variable sets to print before summarizing
+      SHOWN = 5
+
+      def initialize(path:, query:, variables:, recorded:, size:)
+        super([
+          "no recording for this request in #{path}",
+          "  variables: #{Cassette.normalize_variables(variables).inspect}",
+          "  #{self.class.recorded_summary(recorded, size)}",
+          "  query: #{Cassette.summarize(query)}",
+          "re-record it (GRAPHWEAVER_RECORD=1 with a client:), or delete the cassette to start over.",
+        ].join("\n"))
+      end
+
+      def self.recorded_summary(recorded, size)
+        return "no entry recorded for this query (#{size} in the cassette)" if recorded.empty?
+
+        more = recorded.size > SHOWN ? " (+#{recorded.size - SHOWN} more)" : ""
+        "#{recorded.size} #{(recorded.size == 1) ? "entry" : "entries"} recorded for this query, " \
+          "with variables #{recorded.first(SHOWN).map(&:inspect).join(", ")}#{more}"
       end
     end
 
@@ -57,13 +72,24 @@ module GraphWeaver
         elsif client
           Recorder.new(client, cassette)
         else
-          raise MissingRecording.new(path: cassette.path, query: "(no client to record with)")
+          # a first run, not a missing recording: there is no request yet
+          raise GraphWeaver::Error, "#{cassette.path} doesn't exist and no `client:` was given to " \
+            "record with — pass `client:` on the first run, or commit the cassette."
         end
       end
 
       def lookup(query, variables, operation_name = nil)
         wanted = self.class.key(query, variables, operation_name)
         @entries.find { |entry| self.class.entry_key(entry) == wanted }
+      end
+
+      # every variables hash recorded for this query — what a miss needs
+      # to show, since the variables are what usually differ
+      def variants(query, operation_name = nil)
+        normalized = self.class.normalize_query(query)
+        @entries.select do |entry|
+          self.class.normalize_query(entry["query"]) == normalized && entry["operationName"] == operation_name
+        end.map { |entry| entry["variables"] || {} }
       end
 
       def record(query, variables, response, operation_name = nil)
@@ -108,6 +134,12 @@ module GraphWeaver
       end
 
       def self.normalize_query(query) = query.gsub(/\s+/, " ").strip
+
+      # one readable line: an error naming a 60-line query is a wall, not a hint
+      def self.summarize(query, limit: 160)
+        normalized = normalize_query(query)
+        (normalized.length > limit) ? "#{normalized[0, limit]}…" : normalized
+      end
 
       # JSON round-trip so symbol keys become strings — otherwise YAML.dump
       # writes Ruby symbols the safe loader rejects on the next run, and lookup
@@ -165,7 +197,10 @@ module GraphWeaver
 
       def execute(query, variables: {}, operation_name: nil)
         entry = @cassette.lookup(query, variables, operation_name)
-        raise MissingRecording.new(path: @cassette.path, query:) unless entry
+        unless entry
+          raise MissingRecording.new(path: @cassette.path, query:, variables:,
+            recorded: @cassette.variants(query, operation_name), size: @cassette.size)
+        end
 
         entry["response"]
       end

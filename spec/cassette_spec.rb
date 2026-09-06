@@ -40,14 +40,27 @@ describe GraphWeaver::Testing::Cassette do
       expect(live.calls).to eq 1 # replay never touched the live executor
     end
 
-    it "matches on query AND variables, raising helpfully on a miss" do
+    it "matches on query AND variables, naming both on a miss" do
       GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" })
 
       replay = GraphWeaver::Testing::Replayer.new(path)
       expect {
         replay.execute(PersonQuery::QUERY, variables: { "id" => "2" })
-      }.to raise_error(GraphWeaver::Testing::MissingRecording, /no recording|re-record/)
+      }.to raise_error(GraphWeaver::Testing::MissingRecording) { |error|
+        expect(error.message).to include('variables: {"id" => "2"}')
+        expect(error.message).to include('1 entry recorded for this query, with variables {"id" => "1"}')
+        expect(error.message).to include("re-record")
+      }
+    end
+
+    it "says so when nothing was recorded for the query itself" do
+      GraphWeaver::Testing::Recorder.new(live, path)
+        .execute(PersonQuery::QUERY, variables: { "id" => "1" })
+
+      expect {
+        GraphWeaver::Testing::Replayer.new(path).execute("query { people { id } }")
+      }.to raise_error(GraphWeaver::Testing::MissingRecording, /no entry recorded for this query \(1 in the cassette\)/)
     end
 
     it "keys on the operation name, so one document's two operations don't collide" do
@@ -75,6 +88,11 @@ describe GraphWeaver::Testing::Cassette do
       expect(second).to be_a GraphWeaver::Testing::Replayer
       expect(PersonQuery.execute!(second, id: "1").person&.name).to eq "Daniel"
       expect(live.calls).to eq 1
+    end
+
+    it "names the first-run situation instead of borrowing MissingRecording" do
+      expect { GraphWeaver::Testing::Cassette.use(path) }
+        .to raise_error(GraphWeaver::Error, /demo\.yml doesn't exist and no `client:` was given to record with/)
     end
 
     it "matches on the entry's own query and variables — nothing else is stored" do

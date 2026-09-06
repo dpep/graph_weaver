@@ -37,6 +37,19 @@ file still looked right. The key is now derived from `query`/`variables`/
 the file) — this also covers cassettes of anonymous operations, which stopped
 matching when entries started keying on `operationName`.
 
+**`MissingRecording` now prints the variables — the part that usually differs.**
+It printed the whole query and omitted the variables entirely, so the common
+miss (same query, different variables) showed you 60 lines identical to the
+YAML and nothing about the mismatch. The message now leads with the request's
+variables, says what was recorded for that query (`1 entry recorded for this
+query, with variables {"id" => "1"}`), and prints the query as one truncated
+line.
+
+**A first run with no cassette and no `client:` no longer raises
+`MissingRecording`.** There is no request yet, so it raises `GraphWeaver::Error`
+naming the actual situation. **Rescue `GraphWeaver::Error` if you were catching
+`MissingRecording` for this case.**
+
 **`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
 `generate!` and `check_queries` read the singular (the first entry) while
 `load_queries!` walked the whole list, so a second queries directory produced
