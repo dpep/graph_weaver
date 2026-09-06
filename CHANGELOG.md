@@ -27,10 +27,15 @@ path. `person.graphql` holding `query($id: ID!) { ... }` now emits
 Both halves move together: a server rejects an `operationName` its document
 doesn't declare. A document that names its own operation is left untouched.
 
-**Re-record cassettes for anonymous operations.** Cassette entries key on
-`operationName`, and those were recorded with the key omitted, so they no
-longer match (`Recorder` / `Cassette.use` with a live client, or delete the
-cassette).
+**Cassette files no longer store the request twice — re-record them.** Every
+entry carried a `key:` (the normalized query + variables) *and* a `query:` and
+`variables:` again, and replay matched on `key:` alone: editing the half a
+reviewer reads changed nothing, editing the other half broke replay while the
+file still looked right. The key is now derived from `query`/`variables`/
+`operationName` at load, so the file holds the request once and diffs are real.
+**Existing cassettes must be re-recorded** (`GRAPHWEAVER_RECORD=1`, or delete
+the file) — this also covers cassettes of anonymous operations, which stopped
+matching when entries started keying on `operationName`.
 
 **`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
 `generate!` and `check_queries` read the singular (the first entry) while

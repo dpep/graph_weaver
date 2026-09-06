@@ -77,6 +77,16 @@ describe GraphWeaver::Testing::Cassette do
       expect(live.calls).to eq 1
     end
 
+    it "matches on the entry's own query and variables — nothing else is stored" do
+      query = "query { people { id } }"
+      File.write(path, YAML.dump([{ "query" => query, "variables" => {}, "response" => { "data" => {} } }]))
+
+      expect(described_class.new(path).lookup(query, {})).not_to be_nil
+
+      described_class.new(path).record(query, { "id" => "1" }, { "data" => {} })
+      expect(File.read(path)).not_to include("key:") # one representation of the request, not two
+    end
+
     it "resolves bare names against config.cassette_dir" do
       GraphWeaver::Testing.configure { |config| config.cassette_dir = @dir }
 

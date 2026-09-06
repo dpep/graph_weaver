@@ -63,19 +63,17 @@ module GraphWeaver
 
       def lookup(query, variables, operation_name = nil)
         wanted = self.class.key(query, variables, operation_name)
-        @entries.find { |entry| entry["key"] == wanted }
+        @entries.find { |entry| self.class.entry_key(entry) == wanted }
       end
 
       def record(query, variables, response, operation_name = nil)
-        entry = {
-          "key" => self.class.key(query, variables, operation_name),
-          "query" => query,
-        }
+        entry = { "query" => query }
         entry["operationName"] = operation_name if operation_name
         entry["variables"] = self.class.normalize_variables(variables)
         entry["response"] = response
 
-        @entries.reject! { |existing| existing["key"] == entry["key"] }
+        wanted = self.class.key(query, variables, operation_name)
+        @entries.reject! { |existing| self.class.entry_key(existing) == wanted }
         @entries << entry
         save
       end
@@ -97,11 +95,19 @@ module GraphWeaver
       # is part of that: it picks the operation the document runs, so two
       # requests with identical text but different names are different
       # requests. Omitted when anonymous, so those keys stay as they were.
+      # Derived, never stored: the file holds the request once, so a
+      # hand-edited entry can't disagree with what replay matches on.
       def self.key(query, variables, operation_name = nil)
-        key = { "query" => query.gsub(/\s+/, " ").strip, "variables" => normalize_variables(variables) }
+        key = { "query" => normalize_query(query), "variables" => normalize_variables(variables) }
         key["operationName"] = operation_name if operation_name
         key
       end
+
+      def self.entry_key(entry)
+        key(entry["query"], entry["variables"], entry["operationName"])
+      end
+
+      def self.normalize_query(query) = query.gsub(/\s+/, " ").strip
 
       # JSON round-trip so symbol keys become strings — otherwise YAML.dump
       # writes Ruby symbols the safe loader rejects on the next run, and lookup
