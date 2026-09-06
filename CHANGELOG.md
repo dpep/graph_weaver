@@ -66,6 +66,11 @@ factory and duplicated `Testing.config.anonymize`. **Set the config flag** —
 that plus `rake graph_weaver:cassettes:anonymize` (for cassettes recorded before
 you turned it on) are the two remaining ways to scrub.
 
+**`FakeClient.new` no longer requires `schema:`.** Every other option fell back
+to `Testing.config`; this one didn't, even though `config.schema` already
+auto-locates the committed dump. `FakeClient.new` now works on its own, and
+says what to set when no schema resolves at all.
+
 **`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
 `generate!` and `check_queries` read the singular (the first entry) while
 `load_queries!` walked the whole list, so a second queries directory produced

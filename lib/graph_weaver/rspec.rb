@@ -40,7 +40,7 @@ module GraphWeaver
           next unless config.auto_fake && config.schema
 
           @__graph_weaver_prior_client = GraphWeaver.client
-          GraphWeaver.client = FakeClient.new(schema: config.schema)
+          GraphWeaver.client = FakeClient.new
         end
 
         rspec_config.after(:each) do

@@ -7,8 +7,8 @@ require "json"
 # A fake client that fabricates schema-correct responses for whatever query
 # arrives — the zero-setup way to test code built on generated modules:
 #
-#      fake = GraphWeaver::Testing::FakeClient.new(schema:)
-#      result = PersonQuery.execute!(id: "1", fake — positionally)
+#      fake = GraphWeaver::Testing::FakeClient.new
+#      result = PersonQuery.execute!(fake, id: "1")
 #      result.person.name  # => a plausible String, typed and castable
 #
 # Values are type-correct by construction (real enum values, valid
@@ -46,8 +46,9 @@ require "json"
 #
 #      FakeClient.new(schema:, corrupt: "Person.birthday")
 #
-# seed: makes a run reproducible (also seeds faker). Per-instance options
-# fall back to GraphWeaver::Testing.config.
+# seed: makes a run reproducible (also seeds faker). Every option,
+# schema: included, falls back to GraphWeaver::Testing.config — and the
+# config's schema falls back to the committed dump.
 class GraphWeaver::Testing::FakeClient
   include GraphWeaver::Selection
 
@@ -58,10 +59,12 @@ class GraphWeaver::Testing::FakeClient
   # an auto_fake spec, where GraphWeaver.client is one of these
   attr_reader :schema
 
-  def initialize(schema:, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
+  def initialize(schema: nil, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
     errors: nil, fail_at: nil, corrupt: nil)
     config = GraphWeaver::Testing.config
-    @schema = schema
+    @schema = schema || config.schema || raise(GraphWeaver::Error,
+      "no schema to fake against — set GraphWeaver::Testing.config.schema, pass schema:, " \
+      "or commit a schema dump at #{GraphWeaver.schema_path}")
     @overrides = config.overrides.merge(overrides)
     GraphWeaver::Testing.validate_overrides!(schema, @overrides)
     @values = GraphWeaver::Testing::Values.new(seed:, mode:)
