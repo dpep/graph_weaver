@@ -102,14 +102,27 @@ describe GraphWeaver::Codegen do
       expect(wire).to eq({ "result" => "kept", "value" => "also kept" })
     end
 
-    it "refuses input fields that collide with keywords or generated methods" do
-      expect {
-        GraphWeaver.parse(schema: schema_with_input("nil: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T1")
-      }.to raise_error(GraphWeaver::Error, /Tricky\.nil.*Ruby keyword/)
+    it "accepts input fields named after Ruby keywords" do
+      # `in`/`nin` filters are standard Hasura/Gatsby shape, and a schema's
+      # field name is not the user's to rename — so this has to generate
+      schema = schema_with_input("in: [String!] end: String def: String nil: String client: ID")
+      mod = GraphWeaver.parse(
+        schema:,
+        query: "mutation Save($input: Tricky!) { save(input: $input) }",
+        client: Demo::Schema, # never called; serialize is pure
+      )
 
-      expect {
-        GraphWeaver.parse(schema: schema_with_input("serialize: String"), query: "mutation($input: Tricky!) { save(input: $input) }", name: "T2")
-      }.to raise_error(GraphWeaver::Error, /Tricky\.serialize.*every struct defines/)
+      expect(mod::Tricky.coerce({ in: %w[a b], end: "z" }).serialize).to eq({ "in" => %w[a b], "end" => "z" })
+    end
+
+    it "refuses input fields that collide with a method every struct defines" do
+      # `class` is both a keyword and Object#class — T::Props refuses to redefine it
+      %w[serialize class].each do |field|
+        expect {
+          GraphWeaver.parse(schema: schema_with_input("#{field}: String"),
+            query: "mutation($input: Tricky!) { save(input: $input) }", name: "T#{field}")
+        }.to raise_error(GraphWeaver::Error, /Tricky\.#{field}.*every struct defines/)
+      end
     end
 
     it "refuses variables whose kwarg would be a Ruby keyword" do
@@ -136,16 +149,6 @@ describe GraphWeaver::Codegen do
       end
     end
 
-    it "keeps the wrapping variable when a flattened input field would collide" do
-      # the user can't rename a schema field, so decline to flatten instead
-      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
-        input Wrap { client: ID! }
-        type Query { thing(wrap: Wrap!): String }
-      GRAPHQL
-      source = described_class.generate(schema:, query: "query Q($wrap: Wrap!) { thing(wrap: $wrap) }", module_name: "W")
-
-      expect(source).to include("def self.execute(client = nil, wrap:)")
-    end
   end
 
   it "wraps unparseable queries as ValidationError, not GraphQL::ParseError" do
@@ -518,18 +521,35 @@ describe GraphWeaver::Codegen do
       expect { result.add_pet.nmae }.to raise_error(NoMethodError, /did you mean 'name'\?/)
     end
 
-    it "flattens a single input-object variable into typed kwargs" do
-      pet = AdoptMutation.execute!(name: "Rex", species: AdoptMutation::Species::Dog).adopt
+    it "takes an input-object variable as one kwarg — a struct or a hash" do
+      typed = AdoptMutation::AdoptionInput.new(name: "Rex", species: AdoptMutation::Species::Dog)
+      pet = AdoptMutation.execute!(input: typed).adopt
       expect(pet.name).to eq "Rex"
       expect(pet.species).to eq AdoptMutation::Species::Dog
 
-      # enums accept their wire value; optional fields ride along when
-      # set, stay off the wire when nil
-      expect(AdoptMutation.execute!(name: "Rex", species: "DOG", nickname: "Rexy").adopt.name).to eq "Rexy"
+      # a hash coerces: enums accept their wire value, optional fields ride
+      # along when set and stay off the wire when nil
+      expect(AdoptMutation.execute!(input: { name: "Rex", species: "DOG", nickname: "Rexy" }).adopt.name).to eq "Rexy"
 
       # bad shapes fail loudly at the boundary
-      expect { AdoptMutation.execute!(species: "DOG") }.to raise_error(ArgumentError)
-      expect { AdoptMutation.execute!(name: "Rex", species: "DRAGON") }.to raise_error(GraphWeaver::InputError)
+      expect { AdoptMutation.execute!(input: { species: "DOG" }) }.to raise_error(GraphWeaver::InputError)
+      expect { AdoptMutation.execute!(input: { name: "Rex", species: "DRAGON" }) }
+        .to raise_error(GraphWeaver::InputError)
+    end
+
+    it "keeps the kwarg surface stable when a query grows a variable" do
+      # a lone required input object used to flatten into per-field kwargs, so
+      # declaring one more variable reshaped every existing call site
+      alone = described_class.generate(schema: Demo::Schema, module_name: "M",
+        query: "mutation($input: AdoptionInput!) { adopt(input: $input) { name } }")
+      grown = described_class.generate(schema: Demo::Schema, module_name: "M", query: <<~GRAPHQL)
+        mutation($input: AdoptionInput!, $detail: Boolean!) {
+          adopt(input: $input) { name species @include(if: $detail) }
+        }
+      GRAPHQL
+
+      expect(alone).to include("def self.execute(client = nil, input:)")
+      expect(grown).to include("def self.execute(client = nil, input:, detail:)")
     end
 
     describe "@oneOf inputs" do
@@ -549,12 +569,12 @@ describe GraphWeaver::Codegen do
 
       it "rejects zero or many, naming what was supplied" do
         expect { mod::Ref.coerce({}).serialize }.to raise_error(GraphWeaver::InputError, /got none/)
-        expect { mod.execute(nil, id: "1", name: "x") }
+        expect { mod.execute(nil, ref: { id: "1", name: "x" }) }
           .to raise_error(GraphWeaver::InputError, /got id, name/)
       end
     end
 
-    it "keeps the input: kwarg when other variables ride along" do
+    it "sends an input object alongside other variables" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
         client: Demo::Schema,

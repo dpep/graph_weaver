@@ -36,6 +36,11 @@ class GraphWeaver::Codegen
   include Aliases
   include Emit
 
+  # How a directory of GraphQL documents is scanned: both extensions the rest of
+  # the library already accepts, and nested — `queries/admin/pets.graphql` is
+  # how anyone with sixty queries organizes them.
+  DOCUMENT_GLOB = "**/*.{graphql,gql}"
+
   attr_reader :module_name
 
   # A client is anything responding to `execute(query, variables:)`
@@ -230,11 +235,15 @@ class GraphWeaver::Codegen
   # legal Ruby local is unreachable by a GraphQL variable name, so this is a
   # guard rather than a rename.
   RESERVED_KWARGS = %w[client variables transport].to_set.freeze
-  # ...plus every method a struct instance already answers: T::Props refuses to
-  # redefine those (`class`, `hash`, `send`, `to_s`), so the generated file
-  # would raise ArgumentError at require time. Derived rather than listed, so
-  # it tracks whatever the Ruby and sorbet-runtime in play actually define.
-  RESERVED_PROPS = (RUBY_KEYWORDS + GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
+  # Every method a struct instance already answers: T::Props refuses to redefine
+  # those (`class`, `hash`, `send`, `to_s`), so the generated file would raise
+  # ArgumentError at require time. Derived rather than listed, so it tracks
+  # whatever the Ruby and sorbet-runtime in play actually define.
+  STRUCT_METHODS = (GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
+  # Output structs also reserve keywords: an alias delegator's path starts with
+  # a bare prop, and a result key — unlike an input field — can be renamed in
+  # the query, so there's always a way out.
+  RESERVED_PROPS = (RUBY_KEYWORDS + STRUCT_METHODS).freeze
 
   def generate
     begin
@@ -490,13 +499,19 @@ class GraphWeaver::Codegen
   # map — reusable fragments a query can spread. Fragment files hold only
   # fragments (no operations); names are unique across them.
   def self.load_fragments(paths)
-    Array(paths).flat_map { |dir| Dir[File.join(dir, "*.graphql")].sort }.each_with_object({}) do |file, out|
+    source = {} # fragment name => the file that defined it, for the collision message
+
+    Array(paths).flat_map { |dir| Dir[File.join(dir, DOCUMENT_GLOB)].sort }.each_with_object({}) do |file, out|
       doc = parse_document(File.read(file), file)
       if doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).any?
         raise GraphWeaver::Error, "#{file}: fragment files define only fragments, no operations"
       end
       doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).each do |frag|
-        raise GraphWeaver::Error, "duplicate shared fragment '#{frag.name}' (#{file})" if out.key?(frag.name)
+        if (earlier = source[frag.name])
+          raise GraphWeaver::Error,
+            "duplicate shared fragment '#{frag.name}' — defined in #{earlier} and #{file}; rename one"
+        end
+        source[frag.name] = file
         out[frag.name] = frag
       end
     end
@@ -911,11 +926,14 @@ class GraphWeaver::Codegen
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
       prop = underscore(argument.graphql_name)
-      # prop readers are bare method calls in the generated struct
-      if RESERVED_PROPS.include?(prop)
+      # Keywords are fine here: nothing reads an input prop bare (serialize goes
+      # through public_send), and `const :in` is legal — which matters, since a
+      # schema's field name is not the user's to rename. `Tricky.in` filters are
+      # standard Hasura/Gatsby shape.
+      if STRUCT_METHODS.include?(prop)
         raise GraphWeaver::Error,
           "input field #{core.graphql_name}.#{argument.graphql_name} would become prop '#{prop}', " \
-          "which collides with #{RUBY_KEYWORDS.include?(prop) ? "a Ruby keyword" : "a method every struct defines"}"
+          "which collides with a method every struct defines"
       end
 
       child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }

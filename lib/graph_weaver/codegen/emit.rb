@@ -10,26 +10,6 @@ class GraphWeaver::Codegen
 
     private
 
-    # The Relay convention — an operation whose only variable is a required
-    # input object — reads better flattened: the input's fields become
-    # execute's kwargs directly, and the wrapping level is rebuilt on the
-    # wire. Multi-variable (or nullable-input) operations keep the
-    # variable-per-kwarg surface.
-    def flatten_input(variables)
-      return unless variables.size == 1
-
-      var = variables.first
-      return unless var.required && var.node.is_a?(NonNull)
-
-      input = var.node.of
-      return unless input.is_a?(InputNode)
-      # a field whose prop is one of execute's own locals can't be a kwarg, and
-      # unlike a variable name the user can't rename it — keep the wrapping level
-      return if input.fields.any? { |field| RESERVED_KWARGS.include?(field.prop) }
-
-      input
-    end
-
     def input_references(node)
       node.fields.filter_map do |field|
         child = field.node
@@ -118,14 +98,11 @@ class GraphWeaver::Codegen
           @enums.each_value.map(&:class_name)
       end
 
-      # Inputs: only the variable root types (and, when flattened, the root
-      # input's field types) — the names this module's own source spells.
-      # Nested input types stay un-aliased; they live in the inputs module.
-      def shared_input_names(variables, flatten)
-        nodes = variables.map(&:node)
-        nodes += flatten.fields.map(&:node) if flatten
-
-        nodes.filter_map { |wrapped|
+      # Inputs: only the variable root types — the names this module's own
+      # source spells. Nested input types stay un-aliased; they live in the
+      # inputs module.
+      def shared_input_names(variables)
+        variables.map(&:node).filter_map { |wrapped|
           node = T.let(wrapped, T.untyped)
           node = node.of while node.is_a?(NonNull) || node.is_a?(List)
           node.class_name if node.is_a?(InputNode)
@@ -276,8 +253,7 @@ class GraphWeaver::Codegen
     # forward-declared when cyclic), the Result tree, and execute —
     # assembled from the generator's walked state.
     def emit_module(root, variables, representations = [], operation_name = nil)
-      flatten = flatten_input(variables)
-      input_aliases = @inputs_namespace ? shared_input_names(variables, flatten) : []
+      input_aliases = @inputs_namespace ? shared_input_names(variables) : []
       enum_aliases = @enums_namespace ? shared_enum_names : []
       # hoisted unions the result tree references, aliased so <Name>::Type and
       # <Name>.from_h resolve to the shared module
@@ -324,7 +300,7 @@ class GraphWeaver::Codegen
       emit_representations(out, representations)
       emit_nested(root, out, 1)
       out << ""
-      emit_execute(out, variables, flatten:)
+      emit_execute(out, variables)
       out << "end"
 
       out.join("\n") + "\n"
@@ -356,6 +332,20 @@ class GraphWeaver::Codegen
         out << "      }, #{node.key_sets.inspect})"
         out << "    end"
       end
+
+      # Builders are query-driven, so an entity the `_entities` selection
+      # doesn't name has none — a bare NoMethodError there points at nothing.
+      out << ""
+      out << "    BUILDERS = T.let(#{nodes.map(&:method_name).sort.inspect}.freeze, T::Array[String])"
+      out << "    private_constant :BUILDERS"
+      out << ""
+      out << "    sig { params(name: Symbol, args: T.untyped, block: T.untyped).returns(T.noreturn) }"
+      out << "    def self.method_missing(name, *args, &block)"
+      out << '      type = GraphWeaver::Inflect.camelize(name.to_s)'
+      out << '      raise NoMethodError, "no representation builder for #{type} (this query builds: ' \
+        '#{BUILDERS.join(", ")}) — if #{type} is an entity of this subgraph, name it in the ' \
+        '_entities selection (`... on #{type} { __typename }`) and regenerate"'
+      out << "    end"
 
       out << "  end"
       out << ""
@@ -490,7 +480,7 @@ class GraphWeaver::Codegen
       out << "#{pad}end"
     end
 
-    def emit_execute(out, variables, flatten: nil)
+    def emit_execute(out, variables)
       # client/client= carry no per-query types, so they live in the gem
       out << "  # client / client= — see GraphWeaver::QueryModule"
       out << "  extend GraphWeaver::QueryModule"
@@ -501,52 +491,40 @@ class GraphWeaver::Codegen
       end
       out << ""
 
-      # the kwarg surface: the input's fields when flattened, else one
-      # kwarg per declared variable — typed identically either way. The
-      # per-call client override rides as an optional POSITIONAL arg, so
+      # The kwarg surface: one kwarg per declared variable, always — so the
+      # call sites a query already has don't change shape when it grows one.
+      # The per-call client override rides as an optional POSITIONAL arg, so
       # only this body's own locals (RESERVED_KWARGS) are off limits.
-      params = flatten ? flatten.fields.partition(&:required).flatten : variables
-
       sig_params = ["client: T.untyped"]
-      sig_params += params.map do |param|
-        bare = param.node.coerce? ? param.node.coerce_input_type : param.node.bare_type
-        kwarg_type = param.required || bare == "T.untyped" ? bare : "T.nilable(#{bare})"
-        "#{kwarg_name(param)}: #{kwarg_type}"
+      sig_params += variables.map do |var|
+        bare = var.node.coerce? ? var.node.coerce_input_type : var.node.bare_type
+        kwarg_type = var.required || bare == "T.untyped" ? bare : "T.nilable(#{bare})"
+        "#{var.kwarg}: #{kwarg_type}"
       end
 
       kwargs = ["client = nil"]
-      kwargs += params.map { |param| param.required ? "#{kwarg_name(param)}:" : "#{kwarg_name(param)}: nil" }
+      kwargs += variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # `execute(...).data!` — the typed result, or a raised QueryError.
       # kwargs forward via hash shorthand (key == value)
-      forward = (["client"] + params.map { |param| "#{kwarg_name(param)}:" }).join(", ")
+      forward = (["client"] + variables.map { |var| "#{var.kwarg}:" }).join(", ")
 
-      if flatten
-        out << "  # $#{variables.first.wire}'s fields, flattened into kwargs (single input-object variable)"
-      end
       out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.execute(#{kwargs.join(", ")})"
 
-      if flatten
-        fields = flatten.fields.map { |field| "#{field.prop}:" }.join(", ")
-        out << "    variables = {"
-        out << "      #{variables.first.wire.inspect} => #{flatten.class_name}.coerce({ #{fields} }).serialize,"
-        out << "    }"
+      required, optional = variables.partition(&:required)
+      if required.empty?
+        out << "    variables = {}"
       else
-        required, optional = variables.partition(&:required)
-        if required.empty?
-          out << "    variables = {}"
-        else
-          out << "    variables = {"
-          required.each do |var|
-            out << "      #{var.wire.inspect} => #{variable_serialize(var)},"
-          end
-          out << "    }"
+        out << "    variables = {"
+        required.each do |var|
+          out << "      #{var.wire.inspect} => #{variable_serialize(var)},"
         end
-        optional.each do |var|
-          out << "    variables[#{var.wire.inspect}] = #{variable_serialize(var)} unless #{var.kwarg}.nil?"
-        end
+        out << "    }"
+      end
+      optional.each do |var|
+        out << "    variables[#{var.wire.inspect}] = #{variable_serialize(var)} unless #{var.kwarg}.nil?"
       end
 
       out << ""
@@ -587,12 +565,6 @@ class GraphWeaver::Codegen
       out << "  def self.from_response!(response)"
       out << "    from_response(response).data!"
       out << "  end"
-    end
-
-    # a kwarg surface entry is a VarDef (.kwarg) or, when flattened, an
-    # InputNode::Field (.prop)
-    def kwarg_name(param)
-      param.respond_to?(:kwarg) ? param.kwarg : param.prop
     end
 
     def variable_serialize(var)

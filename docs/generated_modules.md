@@ -236,28 +236,23 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
   or `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
 
-**Input objects**: when an operation's only variable is a required input
-object (the Relay convention), the input's fields flatten straight into
-`execute`'s kwargs — no wrapper at the call site:
+One kwarg per declared variable, always — so adding a variable to a query
+adds a kwarg and leaves every existing call site alone.
+
+**Input objects** take the generated `T::Struct` or a plain hash (`.coerce`
+normalizes underscored Symbol/String keys; enums accept wire values; nested
+inputs accept hashes; unknown keys raise with a spellchecked hint rather than
+silently dropping):
 
 ```graphql
 mutation($input: AdoptionInput!) { adopt(input: $input) { ... } }
 ```
 
 ```ruby
-AdoptMutation.execute!(name: "Rex", species: "DOG", nickname: "Rexy")
-```
+AdoptMutation.execute!(input: { name: "Rex", species: "DOG", nickname: "Rexy" })
 
-The wrapping level is rebuilt on the wire, and each field type-checks
-exactly like a variable would. Operations with more than one variable (or
-a nullable input) keep the variable-per-kwarg surface — there the input
-kwarg accepts the generated `T::Struct` or a plain hash (`.coerce`
-normalizes underscored Symbol/String keys; enums accept wire values;
-nested inputs accept hashes; unknown keys raise with a spellchecked
-hint rather than silently dropping):
-
-```ruby
-AdoptMutation.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
+# the struct form is the one srb tc checks field by field
+AdoptMutation.execute!(input: AdoptMutation::AdoptionInput.new(name: "Rex", species: Species::Dog))
 ```
 
 In the generate! workflow, input types are emitted **once per schema** — one

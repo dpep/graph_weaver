@@ -355,10 +355,9 @@ describe "GraphWeaver.auto_coerce" do
       query: "mutation Adopt($input: AdoptionInput!) { adopt(input: $input) { name species } }",
     )
 
-    # birthday as a raw iso8601 string (the input's fields flatten into
-    # kwargs): the Date scalar's coercion (auto) parses it before the
-    # struct type-checks
-    pet = mod.execute!(name: "Rex", species: "DOG", birthday: "2020-06-15").adopt
+    # birthday as a raw iso8601 string: the Date scalar's coercion (auto)
+    # parses it before the struct type-checks
+    pet = mod.execute!(input: { name: "Rex", species: "DOG", birthday: "2020-06-15" }).adopt
     expect(pet.name).to eq "Rex"
   end
 end

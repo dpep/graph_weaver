@@ -1,4 +1,40 @@
 ## Unreleased
+**`Representations.<entity>` for an entity the query didn't select now says
+what to do.** Builders are query-driven, so `Representations.warehouse(...)`
+raised a bare `NoMethodError` naming nothing. It now names the builders this
+query does have and the selection to add (`... on Warehouse { __typename }`).
+
+**Shared-fragment directories are scanned recursively, and `.gql` files count.**
+The scan was `fragments/*.graphql`, so `fragments/person/fields.graphql` — how
+anyone with sixty fragments organizes them — was skipped in silence, and a
+`.gql` file was ignored even though `parse("x.gql")` reads one. A duplicate
+fragment name now names both files that define it.
+
+**`execute` now takes one kwarg per declared variable, always — a single
+required input-object variable is no longer flattened into per-field kwargs.**
+`mutation($input: AdoptionInput!)` generated `execute!(name:, species:, …)`,
+but adding any second variable generated `execute!(input:, …)` instead — so an
+unrelated edit to a query silently reshaped every call site, and the rule
+couldn't be stated without its exception. It also made a schema's own field
+names load-bearing: a field named `client` or `in` can't be a kwarg and can't
+be renamed, so flattening quietly declined and the surface moved again.
+**Rewrite affected call sites to pass the input as one kwarg:**
+`AdoptMutation.execute!(input: { name: "Rex", species: "DOG" })`, or
+`input: AdoptMutation::AdoptionInput.new(name: "Rex", species: Species::Dog)`
+for the field-by-field static check.
+
+**An input field named after a Ruby keyword no longer makes a schema
+ungeneratable.** `StringQueryOperatorInput.in` — the standard Hasura/Gatsby
+filter shape — raised "would become prop 'in', which collides with a Ruby
+keyword", with no way out: an input field is the schema's name, not yours, and
+`extend_type alias:` is output-only. But `prop :in` is legal Ruby, and nothing
+reads an input prop bare (`serialize` goes through `public_send`), so the
+refusal was over-broad. Input fields named `in`, `end`, `def`, `nil` and the
+rest now generate. A field colliding with a method every struct defines
+(`serialize`, `to_h`, `class`, `hash`) is still refused — those break at
+require time. Output structs are unchanged: a result key *can* be renamed, in
+the query.
+
 **A variable named `$client` no longer generates a file that won't parse.**
 `query($client: ID!)` emitted `def self.execute(client = nil, client:)` — a
 `SyntaxError` raised at app boot from `load_generated!`, arbitrarily far from

@@ -74,20 +74,19 @@ module AdoptMutation
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  # $input's fields, flattened into kwargs (single input-object variable)
-  sig { params(client: T.untyped, name: String, species: T.any(Species, String), birthday: T.nilable(Date), nickname: T.nilable(String)).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, name:, species:, birthday: nil, nickname: nil)
+  sig { params(client: T.untyped, input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped])).returns(GraphWeaver::Response[Result]) }
+  def self.execute(client = nil, input:)
     variables = {
-      "input" => AdoptionInput.coerce({ birthday:, name:, nickname:, species: }).serialize,
+      "input" => AdoptionInput.coerce(input).serialize,
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
     from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, name: String, species: T.any(Species, String), birthday: T.nilable(Date), nickname: T.nilable(String)).returns(Result) }
-  def self.execute!(client = nil, name:, species:, birthday: nil, nickname: nil)
-    execute(client, name:, species:, birthday:, nickname:).data!
+  sig { params(client: T.untyped, input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped])).returns(Result) }
+  def self.execute!(client = nil, input:)
+    execute(client, input:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

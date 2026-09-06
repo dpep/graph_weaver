@@ -33,12 +33,20 @@ RSpec.describe "shared fragments" do
       end
     end
 
-    it "rejects duplicate fragment names across files" do
+    it "loads nested directories and .gql files" do
+      Dir.mktmpdir do |dir|
+        write(File.join(dir, "person"), "fields.graphql", "fragment PersonFields on Person { name }")
+        write(dir, "contact.gql", "fragment ContactBits on Person { email }")
+        expect(GraphWeaver::Codegen.load_fragments([dir]).keys).to contain_exactly("PersonFields", "ContactBits")
+      end
+    end
+
+    it "rejects duplicate fragment names, naming both files" do
       Dir.mktmpdir do |dir|
         write(dir, "a.graphql", "fragment F on Person { name }")
-        write(dir, "b.graphql", "fragment F on Person { email }")
+        write(File.join(dir, "nested"), "b.graphql", "fragment F on Person { email }")
         expect { GraphWeaver::Codegen.load_fragments([dir]) }
-          .to raise_error(GraphWeaver::Error, /duplicate shared fragment 'F'/)
+          .to raise_error(GraphWeaver::Error, %r{duplicate shared fragment 'F'.*a\.graphql and .*nested/b\.graphql})
       end
     end
   end
