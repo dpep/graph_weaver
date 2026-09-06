@@ -180,6 +180,9 @@ New:
   everything validates); pass `schema:` to check a schema you already have
   without touching the network. Complements `graph_weaver:verify`, which asks
   the different question of whether the committed Ruby is stale.
+- `verify_generated!` (and `rake graph_weaver:verify`) compares generated files
+  with line endings normalized, so a checkout under git's `autocrlf` no longer
+  reports every generated file as stale.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

@@ -206,7 +206,9 @@ module GraphWeaver
       plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
-        target unless File.exist?(target) && File.read(target) == source
+        # git's autocrlf rewrites line endings on checkout — a Windows working
+        # copy is not stale generated code, so don't fail CI over it
+        target unless File.exist?(target) && File.read(target).gsub("\r\n", "\n") == source.gsub("\r\n", "\n")
       end
       # strays: a shared-artifact file the current schema + queries no longer produce
       stale += shared_artifacts(output) - plan.map { |f, _| File.join(output, f) }
