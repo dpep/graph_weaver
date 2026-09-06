@@ -86,6 +86,22 @@ reviewed like any other code — and never edited by hand.
 PersonQuery.execute!(id: "1").person&.name   # typed, via GraphWeaver.client
 ```
 
+### Autocomplete while you write the query
+
+Drop five lines at the repo root and VS Code or RubyMine validates the
+`.graphql` files as you type, with schema autocomplete and hover docs —
+no JS project, no `npm install`:
+
+```yaml
+# graphql.config.yml
+schema: app/graphql/schema.json
+documents:
+  - app/graphql/queries/**/*.graphql
+  - app/graphql/fragments/**/*.graphql
+```
+
+Details and the honest limits in [editors](editors.md).
+
 ### Shared fragments
 
 Define reusable fragments once and spread them from any query:

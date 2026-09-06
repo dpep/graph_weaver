@@ -183,6 +183,9 @@ New:
 - `verify_generated!` (and `rake graph_weaver:verify`) compares generated files
   with line endings normalized, so a checkout under git's `autocrlf` no longer
   reports every generated file as stale.
+- New [editor support](docs/editors.md) doc: the `graphql.config.yml` that gives
+  VS Code and RubyMine validation, autocomplete and hover docs in your
+  `.graphql` files — no JS project, no gem code, five lines of YAML.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

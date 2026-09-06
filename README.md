@@ -110,6 +110,9 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 
 - **[Getting started](docs/getting_started.md)** — the production path in Rails,
   step by step: initializer, rake tasks, fakes, CI, Sorbet or not
+- **[Editor support](docs/editors.md)** — five lines of YAML give VS Code and
+  RubyMine schema autocomplete and validation in your `.graphql` files, with no
+  JS project
 - **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
   variables (enums, input objects), fragments/unions/interfaces,
   `@skip`/`@include`, naming, clients, dynamic mode
