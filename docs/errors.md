@@ -28,7 +28,7 @@ it failed:
 | Class | When |
 |-------|------|
 | `TransportError` | never reached the server — DNS, connection refused, TLS, timeout |
-| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
+| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#rate_limited?` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#field`, `#struct` |
@@ -61,9 +61,11 @@ transport = GraphWeaver::Retry.new(
 ```
 
 Defaults match the rescue block above: transport failures always retry,
-`ServerError` only on 5xx (a 4xx is your bug — retrying won't fix it;
-override with `retry_if:`), and GraphQL-level codes only when listed in
-`retry_codes:`. Exhausting `tries:` re-raises the last error.
+`ServerError` on 5xx plus 408/429 (the rest of 4xx is your bug — retrying
+won't fix it; override with `retry_if:`), and GraphQL-level codes only
+when listed in `retry_codes:`. A `Retry-After` on the response sets the
+delay itself, clamped to `max:`. Exhausting `tries:` re-raises the last
+error.
 
 **Top-level scalar variables** fail like any Ruby method call, *outside* the
 hierarchy on purpose — passing the wrong Ruby type for a scalar kwarg is a

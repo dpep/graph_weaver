@@ -145,11 +145,29 @@ GraphWeaver::Retry.new(
 ```
 
 Defaults: transport failures always retry (the request never arrived);
-`ServerError` only on 5xx — a 4xx is a bug in the request, retrying won't
-fix it. `retry_codes:` re-inspects response envelopes so GraphQL-level
-throttling can retry too (off by default — pass the codes your API uses).
-Exhausting `tries:` re-raises the last error (or returns the last
-code-matched response).
+`ServerError` on 5xx plus **408 and 429** — the rest of 4xx is a bug in
+the request, retrying won't fix it. `retry_codes:` re-inspects response
+envelopes so GraphQL-level throttling can retry too (off by default —
+pass the codes your API uses). Exhausting `tries:` re-raises the last
+error (or returns the last code-matched response).
+
+**`Retry-After` wins over the backoff.** When the server names a delay
+(seconds or an HTTP-date), that's the wait — the server is the only
+party that knows when its window reopens. It's clamped to `max:` so a
+"come back in an hour" can't park a thread for an hour, and not
+jittered, since it's an instruction rather than a guess.
+
+`ServerError` carries the response `#headers` (names downcased), so the
+rate-limit budget and request id are in hand without monkey-patching a
+transport:
+
+```ruby
+rescue GraphWeaver::ServerError => e
+  e.rate_limited?                       # 429, or 503 + Retry-After
+  e.retry_after                         # seconds, or nil
+  e.headers["x-ratelimit-remaining"]
+end
+```
 
 Or via the client: `GraphWeaver.new(url, retries: { tries: 5, retry_codes: ["THROTTLED"] })`.
 

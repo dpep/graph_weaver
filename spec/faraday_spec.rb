@@ -78,6 +78,16 @@ describe GraphWeaver::Transport::Faraday do
       .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 404 }
   end
 
+  it "carries the response headers on a ServerError" do
+    executor = described_class.new(throttled_url)
+
+    expect { PersonQuery.execute(executor, id: "1") }
+      .to raise_error(GraphWeaver::ServerError) { |e|
+        expect(e.headers["x-ratelimit-remaining"]).to eq "0"
+        expect(e.retry_after).to eq 7.0
+      }
+  end
+
   it "raises TransportError when the connection never lands" do
     probe = TCPServer.new("127.0.0.1", 0)
     port = probe.addr[1]

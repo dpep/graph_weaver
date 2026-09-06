@@ -48,14 +48,15 @@ module GraphWeaver
 
       private
 
-      sig { override.params(body: String).returns([Integer, T.untyped]) }
+      sig { override.params(body: String).returns(T::Array[T.untyped]) }
       def post(body)
         request = Net::HTTP::Post.new(@uri, DEFAULT_HEADERS.merge(@headers))
         request.body = body
 
         response = with_connection { |http| http.request(request) }
 
-        [response.code.to_i, response.body]
+        # each_header yields downcased names with repeats already joined
+        [response.code.to_i, response.body, response.each_header.to_h]
       end
 
       # Lease a connection for one round trip. The permit is held across

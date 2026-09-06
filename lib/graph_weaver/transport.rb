@@ -61,7 +61,9 @@ class GraphWeaver::Transport
       raise GraphWeaver::Error, "variables are not JSON-serializable: #{e.message}"
     end
 
-    status, body = begin
+    # headers is optional: a third-party subclass returning the
+    # documented [status, body] pair simply has none
+    status, body, headers = begin
       GraphWeaver.log_timed(:debug, "POST #{url} #{tag} completed") do
         post(encoded)
       end
@@ -85,13 +87,15 @@ class GraphWeaver::Transport
       # status stays the signal
       return parsed if parsed.is_a?(Hash) && parsed["errors"].is_a?(Array) && parsed["errors"].any?
 
-      raise GraphWeaver::ServerError.new(status:, body: body.to_s)
+      raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {})
     end
 
     unless parsed.is_a?(Hash)
       # a 200 that isn't a GraphQL object — an HTML error page from a proxy, a
       # captive portal, or a bare JSON array/string: the server misbehaved
-      raise GraphWeaver::ServerError.new(status:, body: "non-GraphQL response: #{body.to_s[0, 500]}")
+      raise GraphWeaver::ServerError.new(
+        status:, body: "non-GraphQL response: #{body.to_s[0, 500]}", headers: headers || {}
+      )
     end
 
     parsed
@@ -135,7 +139,10 @@ class GraphWeaver::Transport
 
   private
 
-  # POST the JSON body to the endpoint; return [status code, raw body].
-  sig { abstract.params(body: String).returns([Integer, T.untyped]) }
+  # POST the JSON body to the endpoint; return [status code, raw body]
+  # — optionally with a third element, the response headers as a Hash
+  # with downcased names, which ServerError then carries (Retry-After,
+  # x-ratelimit-*). Two elements remains a complete answer.
+  sig { abstract.params(body: String).returns(T::Array[T.untyped]) }
   def post(body); end
 end

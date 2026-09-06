@@ -2,6 +2,8 @@
 # frozen_string_literal: true
 
 require "sorbet-runtime"
+require "time" # Time.httpdate, for Retry-After
+
 require_relative "inflect"
 require_relative "logging"
 
@@ -85,17 +87,48 @@ module GraphWeaver
     sig { returns(T.untyped) }
     attr_reader :body
 
-    sig { params(status: Integer, body: T.untyped).void }
-    def initialize(status:, body: nil)
+    # The response headers, names downcased — the rate-limit budget
+    # (x-ratelimit-remaining), the request id your provider wants in a
+    # support ticket, Retry-After. Empty when the transport had none.
+    sig { returns(T::Hash[String, String]) }
+    attr_reader :headers
+
+    sig { params(status: Integer, body: T.untyped, headers: T::Hash[String, String]).void }
+    def initialize(status:, body: nil, headers: {})
       @status = status
       @body = body
+      @headers = headers
       snippet = body.to_s.empty? ? "" : ": #{body.to_s[0, 500]}"
       super("HTTP #{status}#{snippet}")
     end
 
+    # Seconds to wait per the server's Retry-After, which is either a
+    # delay in seconds or an HTTP-date. nil when absent or unparseable;
+    # negative dates (already past) clamp to 0. See RFC 9110 §10.2.3.
+    sig { returns(T.nilable(Float)) }
+    def retry_after
+      value = headers["retry-after"]&.strip
+      return if value.nil? || value.empty?
+      return value.to_f if value.match?(/\A\d+(\.\d+)?\z/)
+
+      seconds = Time.httpdate(value) - Time.now
+      [seconds, 0.0].max
+    rescue ArgumentError
+      nil
+    end
+
+    # True when the server said "you're going too fast" — 429, or the
+    # 503 + Retry-After that some gateways send instead.
+    sig { returns(T::Boolean) }
+    def rate_limited?
+      status == 429 || (status == 503 && !retry_after.nil?)
+    end
+
     sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
-      super.merge("status" => status)
+      # the raw headers stay off the machine side — Set-Cookie and
+      # friends don't belong in a log line; read #headers for those
+      super.merge("status" => status, "retry_after" => retry_after).compact
     end
   end
 

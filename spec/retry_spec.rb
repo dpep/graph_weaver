@@ -76,6 +76,54 @@ describe GraphWeaver::Retry do
     }.to raise_error(GraphWeaver::ServerError) # no retry: it's our bug
   end
 
+  # Failure.server sends no headers, so build the throttling server here
+  def throttling(retry_after, status: 429)
+    headers = retry_after ? { "retry-after" => retry_after } : {}
+    Class.new do
+      define_method(:execute) do |_query, variables: {}|
+        raise GraphWeaver::ServerError.new(status:, body: "slow down", headers:)
+      end
+    end.new
+  end
+
+  it "retries 429 and 408 — the server asking for later, not a bad request" do
+    [429, 408].each do |status|
+      executor = described_class.new(
+        sequence(failure.server(status:), fake), tries: 2, sleeper:,
+      )
+      expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil
+    end
+  end
+
+  it "waits as long as Retry-After says, in preference to its own backoff" do
+    executor = described_class.new(
+      sequence(throttling("2"), fake), tries: 2, base: 30, jitter: false, sleeper:,
+    )
+
+    expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil
+    expect(slept).to eq [2.0] # the server's number, not the 30s backoff
+  end
+
+  it "reads an HTTP-date Retry-After, and clamps a long one to max:" do
+    at = described_class.new(throttling((Time.now + 5).httpdate), tries: 2, sleeper:)
+    expect { PersonQuery.execute(at, id: "1") }.to raise_error(GraphWeaver::ServerError)
+    expect(slept.first).to be_within(1).of(5)
+
+    slept.clear
+    hour = described_class.new(throttling("3600"), tries: 2, max: 30, sleeper:)
+    expect { PersonQuery.execute(hour, id: "1") }.to raise_error(GraphWeaver::ServerError)
+    expect(slept).to eq [30.0]
+  end
+
+  it "falls back to its backoff when the server sends no Retry-After" do
+    executor = described_class.new(
+      sequence(throttling(nil), fake), tries: 2, base: 3, jitter: false, sleeper:,
+    )
+
+    expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil
+    expect(slept).to eq [3.0]
+  end
+
   it "honors a custom retry_if and error list" do
     only_transport = described_class.new(
       sequence(failure.server(status: 503), fake),

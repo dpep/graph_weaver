@@ -66,7 +66,7 @@ module GraphWeaver
 
       private
 
-      sig { override.params(body: String).returns([Integer, T.untyped]) }
+      sig { override.params(body: String).returns(T::Array[T.untyped]) }
       def post(body)
         response = @connection.post do |request|
           # a prebuilt connection owns its headers — only fill the blanks
@@ -74,7 +74,7 @@ module GraphWeaver
           request.body = body
         end
 
-        [response.status, response.body]
+        [response.status, response.body, response.headers.to_h.transform_keys(&:downcase)]
       end
     end
   end

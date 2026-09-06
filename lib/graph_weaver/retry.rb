@@ -19,10 +19,14 @@ require_relative "errors"
 #
 # What retries, by default:
 #   - TransportError: always (the request never arrived)
-#   - ServerError: only 5xx — a 4xx is a bug in the request, retrying
-#     won't fix it. Override with retry_if: ->(error) { ... }
+#   - ServerError: 5xx, plus 408 and 429 — the rest of 4xx is a bug in
+#     the request, retrying won't fix it. Override with
+#     retry_if: ->(error) { ... }
 #   - responses whose GraphQL error codes intersect retry_codes: (off by
 #     default — pass the codes your API uses for transient failures)
+#
+# A server that answers with Retry-After sets the delay itself (clamped
+# to max:); otherwise the configured backoff decides.
 #
 # Exhausting tries re-raises the last error (or returns the last
 # code-matched response).
@@ -32,9 +36,15 @@ class GraphWeaver::Retry
     linear: ->(base, attempt) { base * attempt },
   }.freeze
 
-  # retry 5xx, not 4xx; everything else listed in on: retries
+  # a 4xx is a bug in the request — except these two, which are the
+  # server asking you to come back later rather than to fix anything
+  RETRIABLE_CLIENT_STATUSES = [408, 429].freeze
+
+  # retry 5xx (and 408/429), not the rest of 4xx; everything else listed
+  # in on: retries
   DEFAULT_RETRY_IF = lambda do |error|
-    !error.is_a?(GraphWeaver::ServerError) || error.status >= 500
+    !error.is_a?(GraphWeaver::ServerError) ||
+      error.status >= 500 || RETRIABLE_CLIENT_STATUSES.include?(error.status)
   end
 
   def initialize(client, tries: 3, on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
@@ -67,6 +77,7 @@ class GraphWeaver::Retry
 
   def execute(query, variables: {})
     attempt = 0
+    failure = T.let(nil, T.nilable(Exception))
 
     loop do
       attempt += 1
@@ -75,9 +86,12 @@ class GraphWeaver::Retry
         return response unless attempt < @tries && retryable_response?(response)
       rescue *@on => e
         raise if attempt >= @tries || !@retry_if.call(e)
+
+        failure = e
       end
 
-      @sleeper.call(delay(attempt))
+      @sleeper.call(delay(attempt, failure))
+      failure = nil
     end
   end
 
@@ -90,7 +104,14 @@ class GraphWeaver::Retry
     codes.intersect?(@retry_codes)
   end
 
-  def delay(attempt)
+  def delay(attempt, failure = nil)
+    # A Retry-After wins over our backoff: the server is the only party
+    # that knows when its window reopens, and it isn't guessing. Still
+    # clamped to max:, so "come back in an hour" can't park a thread for
+    # an hour — and not jittered, since it's an instruction, not a guess.
+    after = failure.retry_after if failure.is_a?(GraphWeaver::ServerError)
+    return [after, @max].min.to_f if after
+
     seconds = [@backoff.call(@base, attempt), @max].min.to_f
     @jitter ? seconds * (0.5 + rand * 0.5) : seconds
   end

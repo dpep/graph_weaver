@@ -186,6 +186,18 @@ Transport improvements from the same review:
   500) with the original kept as `#cause` — in-process, the real backtrace is
   the point. **A bare schema class still works in any client slot**; the
   wrapper is an upgrade, not a requirement.
+- **`ServerError` carries the response `#headers`** (names downcased), plus
+  `#retry_after` (seconds or HTTP-date, per RFC 9110) and `#rate_limited?`. The
+  `Net::HTTPResponse` was always in hand and thrown away, so recovering
+  `x-ratelimit-remaining` or a request id meant monkey-patching the transport.
+  A `post` override may now return a third element, the headers; returning the
+  documented `[status, body]` pair stays correct.
+- **`Retry` honours `Retry-After`** — the server's delay wins over the
+  configured backoff, clamped to `max:` and not jittered. Related: **408 and
+  429 now retry by default.** They were treated as ordinary 4xx ("your bug,
+  retrying won't fix it"), which for the one status that exists to say "come
+  back later" was exactly backwards, and left `Retry` incorrect against GitHub
+  and Shopify. Pass `retry_if:` to restore the old behaviour.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

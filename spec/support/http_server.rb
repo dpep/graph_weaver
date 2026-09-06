@@ -42,6 +42,15 @@ RSpec.shared_context "graphql http server" do
       answer.call(request, response)
     end
 
+    # a rate-limiting API's 429: a Retry-After, and a body that isn't
+    # GraphQL, so it raises rather than flowing into the envelope
+    @server.mount_proc("/throttled") do |_request, response|
+      response.status = 429
+      response["Retry-After"] = "7"
+      response["X-RateLimit-Remaining"] = "0"
+      response.body = "Too Many Requests"
+    end
+
     @thread = Thread.new { @server.start }
     @port = @server.listeners.first.addr[1]
   end
@@ -53,6 +62,7 @@ RSpec.shared_context "graphql http server" do
 
   let(:url) { "http://127.0.0.1:#{@port}/graphql" }
   let(:slow_url) { "http://127.0.0.1:#{@port}/slow" }
+  let(:throttled_url) { "http://127.0.0.1:#{@port}/throttled" }
 
   # the most requests /slow ever had open at once, since the last reset
   def peak_inflight

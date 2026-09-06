@@ -93,6 +93,18 @@ describe GraphWeaver::Transport::HTTP do
       .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 404 }
   end
 
+  it "carries the response headers on a ServerError" do
+    throttled = described_class.new(throttled_url)
+
+    expect { PersonQuery.execute(throttled, id: "1") }
+      .to raise_error(GraphWeaver::ServerError) { |e|
+        expect(e.status).to eq 429
+        expect(e.headers["x-ratelimit-remaining"]).to eq "0"
+        expect(e.retry_after).to eq 7.0
+        expect(e).to be_rate_limited
+      }
+  end
+
   it "raises TransportError when the connection never lands" do
     # grab a port, then free it so the connection is refused
     probe = TCPServer.new("127.0.0.1", 0)
