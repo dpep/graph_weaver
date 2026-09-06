@@ -149,7 +149,7 @@ describe GraphWeaver::Codegen do
     expect {
       described_class.generate(schema: Demo::Schema, module_name: "Bad", path: "queries/typo.graphql",
         query: "query { person(id: 1) { nmae } }")
-    }.to raise_error(GraphWeaver::ValidationError, %r{queries/typo\.graphql:1:25 Field 'nmae'})
+    }.to raise_error(GraphWeaver::ValidationError, %r{queries/typo\.graphql:\n  1:25  Field 'nmae'})
   end
 
   describe "the generated module" do

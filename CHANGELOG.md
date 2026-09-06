@@ -393,6 +393,16 @@ nested constants like `AdoptQuery::AdoptionInput`. Regeneration prunes the old
 Changing a file's `query` to `mutation` from here on renames its constant the
 same way, which CI now catches rather than letting it drift.
 
+Error-message and console ergonomics from the same review:
+- **Validation errors name the query file and render one per line**, compiler
+  style — `invalid query in app/graphql/queries/person.graphql:` followed by an
+  indented `4:5  Field 'nmae' doesn't exist on type 'Person'` per error. They
+  arrived as one joined line with no file at all, because `generate!` had the
+  path in hand and never passed it to codegen, so thirty query files left you
+  hunting for a bare `4:5`. `ValidationError#errors` and `#to_h` keep the shape
+  `rake graph_weaver:schema:check` reads; only the message text changed, and
+  **it is multi-line now** — update anything matching on it.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

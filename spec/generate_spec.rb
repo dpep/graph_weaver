@@ -35,6 +35,17 @@ describe "GraphWeaver.generate!" do
       .to raise_error(GraphWeaver::ValidationError, %r{queries/broken\.graphql:})
   end
 
+  it "names the query file a validation error came from" do
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "typo.graphql"), "query { person(id: 1) { nmae } }")
+
+    # the file reaches Codegen only if generate! passes path: — without it a
+    # project with thirty query files reports a bare 1:25
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
+      .to raise_error(GraphWeaver::ValidationError, %r{\Ainvalid query in .*/queries/typo\.graphql:\n  1:25  Field 'nmae'})
+  end
+
   it "derives the shared-inputs module from a multi-schema output path" do
     root = File.expand_path("..", __dir__)
     output = File.join(@dir, "github", "generated")

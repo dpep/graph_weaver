@@ -374,6 +374,7 @@ module GraphWeaver
           inputs_namespace: inputs_module,
           unions_namespace: unions_module,
           hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
+          path:,
         )
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
@@ -482,8 +483,19 @@ module GraphWeaver
     # Generation fails naming any schema value that doesn't resolve —
     # exhaustiveness checked ahead of runtime. Global; client.register_enum
     # scopes to one client.
-    def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
+    def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
+      reject_positional_map!(graphql_name, type, positional_map)
       Codegen.register_enum(graphql_name, type, map:, fallback:, requires:)
+    end
+
+    # Internal: a value map is a natural third *positional* guess, and Ruby's
+    # arity complaint ("given 3, expected 2") never mentions the keyword.
+    # Shared with Client#register_enum.
+    def reject_positional_map!(graphql_name, type, map)
+      return unless map
+
+      raise Error, "register_enum: the value map is a keyword — " \
+        "register_enum(#{graphql_name.inspect}, #{type}, map: {...})"
     end
 
     # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
