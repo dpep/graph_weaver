@@ -388,9 +388,8 @@ module GraphWeaver
       end
 
       if enums_module && (used[:enums] + used[:mapped]).any?
-        plan = Codegen.generate_enums(
-          schema:, module_name: enums_module, enum_types: used[:enums] + used[:mapped],
-        ).to_a + plan
+        codegen = Codegen.new(schema:, query: "", module_name: enums_module)
+        plan = codegen.generate_enums(used[:enums] + used[:mapped]).to_a + plan
       end
 
       plan

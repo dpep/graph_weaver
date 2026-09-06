@@ -150,10 +150,6 @@ class GraphWeaver::Codegen
   # onto an app enum (register_enum). One GraphQL enum is one Ruby type, so a
   # value read out of one query's result hands straight back into another's
   # variable. Returns { "enums.rb" => source }.
-  def self.generate_enums(schema:, module_name:, enum_types:)
-    new(schema:, query: "", module_name:).generate_enums(enum_types)
-  end
-
   def generate_enums(enum_types)
     validate_module_name!("enums")
     reset_walk_state!
