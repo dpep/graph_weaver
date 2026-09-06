@@ -9,6 +9,15 @@ a variable in the query (`query($clientId: ID!)`) before regenerating.** A
 single input-object variable whose *field* is one of those names (which you
 can't rename) simply keeps its wrapping kwarg instead of being flattened.
 
+**`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
+`generate!` and `check_queries` read the singular (the first entry) while
+`load_queries!` walked the whole list, so a second queries directory produced
+modules at runtime that `rake graph_weaver:generate` never generated and
+`verify` never checked — silently. Queries are single-schema by design. **If
+you appended a second queries directory, fold it into the first** (or run a
+second `generate!` with its own `queries:`). `generated_paths` and
+`fragments_paths` stay plural; they genuinely load from several places.
+
 **One GraphQL enum is now one Ruby type.** A schema enum a query touches — as
 a variable, in a result, or both — is emitted once per schema into
 `generated/enums.rb` as `GraphQLEnums::<Enum>`, and every query module aliases

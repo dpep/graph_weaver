@@ -117,22 +117,22 @@ module GraphWeaver
       "Query" # unparseable: codegen brands the real error a moment later
     end
 
-    # Conventional locations, factory_bot-style — LISTS, so extra
-    # locations (a test-only dir, an engine's) can be appended and every
-    # loader walks them all:
+    # Conventional locations. generated_paths and fragments_paths are LISTS,
+    # factory_bot-style, so extra locations (a test-only dir, an engine's) can
+    # be appended and every loader walks them all — entries may be glob
+    # patterns, and the generated default already matches per-schema layouts
+    # (app/graphql/github/generated):
     #
     #      # e.g. in spec/support/graph_weaver.rb
     #      GraphWeaver.generated_paths << "spec/support/graphql/generated"
-    #      GraphWeaver.queries_paths << "spec/support/graphql/queries"
     #
-    # The singular accessors read the first entry (the default target
-    # for generate! and the rake tasks); assigning one replaces the list.
-    attr_writer :queries_paths, :generated_paths, :schema_path, :fragments_paths
+    # Queries are SINGULAR. One generate! run reads one directory against one
+    # schema, so a second one would produce modules at runtime that
+    # `rake graph_weaver:generate` never generates and `verify` never checks.
+    attr_writer :generated_paths, :schema_path, :fragments_paths
+    attr_accessor :queries_path
 
-    # Entries may be glob patterns — the generated default also matches
-    # per-schema layouts (app/graphql/github/generated). Queries stay
-    # single-schema: load_queries! parses everything against one client.
-    def queries_paths = @queries_paths ||= ["app/graphql/queries"]
+    def queries_path = @queries_path ||= "app/graphql/queries"
     def generated_paths = @generated_paths ||= ["app/graphql/generated", "app/graphql/*/generated"]
 
     # Reusable named fragments, defined once and available to every query —
@@ -140,13 +140,10 @@ module GraphWeaver
     # query stays self-contained.
     def fragments_paths = @fragments_paths ||= ["app/graphql/fragments"]
 
-    def queries_path = queries_paths.first
+    # the singular readers take the first entry — the default target for
+    # generate! and the rake tasks; assigning one replaces the list
     def generated_path = generated_paths.first
     def fragments_path = fragments_paths.first
-
-    def queries_path=(path)
-      @queries_paths = path.nil? ? nil : [path]
-    end
 
     def generated_path=(path)
       @generated_paths = path.nil? ? nil : [path]

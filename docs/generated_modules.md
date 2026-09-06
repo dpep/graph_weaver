@@ -94,8 +94,12 @@ every loader walks them all:
 ```ruby
 # e.g. in spec/support/graph_weaver.rb
 GraphWeaver.generated_paths << "spec/support/graphql/generated"
-GraphWeaver.queries_paths << "spec/support/graphql/queries"
 ```
+
+`queries_path` is singular, deliberately: one `generate!` run reads one
+directory against one schema, so a second queries directory would produce
+modules at runtime that `rake graph_weaver:generate` never generates and
+`verify` never checks.
 
 The singular accessors (`generated_path` etc.) read and replace the
 first entry — the default target for `generate!` and the rake tasks.

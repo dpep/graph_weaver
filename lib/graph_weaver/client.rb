@@ -111,8 +111,7 @@ class GraphWeaver::Client
   # Reloadable (constants are replaced), so it suits consoles and dev.
   # Returns the modules.
   def load_queries!(dir = nil, namespace: Object)
-    dirs = dir ? [dir] : GraphWeaver.queries_paths
-    dirs.flat_map { |d| Dir[File.join(d, "*.graphql")].sort }.map do |path|
+    Dir[File.join(dir || GraphWeaver.queries_path, "*.graphql")].sort.map do |path|
       name = GraphWeaver.module_name(path, File.read(path))
       if namespace.const_defined?(name, false)
         # the constant moves, its instances don't — a struct built before the
