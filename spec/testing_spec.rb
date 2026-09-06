@@ -239,6 +239,18 @@ describe GraphWeaver::Testing do
       expect(person&.pets&.size).to eq 1
     end
 
+    it "falls back to config.schema, like every other option" do
+      described_class.configure { |config| config.schema = Demo::Schema }
+
+      expect(PersonQuery.execute!(GraphWeaver::Testing::FakeClient.new, id: "1").person&.name)
+        .to be_a String
+    end
+
+    it "says what to do when no schema resolves at all" do
+      expect { GraphWeaver::Testing::FakeClient.new }
+        .to raise_error(GraphWeaver::Error, /no schema to fake against.*config\.schema.*schema dump/m)
+    end
+
     it "lets per-executor options win over config" do
       described_class.configure { |config| config.overrides = { "Person.name" => "config" } }
 

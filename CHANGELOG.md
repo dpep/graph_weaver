@@ -63,10 +63,49 @@ path. `person.graphql` holding `query($id: ID!) { ... }` now emits
 Both halves move together: a server rejects an `operationName` its document
 doesn't declare. A document that names its own operation is left untouched.
 
-**Re-record cassettes for anonymous operations.** Cassette entries key on
-`operationName`, and those were recorded with the key omitted, so they no
-longer match (`Recorder` / `Cassette.use` with a live client, or delete the
-cassette).
+**Cassette files no longer store the request twice — re-record them.** Every
+entry carried a `key:` (the normalized query + variables) *and* a `query:` and
+`variables:` again, and replay matched on `key:` alone: editing the half a
+reviewer reads changed nothing, editing the other half broke replay while the
+file still looked right. The key is now derived from `query`/`variables`/
+`operationName` at load, so the file holds the request once and diffs are real.
+**Existing cassettes must be re-recorded** (`GRAPHWEAVER_RECORD=1`, or delete
+the file) — this also covers cassettes of anonymous operations, which stopped
+matching when entries started keying on `operationName`.
+
+**`MissingRecording` now prints the variables — the part that usually differs.**
+It printed the whole query and omitted the variables entirely, so the common
+miss (same query, different variables) showed you 60 lines identical to the
+YAML and nothing about the mismatch. The message now leads with the request's
+variables, says what was recorded for that query (`1 entry recorded for this
+query, with variables {"id" => "1"}`), and prints the query as one truncated
+line.
+
+**A first run with no cassette and no `client:` no longer raises
+`MissingRecording`.** There is no request yet, so it raises `GraphWeaver::Error`
+naming the actual situation. **Rescue `GraphWeaver::Error` if you were catching
+`MissingRecording` for this case.**
+
+**`Cassette.use` is now `GraphWeaver::Testing.cassette` — rename your calls.**
+It never returned a `Cassette`; it returns a *client* (a recorder or a replayer)
+to hand to `execute`, and the name said otherwise. `Cassette` is now only the
+file — `.new`, `#size`, `#anonymize!`.
+
+**Record mode with no `client:` now raises instead of replaying.**
+`GRAPHWEAVER_RECORD=1` on a `Testing.cassette(name)` call with nothing to record
+against quietly served the stale recording, so "re-record everything" produced a
+half-refreshed cassette set with no signal. **Pass `client:` to every call you
+want re-recorded.**
+
+**`Recorder.new(..., anonymize:)` is gone.** It was unreachable through the
+factory and duplicated `Testing.config.anonymize`. **Set the config flag** —
+that's the one way to anonymize, with `rake graph_weaver:cassettes:anonymize`
+as the cleanup tool for cassettes recorded before you turned it on.
+
+**`FakeClient.new` no longer requires `schema:`.** Every other option fell back
+to `Testing.config`; this one didn't, even though `config.schema` already
+auto-locates the committed dump. `FakeClient.new` now works on its own, and
+says what to set when no schema resolves at all.
 
 **`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
 `generate!` and `check_queries` read the singular (the first entry) while

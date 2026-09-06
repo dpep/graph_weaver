@@ -14,7 +14,7 @@ valid `__typename` members, iso8601 date scalars — every fake casts
 cleanly through your generated structs.
 
 ```ruby
-fake = GraphWeaver::Testing::FakeClient.new(schema:)
+fake = GraphWeaver::Testing::FakeClient.new   # schema: falls back to Testing.config
 
 person = PersonQuery.execute!(fake, id: "1").person
 person.name       # => "Eliza Kertzmann" (faker-matched on field name, when faker is loaded)
@@ -46,13 +46,17 @@ require "graph_weaver/rspec"   # seed follows --seed
 
 GraphWeaver::Testing.configure do |config|
   config.auto_fake = true              # every example runs against a fresh fake
-  # config.schema = MySchema           # optional: an in-process class instead of the dump
+  # config.schema = MySchema           # the live class instead of the dump
   # config.mode = :faker               # or :literal (plain typed values); nil = auto
   # config.overrides = { "Person.name" => "Daniel" }
   # config.list_size = 1..3
   # config.null_chance = 0.1           # nullable fields go nil sometimes
 end
 ```
+
+In an app that serves its own schema, set `config.schema` to the live class:
+fakes are then fabricated from the schema the app actually runs, so they can't
+drift from it the way a stale committed dump can.
 
 With the rspec integration, `rspec --seed 1234` reproduces fake data
 along with test order, and `auto_fake` installs a seeded fake as the
@@ -109,11 +113,10 @@ them offline, above the transport (no HTTP interception):
 
 ```ruby
 # records against the live client when the file is missing, replays after
-cassette = GraphWeaver::Testing::Cassette.use("github", client: live)
+client = GraphWeaver::Testing.cassette("github", client: live)
 ```
 
-Re-record with `GRAPHWEAVER_RECORD=1`, anonymize before committing
-(`config.anonymize = true` scrubs as recordings happen, or
-`rake graph_weaver:cassettes:anonymize` after) — the full workflow guide
-is **[cassettes](cassettes.md)**.
+Re-record with `GRAPHWEAVER_RECORD=1`, and set `config.anonymize = true` so
+real data never lands in a committed file — the full workflow guide is
+**[cassettes](cassettes.md)**.
 

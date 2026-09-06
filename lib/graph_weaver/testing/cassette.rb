@@ -7,32 +7,66 @@ require "yaml"
 
 module GraphWeaver
   module Testing
-    # Raised by Replayer when a request has no recording.
+    # Raised by Replayer when a request has no recording. The query
+    # usually matches and the variables don't, so the variables lead and
+    # the recorded ones for the same query come next — the diff you'd
+    # otherwise do by eye against the YAML.
     class MissingRecording < GraphWeaver::Error
-      def initialize(path:, query:)
-        super(<<~MSG.strip)
-          no recording for this request in #{path} — re-record it
-          (Recorder / Cassette.use with a live client, or delete
-          the cassette to start over). Query:
-          #{query.strip[0, 200]}
-        MSG
+      # how many recorded variable sets to print before summarizing
+      SHOWN = 5
+
+      def initialize(path:, query:, variables:, recorded:, size:)
+        super([
+          "no recording for this request in #{path}",
+          "  variables: #{Cassette.normalize_variables(variables).inspect}",
+          "  #{self.class.recorded_summary(recorded, size)}",
+          "  query: #{Cassette.summarize(query)}",
+          "re-record it (GRAPHWEAVER_RECORD=1 with a client:), or delete the cassette to start over.",
+        ].join("\n"))
+      end
+
+      def self.recorded_summary(recorded, size)
+        return "no entry recorded for this query (#{size} in the cassette)" if recorded.empty?
+
+        more = recorded.size > SHOWN ? " (+#{recorded.size - SHOWN} more)" : ""
+        "#{recorded.size} #{(recorded.size == 1) ? "entry" : "entries"} recorded for this query, " \
+          "with variables #{recorded.first(SHOWN).map(&:inspect).join(", ")}#{more}"
       end
     end
 
-    # Capture/replay above the transport (no HTTP interception): a
-    # cassette is a YAML file of {query, variables, response} entries,
-    # keyed on the normalized query + variables + operationName.
-    #
-    #      # record against a real client, replay when the file exists:
-    #      client = GraphWeaver::Testing::Cassette.use("github", client: real)
-    #
-    # Cassettes hold real responses — anonymize before committing:
-    #
-    #      Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
-    #
-    # keeps every shape (list lengths, null positions, enums, __typename,
-    # id relationships via a consistent mapping) while replacing values
-    # with fakes, semantically matched where field names allow.
+    class << self
+      # The cassette-backed client: replays spec/cassettes/<name>.yml when
+      # it exists, records it through client: when it doesn't (VCR's once
+      # mode). Record mode (GRAPHWEAVER_RECORD=1 / config.record) always
+      # records, so it needs a client: too.
+      #
+      #      client = GraphWeaver::Testing.cassette("github", client: live)
+      #      result = RepoQuery.execute!(client, owner: "dpep")
+      #
+      def cassette(name, client: nil)
+        file = Cassette.new(name)
+
+        if client && (config.record || !file.exist?)
+          Recorder.new(client, file)
+        elsif config.record
+          # record mode without a client would quietly serve the stale
+          # recording — the one thing "re-record everything" didn't ask for
+          raise GraphWeaver::Error, "record mode is on but no `client:` was given for #{file.path} " \
+            "— pass a live `client:` to re-record it, or turn record mode off " \
+            "(GRAPHWEAVER_RECORD / Testing.config.record)."
+        elsif file.exist?
+          Replayer.new(file)
+        else
+          # a first run, not a missing recording: there is no request yet
+          raise GraphWeaver::Error, "#{file.path} doesn't exist and no `client:` was given to " \
+            "record with — pass `client:` on the first run, or commit the cassette."
+        end
+      end
+    end
+
+    # The cassette file itself: a YAML list of {query, variables, response}
+    # entries. Testing.cassette wraps one in a record/replay client; this is
+    # the file object behind it — and what the anonymize rake task rewrites.
     class Cassette
       attr_reader :path
 
@@ -44,38 +78,28 @@ module GraphWeaver
       def exist? = File.exist?(@path)
       def size = @entries.size
 
-      # Replay when recorded, record when not (VCR's once mode).
-      # client: is required to record; omit it to replay-or-raise.
-      # With Testing.config.record on (or GRAPHWEAVER_RECORD=1), always
-      # records — the "just re-record everything" switch.
-      def self.use(path, client: nil)
-        cassette = new(path)
-        if Testing.config.record && client
-          Recorder.new(client, cassette)
-        elsif cassette.exist?
-          Replayer.new(cassette)
-        elsif client
-          Recorder.new(client, cassette)
-        else
-          raise MissingRecording.new(path: cassette.path, query: "(no client to record with)")
-        end
-      end
-
       def lookup(query, variables, operation_name = nil)
         wanted = self.class.key(query, variables, operation_name)
-        @entries.find { |entry| entry["key"] == wanted }
+        @entries.find { |entry| self.class.entry_key(entry) == wanted }
+      end
+
+      # every variables hash recorded for this query — what a miss needs
+      # to show, since the variables are what usually differ
+      def variants(query, operation_name = nil)
+        normalized = self.class.normalize_query(query)
+        @entries.select do |entry|
+          self.class.normalize_query(entry["query"]) == normalized && entry["operationName"] == operation_name
+        end.map { |entry| entry["variables"] || {} }
       end
 
       def record(query, variables, response, operation_name = nil)
-        entry = {
-          "key" => self.class.key(query, variables, operation_name),
-          "query" => query,
-        }
+        entry = { "query" => query }
         entry["operationName"] = operation_name if operation_name
         entry["variables"] = self.class.normalize_variables(variables)
         entry["response"] = response
 
-        @entries.reject! { |existing| existing["key"] == entry["key"] }
+        wanted = self.class.key(query, variables, operation_name)
+        @entries.reject! { |existing| self.class.entry_key(existing) == wanted }
         @entries << entry
         save
       end
@@ -96,11 +120,24 @@ module GraphWeaver
       # The request's identity, exactly as the server sees it. operationName
       # is part of that: it picks the operation the document runs, so two
       # requests with identical text but different names are different
-      # requests. Omitted when anonymous, so those keys stay as they were.
+      # requests. Derived, never stored — the file holds the request once,
+      # so a hand-edited entry can't disagree with what replay matches on.
       def self.key(query, variables, operation_name = nil)
-        key = { "query" => query.gsub(/\s+/, " ").strip, "variables" => normalize_variables(variables) }
+        key = { "query" => normalize_query(query), "variables" => normalize_variables(variables) }
         key["operationName"] = operation_name if operation_name
         key
+      end
+
+      def self.entry_key(entry)
+        key(entry["query"], entry["variables"], entry["operationName"])
+      end
+
+      def self.normalize_query(query) = query.gsub(/\s+/, " ").strip
+
+      # one readable line: an error naming a 60-line query is a wall, not a hint
+      def self.summarize(query, limit: 160)
+        normalized = normalize_query(query)
+        (normalized.length > limit) ? "#{normalized[0, limit]}…" : normalized
       end
 
       # JSON round-trip so symbol keys become strings — otherwise YAML.dump
@@ -119,18 +156,18 @@ module GraphWeaver
     end
 
     # Tees requests through a live client and records every response.
-    # With Testing.config.anonymize (or anonymize: true), responses are
-    # anonymized as they're recorded — and the anonymized version is what
-    # the caller sees too, so assertions written now hold on replay.
+    # With Testing.config.anonymize, responses are anonymized as they're
+    # recorded — and the anonymized version is what the caller sees too,
+    # so assertions written now hold on replay.
     class Recorder
-      def initialize(client, cassette, anonymize: nil)
+      def initialize(client, cassette)
         # the recorder speaks the transport contract (execute(q, variables:)),
         # not Client#execute(q, **variables) — unwrap like every other call site
         @client = GraphWeaver.resolve_transport(client)
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
 
         config = Testing.config
-        if anonymize.nil? ? config.anonymize : anonymize
+        if config.anonymize
           unless config.schema
             raise ArgumentError, "anonymizing recordings needs GraphWeaver::Testing.config.schema"
           end
@@ -159,7 +196,10 @@ module GraphWeaver
 
       def execute(query, variables: {}, operation_name: nil)
         entry = @cassette.lookup(query, variables, operation_name)
-        raise MissingRecording.new(path: @cassette.path, query:) unless entry
+        unless entry
+          raise MissingRecording.new(path: @cassette.path, query:, variables:,
+            recorded: @cassette.variants(query, operation_name), size: @cassette.size)
+        end
 
         entry["response"]
       end

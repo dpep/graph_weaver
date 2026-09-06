@@ -40,14 +40,27 @@ describe GraphWeaver::Testing::Cassette do
       expect(live.calls).to eq 1 # replay never touched the live executor
     end
 
-    it "matches on query AND variables, raising helpfully on a miss" do
+    it "matches on query AND variables, naming both on a miss" do
       GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" })
 
       replay = GraphWeaver::Testing::Replayer.new(path)
       expect {
         replay.execute(PersonQuery::QUERY, variables: { "id" => "2" })
-      }.to raise_error(GraphWeaver::Testing::MissingRecording, /no recording|re-record/)
+      }.to raise_error(GraphWeaver::Testing::MissingRecording) { |error|
+        expect(error.message).to include('variables: {"id" => "2"}')
+        expect(error.message).to include('1 entry recorded for this query, with variables {"id" => "1"}')
+        expect(error.message).to include("re-record")
+      }
+    end
+
+    it "says so when nothing was recorded for the query itself" do
+      GraphWeaver::Testing::Recorder.new(live, path)
+        .execute(PersonQuery::QUERY, variables: { "id" => "1" })
+
+      expect {
+        GraphWeaver::Testing::Replayer.new(path).execute("query { people { id } }")
+      }.to raise_error(GraphWeaver::Testing::MissingRecording, /no entry recorded for this query \(1 in the cassette\)/)
     end
 
     it "keys on the operation name, so one document's two operations don't collide" do
@@ -66,15 +79,30 @@ describe GraphWeaver::Testing::Cassette do
         .to raise_error(GraphWeaver::Testing::MissingRecording)
     end
 
-    it "Cassette.use records when the file is missing, replays when present" do
-      first = GraphWeaver::Testing::Cassette.use(path, client: live)
+    it "Testing.cassette records when the file is missing, replays when present" do
+      first = GraphWeaver::Testing.cassette(path, client: live)
       expect(first).to be_a GraphWeaver::Testing::Recorder
       PersonQuery.execute!(first, id: "1")
 
-      second = GraphWeaver::Testing::Cassette.use(path, client: live)
+      second = GraphWeaver::Testing.cassette(path, client: live)
       expect(second).to be_a GraphWeaver::Testing::Replayer
       expect(PersonQuery.execute!(second, id: "1").person&.name).to eq "Daniel"
       expect(live.calls).to eq 1
+    end
+
+    it "names the first-run situation instead of borrowing MissingRecording" do
+      expect { GraphWeaver::Testing.cassette(path) }
+        .to raise_error(GraphWeaver::Error, /demo\.yml doesn't exist and no `client:` was given to record with/)
+    end
+
+    it "matches on the entry's own query and variables — nothing else is stored" do
+      query = "query { people { id } }"
+      File.write(path, YAML.dump([{ "query" => query, "variables" => {}, "response" => { "data" => {} } }]))
+
+      expect(described_class.new(path).lookup(query, {})).not_to be_nil
+
+      described_class.new(path).record(query, { "id" => "1" }, { "data" => {} })
+      expect(File.read(path)).not_to include("key:") # one representation of the request, not two
     end
 
     it "resolves bare names against config.cassette_dir" do
@@ -89,14 +117,22 @@ describe GraphWeaver::Testing::Cassette do
 
   describe "record mode and anonymize-on-record" do
     it "config.record forces re-recording even when the cassette exists" do
-      described_class.use(path, client: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
+      GraphWeaver::Testing.cassette(path, client: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
       expect(live.calls).to eq 1
 
       GraphWeaver::Testing.configure { |config| config.record = true }
-      executor = described_class.use(path, client: live)
+      executor = GraphWeaver::Testing.cassette(path, client: live)
       expect(executor).to be_a GraphWeaver::Testing::Recorder
       executor.execute(PersonQuery::QUERY, variables: { "id" => "1" })
       expect(live.calls).to eq 2 # hit the live executor again
+    end
+
+    it "refuses to replay in record mode, rather than serving a stale recording" do
+      GraphWeaver::Testing.cassette(path, client: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
+      GraphWeaver::Testing.configure { |config| config.record = true }
+
+      expect { GraphWeaver::Testing.cassette(path) }
+        .to raise_error(GraphWeaver::Error, /record mode is on but no `client:` was given for .*demo\.yml/)
     end
 
     it "config.anonymize scrubs responses as they are recorded" do
@@ -214,7 +250,7 @@ describe GraphWeaver::Testing::Cassette do
     end
 
     it "records against a Client, the call the docs show" do
-      recorder = described_class.use(path, client: GraphWeaver.new(Demo::Schema))
+      recorder = GraphWeaver::Testing.cassette(path, client: GraphWeaver.new(Demo::Schema))
 
       expect(PersonQuery.execute!(recorder, id: "1").person&.name).to eq "Daniel"
       expect(described_class.new(path).size).to eq 1
