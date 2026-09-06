@@ -314,20 +314,27 @@ describe GraphWeaver::SchemaLoader do
         expect(schema.get_type("Query").fields["node"].type.unwrap.graphql_name).to eq "link"
       end
 
-      it "loads a supergraph carrying non-federation directives on `schema`" do
-        sdl = <<~GRAPHQL
-          schema @link(url: "https://specs.apollo.dev/link/v1.0") @tag(name: "public") { query: Query }
-          directive @link(url: String!) repeatable on SCHEMA
-          directive @tag(name: String!) repeatable on SCHEMA | OBJECT
-          directive @join__type(graph: join__Graph!) repeatable on OBJECT
-          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
-          type Query @join__type(graph: A) @tag(name: "public") { thing: String }
-        GRAPHQL
-        schema = described_class.load(sdl)
+      # graphql-ruby's printer omits a schema definition's root-types body when
+      # the names are the GraphQL defaults, but still prints its directives —
+      # so a survivor reprints as an unparseable braceless `schema @tag(...)`
+      ['@tag(name: "public")', '@composeDirective(name: "@mine")'].each do |directive|
+        it "loads a supergraph carrying #{directive[/\w+/]} on `schema`" do
+          sdl = <<~GRAPHQL
+            schema @link(url: "https://specs.apollo.dev/link/v1.0") #{directive} { query: Query }
+            directive @link(url: String!) repeatable on SCHEMA
+            directive @tag(name: String!) repeatable on SCHEMA | OBJECT
+            directive @composeDirective(name: String!) repeatable on SCHEMA
+            directive @join__type(graph: join__Graph!) repeatable on OBJECT
+            enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+            type Query @join__type(graph: A) @tag(name: "public") { thing: String }
+          GRAPHQL
 
-        expect(schema.get_type("Query").fields.keys).to eq %w[thing]
+          expect(described_class.load(sdl).get_type("Query").fields.keys).to eq %w[thing]
+        end
       end
 
+      # the printer DOES print the body here, so this loaded before the fix —
+      # it's the case a too-eager fix would break
       it "keeps a supergraph's non-conventional root type names" do
         sdl = <<~GRAPHQL
           schema @tag(name: "public") { query: RootQuery }
@@ -363,8 +370,17 @@ describe GraphWeaver::SchemaLoader do
           GRAPHQL
         }.to raise_error(GraphWeaver::Error, /supergraph SDL/)
 
+        # a subgraph applying a directive outside the spec — we can't supply
+        # that definition, so say what we thought we were reading
+        expect {
+          described_class.load("type Query {\n  a: String\n}\ntype User @key(fields: \"id\") @nope { id: ID! }")
+        }.to raise_error(GraphWeaver::Error, /subgraph SDL/)
+
         expect { described_class.load("type Query {\n  thing: Nowhere\n}") }
           .to raise_error(GraphWeaver::Error, /plain SDL/)
+
+        expect { described_class.load("type Query {\n  oops\n}") } # unparseable
+          .to raise_error(GraphWeaver::Error, /plain SDL.*ParseError/m)
 
         expect { described_class.load({ "data" => {} }) }
           .to raise_error(GraphWeaver::Error, /introspection result/)

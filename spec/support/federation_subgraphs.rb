@@ -96,4 +96,37 @@ module FederationDemo
       query Query
     end
   end
+
+  # The same USERS graph as a federation *2* subgraph: `extend schema @link`
+  # to the federation spec, and — since apollo-federation links it under the
+  # default "federation" namespace — directives applied as @federation__key.
+  module UsersV2
+    class User < BaseObject
+      graphql_name "User"
+      key fields: :id
+      shareable
+
+      field :id, ID, null: false
+      field :name, String, null: false
+    end
+
+    class Query < BaseObject
+      graphql_name "Query"
+
+      field :user, User, null: true do
+        argument :id, ID, required: true
+      end
+
+      def user(id:)
+        name = PEOPLE[id.to_s]
+        name && { id:, name: }
+      end
+    end
+
+    class Schema < GraphQL::Schema
+      include ApolloFederation::Schema
+      federation version: "2.3"
+      query Query
+    end
+  end
 end

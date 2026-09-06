@@ -48,11 +48,19 @@ module GraphWeaver
       super
     end
 
+    # keeps #method and #respond_to? agreeing with method_missing — without
+    # it `struct.method(:nmae)` raises a bare NameError while `struct.nmae`
+    # gets the hint
+    def respond_to_missing?(name, include_private = false)
+      !!prop_hint(name.to_s) || super
+    end
+
     private
 
     def prop_hint(name)
       prop = GraphWeaver::Inflect.underscore(name)
-      if prop != name && respond_to?(prop)
+      # method_defined?, not respond_to? — respond_to_missing? lands back here
+      if prop != name && T.unsafe(self.class).method_defined?(prop)
         return "GraphQL fields generate snake_case props; use '#{prop}'"
       end
 

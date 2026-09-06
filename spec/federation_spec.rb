@@ -74,6 +74,39 @@ describe "federation / supergraph" do
     expect(result.user&.name).to eq "Daniel"
     expect(result.user&.pet_names).to eq ["Shelby"]
   end
+
+  # the older spelling of the same machinery: @core instead of @link, plus
+  # @join__owner
+  it "loads a federation v1 supergraph" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      schema
+        @core(feature: "https://specs.apollo.dev/core/v0.1")
+        @core(feature: "https://specs.apollo.dev/join/v0.1", for: EXECUTION)
+      {
+        query: Query
+      }
+
+      directive @core(feature: String!, for: core__Purpose) repeatable on SCHEMA
+      directive @join__owner(graph: join__Graph!) on OBJECT | INTERFACE
+      directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | INTERFACE
+      directive @join__field(graph: join__Graph, requires: join__FieldSet) on FIELD_DEFINITION
+      directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+      scalar join__FieldSet
+      enum core__Purpose { EXECUTION SECURITY }
+      enum join__Graph { USERS @join__graph(name: "users", url: "http://users/graphql") }
+
+      type Query { user(id: ID!): User @join__field(graph: USERS) }
+
+      type User @join__owner(graph: USERS) @join__type(graph: USERS, key: "id") {
+        id: ID! @join__field(graph: USERS)
+        name: String! @join__field(graph: USERS)
+      }
+    GRAPHQL
+
+    expect(schema.types.keys.grep(/join__|core__/)).to be_empty
+    expect(schema.get_type("User").fields.keys).to eq %w[id name]
+  end
 end
 
 # The artifact a service repo actually holds — one subgraph's own SDL, which
@@ -99,7 +132,16 @@ describe "federation / subgraph SDL" do
     expect(schema.get_type("User").fields.keys).to eq %w[id petNames]
   end
 
-  it "loads a fed-2 subgraph that @links the federation spec" do
+  # apollo-federation emits fed-2 SDL as `extend schema @link(...)` with the
+  # directives under the link's namespace — @federation__key, not @key
+  it "loads a real fed-2 subgraph that @links the federation spec" do
+    sdl = sdl_of(FederationDemo::UsersV2::Schema)
+    expect(sdl).to include("@federation__key") # the shape under test
+
+    expect(GraphWeaver::SchemaLoader.load(sdl).get_type("User").fields.keys).to eq %w[id name]
+  end
+
+  it "loads an unnamespaced @link subgraph too" do
     schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
       extend schema
         @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
@@ -111,16 +153,19 @@ describe "federation / subgraph SDL" do
     expect(schema.get_type("User").fields.keys).to eq %w[id name]
   end
 
+  # a duplicate definition is a hard error in graphql-ruby, so the subgraph's
+  # own declarations must win and only the rest get supplied
   it "leaves a subgraph's own directive definitions alone" do
     schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
       directive @key(fields: _FieldSet!) repeatable on OBJECT
       scalar _FieldSet
       type Query { user: User }
-      type User @key(fields: "id") { id: ID! }
+      type User @key(fields: "id") { id: ID! email: String @external }
     GRAPHQL
 
     expect(schema.get_type("_FieldSet")).not_to be_nil
-    expect(schema.get_type("FieldSet")).to be_nil
+    expect(schema.get_type("FieldSet")).to be_nil # @key kept its own FieldSet type
+    expect(schema.get_type("User").fields.keys).to eq %w[id email] # @external was supplied
   end
 
   it "detects a subgraph, and doesn't mistake a plain schema or a supergraph for one" do

@@ -155,20 +155,31 @@ module GraphWeaver::SchemaLoader
     "link__Purpose" => "enum link__Purpose { SECURITY EXECUTION }",
   }.freeze
 
-  # Prepend the definitions this subgraph applies but doesn't declare. Only
-  # the missing ones — a duplicate definition is a hard error in
-  # graphql-ruby, and a subgraph spelling out its own @key (fed-1 style, or a
-  # differing shape) must win.
+  # A fed-2 subgraph that @links the spec under a namespace — `as: "fed"`,
+  # and "federation" is the default — applies every non-imported directive
+  # under it: @federation__key rather than @key.
+  def self.subgraph_namespace(sdl)
+    sdl[/#{SUBGRAPH_LINK}[^)]*\bas:\s*"([^"]+)"/, 1] || "federation"
+  end
+  private_class_method :subgraph_namespace
+
+  # Prepend the definitions this subgraph applies but doesn't declare, under
+  # whichever name it applies them by. Only the missing ones — a duplicate
+  # definition is a hard error in graphql-ruby, and a subgraph spelling out
+  # its own @key (fed-1 style, or a differing shape) must win.
   def self.add_subgraph_definitions(sdl)
     defined = GraphQL.parse(sdl).definitions.filter_map do |defn|
       next unless defn.respond_to?(:name)
 
       defn.is_a?(GraphQL::Language::Nodes::DirectiveDefinition) ? "@#{defn.name}" : defn.name
     end.to_set
+    namespace = subgraph_namespace(sdl)
 
-    directives = SUBGRAPH_DIRECTIVE_DEFS
-      .select { |name, _| !defined.include?(name) && sdl.match?(/#{name}\b/) }
-      .values
+    directives = SUBGRAPH_DIRECTIVE_DEFS.filter_map do |name, defn|
+      applied = [name, "@#{namespace}__#{name.delete_prefix("@")}"]
+        .find { |as| !defined.include?(as) && sdl.match?(/#{as}\b/) }
+      applied && defn.sub(name, applied)
+    end
     types = SUBGRAPH_HELPER_TYPES
       .select { |name, _| !defined.include?(name) && directives.any? { |defn| defn.include?(name) } }
       .values
@@ -348,7 +359,10 @@ module GraphWeaver::SchemaLoader
   #     reads (its extension picks the format)
   #   - a path — the extension picks the format: .json is the verbatim
   #     introspection result, .graphql/.gql is SDL (human-readable,
-  #     PR-reviewable diffs); both load back identically
+  #     PR-reviewable diffs). Both load back to the same schema, but not
+  #     at the same cost: SDL has to be parsed, so on a big schema
+  #     (GitHub's 2.9 MB) it's roughly twice as slow to load — SDL for
+  #     reviewability, JSON when boot time matters.
   #   - :json / :graphql / :gql — GraphWeaver.schema_path's location, in
   #     that format
   # Reading is format-agnostic: any fresh sibling dump counts, whatever
