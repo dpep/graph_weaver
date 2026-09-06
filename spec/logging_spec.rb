@@ -82,3 +82,62 @@ describe "GraphWeaver.logger" do
     expect(GraphWeaver.log_timed(:debug, "label") { 42 }).to eq 42
   end
 end
+
+describe "GraphWeaver.instrumenter" do
+  include_context "graphql http server"
+
+  let(:events) { [] }
+
+  around do |example|
+    # the shape an ActiveSupport::Notifications adapter has
+    GraphWeaver.instrumenter = lambda do |event, payload, &block|
+      events << [event, payload]
+      block.call
+    end
+    example.run
+  ensure
+    GraphWeaver.instrumenter = nil
+  end
+
+  it "wraps a request over the wire, naming the operation and the status" do
+    result = GraphWeaver::Transport::HTTP.new(url).execute("query Wired { people { name } }")
+
+    expect(result).to have_key "data" # the block's value passes through
+    expect(events.size).to eq 1
+    event, payload = events.first
+    expect(event).to eq GraphWeaver::EXECUTE_EVENT
+    expect(payload[:url]).to eq url
+    expect(payload[:operation]).to eq "Wired"
+    expect(payload[:status]).to eq 200 # set inside the block, APM-style
+  end
+
+  it "wraps an in-process request through the same seam" do
+    GraphWeaver::InProcess.new(Demo::Schema).execute("query Local { people { name } }")
+
+    _event, payload = events.first
+    expect(payload[:schema]).to eq "Demo::Schema"
+    expect(payload[:operation]).to eq "Local"
+    expect(payload[:url]).to be_nil
+  end
+
+  it "carries the query text and variables nowhere near the payload (PII)" do
+    GraphWeaver::Transport::HTTP.new(url).execute(
+      "query { person(id: $id) { name } }", variables: { "id" => "1" }
+    )
+
+    expect(events.first.last.values.join).not_to include("person")
+  end
+
+  it "lets a failure propagate, so the hook can record it" do
+    bad = GraphWeaver::Transport::HTTP.new("http://127.0.0.1:#{@port}/nope")
+
+    expect { bad.execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
+    expect(events.size).to eq 1
+  end
+
+  it "is a no-op when unset" do
+    GraphWeaver.instrumenter = nil
+
+    expect(GraphWeaver.instrument("x", {}) { 42 }).to eq 42
+  end
+end

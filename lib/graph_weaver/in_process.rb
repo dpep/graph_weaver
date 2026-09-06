@@ -42,6 +42,18 @@ class GraphWeaver::InProcess
   end
 
   def execute(query, variables: {})
+    payload = {
+      url: nil, schema: @schema.to_s, operation: GraphWeaver::Transport.operation_name(query)
+    }
+
+    GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+      perform(query, variables)
+    end
+  end
+
+  # The query itself. Separate from execute so the instrumenter wraps a
+  # call rather than a block this method returns out of.
+  private def perform(query, variables)
     # same tag/truncation as the network transports, so one log reads the
     # same whichever side of the seam a query ran on
     tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(query)

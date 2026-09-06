@@ -44,6 +44,16 @@ class GraphWeaver::Transport
   attr_reader :url
 
   def execute(query, variables: {})
+    payload = { url:, operation: GraphWeaver::Transport.operation_name(query) }
+
+    GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+      perform(query, variables, payload)
+    end
+  end
+
+  # The request itself. Separate from execute so the instrumenter wraps
+  # a call rather than a block this method returns out of.
+  private def perform(query, variables, payload)
     # tag pairs this request's log lines (threads interleave), and names
     # the operation so the log says WHICH query, not just the url
     tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(query)
@@ -72,6 +82,7 @@ class GraphWeaver::Transport
       raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end
 
+    payload[:status] = status
     GraphWeaver.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
 
     parsed = parse_body(body)
@@ -118,13 +129,20 @@ class GraphWeaver::Transport
   end
   alias to_s inspect
 
+  # the name the document gives its operation, nil when anonymous —
+  # what an APM keys traces on, and what makes a log line say WHICH query
+  OPERATION_NAME = /\A\s*(?:query|mutation|subscription)\s+([A-Za-z_]\w*)/
+  def self.operation_name(query)
+    query[OPERATION_NAME, 1]
+  end
+
   # "[req 3 FilteredPokemon]" — a per-process request id plus the
   # operation name (when the document declares one)
   REQUEST_MUTEX = Mutex.new
 
   def self.log_tag(query)
     id = REQUEST_MUTEX.synchronize { @request_count = (@request_count || 0) + 1 }
-    name = query[/\A\s*(?:query|mutation|subscription)\s+([A-Za-z_]\w*)/, 1]
+    name = operation_name(query)
     "[req #{id}#{" #{name}" if name}]"
   end
 

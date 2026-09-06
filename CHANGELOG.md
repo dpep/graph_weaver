@@ -210,6 +210,13 @@ Transport improvements from the same review:
   forwarded to `Net::HTTP.start` — a private CA or mTLS no longer means
   switching to Faraday, which was the real but undiscoverable answer. Passing
   one to an `http://` url raises instead of quietly doing nothing.
+- **An instrumentation seam**: `GraphWeaver.instrumenter = ->(event, payload,
+  &block) { ... }`, a no-op until set, wrapping every request — over the wire
+  and in-process, one seam for both. `ActiveSupport::Notifications` becomes a
+  two-line adapter. The one event is `GraphWeaver::EXECUTE_EVENT`; its payload
+  carries `:url`, `:schema`, `:operation` and `:status`, and deliberately not
+  the query or variables (those are PII, and belong at debug on the logger
+  where the level gates them). See `docs/logging.md`.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

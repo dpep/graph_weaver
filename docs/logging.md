@@ -31,3 +31,37 @@ which connection served it.
 only — variables can carry user data, so keep production loggers at
 info or above (or scrub in your formatter). Auth headers never log at
 any level.
+
+## Instrumentation
+
+A logger tells a human what happened; an APM needs to time it and count
+it. `GraphWeaver.instrumenter` is one callable wrapping every request —
+over the wire *and* in-process, one seam for both paths. It's a no-op
+until you set one, and `ActiveSupport::Notifications` is a two-line
+adapter:
+
+```ruby
+GraphWeaver.instrumenter = lambda do |event, payload, &block|
+  ActiveSupport::Notifications.instrument(event, payload, &block)
+end
+
+ActiveSupport::Notifications.subscribe(GraphWeaver::EXECUTE_EVENT) do |*, payload|
+  StatsD.timing("graphql.#{payload[:operation] || "anonymous"}", ...)
+end
+```
+
+The one event is `GraphWeaver::EXECUTE_EVENT`
+(`"graph_weaver.execute"`), a single request from start to parsed
+response. Its payload carries:
+
+| Key | |
+|-----|--|
+| `:url` | the endpoint — nil in-process |
+| `:schema` | the schema class, in-process only |
+| `:operation` | the document's operation name, nil when anonymous — what a trace keys on |
+| `:status` | the HTTP status, added once the response lands |
+
+Your callable **must** call the block and return its value. A failure
+propagates through it, so the hook sees the exception and can record it.
+The query text and the variables are deliberately absent: they carry
+PII, and belong at debug on the logger where the level gates them.
