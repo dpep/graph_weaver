@@ -27,6 +27,9 @@ app/graphql/
     *_query.rb       # one module per query — generated, checked in, never edited
 ```
 
+One operation per file: the whole document goes on the wire and nothing sends
+`operationName`, so a file holding two operations is refused at generation.
+
 The schema dump is step 0 — codegen reads it, never a live endpoint.
 `cache: true` on a url client writes it on first introspection
 (`GraphWeaver.new(url, cache: true).schema` in a console bootstraps it);

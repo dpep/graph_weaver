@@ -31,7 +31,7 @@ it failed:
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
-| `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field — `#field`, `#struct` |
+| `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#field`, `#struct` |
 | `ValidationError` | build time: the query didn't validate against the schema |
 
 ```ruby
