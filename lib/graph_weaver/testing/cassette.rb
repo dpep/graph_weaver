@@ -34,20 +34,39 @@ module GraphWeaver
       end
     end
 
-    # Capture/replay above the transport (no HTTP interception): a
-    # cassette is a YAML file of {query, variables, response} entries,
-    # keyed on the normalized query + variables + operationName.
-    #
-    #      # record against a real client, replay when the file exists:
-    #      client = GraphWeaver::Testing::Cassette.use("github", client: real)
-    #
-    # Cassettes hold real responses — anonymize before committing:
-    #
-    #      Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
-    #
-    # keeps every shape (list lengths, null positions, enums, __typename,
-    # id relationships via a consistent mapping) while replacing values
-    # with fakes, semantically matched where field names allow.
+    class << self
+      # The cassette-backed client: replays spec/cassettes/<name>.yml when
+      # it exists, records it through client: when it doesn't (VCR's once
+      # mode). Record mode (GRAPHWEAVER_RECORD=1 / config.record) always
+      # records, so it needs a client: too.
+      #
+      #      client = GraphWeaver::Testing.cassette("github", client: live)
+      #      result = RepoQuery.execute!(client, owner: "dpep")
+      #
+      def cassette(name, client: nil)
+        file = Cassette.new(name)
+
+        if client && (config.record || !file.exist?)
+          Recorder.new(client, file)
+        elsif config.record
+          # record mode without a client would quietly serve the stale
+          # recording — the one thing "re-record everything" didn't ask for
+          raise GraphWeaver::Error, "record mode is on but no `client:` was given for #{file.path} " \
+            "— pass a live `client:` to re-record it, or turn record mode off " \
+            "(GRAPHWEAVER_RECORD / Testing.config.record)."
+        elsif file.exist?
+          Replayer.new(file)
+        else
+          # a first run, not a missing recording: there is no request yet
+          raise GraphWeaver::Error, "#{file.path} doesn't exist and no `client:` was given to " \
+            "record with — pass `client:` on the first run, or commit the cassette."
+        end
+      end
+    end
+
+    # The cassette file itself: a YAML list of {query, variables, response}
+    # entries. Testing.cassette wraps one in a record/replay client; this is
+    # the file object behind it — and what the anonymize rake task rewrites.
     class Cassette
       attr_reader :path
 
@@ -58,25 +77,6 @@ module GraphWeaver
 
       def exist? = File.exist?(@path)
       def size = @entries.size
-
-      # Replay when recorded, record when not (VCR's once mode).
-      # client: is required to record; omit it to replay-or-raise.
-      # With Testing.config.record on (or GRAPHWEAVER_RECORD=1), always
-      # records — the "just re-record everything" switch.
-      def self.use(path, client: nil)
-        cassette = new(path)
-        if Testing.config.record && client
-          Recorder.new(client, cassette)
-        elsif cassette.exist?
-          Replayer.new(cassette)
-        elsif client
-          Recorder.new(client, cassette)
-        else
-          # a first run, not a missing recording: there is no request yet
-          raise GraphWeaver::Error, "#{cassette.path} doesn't exist and no `client:` was given to " \
-            "record with — pass `client:` on the first run, or commit the cassette."
-        end
-      end
 
       def lookup(query, variables, operation_name = nil)
         wanted = self.class.key(query, variables, operation_name)
@@ -157,18 +157,18 @@ module GraphWeaver
     end
 
     # Tees requests through a live client and records every response.
-    # With Testing.config.anonymize (or anonymize: true), responses are
-    # anonymized as they're recorded — and the anonymized version is what
-    # the caller sees too, so assertions written now hold on replay.
+    # With Testing.config.anonymize, responses are anonymized as they're
+    # recorded — and the anonymized version is what the caller sees too,
+    # so assertions written now hold on replay.
     class Recorder
-      def initialize(client, cassette, anonymize: nil)
+      def initialize(client, cassette)
         # the recorder speaks the transport contract (execute(q, variables:)),
         # not Client#execute(q, **variables) — unwrap like every other call site
         @client = GraphWeaver.resolve_transport(client)
         @cassette = cassette.is_a?(Cassette) ? cassette : Cassette.new(cassette)
 
         config = Testing.config
-        if anonymize.nil? ? config.anonymize : anonymize
+        if config.anonymize
           unless config.schema
             raise ArgumentError, "anonymizing recordings needs GraphWeaver::Testing.config.schema"
           end

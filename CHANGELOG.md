@@ -50,6 +50,22 @@ line.
 naming the actual situation. **Rescue `GraphWeaver::Error` if you were catching
 `MissingRecording` for this case.**
 
+**`Cassette.use` is now `GraphWeaver::Testing.cassette` — rename your calls.**
+It never returned a `Cassette`; it returns a *client* (a recorder or a replayer)
+to hand to `execute`, and the name said otherwise. `Cassette` is now only the
+file — `.new`, `#size`, `#anonymize!`.
+
+**Record mode with no `client:` now raises instead of replaying.**
+`GRAPHWEAVER_RECORD=1` on a `Testing.cassette(name)` call with nothing to record
+against quietly served the stale recording, so "re-record everything" produced a
+half-refreshed cassette set with no signal. **Pass `client:` to every call you
+want re-recorded.**
+
+**`Recorder.new(..., anonymize:)` is gone.** It was unreachable through the
+factory and duplicated `Testing.config.anonymize`. **Set the config flag** —
+that plus `rake graph_weaver:cassettes:anonymize` (for cassettes recorded before
+you turned it on) are the two remaining ways to scrub.
+
 **`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
 `generate!` and `check_queries` read the singular (the first entry) while
 `load_queries!` walked the whole list, so a second queries directory produced

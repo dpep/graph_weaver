@@ -1,42 +1,51 @@
 # Cassettes: capture and replay
 
 Cassettes record real API responses and replay them in tests — above the
-transport (a client wrapping a client), so there's no HTTP
-interception and they work identically over HTTP, Faraday, or in-process
-execution. A cassette is a YAML file of `{query, variables, response}`
-entries, matched on the normalized query + variables + `operationName` —
-the request's identity as the server sees it, so two operations in one
-document don't collide.
+transport (a client wrapping a client), so there's no HTTP interception and
+they work identically over HTTP, Faraday, or in-process execution. A cassette
+is a YAML list of `{query, variables, operationName, response}` entries,
+matched on everything but the response — the request's identity as the server
+sees it.
 
-## The workflow
+`Testing.cassette(name, client:)` returns a client that replays
+`spec/cassettes/<name>.yml`, recording it through `client:` first if the file
+doesn't exist yet.
 
 ```ruby
-# spec: replay when the cassette exists, record against `live` when not
-cassette = GraphWeaver::Testing::Cassette.use("github", client: live)
-result = RepoQuery.execute!(cassette, owner: "dpep", name: "graph_weaver")
+client = GraphWeaver::Testing.cassette("github", client: live)
+result = RepoQuery.execute!(client, owner: "dpep", name: "graph_weaver")
 ```
 
-1. **Record** — first run hits the live API and writes
-   `spec/cassettes/github.yml` (`Testing.config.cassette_dir` resolves bare
-   names).
-2. **Anonymize** — cassettes hold real data; scrub before committing (below).
-3. **Commit** — tests now run offline, fast, deterministic.
-4. **Re-record** when the API's real behavior changes:
+That first run writes `spec/cassettes/github.yml` (`Testing.config.cassette_dir`
+resolves bare names). Commit it — with anonymization on (below), since
+recordings hold real data — and the suite runs offline from then on. Re-record
+when the API's real behavior changes:
 
-   ```sh
-   GRAPHWEAVER_RECORD=1 bundle exec rspec   # every Cassette.use records afresh
-   ```
+```sh
+GRAPHWEAVER_RECORD=1 bundle exec rspec   # every Testing.cassette records afresh
+```
 
-   (`Testing.config.record = true` is the programmatic equivalent.)
-
-Replaying an unrecorded request raises `GraphWeaver::Testing::MissingRecording`
-with the query and the path — no silent fabrication.
+(`Testing.config.record = true` is the programmatic equivalent.) A call with no
+`client:` raises there, rather than quietly replaying the recording it was told
+to refresh. A *request* with no recording raises
+`GraphWeaver::Testing::MissingRecording`, naming the variables it was called
+with and the ones recorded for that same query — what usually differs.
 
 ## Anonymization
 
-Anonymizing rewrites recorded values through the same engine
-[FakeClient](testing.md) uses, while preserving everything that makes
-the recording faithful:
+Cassettes hold real responses, so scrub them as they're recorded: real data
+never reaches disk, and the caller sees the anonymized response too, so
+assertions written during the recording run still hold on replay.
+
+```ruby
+GraphWeaver::Testing.configure do |config|
+  config.schema = MySchema
+  config.anonymize = true
+end
+```
+
+Values are rewritten through the same engine [FakeClient](testing.md) uses,
+preserving everything that makes the recording faithful:
 
 | preserved | replaced |
 |-----------|----------|
@@ -44,35 +53,19 @@ the recording faithful:
 | enums, booleans, `__typename` | numbers, dates |
 | id *relationships* (same original id → same fake id) | the id values themselves |
 
-Three ways to run it:
+It needs the schema — it walks each recorded query's selections to know which
+values are enums, dates, ids. Variables are NOT anonymized: they're the replay
+matching key, so don't record with secret variables.
 
-```ruby
-# 1. as recordings happen — assertions you write against the recording
-#    run hold on replay, and real data never touches disk
-GraphWeaver::Testing.configure do |config|
-  config.schema = MySchema
-  config.anonymize = true
-end
-
-# 2. after the fact, per cassette
-GraphWeaver::Testing::Cassette.new("spec/cassettes/github.yml").anonymize!(schema:)
-```
+For cassettes recorded before the flag was on:
 
 ```sh
-# 3. the whole cassette_dir at once
-rake graph_weaver:cassettes:anonymize
+rake graph_weaver:cassettes:anonymize   # every cassette in cassette_dir, in place
 ```
 
-Anonymization needs the schema (it walks each recorded query's selections
-to know which values are enums, dates, ids...). Variables are NOT
-anonymized — they're the replay matching key; don't record with secret
-variables.
+## Cassette or FakeClient?
 
-## When to use what
-
-- **FakeClient** — no recording needed; schema-correct random data.
-  Best default for unit tests.
-- **Cassettes** — real response *shapes* from a real API (pagination
-  quirks, actual union members, servers' null habits). Best for
-  integration-ish tests and regression pinning.
-- **Anonymized cassettes** — cassette fidelity, committable without PII.
+[FakeClient](testing.md) needs no recording and is the better default for unit
+tests. Reach for a cassette when the *shape* of a real API's answers is the
+point — pagination quirks, which union member came back, where that server puts
+its nulls — and for pinning a regression.

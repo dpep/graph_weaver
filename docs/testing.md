@@ -109,11 +109,10 @@ them offline, above the transport (no HTTP interception):
 
 ```ruby
 # records against the live client when the file is missing, replays after
-cassette = GraphWeaver::Testing::Cassette.use("github", client: live)
+client = GraphWeaver::Testing.cassette("github", client: live)
 ```
 
-Re-record with `GRAPHWEAVER_RECORD=1`, anonymize before committing
-(`config.anonymize = true` scrubs as recordings happen, or
-`rake graph_weaver:cassettes:anonymize` after) — the full workflow guide
-is **[cassettes](cassettes.md)**.
+Re-record with `GRAPHWEAVER_RECORD=1`, and set `config.anonymize = true` so
+real data never lands in a committed file — the full workflow guide is
+**[cassettes](cassettes.md)**.
 
