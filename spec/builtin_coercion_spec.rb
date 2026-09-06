@@ -61,21 +61,31 @@ describe "built-in scalar coercion" do
     expect(float.coerce_type).to eq "T.any(Float, Integer, String)"
   end
 
-  it "widens the sig and converts each variable when coercion is on" do
+  it "widens the numeric sigs, and leaves String/ID strictly typed" do
     GraphWeaver.auto_coerce = true
 
     source = generate
 
+    # #to_s is a cast that can't fail, so auto-coercing it would only widen
+    # every String/ID kwarg to T.anything — the majority of real variables
     expect(source).to include(
       "amount: T.any(Float, Integer, String), " \
       "count: T.any(Integer, Float, String), " \
-      "id: T.anything, " \
-      "label: T.anything",
+      "id: String, " \
+      "label: String",
     )
     expect(source).to include('"amount" => amount.to_f,')
     expect(source).to include('"count" => count.to_i,')
+    expect(source).to include('"id" => id,')
+    expect(source).to include('"label" => label,')
+  end
+
+  it "still takes an explicit coerce: :to_s" do
+    GraphWeaver.register_scalar("ID", String, coerce: :to_s)
+    source = generate
+
+    expect(source).to include("id: T.anything")
     expect(source).to include('"id" => id.to_s,')
-    expect(source).to include('"label" => label.to_s,')
   end
 
   it "coerces raw inputs end to end, sending native wire values" do
@@ -88,10 +98,10 @@ describe "built-in scalar coercion" do
     )
 
     # amount/count arrive as strings but land on the wire as a Float/Integer;
-    # id (Integer) and label (Float, another built-in) are stringified via to_s
-    echo = mod.execute(amount: "5.5", count: "3", id: 42, label: 3.5).data!.echo
+    # id/label stay strictly typed, so they pass through as written
+    echo = mod.execute(amount: "5.5", count: "3", id: "42", label: "x").data!.echo
 
-    expect(echo).to eq "Float:5.5 Integer:3 String:42 String:3.5"
+    expect(echo).to eq "Float:5.5 Integer:3 String:42 String:x"
   end
 
   it "auto_coerce: Boolean stays strict (no lossless conversion); Date takes parse-style coercion" do

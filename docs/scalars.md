@@ -70,8 +70,8 @@ needs both a cast and a serialize. Off by default — the strict typed kwarg is 
 `coerce:` also takes a **Symbol** naming a conversion method, for built-ins where
 a plain method is the whole story — `coerce: :to_f` makes a variable accept
 `5`/`"5"` and `.to_f` it, sending a native number (not `"5.0"`) on the wire. The
-convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`,
-`ID`/`String`→`:to_s`), so rather than opting in each, flip the default:
+convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`), so
+rather than opting in each, flip the default:
 
 ```ruby
 GraphWeaver.auto_coerce = true
@@ -80,8 +80,11 @@ GraphWeaver.auto_coerce = true
 Resolved lazily at generation time (set it any time before you generate),
 it gives convertible built-ins their conversion and any scalar with a full
 cast/serialize pair (`Date`, your `Money`) parse-style coercion; an explicit
-`coerce:` on a registration always wins. `Boolean` has no lossless
-one-method conversion, so it stays strict.
+`coerce:` on a registration always wins. `Boolean` has no lossless one-method
+conversion, so it stays strict — and so do `String`/`ID`: `#to_s` is a cast
+that can't fail, so auto-coercing it would only widen every String/ID kwarg to
+`T.anything`, erasing static typing on the majority of real variables to buy
+nothing. `register_scalar("ID", String, coerce: :to_s)` opts in deliberately.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later

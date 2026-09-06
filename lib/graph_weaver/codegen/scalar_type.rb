@@ -73,11 +73,13 @@ class GraphWeaver::Codegen
       validate_coerce!
     end
 
-    # conversions applied to the four convertible built-ins when the
-    # global GraphWeaver.auto_coerce is on and no explicit coerce: given
-    AUTO_CONVERSIONS = {
-      "ID" => :to_s, "String" => :to_s, "Int" => :to_i, "Float" => :to_f,
-    }.freeze
+    # Conversions applied to the convertible built-ins when the global
+    # GraphWeaver.auto_coerce is on and no explicit coerce: given. ID and
+    # String are deliberately absent: #to_s is a cast that can't fail, not a
+    # coercion, so auto-coercing them would only widen every String/ID kwarg to
+    # T.anything — erasing static typing on the majority of real variables to
+    # buy nothing. `coerce: :to_s` per registration still opts in.
+    AUTO_CONVERSIONS = { "Int" => :to_i, "Float" => :to_f }.freeze
 
     def cast(expr) = @cast&.call(expr)
     def cast? = !@cast.nil?

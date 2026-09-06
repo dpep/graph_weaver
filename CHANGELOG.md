@@ -9,6 +9,14 @@ a variable in the query (`query($clientId: ID!)`) before regenerating.** A
 single input-object variable whose *field* is one of those names (which you
 can't rename) simply keeps its wrapping kwarg instead of being flattened.
 
+**`auto_coerce` no longer erases the typing of String/ID variables.** It mapped
+both to `#to_s`, which widened their kwargs to `T.anything` — the majority of
+real variables, statically unchecked, in exchange for a cast that can't fail.
+`auto_coerce` now covers only the conversions that are conversions (`Int`→`to_i`,
+`Float`→`to_f`) plus scalars with a full cast/serialize pair. **If you relied on
+a String/ID kwarg accepting anything, opt in per scalar:**
+`GraphWeaver.register_scalar("ID", String, coerce: :to_s)`.
+
 **An anonymous operation is now named after its module — in the query text and
 in `OPERATION_NAME`.** Requests started carrying `operationName` so servers and
 APMs can attribute traffic, but the constant was only set when the `.graphql`
