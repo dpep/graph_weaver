@@ -1,0 +1,168 @@
+require "graph_weaver/testing"
+
+# app-owned types for the enum-mapping and type-helper specs
+class PetKind < T::Enum
+  enums do
+    Cat = new("cat")
+    Dog = new("dog")
+    Unknown = new("unknown")
+  end
+end
+
+class CatsOnly < T::Enum
+  enums do
+    Cat = new("cat")
+  end
+end
+
+module PetShouting
+  def shout = "#{name}!"
+end
+
+# One registry, global, consulted by every generation path — the console
+# (parse) and the build step (generate!) alike.
+describe "the registration registry" do
+  around do |example|
+    enums = GraphWeaver::Codegen.enum_registry.dup
+    types = GraphWeaver::Codegen.type_registry.dup
+    example.run
+  ensure
+    GraphWeaver::Codegen.enum_registry.replace(enums)
+    GraphWeaver::Codegen.type_registry.replace(types)
+    GraphWeaver.reset_scalars!
+  end
+
+  let(:client) { GraphWeaver.new(Demo::Schema) }
+  let(:query) { "query { person(id: 1) { pets { species } } }" }
+  let(:mutation) { "mutation($species: Species!) { addPet(name: \"Rex\", species: $species) { species } }" }
+
+  describe "scalars" do
+    it "applies to a client's own parse, with no per-client overlay to disagree with" do
+      GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
+
+      birthday = client.execute!("query { person(id: 1) { birthday } }").person&.birthday
+      expect(birthday).to be_a String
+    end
+
+    it "catches a typo'd scalar name at generation" do
+      GraphWeaver.register_scalar("Dtae", String)
+
+      expect { client.parse(query) }
+        .to raise_error(GraphWeaver::Error, /register_scalar\("Dtae"\).*did you mean 'Date'/)
+    end
+  end
+
+  describe "enum mappings" do
+    it "casts wire values into the registered app enum, and serializes back" do
+      GraphWeaver.register_enum("Species", PetKind)
+
+      species = client.execute!(query).person&.pets&.map(&:species)
+      expect(species).to eq [PetKind::Dog, PetKind::Cat]
+
+      # variables accept the member or its wire value
+      expect(client.execute!(mutation, species: PetKind::Dog).add_pet.species).to eq PetKind::Dog
+      expect(client.execute!(mutation, species: "CAT").add_pet.species).to eq PetKind::Cat
+    end
+
+    it "checks exhaustiveness at generation, naming the gaps" do
+      GraphWeaver.register_enum("Species", CatsOnly)
+
+      expect { client.parse(query) }
+        .to raise_error(GraphWeaver::Error, /CatsOnly has no member for Species value\(s\) DOG/)
+    end
+
+    it "fallback: absorbs unknown wire values on cast; inputs stay strict" do
+      GraphWeaver.register_enum("Species", CatsOnly, fallback: CatsOnly::Cat)
+
+      species = client.execute!(query).person&.pets&.map(&:species)
+      expect(species).to eq [CatsOnly::Cat, CatsOnly::Cat] # DOG absorbed
+
+      expect { client.execute!(mutation, species: "DOG") }.to raise_error(KeyError)
+    end
+
+    it "names the map: keyword when a value map is passed positionally" do
+      # a bare "given 3, expected 2" never mentions the keyword
+      message = 'register_enum: the value map is a keyword — register_enum("Species", PetKind, map: {...})'
+
+      expect { GraphWeaver.register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
+        .to raise_error(GraphWeaver::Error, message)
+      expect { GraphWeaver::Codegen.register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
+        .to raise_error(GraphWeaver::Error, message)
+    end
+  end
+
+  describe "type helpers" do
+    let(:query) { "query { person(id: 1) { pets { name species } } }" }
+
+    it "includes registered modules into structs generated from the type" do
+      GraphWeaver.extend_type("Pet", PetShouting)
+
+      pet = client.execute!(query).person&.pets&.first
+      expect(pet&.shout).to eq "Shelby!"
+      expect(pet&.name).to eq "Shelby" # the wire value stays honest
+    end
+
+    it "catches typo'd registrations at generation" do
+      GraphWeaver.extend_type("Pett", PetShouting)
+
+      expect { client.parse(query) }
+        .to raise_error(GraphWeaver::Error, /extend_type\("Pett"\).*did you mean 'Pet'/)
+    end
+
+    it "builds a mixin from a block, auto-named for generated source" do
+      GraphWeaver.extend_type("Pet") do
+        def whisper = "#{name.downcase}..."
+      end
+
+      pet = client.execute!(query).person&.pets&.first
+      expect(pet&.whisper).to eq "shelby..."
+      expect(GraphWeaver::TypeHelpers.const_defined?(:Pet)).to be true
+
+      # a second block registration stacks under a fresh name
+      GraphWeaver.extend_type("Pet") { def echo = name * 2 }
+      expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
+
+      expect { GraphWeaver.extend_type("Pet") }.to raise_error(ArgumentError, /helper modules, a block, or alias/)
+    end
+  end
+
+  describe "generation paths agree" do
+    # the bug this collapse fixes: parse read a client-scoped registration
+    # that generate! could not see, so the same query typed differently
+    # depending on which door you came in by
+    it "types a registered scalar identically via parse and via generate!" do
+      query = "query { person(id: 1) { birthday } }"
+      GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
+
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "person.graphql"), "#{query}\n")
+        out = File.join(dir, "generated")
+        GraphWeaver.generate!(schema: client, queries: dir, output: out)
+
+        expect(File.read(File.join(out, "person_query.rb"))).to include("const :birthday, T.nilable(String)")
+      end
+
+      # ...and parse, from the same client, agrees
+      expect(client.execute!(query).person&.birthday).to be_a String
+    end
+
+    it "generate! takes a Client where it takes a schema" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "pet.graphql"), "query { person(id: 1) { name } }\n")
+        out = File.join(dir, "generated")
+
+        expect(GraphWeaver.generate!(schema: client, queries: dir, output: out).size).to eq 1
+        expect(GraphWeaver.verify_generated!(schema: client, queries: dir, output: out)).to be true
+      end
+    end
+
+    it "still refuses a live object as the baked client: constant" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "pet.graphql"), "query { person(id: 1) { name } }\n")
+
+        expect { GraphWeaver.generate!(schema: client, queries: dir, output: dir, client: client) }
+          .to raise_error(ArgumentError, /must be a named constant or String/)
+      end
+    end
+  end
+end

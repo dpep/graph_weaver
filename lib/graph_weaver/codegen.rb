@@ -48,28 +48,26 @@ class GraphWeaver::Codegen
   # defaults to the operation's
   # name; default_module_name: is parse's container-scoped fallback (file
   # generation stays strict — a checked-in file deserves a deliberate
-  # name). scalars:/enums:/types: are client-scoped overlays consulted
-  # before the global registries (ScalarType, EnumType, and arrays of
-  # mixin modules, each keyed by GraphQL name). inputs_namespace: is the
+  # name). inputs_namespace: is the
   # shared-inputs workflow (see GraphWeaver.generate!): variable types
   # live once in that module and the query module aliases what it uses.
-  # unions_namespace:/hoistable_unions: are the parallel shared-unions
+  # shared-inputs workflow; enums_namespace: the same for schema enums, which
+  # live once per schema whether a query uses them as a variable, in a result,
+  # or both. unions_namespace:/hoistable_unions: are the parallel shared-unions
   # workflow — a whole-union field spread as a named shared fragment resolves
   # to one canonical type in that module (see used_union_names). path: is the
   # file the query was read from, named alongside line and column in
   # validation errors.
   def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
-    scalars: nil, enums: nil, types: nil, inputs_namespace: nil, unions_namespace: nil,
+    inputs_namespace: nil, unions_namespace: nil, enums_namespace: nil,
     hoistable_unions: nil, path: nil)
     @schema = schema
     @query = query.strip
     @path = path
     @module_name = module_name
     @default_module_name = default_module_name
-    @scalars = scalars || {}
-    @enums = enums || {}
-    @types = types || {}
     @inputs_namespace = inputs_namespace
+    @enums_namespace = enums_namespace
     # the shared-unions workflow: unions_namespace names the module hoisted
     # unions live in; hoistable_unions is the set of shared fragment names this
     # query may hoist (spreads it inlined, minus any it shadows locally)
@@ -97,9 +95,8 @@ class GraphWeaver::Codegen
   end
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil,
-    path: nil)
-    new(schema:, query:, module_name:, client:, scalars:, enums:, types:, path:).generate
+  def self.generate(schema:, query:, module_name: nil, client: nil, path: nil)
+    new(schema:, query:, module_name:, client:, path:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -107,11 +104,10 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
-  def self.parse(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil)
+  def self.parse(schema:, query:, module_name: nil, client: nil)
     client_const = client_const(client)
 
-    codegen = new(schema:, query:, module_name:, client: client_const, default_module_name: "Query",
-      scalars:, enums:, types:)
+    codegen = new(schema:, query:, module_name:, client: client_const, default_module_name: "Query")
     source = codegen.generate
 
     container = Module.new
@@ -124,11 +120,11 @@ class GraphWeaver::Codegen
     mod
   end
 
-  # The schema-level variable types this query touched, by GraphQL
-  # name — the generate! workflow unions these across queries to decide
-  # what the shared inputs module must contain.
+  # The schema-level types this walk touched, by GraphQL name — the generate!
+  # workflow unions these across queries to decide what the shared inputs and
+  # enums modules must contain.
   def variable_type_names
-    { inputs: @variable_inputs.keys, enums: @variable_enums.keys, mapped: @mapped_enums.keys }
+    { inputs: @variable_inputs.keys, enums: @enums.keys, mapped: @mapped_enums.keys }
   end
 
   # The shared union fragments this query hoisted, by name — the generate!
@@ -136,31 +132,31 @@ class GraphWeaver::Codegen
   # module must contain.
   def used_union_names = @used_unions.dup
 
-  # The shared inputs artifact: the named input/enum types — plus
-  # everything they transitively reference — emitted once per schema as
-  # a manifest (inputs.rb) plus one file per type under inputs/, so a
-  # schema migration diffs only the types it touched. Returns
-  # { relative_filename => source }.
-  def self.generate_inputs(schema:, module_name:, input_types: [], enum_types: [],
-    scalars: nil, enums: nil, types: nil)
-    codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
-    codegen.generate_inputs(input_types, enum_types)
-  end
+  # The shared inputs artifact: the named input types — plus everything they
+  # transitively reference — emitted once per schema as a manifest (inputs.rb)
+  # plus one file per type under inputs/, so a schema migration diffs only the
+  # types it touched. Returns { relative_filename => source }.
+  def generate_inputs(input_types)
+    validate_module_name!("inputs")
+    reset_walk_state!
 
-  def generate_inputs(input_types, enum_types)
-    unless @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
-      raise ArgumentError, "inputs module name must be a constant name, got #{@module_name.inspect}"
-    end
-
-    @variable_enums = {}
-    @variable_inputs = {}
-    @mapped_enums = {}
-    @requires = []
-
-    enum_types.sort.each { |name| variable_core(@schema.get_type(name)) }
     input_types.sort.each { |name| input_node(@schema.get_type(name)) }
 
     emit_inputs_files.tap { report_untyped_scalars }
+  end
+
+  # The shared enums artifact: one module-level Ruby type per schema enum a
+  # query touched — a generated T::Enum, or the wire tables for one mapped
+  # onto an app enum (register_enum). One GraphQL enum is one Ruby type, so a
+  # value read out of one query's result hands straight back into another's
+  # variable. Returns { "enums.rb" => source }.
+  def generate_enums(enum_types)
+    validate_module_name!("enums")
+    reset_walk_state!
+
+    enum_types.uniq.sort.each { |name| variable_core(@schema.get_type(name)) }
+
+    emit_enums_file.tap { report_untyped_scalars }
   end
 
   # The shared unions artifact: each named shared fragment a query hoisted,
@@ -168,21 +164,9 @@ class GraphWeaver::Codegen
   # across queries resolves to one Ruby type family. `fragments` is the loaded
   # shared-fragment table (nested spreads resolve through it); `names` the
   # fragments to build. Returns { "unions.rb" => source }.
-  def self.generate_unions(schema:, module_name:, fragments:, names:,
-    scalars: nil, enums: nil, types: nil)
-    codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
-    codegen.generate_unions(fragments, names)
-  end
-
   def generate_unions(fragments, names)
-    unless @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
-      raise ArgumentError, "unions module name must be a constant name, got #{@module_name.inspect}"
-    end
-
-    @requires = []
-    @mapped_enums = {}
-    @variable_enums = {}
-    @result_variable_enums = []
+    validate_module_name!("unions")
+    reset_walk_state!
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
 
@@ -191,7 +175,7 @@ class GraphWeaver::Codegen
       # the query module aliases <class_name> = <unions module>::<class_name>;
       # a name that camelizes to a generated module-level constant (the Result
       # struct, the QUERY heredoc) would collide with that alias at load
-      if HOISTED_UNION_RESERVED.include?(class_name)
+      if MODULE_RESERVED.include?(class_name)
         raise GraphWeaver::Error,
           "shared fragment #{name.inspect} hoists to #{class_name}, which collides with a generated constant — rename the fragment"
       end
@@ -204,9 +188,29 @@ class GraphWeaver::Codegen
     emit_unions_file(unions).tap { report_untyped_scalars }
   end
 
-  # module-level constants every generated query module defines — a hoisted
-  # union aliased to one of these would clash at load
-  HOISTED_UNION_RESERVED = %w[Result QUERY Representations].to_set.freeze
+  # module-level constants every generated query module defines — a shared
+  # type aliased to one of these would clash at load
+  MODULE_RESERVED = %w[Result QUERY Representations].to_set.freeze
+
+  # per-run walk state, cleared so one Codegen can generate more than once
+  def reset_walk_state!
+    @enums = {}
+    @variable_inputs = {}
+    @mapped_enums = {}
+    @used_unions = []
+    # requires the generated file needs (custom scalars, enum mappings,
+    # type helpers all contribute)
+    @requires = []
+  end
+  private :reset_walk_state!
+
+  # generated source is eval'd by parse — never let a name inject code
+  def validate_module_name!(kind)
+    return if @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
+
+    raise ArgumentError, "#{kind} module name must be a constant name, got #{@module_name.inspect}"
+  end
+  private :validate_module_name!
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
 
@@ -220,6 +224,12 @@ class GraphWeaver::Codegen
     BEGIN END __FILE__ __LINE__ __ENCODING__
   ].to_set.freeze
   GENERATED_METHODS = %w[serialize to_h].to_set.freeze
+  # Locals the generated `execute` body owns: the per-call client override and
+  # the two it builds. A kwarg by any of these names redeclares or overwrites
+  # one — `def self.execute(client = nil, client:)` doesn't even parse. No
+  # legal Ruby local is unreachable by a GraphQL variable name, so this is a
+  # guard rather than a rename.
+  RESERVED_KWARGS = %w[client variables transport].to_set.freeze
   # ...plus every method a struct instance already answers: T::Props refuses to
   # redefine those (`class`, `hash`, `send`, `to_s`), so the generated file
   # would raise ArgumentError at require time. Derived rather than listed, so
@@ -239,17 +249,7 @@ class GraphWeaver::Codegen
     end
 
     validate_registrations!
-
-    # per-run walk state, cleared so one Codegen can generate more than once
-    @variable_enums = {}
-    @variable_inputs = {}
-    @mapped_enums = {}
-    # variable enums the result tree reuses (see the ENUM branch of object_node)
-    @result_variable_enums = []
-    @used_unions = []
-    # requires the generated file needs (custom scalars, enum mappings,
-    # type helpers all contribute)
-    @requires = []
+    reset_walk_state!
 
     operation = load_operation(@query)
     root_type = operation_root_type(operation)
@@ -267,11 +267,30 @@ class GraphWeaver::Codegen
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
 
-    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
+    # An anonymous operation takes the module's name — declared in the document
+    # AND sent as operationName, which have to agree (a server rejects an
+    # operationName the document doesn't declare). The conventional .graphql
+    # file names nothing, so without this every trace arrives anonymous.
+    operation_name = operation.name || @module_name.split("::").last
+    @query = declare_operation_name(operation, operation_name) unless operation.name
+
+    emit_module(root, variables, representation_nodes(operation, root_type), operation_name)
       .tap { report_untyped_scalars }
   end
 
   private
+
+  # Insert `name` into the operation's own declaration, leaving the rest of the
+  # document exactly as written — re-printing the AST would reformat the query
+  # the reader reviews. The module name is already constrained to
+  # /[A-Z]\w*(::[A-Z]\w*)*/, so its last segment is always a legal GraphQL name.
+  def declare_operation_name(operation, name)
+    at = @query.lines.first(operation.line - 1).sum(&:length) + operation.col - 1
+    keyword = @query[at..].to_s[/\A(?:query|mutation|subscription)\b/]
+    return "#{@query[0, at]}query #{name} #{@query[at..]}" unless keyword # `{ ... }` shorthand
+
+    "#{@query[0, at + keyword.length]} #{name}#{@query[(at + keyword.length)..]}"
+  end
 
   # The operation's variables as execute's kwarg surface: one VarDef each,
   # typed from the AST. A variable is optional when nullable or defaulted —
@@ -286,6 +305,11 @@ class GraphWeaver::Codegen
         raise GraphWeaver::Error,
           "variable $#{var.name} would become the kwarg '#{kwarg}:', which generated code can't declare " \
           "(a Ruby keyword) — rename the variable"
+      end
+      if RESERVED_KWARGS.include?(kwarg)
+        raise GraphWeaver::Error,
+          "variable $#{var.name} would become the kwarg '#{kwarg}:', which generated execute already " \
+          "uses — rename the variable (query($#{var.name}Id: ...))"
       end
       VarDef.new(kwarg, var.name, node, required)
     end
@@ -431,9 +455,7 @@ class GraphWeaver::Codegen
 
   # A registration names a type in a specific schema — a typo'd name would
   # otherwise be a silent no-op, the most confusing failure mode available.
-  # Called eagerly by Client#register_* when the schema is already loaded, and
-  # again at generation for every registration in play, client-scoped or global
-  # (file generation has no client overlay, so globals are the only path there).
+  # Called at generation for every registration in play.
   def self.validate_registration!(schema, kind, name)
     # register_scalar("Type.field", ...) overrides one field's scalar — validate
     # the field exists and is a scalar, not that a type named "Type.field" exists.
@@ -558,19 +580,16 @@ class GraphWeaver::Codegen
     { message: prefix.empty? ? message : "#{prefix} #{message}", line:, column: }
   end
 
-  # Every registration this generation could consult, client-scoped overlay and
-  # global registry alike. The built-in scalars are pre-registered entries in
-  # the same global table rather than user intent, so they're exempt — a schema
-  # with no Date scalar is not a mistake.
+  # Every registration this generation could consult. The built-in scalars are
+  # pre-registered entries in the same table rather than user intent, so
+  # they're exempt — a schema with no Date scalar is not a mistake.
   def validate_registrations!
     {
-      "enum" => [@enums, GraphWeaver::Codegen.enum_registry],
-      "scalar" => [@scalars, GraphWeaver::Codegen.scalar_registry.except(*BUILTIN_SCALARS)],
-      "type" => [@types, GraphWeaver::Codegen.type_registry],
-    }.each do |kind, registries|
-      registries.each do |registry|
-        registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
-      end
+      "enum" => GraphWeaver::Codegen.enum_registry,
+      "scalar" => GraphWeaver::Codegen.scalar_registry.except(*BUILTIN_SCALARS),
+      "type" => GraphWeaver::Codegen.type_registry,
+    }.each do |kind, registry|
+      registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
     end
   end
 
@@ -654,19 +673,10 @@ class GraphWeaver::Codegen
             type_ref(field_type) { union }
           end
         when "ENUM"
-          if (mapped = mapped_enum_node(core))
-            type_ref(field_type) { mapped }
-          elsif (shared = @variable_enums[core.graphql_name])
-            # the same GraphQL enum also arrives as a variable: reuse the
-            # module-level T::Enum so a value read out of a result can be handed
-            # straight back in (two classes for one enum failed srb tc AND the
-            # runtime sig)
-            @result_variable_enums << shared unless @result_variable_enums.include?(shared)
-            type_ref(field_type) { shared }
-          else
-            name = pick_name(key, taken)
-            type_ref(field_type) { EnumNode.new(name, enum_values(core)) }
-          end
+          # one schema enum is one Ruby type: module-level, named for the enum,
+          # shared by every result field and variable that reaches it (and, on
+          # the generate! path, by every query module — see enums_namespace)
+          type_ref(field_type) { variable_core(core) }
         when "SCALAR"
           coordinate = "#{type.graphql_name}.#{field_name}"
           type_ref(field_type) { scalar_node(core.graphql_name, coordinate) }
@@ -881,8 +891,7 @@ class GraphWeaver::Codegen
     when "SCALAR"
       scalar_node(core.graphql_name)
     when "ENUM"
-      mapped_enum_node(core) || (@variable_enums[core.graphql_name] ||=
-        EnumNode.new(camelize(core.graphql_name), enum_values(core)))
+      mapped_enum_node(core) || (@enums[core.graphql_name] ||= enum_node(core))
     when "INPUT_OBJECT"
       input_node(core)
     else
@@ -920,6 +929,19 @@ class GraphWeaver::Codegen
   # wrappers — the edges of the input dependency graph.
 
 
+  # The module-level T::Enum for a schema enum, named for the enum itself —
+  # it is shared by every field and variable of that type.
+  def enum_node(core)
+    class_name = camelize(core.graphql_name)
+    if MODULE_RESERVED.include?(class_name)
+      raise GraphWeaver::Error,
+        "enum #{core.graphql_name} generates #{class_name}, which collides with a generated " \
+        "constant — map it onto one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
+    end
+
+    EnumNode.new(class_name, enum_values(core))
+  end
+
   # A schema enum's wire values, sorted so output is deterministic across schema
   # sources (SDL round-trips reorder values alphabetically). Values that differ
   # only in case name the same T::Enum constant, which raises at LOAD time
@@ -937,19 +959,19 @@ class GraphWeaver::Codegen
     values
   end
 
-  # Registered helper-module names for a GraphQL type (additive: global
-  # registrations plus this client's), collecting their requires.
+  # Registered helper-module names for a GraphQL type, collecting their requires.
   def type_mixins(graphql_name)
-    entries = [GraphWeaver::Codegen.type_registry[graphql_name], @types[graphql_name]].compact
-    entries.each { |entry| @requires.concat(entry[:requires]) }
-    entries.flat_map { |entry| entry[:mixins].map(&:name) }
+    entry = GraphWeaver::Codegen.type_registry[graphql_name]
+    return [] unless entry
+
+    @requires.concat(entry[:requires])
+    entry[:mixins].map(&:name)
   end
 
   # The MappedEnum node for a schema enum with a registered app-enum
-  # mapping (client overlay first, then the global registry); nil when
-  # unregistered, falling back to a generated T::Enum.
+  # mapping; nil when unregistered, falling back to a generated T::Enum.
   def mapped_enum_node(core)
-    enum_type = @enums[core.graphql_name] || GraphWeaver::Codegen.enum_registry[core.graphql_name]
+    enum_type = GraphWeaver::Codegen.enum_registry[core.graphql_name]
     return unless enum_type
 
     @requires.concat(enum_type.requires)
@@ -959,12 +981,10 @@ class GraphWeaver::Codegen
   # A Scalar node, recording any requires its registered type needs so the
   # generated file can require them (collected across the whole query).
   # Resolution, most specific first: a per-field override (`Type.field`), then
-  # the scalar-name registration — each checked client-scoped, then global.
+  # the scalar-name registration.
   def scalar_node(name, coordinate = nil)
-    scalar =
-      (coordinate && (@scalars[coordinate] || GraphWeaver::Codegen.scalar_registry[coordinate])) ||
-      @scalars[name.to_s] ||
-      GraphWeaver::Codegen.scalar_registry[name.to_s]
+    registry = GraphWeaver::Codegen.scalar_registry
+    scalar = (coordinate && registry[coordinate]) || registry[name.to_s]
     if scalar.nil?
       @untyped_scalars << name.to_s
       scalar = GraphWeaver::Codegen.scalar(name)

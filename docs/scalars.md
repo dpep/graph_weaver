@@ -9,10 +9,10 @@ Ruby object (and serializes back when used as a variable). A field typed
 GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
 ```
 
-Registrations are global by default. A [client](transports.md) scopes
-them: `client.register_scalar(...)` overlays the global registry for that
-client's generation only — so two servers can disagree about what a
-`DateTime` is, and neither leaks into the other.
+There is one registry, and it is global — the same one `rake
+graph_weaver:generate` reads, so a registration made in an initializer types
+your checked-in code and your console identically. Register before generating:
+it's a codegen-time concern, baked into the emitted source.
 
 Pass a `Type.field` **coordinate** instead of a scalar name to override just
 that one field — so the same scalar can deserialize as different Ruby types
@@ -23,9 +23,10 @@ GraphWeaver.register_scalar("ISO8601DateTime", Time)   # the default, everywhere
 GraphWeaver.register_scalar("User.birthday", Date)     # this field only
 ```
 
-A field override wins over the scalar-name registration; both stack the same
-global-then-client way. (GraphQL names can't contain `.`, so the coordinate is
-unambiguous — and it's validated against the schema, so a typo'd field raises.)
+A field override wins over the scalar-name registration — which is also how two
+servers that disagree about a `DateTime` coexist in one process. (GraphQL names
+can't contain `.`, so the coordinate is unambiguous — and it's validated against
+the schema, so a typo'd field raises.)
 
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
@@ -69,8 +70,8 @@ needs both a cast and a serialize. Off by default — the strict typed kwarg is 
 `coerce:` also takes a **Symbol** naming a conversion method, for built-ins where
 a plain method is the whole story — `coerce: :to_f` makes a variable accept
 `5`/`"5"` and `.to_f` it, sending a native number (not `"5.0"`) on the wire. The
-convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`,
-`ID`/`String`→`:to_s`), so rather than opting in each, flip the default:
+convertible built-ins already know theirs (`Float`→`:to_f`, `Int`→`:to_i`), so
+rather than opting in each, flip the default:
 
 ```ruby
 GraphWeaver.auto_coerce = true
@@ -79,8 +80,11 @@ GraphWeaver.auto_coerce = true
 Resolved lazily at generation time (set it any time before you generate),
 it gives convertible built-ins their conversion and any scalar with a full
 cast/serialize pair (`Date`, your `Money`) parse-style coercion; an explicit
-`coerce:` on a registration always wins. `Boolean` has no lossless
-one-method conversion, so it stays strict.
+`coerce:` on a registration always wins. `Boolean` has no lossless one-method
+conversion, so it stays strict — and so do `String`/`ID`: `#to_s` is a cast
+that can't fail, so auto-coercing it would only widen every String/ID kwarg to
+`T.anything`, erasing static typing on the majority of real variables to buy
+nothing. `register_scalar("ID", String, coerce: :to_s)` opts in deliberately.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
@@ -100,10 +104,10 @@ otherwise exact result type, so generation names the holes at `info` (see
 
 ## Enums: map onto your own T::Enum
 
-By default each generated module grows its own `T::Enum` per GraphQL
-enum — `AddPetMutation::Species`, `SearchQuery::Result::...::Species`, one
-per module that touches it. That's fine until your app has its own
-domain enum, and then the boundary shuffle starts:
+By default a schema enum generates one `T::Enum` per schema, shared by every
+query module that touches it (`GraphQLEnums::Species`, aliased as
+`AddPetMutation::Species`). That's fine until your app has its own domain
+enum, and then the boundary shuffle starts:
 
 ```ruby
 # your domain already speaks PetKind — it's in your models, your
@@ -117,15 +121,12 @@ kind = PetKind.deserialize(pet.species.serialize.downcase)      # response -> do
 AddPetMutation.execute!(species: kind.serialize.upcase)            # domain -> wire
 ```
 
-Two enums for one concept, glue at every crossing, and each generated
-module has its *own* incompatible `Species`, so a pet from `SearchQuery`
-and a pet from `AddPetMutation` don't even compare. Register the mapping
-once and the seam disappears — generated code speaks your enum
-everywhere, casting wire values in and serializing members out:
+Two enums for one concept and glue at every crossing. Register the mapping
+once and the seam disappears — generated code speaks your enum everywhere,
+casting wire values in and serializing members out:
 
 ```ruby
-GraphWeaver.register_enum("Species", PetKind)                # global
-api.register_enums("Species" => PetKind, "Role" => Role)     # or per client, in bulk
+GraphWeaver.register_enum("Species", PetKind)
 
 pet.species                                   # => PetKind::Dog — compare, case, persist directly
 pet.species == other_pet.species              # same type across every query
@@ -133,9 +134,9 @@ AddPetMutation.execute!(species: PetKind::Cat)   # or "CAT" — members and wire
 ```
 
 **When to reach for it**: the enum has a life outside the API — it's
-persisted, matched in business logic, or shared across queries. **When
-not to bother**: display-only values you read and forget; the per-module
-generated enums are self-contained and need zero setup.
+persisted or matched in business logic. **When not to bother**: values you
+only read back out of responses; the generated enum is already one type
+across every query and needs zero setup.
 
 The mapping is inferred by name (`"CAT"` ↔ `PetKind::Cat`,
 case/underscore-insensitive against each member's serialized value), so
@@ -160,9 +161,7 @@ Two safety properties do the real work:
 
 The translation tables are emitted into the generated source
 (`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) — reviewable in the diff, no
-runtime registry. And because registration can be client-scoped, two
-servers with different ideas of `"Species"` can map onto different (or
-the same) domain enums without touching each other.
+runtime registry.
 
 ## Type helpers: your logic on generated structs
 
@@ -177,7 +176,7 @@ module PetHelpers
   def display_name = adult? ? "#{name} 🦴" : "#{name} 🐶"
 end
 
-GraphWeaver.extend_type("Pet", PetHelpers)   # or api.extend_type(...)
+GraphWeaver.extend_type("Pet", PetHelpers)
 
 pet.display_name   # => "Shelby 🦴"
 pet.name           # => "Shelby" — the wire value stays honest
@@ -185,7 +184,7 @@ pet.name           # => "Shelby" — the wire value stays honest
 
 The methods live on the struct, so they see its wire fields at runtime and
 fakes/cassettes get the behavior automatically; registrations are additive
-(global plus client-scoped stack). One caveat on *static* typing, though:
+(repeated ones stack). One caveat on *static* typing, though:
 `srb tc` checks a mixin's method bodies in the module's own scope, not the
 including struct's — so a helper that reads a wire field (`name`, `birthday`)
 doesn't resolve it and fails with "method does not exist on the module." Write
@@ -201,7 +200,7 @@ For quick decoration, build the mixin inline — the block is
 `GraphWeaver::TypeHelpers` so generated files can reference it:
 
 ```ruby
-api.extend_type("Pet") do
+GraphWeaver.extend_type("Pet") do
   def display_name = "#{name} 🐶"
 end
 ```
@@ -243,7 +242,7 @@ nullable hop makes the accessor nilable and inserts `&.`; the leaf can be a
 scalar, enum, or nested struct. It's validated against each query at generation —
 an unselected or misspelled segment (`did you mean 'tag'?`), a selector on a
 non-list, or a name that collides with a real field all fail with a pointed
-error. Registrations stack and are client-scopable, like the mixin forms.
+error. Registrations stack, like the mixin forms.
 
 A segment can also be `first` or `last` to pick one element out of a list hop —
 always nilable, since the list may be empty. This is what turns an

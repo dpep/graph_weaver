@@ -1,4 +1,96 @@
 ## Unreleased
+**A variable named `$client` no longer generates a file that won't parse.**
+`query($client: ID!)` emitted `def self.execute(client = nil, client:)` — a
+`SyntaxError` raised at app boot from `load_generated!`, arbitrarily far from
+the query that caused it, while `verify_generated!` reported the tree as
+current. Generation now refuses `$client`, `$variables` and `$transport` — the
+three locals the generated `execute` body owns — naming the fix. **Rename such
+a variable in the query (`query($clientId: ID!)`) before regenerating.** A
+single input-object variable whose *field* is one of those names (which you
+can't rename) simply keeps its wrapping kwarg instead of being flattened.
+
+**`auto_coerce` no longer erases the typing of String/ID variables.** It mapped
+both to `#to_s`, which widened their kwargs to `T.anything` — the majority of
+real variables, statically unchecked, in exchange for a cast that can't fail.
+`auto_coerce` now covers only the conversions that are conversions (`Int`→`to_i`,
+`Float`→`to_f`) plus scalars with a full cast/serialize pair. **If you relied on
+a String/ID kwarg accepting anything, opt in per scalar:**
+`GraphWeaver.register_scalar("ID", String, coerce: :to_s)`.
+
+**An anonymous operation is now named after its module — in the query text and
+in `OPERATION_NAME`.** Requests started carrying `operationName` so servers and
+APMs can attribute traffic, but the constant was only set when the `.graphql`
+document named its operation — and anonymous is what the docs show, so every
+trace arrived `anonymous` and the feature did nothing for the documented happy
+path. `person.graphql` holding `query($id: ID!) { ... }` now emits
+`query PersonQuery($id: ID!) { ... }` with `OPERATION_NAME = "PersonQuery"`.
+Both halves move together: a server rejects an `operationName` its document
+doesn't declare. A document that names its own operation is left untouched.
+
+**Re-record cassettes for anonymous operations.** Cassette entries key on
+`operationName`, and those were recorded with the key omitted, so they no
+longer match (`Recorder` / `Cassette.use` with a live client, or delete the
+cassette).
+
+**`GraphWeaver.queries_paths` (plural) is gone — use `queries_path`.**
+`generate!` and `check_queries` read the singular (the first entry) while
+`load_queries!` walked the whole list, so a second queries directory produced
+modules at runtime that `rake graph_weaver:generate` never generated and
+`verify` never checked — silently. Queries are single-schema by design. **If
+you appended a second queries directory, fold it into the first** (or run a
+second `generate!` with its own `queries:`). `generated_paths` and
+`fragments_paths` stay plural; they genuinely load from several places.
+
+**One GraphQL enum is now one Ruby type.** A schema enum a query touches — as
+a variable, in a result, or both — is emitted once per schema into
+`generated/enums.rb` as `GraphQLEnums::<Enum>`, and every query module aliases
+it. Before, an enum read out of a result got a class named for the response key
+and nested in the struct that selected it (`SearchQuery::Result::Search::Pet::Species`),
+while the same enum used as a variable got a module-level one — so whether a
+schema enum was one Ruby type or three depended on what else the query happened
+to reference, and handing a value from one query into another's variable raised
+a `TypeError` that wasn't even a `GraphWeaver::Error`.
+
+**Regenerate, and expect enum constants to move.** A nested enum path in app
+code becomes the query module's own alias — `SearchQuery::Species` — or
+`GraphQLEnums::Species`; `srb tc` finds them all. The enums a shared fragment's
+union members select are hoisted too, so `unions.rb` now aliases them rather
+than re-emitting them.
+
+**The shared module names no longer depend on your output directory.** They are
+`GraphQLInputs`, `GraphQLUnions` and `GraphQLEnums`, full stop. The old rule
+camelized the parent of `generated/` unless it was on a hardcoded blocklist, so
+`output: "gen2"` gave you `Gen2Inputs` and renaming `app/graphql/generated` to
+`app/gql/generated` renamed a public constant. **A multi-schema layout must now
+name its modules explicitly** — `GraphWeaver.inputs_module=` /
+`unions_module=` / `enums_module=`, or `generate!(inputs_module:, ...)` — in the
+same initializer that already gives each schema its paths. `GraphWeaver.inputs_module`
+and `unions_module` no longer take an output-path argument.
+
+**One registration registry, not two.** `Client#register_scalar`,
+`#register_enum`, `#register_enums` and `#extend_type` are **deleted** — a
+client-scoped registration was invisible to `GraphWeaver.generate!` (the rake
+tasks have no client), so the console typed a field richly and the checked-in
+code silently generated `T.untyped`. **Move any `client.register_*` /
+`client.extend_type` call to the `GraphWeaver.` form** (an initializer, next to
+the rest of your config). The one thing client scoping bought — two servers
+disagreeing about a scalar — is what the per-field coordinate form is for:
+`GraphWeaver.register_scalar("User.birthday", Date)`.
+
+Also gone with it: `GraphWeaver.register_enums` (bulk) — there was never a
+`register_scalars` to match it, so call `register_enum` per line — and
+`GraphWeaver.reject_positional_map!`, now folded into the one
+`Codegen.register_enum` that every door reaches (so all three doors give the
+same "the value map is a keyword" error instead of a bare arity complaint).
+`Codegen.parse` / `.generate` / `.generate_inputs` / `.generate_unions` no
+longer take `scalars:`/`enums:`/`types:`.
+
+**`generate!` now takes a Client where it takes a schema** — `GraphWeaver.generate!(schema: api)`,
+`verify_generated!`, `check_queries` and `parse` all accept one, so the object
+you built in the console is the object the build step wants and no schema dump
+is needed. `client:` still means what it meant (a constant name to bake as
+`DEFAULT_CLIENT`) and still refuses a live object.
+
 **Generated struct names now come from the query's own field names.** A struct
 is named for the response key that selects it — `stargazers` becomes
 `Stargazers`, `edges` becomes `Edges` — so its name is a function of its own

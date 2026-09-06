@@ -16,7 +16,7 @@ describe "GraphWeaver.generate!" do
     )
 
     expect(written.map { |path| path.delete_prefix("#{@dir}/") }).to eq %w[
-      inputs/species.rb inputs/adoption_input.rb inputs/pet_filter.rb inputs.rb
+      enums.rb inputs/adoption_input.rb inputs/pet_filter.rb inputs.rb
       add_pet_mutation.rb adopt_mutation.rb find_pets_query.rb named_query.rb person_query.rb search_query.rb
     ]
     # byte-identical to the checked-in fixtures (same generator, same inputs)
@@ -46,7 +46,7 @@ describe "GraphWeaver.generate!" do
       .to raise_error(GraphWeaver::ValidationError, %r{\Ainvalid query in .*/queries/typo\.graphql:\n  1:25  Field 'nmae'})
   end
 
-  it "derives the shared-inputs module from a multi-schema output path" do
+  it "names the shared modules the same wherever the output goes" do
     root = File.expand_path("..", __dir__)
     output = File.join(@dir, "github", "generated")
     GraphWeaver.generate!(
@@ -56,9 +56,26 @@ describe "GraphWeaver.generate!" do
       client: Demo::Schema,
     )
 
-    manifest = File.read(File.join(output, "inputs.rb"))
-    expect(manifest).to include "module GithubInputs"
-    expect(File.read(File.join(output, "adopt_mutation.rb"))).to include "GithubInputs::AdoptionInput"
+    # a public constant that moved when you renamed a directory was a rule you
+    # couldn't state without reciting a blocklist
+    expect(File.read(File.join(output, "inputs.rb"))).to include "module GraphQLInputs"
+    expect(File.read(File.join(output, "adopt_mutation.rb"))).to include "GraphQLInputs::AdoptionInput"
+  end
+
+  it "takes an explicit module name per run, for multi-schema layouts" do
+    root = File.expand_path("..", __dir__)
+    GraphWeaver.generate!(
+      schema: Demo::Schema,
+      queries: File.join(root, "spec/queries"),
+      output: @dir,
+      client: Demo::Schema,
+      inputs_module: "GithubInputs",
+      enums_module: "GithubEnums",
+    )
+
+    expect(File.read(File.join(@dir, "inputs.rb"))).to include "module GithubInputs"
+    expect(File.read(File.join(@dir, "enums.rb"))).to include "module GithubEnums"
+    expect(File.read(File.join(@dir, "adopt_mutation.rb"))).to include "GithubInputs::AdoptionInput"
   end
 
   it "loads per-schema layouts via glob path entries" do
@@ -193,21 +210,16 @@ describe "module naming by operation" do
   end
 end
 
-describe "GraphWeaver.inputs_module" do
-  it "derives the module name from the output path" do
-    expect(GraphWeaver.inputs_module("app/graphql/github/generated")).to eq "GithubInputs"
-    expect(GraphWeaver.inputs_module("app/graphql/pet_shop/generated")).to eq "PetShopInputs"
-
-    # the conventional single-schema layout (and anything unrecognizable)
-    # shares the default module
-    expect(GraphWeaver.inputs_module("app/graphql/generated")).to eq "GraphQLInputs"
-    expect(GraphWeaver.inputs_module("spec/generated")).to eq "GraphQLInputs"
-    expect(GraphWeaver.inputs_module("/tmp/d20260713-91-x2x")).to eq "GraphQLInputs"
+describe "the shared module names" do
+  it "are constants, not a function of the output path" do
+    expect(GraphWeaver.inputs_module).to eq "GraphQLInputs"
+    expect(GraphWeaver.unions_module).to eq "GraphQLUnions"
+    expect(GraphWeaver.enums_module).to eq "GraphQLEnums"
   end
 
-  it "prefers an explicit global override" do
+  it "take a global override" do
     GraphWeaver.inputs_module = "MyInputs"
-    expect(GraphWeaver.inputs_module("app/graphql/github/generated")).to eq "MyInputs"
+    expect(GraphWeaver.inputs_module).to eq "MyInputs"
   ensure
     GraphWeaver.inputs_module = nil
   end

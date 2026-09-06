@@ -9,7 +9,7 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
   # Removing them blind takes the *fixture's* GraphQLInputs with it, and
   # spec/generated/inputs.rb won't redefine it — require_relative is a no-op the
   # second time — leaving a later spec's constant gone under a random order.
-  GENERATED_CONSTANTS = %i[HomeQuery ArchiveQuery GraphQLInputs GraphQLUnions].freeze
+  GENERATED_CONSTANTS = %i[HomeQuery ArchiveQuery GraphQLInputs GraphQLUnions GraphQLEnums].freeze
 
   around do |example|
     prior = GENERATED_CONSTANTS.to_h { |c| [c, (Object.const_get(c) if Object.const_defined?(c))] }
@@ -213,19 +213,32 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
       GRAPHQL
     end
 
-    it "emits mapped-enum tables into unions.rb and resolves them at from_h" do
+    it "aliases mapped-enum tables into unions.rb and resolves them at from_h" do
       registry = GraphWeaver::Codegen.enum_registry
       saved = registry.dup
       GraphWeaver.register_enum("Rank", HoistRank)
       generate(@base)
 
-      expect(File.read("#{@base}/generated/unions.rb")).to include("RANK_FROM_WIRE")
+      # a hoisted fragment's own selections are the one place a query walk
+      # doesn't reach, so unions are built before the enums module
+      expect(File.read("#{@base}/generated/unions.rb"))
+        .to include("RANK_FROM_WIRE = GraphQLEnums::RANK_FROM_WIRE")
       GraphWeaver.load_generated!("#{@base}/generated")
       got = HomeQuery.from_response!("data" => { "feed" => [{ "__typename" => "Post", "rank" => "HIGH" }] })
       expect(got.feed.first.rank).to eq(HoistRank::High)
     ensure
       registry.clear
       registry.merge!(saved)
+    end
+
+    it "hoists an unmapped enum a shared fragment reaches into the enums module" do
+      generate(@base)
+
+      expect(File.read("#{@base}/generated/enums.rb")).to include("class Rank < T::Enum")
+      expect(File.read("#{@base}/generated/unions.rb")).to include("Rank = GraphQLEnums::Rank")
+      GraphWeaver.load_generated!("#{@base}/generated")
+      got = HomeQuery.from_response!("data" => { "feed" => [{ "__typename" => "Post", "rank" => "HIGH" }] })
+      expect(got.feed.first.rank).to equal GraphQLEnums::Rank::High
     end
 
     it "refuses to hoist a shared fragment whose name collides with a generated constant" do

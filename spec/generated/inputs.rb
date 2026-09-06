@@ -8,7 +8,11 @@ require "date"
 
 module GraphQLInputs; end
 
-require_relative "inputs/species"
+require_relative "enums"
+
+module GraphQLInputs
+  Species = GraphQLEnums::Species
+end
 
 # runtime-only forward declarations: input types reference each
 # other across files, so every constant must exist before any

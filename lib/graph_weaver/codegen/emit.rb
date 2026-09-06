@@ -22,7 +22,12 @@ class GraphWeaver::Codegen
       return unless var.required && var.node.is_a?(NonNull)
 
       input = var.node.of
-      input if input.is_a?(InputNode)
+      return unless input.is_a?(InputNode)
+      # a field whose prop is one of execute's own locals can't be a kwarg, and
+      # unlike a variable name the user can't rename it — keep the wrapping level
+      return if input.fields.any? { |field| RESERVED_KWARGS.include?(field.prop) }
+
+      input
     end
 
     def input_references(node)
@@ -62,16 +67,12 @@ class GraphWeaver::Codegen
 
       # Mapped-enum tables, generated enums, and input structs
       # (dependency-ordered, forward-declared when cyclic) — inline in the
-      # module that needs them, or once in the shared inputs module.
+      # module that needs them, unless a shared module already holds them (then
+      # the module aliases them instead; see emit_shared_aliases).
       def emit_variable_types(out)
-          @mapped_enums.each_value do |mapped|
-            emit_mapped_enum(mapped, out, 1)
-            out << ""
-          end
-          @variable_enums.each_value do |enum|
-            emit_enum(enum, out, 1)
-            out << ""
-          end
+          emit_enum_types(out) unless @enums_namespace
+          return if @inputs_namespace
+
           inputs, cyclic = ordered_inputs
           if cyclic
             # Recursive input types (Hasura bool_exp et al) reference each other,
@@ -92,33 +93,46 @@ class GraphWeaver::Codegen
           end
         end
 
-      # In the shared-inputs workflow the variable types live once in the
-      # inputs module; the query module aliases what it uses, so
-      # AdoptMutation::AdoptionInput stays a real constant — and shared types
-      # keep ONE identity across every module that touches them.
-      # Only the shared names THIS module's emission references: variable
-      # root types (and, when flattened, the root input's field types)
-      # plus every mapped-enum table (result casting reads them too), and
-      # any variable enum a result field reuses — which may sit several
-      # levels down an input type, so it isn't reachable from the roots.
-      # Nested types stay un-aliased — they live in the inputs module.
-      def shared_alias_names(variables, flatten)
-        nodes = variables.map(&:node)
-        nodes += flatten.fields.map(&:node) if flatten
-        nodes += @result_variable_enums
-
-        names = @mapped_enums.each_value.flat_map { |m| ["#{m.const_prefix}_FROM_WIRE", "#{m.const_prefix}_TO_WIRE"] }
-        nodes.each do |wrapped|
-          node = T.let(wrapped, T.untyped)
-          node = node.of while node.is_a?(NonNull) || node.is_a?(List)
-          case node
-          when EnumNode, InputNode then names << node.class_name
-          end
+      # Every schema enum this walk touched, at module level: wire tables for
+      # the ones mapped onto an app enum, a T::Enum for the rest.
+      def emit_enum_types(out, indent = 1)
+        @mapped_enums.each_value do |mapped|
+          emit_mapped_enum(mapped, out, indent)
+          out << ""
         end
-        names.uniq
+        @enums.each_value do |enum|
+          emit_enum(enum, out, indent)
+          out << ""
+        end
       end
 
-      def emit_shared_aliases(out, names, namespace = @inputs_namespace)
+      # In the shared workflow the types live once in their shared module and
+      # each query module aliases what it uses, so AdoptMutation::AdoptionInput
+      # stays a real constant — and a shared type keeps ONE identity across
+      # every module that touches it.
+      #
+      # Enums: every one this walk reached, since a result field and a variable
+      # both reference it by that name.
+      def shared_enum_names
+        @mapped_enums.each_value.flat_map { |m| ["#{m.const_prefix}_FROM_WIRE", "#{m.const_prefix}_TO_WIRE"] } +
+          @enums.each_value.map(&:class_name)
+      end
+
+      # Inputs: only the variable root types (and, when flattened, the root
+      # input's field types) — the names this module's own source spells.
+      # Nested input types stay un-aliased; they live in the inputs module.
+      def shared_input_names(variables, flatten)
+        nodes = variables.map(&:node)
+        nodes += flatten.fields.map(&:node) if flatten
+
+        nodes.filter_map { |wrapped|
+          node = T.let(wrapped, T.untyped)
+          node = node.of while node.is_a?(NonNull) || node.is_a?(List)
+          node.class_name if node.is_a?(InputNode)
+        }.uniq
+      end
+
+      def emit_shared_aliases(out, names, namespace)
         return if names.empty?
 
         names.each { |name| out << "  #{name} = #{namespace}::#{name}" }
@@ -131,15 +145,7 @@ class GraphWeaver::Codegen
       # inputs/<type>.rb per enum/mapped-table/input struct.
       def emit_inputs_files
         files = {}
-        enum_files = []
         struct_files = []
-
-        @mapped_enums.each do |graphql_name, mapped|
-          enum_files << inputs_file(files, graphql_name) { |out| emit_mapped_enum(mapped, out, 1) }
-        end
-        @variable_enums.each do |graphql_name, enum|
-          enum_files << inputs_file(files, graphql_name) { |out| emit_enum(enum, out, 1) }
-        end
         inputs, = ordered_inputs
         inputs.each do |input|
           struct_files << inputs_file(files, input.class_name) { |out| emit_input(input, out, 1) }
@@ -159,7 +165,16 @@ class GraphWeaver::Codegen
         end
         manifest << "module #{@module_name}; end"
         manifest << ""
-        enum_files.sort.each { |file| manifest << "require_relative #{file.delete_suffix(".rb").inspect}" }
+        # input fields typed as enums spell them bare, so alias the shared ones
+        # into this module before any struct body loads
+        enums = shared_enum_names
+        if enums.any?
+          manifest << "require_relative \"enums\""
+          manifest << ""
+          manifest << "module #{@module_name}"
+          enums.each { |name| manifest << "  #{name} = #{@enums_namespace}::#{name}" }
+          manifest << "end"
+        end
         if inputs.any?
           manifest << ""
           manifest << "# runtime-only forward declarations: input types reference each"
@@ -176,6 +191,29 @@ class GraphWeaver::Codegen
 
         files["inputs.rb"] = manifest.join("\n") + "\n"
         files
+      end
+
+      # The shared enums artifact as a single file: one Ruby type per schema
+      # enum, so every query module aliases the same constant.
+      def emit_enums_file
+        out = []
+        out << "# typed: strict"
+        out << "# frozen_string_literal: true"
+        out << ""
+        out << "# Generated by GraphWeaver — do not edit. Shared enum types for this"
+        out << "# schema; query modules alias what they use."
+        out << ""
+        requires = @requires.uniq.sort
+        if requires.any?
+          requires.each { |req| out << "require #{req.inspect}" }
+          out << ""
+        end
+        out << "module #{@module_name}"
+        emit_enum_types(out)
+        out.pop if out.last == ""
+        out << "end"
+
+        { "enums.rb" => out.join("\n") + "\n" }
       end
 
       # The shared unions artifact as a single file: every hoisted union as a
@@ -195,14 +233,15 @@ class GraphWeaver::Codegen
           requires.each { |req| out << "require #{req.inspect}" }
           out << ""
         end
+        out << "require_relative \"enums\"" << "" if @enums_namespace && shared_enum_names.any?
         out << "module #{@module_name}"
         out << "  extend T::Sig" << "" if GraphWeaver.extend_t_sig?
-        # a member selecting a mapped enum (register_enum) reads its module-level
-        # <NAME>_FROM_WIRE table — emit those here so from_h resolves them, the
-        # same way emit_variable_types does for the query module
-        @mapped_enums.each_value do |mapped|
-          emit_mapped_enum(mapped, out, 1)
-          out << ""
+        # a member selecting an enum spells it bare — alias the shared ones, or
+        # (with no shared module) emit them here, the same way a query module does
+        if @enums_namespace
+          emit_shared_aliases(out, shared_enum_names, @enums_namespace)
+        else
+          emit_enum_types(out)
         end
         unions.each do |union|
           emit_union(union, out, 1)
@@ -238,7 +277,8 @@ class GraphWeaver::Codegen
     # assembled from the generator's walked state.
     def emit_module(root, variables, representations = [], operation_name = nil)
       flatten = flatten_input(variables)
-      aliases = @inputs_namespace ? shared_alias_names(variables, flatten) : []
+      input_aliases = @inputs_namespace ? shared_input_names(variables, flatten) : []
+      enum_aliases = @enums_namespace ? shared_enum_names : []
       # hoisted unions the result tree references, aliased so <Name>::Type and
       # <Name>.from_h resolve to the shared module
       union_aliases = @used_unions.map { |name| camelize(name) }.uniq.sort
@@ -254,14 +294,12 @@ class GraphWeaver::Codegen
         requires.each { |req| out << "require #{req.inspect}" }
         out << ""
       end
-      if aliases.any?
-        # the aliases below need the shared module loaded (same directory
-        # by the generate! convention)
-        out << "require_relative \"inputs\""
-        out << ""
-      end
-      if union_aliases.any?
-        out << "require_relative \"unions\""
+      # the aliases below need their shared modules loaded (same directory by
+      # the generate! convention)
+      shared = { "enums" => enum_aliases, "inputs" => input_aliases, "unions" => union_aliases }
+        .select { |_, names| names.any? }
+      if shared.any?
+        shared.each_key { |file| out << "require_relative #{file.inspect}" }
         out << ""
       end
       out << "module #{@module_name}"
@@ -278,12 +316,11 @@ class GraphWeaver::Codegen
       out << "  # sent as the request's operationName — what an APM keys traces on"
       out << "  OPERATION_NAME = T.let(#{operation_name.inspect}, T.nilable(String))"
       out << ""
-      if @inputs_namespace
-        emit_shared_aliases(out, aliases)
-      else
-        emit_variable_types(out)
-      end
+      # aliases first: an inline input struct's props spell enum names bare
+      emit_shared_aliases(out, enum_aliases, @enums_namespace)
+      emit_shared_aliases(out, input_aliases, @inputs_namespace)
       emit_shared_aliases(out, union_aliases, @unions_namespace)
+      emit_variable_types(out)
       emit_representations(out, representations)
       emit_nested(root, out, 1)
       out << ""
@@ -327,7 +364,7 @@ class GraphWeaver::Codegen
     # Is this node defined once at module level rather than inside the struct
     # that references it? (Variable enums — see the ENUM branch of object_node.)
     def module_level?(node)
-      @variable_enums.value?(node)
+      @enums.value?(node)
     end
 
     def emit_nested(node, out, indent)
@@ -467,7 +504,7 @@ class GraphWeaver::Codegen
       # the kwarg surface: the input's fields when flattened, else one
       # kwarg per declared variable — typed identically either way. The
       # per-call client override rides as an optional POSITIONAL arg, so
-      # variables keep the entire kwarg namespace (nothing is reserved).
+      # only this body's own locals (RESERVED_KWARGS) are off limits.
       params = flatten ? flatten.fields.partition(&:required).flatten : variables
 
       sig_params = ["client: T.untyped"]

@@ -118,7 +118,7 @@ describe GraphWeaver::Codegen do
       }.to raise_error(GraphWeaver::Error, /\$end.*Ruby keyword/)
     end
 
-    it "nothing is reserved: a variable named $client or $executor is fine" do
+    it "leaves the rest of the kwarg namespace alone" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
         client: Demo::Schema,
@@ -126,6 +126,25 @@ describe GraphWeaver::Codegen do
       )
 
       expect(mod.execute!(executor: "1").person&.name).to eq "Daniel"
+    end
+
+    it "refuses variables whose kwarg is one of execute's own locals" do
+      %w[client variables transport].each do |name|
+        expect {
+          GraphWeaver.parse(schema: Demo::Schema, query: "query($#{name}: ID!) { person(id: $#{name}) { id } }")
+        }.to raise_error(GraphWeaver::Error, /\$#{name}.*generated execute already uses.*rename/m)
+      end
+    end
+
+    it "keeps the wrapping variable when a flattened input field would collide" do
+      # the user can't rename a schema field, so decline to flatten instead
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        input Wrap { client: ID! }
+        type Query { thing(wrap: Wrap!): String }
+      GRAPHQL
+      source = described_class.generate(schema:, query: "query Q($wrap: Wrap!) { thing(wrap: $wrap) }", module_name: "W")
+
+      expect(source).to include("def self.execute(client = nil, wrap:)")
     end
   end
 
@@ -161,9 +180,23 @@ describe GraphWeaver::Codegen do
       expect(PersonQuery::QUERY).to be_frozen
     end
 
-    it "emits the operation's name beside QUERY, nil when the document is anonymous" do
+    it "emits the operation's name beside QUERY, naming an anonymous one itself" do
       expect(SearchQuery::OPERATION_NAME).to eq "Search"
-      expect(PersonQuery::OPERATION_NAME).to be_nil
+      expect(SearchQuery::QUERY).to start_with "query Search("
+
+      # the constant and the document have to agree — a server rejects an
+      # operationName the document doesn't declare
+      expect(PersonQuery::OPERATION_NAME).to eq "PersonQuery"
+      expect(PersonQuery::QUERY).to start_with "query PersonQuery("
+    end
+
+    it "names a query-shorthand document too" do
+      source = described_class.generate(
+        schema: Demo::Schema, module_name: "PeopleQuery", query: "{ people { name } }",
+      )
+
+      expect(source).to include("QUERY = T.let(<<~'GRAPHQL', String)\n    query PeopleQuery { people { name } }")
+      expect(source).to include('OPERATION_NAME = T.let("PeopleQuery", T.nilable(String))')
     end
 
     # the client slot stays duck-typed: a graphql-ruby schema class takes
@@ -279,14 +312,27 @@ describe GraphWeaver::Codegen do
       expect(person.name).to eq "Daniel" # selected via `... on Named`
       expect(person.birthday).to eq Date.new(1990, 6, 15)
       expect(pet.name).to eq "Shelby"
-      expect(pet.species).to eq SearchQuery::Result::Search::Pet::Species::Dog
+      expect(pet.species).to eq SearchQuery::Species::Dog
     end
 
     it "deserializes enums into generated T::Enums" do
-      species = SearchQuery::Result::Search::Pet::Species
+      species = SearchQuery::Species
 
       expect(species.values).to eq [species::Cat, species::Dog]
       expect(species::Dog.serialize).to eq "DOG"
+
+      # one GraphQL enum, one Ruby type — the same class every module aliases
+      expect(species).to equal AddPetMutation::Species
+    end
+
+    it "round-trips an enum read in one module into another module's variable" do
+      # SearchQuery only reads Species; AddPetMutation only sends it. Two
+      # separately-generated modules used to mean two incompatible classes, so
+      # this raised a TypeError from the receiving sig.
+      pet = results.last
+
+      expect(AddPetMutation.execute!(name: "Rex", species: pet.species).add_pet.species)
+        .to equal pet.species
     end
 
     it "requires __typename when the selection varies by concrete type" do
@@ -385,7 +431,7 @@ describe GraphWeaver::Codegen do
 
       expect(pet).to be_a NamedQuery::Result::Named::Pet
       expect(pet.name).to eq "Shelby" # interface field, gathered into every member
-      expect(pet.species).to eq NamedQuery::Result::Named::Pet::Species::Dog
+      expect(pet.species).to eq NamedQuery::Species::Dog
       # the query names no Person fields, so Person shares the catch-all with
       # every other Named implementation — the interface-level fields still cast
       expect(person).to be_a NamedQuery::Result::Named::Other
@@ -910,15 +956,15 @@ describe GraphWeaver::Codegen do
       expect(src).to include("const :created_on, Date")  # the field override wins
     end
 
-    it "deserializes each field to its own Ruby type end to end (client-scoped)" do
+    it "deserializes each field to its own Ruby type end to end" do
       executor = Class.new do
         def execute(_query, variables:, operation_name: nil)
           { "data" => { "event" => { "startsAt" => "2020-01-02T03:04:05Z", "createdOn" => "2021-06-15" } } }
         end
       end.new
       client = GraphWeaver::Client.new(schema, transport: executor)
-      client.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
-      client.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
+      GraphWeaver.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
+      GraphWeaver.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
 
       event = client.execute!("query E { event { startsAt createdOn } }").event
       expect(event.starts_at).to be_a(Time)
@@ -926,8 +972,9 @@ describe GraphWeaver::Codegen do
     end
 
     it "validates the coordinate names a real scalar field" do
-      client = GraphWeaver::Client.new(schema)
-      expect { client.register_scalar("Event.nope", Date) }
+      GraphWeaver.register_scalar("Event.nope", Date)
+
+      expect { described_class.generate(schema:, query: "query E { event { startsAt } }") }
         .to raise_error(GraphWeaver::Error, /no scalar field/)
     end
   end
