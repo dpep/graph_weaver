@@ -107,6 +107,12 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
       expect { generate("query W { widget { id } }") }
         .to raise_error(GraphWeaver::Error, /not a selected field/)
     end
+
+    it "names the failing query and the opt-out when a strict alias breaks generation" do
+      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
+      expect { generate("query W { widget { id } }") }
+        .to raise_error(GraphWeaver::Error, /\AW: alias .* — pass optional: true to skip selections that don't fit\z/)
+    end
   end
 
   it "rejects an accessor name that collides with a selected field" do

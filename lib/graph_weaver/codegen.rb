@@ -703,10 +703,14 @@ class GraphWeaver::Codegen
       check_alias_name!(node, name)
       begin
         resolve_alias(node, name, spec[:segments])
-      rescue GraphWeaver::Error
-        # a path that doesn't fit THIS query's selection: strict raises,
-        # optional simply omits the accessor
-        raise unless spec[:optional]
+      rescue GraphWeaver::Error => e
+        # a path that doesn't fit THIS query's selection: optional simply
+        # omits the accessor; strict breaks generation for every query on the
+        # type, so name the one that failed and the way out
+        next nil if spec[:optional]
+
+        raise e.class, "#{[@module_name, e.message].compact.join(": ")} " \
+          "— pass optional: true to skip selections that don't fit"
       end
     end
   end
