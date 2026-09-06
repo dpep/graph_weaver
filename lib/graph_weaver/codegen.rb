@@ -52,12 +52,16 @@ class GraphWeaver::Codegen
   # live once in that module and the query module aliases what it uses.
   # unions_namespace:/hoistable_unions: are the parallel shared-unions
   # workflow — a whole-union field spread as a named shared fragment resolves
-  # to one canonical type in that module (see used_union_names).
+  # to one canonical type in that module (see used_union_names). path: is the
+  # file the query was read from, named alongside line and column in
+  # validation errors.
   def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
     scalars: nil, enums: nil, types: nil, inputs_namespace: nil, unions_namespace: nil,
-    hoistable_unions: nil)
+    hoistable_unions: nil, path: nil)
     @schema = schema
     @query = query.strip
+    # the file this query came from, named in validation errors
+    @path = path
     @module_name = module_name
     @default_module_name = default_module_name
     @scalars = scalars || {}
@@ -89,8 +93,9 @@ class GraphWeaver::Codegen
   end
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil)
-    new(schema:, query:, module_name:, client:, scalars:, enums:, types:).generate
+  def self.generate(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil,
+    path: nil)
+    new(schema:, query:, module_name:, client:, scalars:, enums:, types:, path:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -223,7 +228,7 @@ class GraphWeaver::Codegen
     rescue GraphQL::ParseError => e
       # unparseable queries wrap like invalid ones — everything raised
       # here descends from GraphWeaver::Error
-      raise GraphWeaver::ValidationError.new([{ message: e.message, line: nil, column: nil }])
+      raise GraphWeaver::ValidationError.new([detail(e.message, e.line, e.col)])
     end
     if errors.any?
       raise GraphWeaver::ValidationError.new(errors.map { |e| validation_detail(e) })
@@ -486,7 +491,7 @@ class GraphWeaver::Codegen
     GraphQL.parse(query)
   rescue GraphQL::ParseError => e
     raise GraphWeaver::ValidationError.new(
-      [{ message: path ? "#{path}: #{e.message}" : e.message, line: e.line, column: e.col }],
+      [{ message: "#{[path, e.line, e.col].compact.join(":")} #{e.message}", line: e.line, column: e.col }],
     )
   end
 
@@ -529,7 +534,15 @@ class GraphWeaver::Codegen
   # source location, so ValidationError#errors is inspectable.
   def validation_detail(error)
     loc = (error.to_h["locations"]&.first if error.respond_to?(:to_h))
-    { message: error.message, line: loc && loc["line"], column: loc && loc["column"] }
+    detail(error.message, loc && loc["line"], loc && loc["column"])
+  end
+
+  # One ValidationError entry, its message prefixed "file:line:col" like a
+  # compiler — the position is captured either way, and without it a project
+  # with thirty query files leaves the reader hunting for the typo.
+  def detail(message, line, column)
+    prefix = [@path, line, column].compact.join(":")
+    { message: prefix.empty? ? message : "#{prefix} #{message}", line:, column: }
   end
 
   # Every registration this generation could consult, client-scoped overlay and

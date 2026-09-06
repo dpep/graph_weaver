@@ -145,6 +145,13 @@ describe GraphWeaver::Codegen do
     expect { codegen.generate }.to raise_error(GraphWeaver::ValidationError, /invalid query/)
   end
 
+  it "names the file and position of each validation error" do
+    expect {
+      described_class.generate(schema: Demo::Schema, module_name: "Bad", path: "queries/typo.graphql",
+        query: "query { person(id: 1) { nmae } }")
+    }.to raise_error(GraphWeaver::ValidationError, %r{queries/typo\.graphql:1:25 Field 'nmae'})
+  end
+
   describe "the generated module" do
     let(:response) { PersonQuery.execute(id: "1") }
     let(:result) { response.data! }
