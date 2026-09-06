@@ -12,9 +12,25 @@
 #   run first — block-built type helpers must exist before the files
 #   that include them load). load_generated! stays idempotent, so
 #   calling it yourself too is harmless.
+# - Zeitwerk: the generated directory is hidden from it, since the
+#   default one lives under app/ and its files define top-level
+#   constants.
 class GraphWeaver::Railtie < Rails::Railtie
   rake_tasks do
     require "graph_weaver/tasks"
+  end
+
+  # generated/person_query.rb defines ::PersonQuery, but Zeitwerk infers
+  # Generated::PersonQuery from the path — and app/graphql/generated is
+  # inside an autoload root by default, so eager loading raised
+  # "uninitialized constant Generated::PersonQuery" in production while
+  # development (lazy) was fine. load_generated! below requires them.
+  initializer "graph_weaver.ignore_generated", before: :setup_main_autoloader do
+    Rails.autoloaders.each do |loader|
+      # patterns, not paths — generated_paths may be globs, and Zeitwerk
+      # expands its own at setup (which is what this runs before)
+      GraphWeaver.generated_paths.each { |path| loader.ignore(Rails.root.join(path).to_s) }
+    end
   end
 
   # Rails.logger, unless the app already chose one (set
