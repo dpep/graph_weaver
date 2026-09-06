@@ -63,8 +63,8 @@ want re-recorded.**
 
 **`Recorder.new(..., anonymize:)` is gone.** It was unreachable through the
 factory and duplicated `Testing.config.anonymize`. **Set the config flag** —
-that plus `rake graph_weaver:cassettes:anonymize` (for cassettes recorded before
-you turned it on) are the two remaining ways to scrub.
+that's the one way to anonymize, with `rake graph_weaver:cassettes:anonymize`
+as the cleanup tool for cassettes recorded before you turned it on.
 
 **`FakeClient.new` no longer requires `schema:`.** Every other option fell back
 to `Testing.config`; this one didn't, even though `config.schema` already

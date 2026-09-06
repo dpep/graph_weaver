@@ -53,7 +53,7 @@ module GraphWeaver
         # surprising to be a default — a little friction beats unexpected
         # behavior (the schema still auto-locates once you opt in)
         @auto_fake = false
-        # GRAPHWEAVER_RECORD=1 rspec ...  -> Cassette.use re-records
+        # GRAPHWEAVER_RECORD=1 rspec ...  -> Testing.cassette re-records
         @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
         # anonymize responses as they're recorded (needs config.schema)
         @anonymize = false

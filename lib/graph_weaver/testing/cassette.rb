@@ -120,9 +120,8 @@ module GraphWeaver
       # The request's identity, exactly as the server sees it. operationName
       # is part of that: it picks the operation the document runs, so two
       # requests with identical text but different names are different
-      # requests. Omitted when anonymous, so those keys stay as they were.
-      # Derived, never stored: the file holds the request once, so a
-      # hand-edited entry can't disagree with what replay matches on.
+      # requests. Derived, never stored — the file holds the request once,
+      # so a hand-edited entry can't disagree with what replay matches on.
       def self.key(query, variables, operation_name = nil)
         key = { "query" => normalize_query(query), "variables" => normalize_variables(variables) }
         key["operationName"] = operation_name if operation_name
