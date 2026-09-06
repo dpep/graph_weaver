@@ -479,6 +479,28 @@ describe "federation / _entities representations" do
     expect(source).not_to include("Representations")
   end
 
+  # what docs/federation.md tells you to write: a built representation goes
+  # straight into the [_Any!]! variable, and the result comes back typed
+  it "feeds execute, which returns the entities in order" do
+    sent = nil
+    client = Class.new do
+      define_method(:execute) do |_query, variables:|
+        sent = variables
+        { "data" => { "_entities" => [{ "__typename" => "Variant", "id" => "v-1", "color" => "red" }, nil] } }
+      end
+    end.new
+
+    mod = build(catalog, CATALOG_ENTITIES, "CatalogExecute").first
+    result = mod.execute!(client, reps: [reps.variant(id: "v-1"), reps.variant(serial: "gone")])
+
+    expect(sent["reps"]).to eq [
+      { "__typename" => "Variant", "id" => "v-1" },
+      { "__typename" => "Variant", "serial" => "gone" },
+    ]
+    # order-preserving with a null hole for what the subgraph couldn't resolve
+    expect(result._entities.map { |e| e&.__typename }).to eq ["Variant", nil]
+  end
+
   it "reads @key under a link namespace" do
     schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::UsersV2::Schema)) # @federation__key
     mod, = build(schema, ENTITY_QUERY % "User { id }", "UserV2Entities")

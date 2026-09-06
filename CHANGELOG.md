@@ -147,6 +147,29 @@ Codegen bug fixes from the library review (all with regression coverage):
     marker, is now recognized as composed rather than loaded as plain SDL
     (`core__Purpose` used to survive, and `@inaccessible` went unsubtracted).
 
+- **Subgraph SDL loads with the entity resolver it serves.** No published
+  subgraph SDL contains `_entities`/`_service` — `rover subgraph fetch` and
+  `_service { sdl }` both print the schema, where the plumbing is implicit — so
+  the one query only a subgraph can describe couldn't be typed against the
+  artifact you have. Weaver now supplies `_Any`, `_Service` and an `_Entity`
+  union over the file's own `@key`'d types, alongside the `@key`/`@external`
+  definitions it already supplied. Supergraphs and plain SDL are untouched;
+  a file declaring its own `_entities` keeps it.
+- **Typed `_entities` representations.** A query selecting entities now
+  generates a `Representations` builder per entity it can resolve, typed from
+  the `@key(fields:)` directives the subgraph SDL carries:
+  `UserQuery::Representations.user(id: "1")` → `{"__typename" => "User", "id"
+  => "1"}`. `__typename` is injected, key fields are typed from the schema, and
+  a single `@key` makes them **required kwargs** — so an incomplete
+  representation is an `srb tc` error, not a round trip. Compound (`"upc sku"`)
+  and nested (`"organization { id }"`) key sets are parsed as the selection
+  sets they are; a type with two alternative keys takes them optionally and
+  raises `GraphWeaver::InputError` naming the type and what's missing when
+  neither is satisfied. Builders are emitted only for entities the query
+  actually reaches, and a key marked `resolvable: false` gets none.
+  **`Representations` joins `Result`/`QUERY` as a reserved module-level name**
+  — a shared fragment hoisting to it is now refused.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

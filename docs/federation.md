@@ -103,11 +103,65 @@ anything the file declares itself wins. The federation directives themselves
 generate no code — codegen is query-driven.
 
 Reach for this when the subgraph is what you have, or to type an `_entities`
-query: `_entities`/`_service` are deliberately absent from a supergraph, so a
-subgraph SDL is the only artifact that describes them. But a subgraph is one
-service's slice of the graph, and its field shapes are not always the composed
-ones (an `@external` field is a reference, not something that subgraph serves) —
-for a client of the whole graph, feed the composed artifact.
+query (below). But a subgraph is one service's slice of the graph, and its
+field shapes are not always the composed ones (an `@external` field is a
+reference, not something that subgraph serves) — for a client of the whole
+graph, feed the composed artifact.
+
+### `_entities`
+
+Every subgraph serves the entity resolver
+`_entities(representations: [_Any!]!): [_Entity]!`, and **no subgraph SDL
+contains it**: `_service { sdl }` and `rover subgraph fetch` print the
+*published* schema, where the plumbing is implicit. A supergraph omits it
+deliberately, and live introspection carries no `@key` to type it from. So
+weaver supplies it on the subgraph path — `_Any`, `_Service`, and an `_Entity`
+union over the file's own `@key`'d types — the same way it supplies the
+`@key`/`@external` definitions. A file that declares its own keeps it.
+
+The read side is a normal union selection; `alias:` turns the
+single-entity case into a clean accessor (see [scalars.md](scalars.md)):
+
+```ruby
+GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
+```
+
+The **input** side is generated. A representation must carry `__typename` and
+satisfy one of the entity's `@key` field sets — both hard requirements of the
+subgraph spec, and neither expressible in a bare `[_Any!]!`. So a query
+selecting entities gets a `Representations` builder per entity it can resolve,
+typed from the `@key` directives:
+
+```ruby
+UserQuery::Representations.user(id: "1")
+# => {"__typename" => "User", "id" => "1"}
+
+UserQuery.execute(reps: [UserQuery::Representations.user(id: "1")])
+```
+
+Key field sets are selection sets, so they're parsed as such:
+
+| `@key(fields:)` | Builder |
+|---|---|
+| `"id"` | `Representations.user(id: "1")` |
+| `"upc sku"` (compound) | `Representations.product(upc: "u", sku: 42)` |
+| `"id organization { id }"` (nested) | `Representations.listing(id: "1", organization: { id: "o" })` |
+| `"id"` **and** `"serial"` (alternatives) | `Representations.variant(id: "1")` *or* `(serial: "s")` |
+
+A type with one `@key` types its fields as **required kwargs**, so an
+incomplete representation is an `srb tc` error rather than a round trip. What a
+sig can't say is checked at runtime and raises `GraphWeaver::InputError` naming
+the type and the field: which of two alternative keys you meant to supply, and
+whether a nested sub-hash carries the fields the key set declares. Only the
+declared key fields reach the wire — an extra key in a nested hash is dropped.
+
+Two bounds worth knowing. Builders are emitted **only for the entities a
+query's `_entities` selection reaches** — codegen is query-driven, so a
+subgraph with fifty entities emits nothing for the forty-nine you didn't name.
+And a `@key(..., resolvable: false)` declares a key this subgraph does *not*
+answer for, so it builds nothing. Key fields typed as scalars get their
+registered Ruby type; anything else (a nested selection) is an open `Hash` the
+runtime narrows.
 
 ## Which schema to feed
 
