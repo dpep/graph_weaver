@@ -275,10 +275,13 @@ class GraphWeaver::Codegen
 
   class UnionNode < Node
     attr_reader :class_name, :members # graphql type name => ObjectNode
+    # the struct an unnamed (or newly-added) __typename deserializes into
+    attr_reader :catch_all
 
-    def initialize(class_name, members)
+    def initialize(class_name, members, catch_all = nil)
       @class_name = class_name
       @members = members
+      @catch_all = catch_all
     end
 
     def bare_type = "#{class_name}::Type"

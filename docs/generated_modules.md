@@ -245,10 +245,19 @@ mod.execute!(where:)
   selection; type conditions match exact names or interfaces/unions the type
   belongs to.
 - **Unions and interfaces** — when the selection *varies by concrete
-  type*, each abstract site emits a module: one member struct per
-  possible type, `Type = T.type_alias { T.any(...) }`, and a `from_h`
-  dispatching on `__typename` — which generation therefore *requires* in
-  the selection (the wire response carries no type tag unless you ask).
+  type*, each abstract site emits a module: one member struct per type
+  the selection **names**, one catch-all `Other`,
+  `Type = T.type_alias { T.any(...) }`, and a `from_h` dispatching on
+  `__typename` — which generation therefore *requires* in the selection,
+  unaliased and unconditional (the wire response carries no type tag
+  unless you ask, and `from_h` reads it on every response). Generated
+  size follows the query, not the schema: two `... on` conditions against
+  an interface with 278 implementations emit three structs, not 279.
+  Anything the query didn't name — a member you have no fragment on, or
+  one the schema grew *after* you generated — deserializes into `Other`,
+  which carries what the abstract type itself guarantees (an interface's
+  selected interface-level fields; for a union, `__typename`). Adding a
+  union member upstream is a non-breaking change, and it stays one here.
   Two narrower shapes skip the dispatch module entirely: interface-level
   fields only → one shared struct; a single `... on X` condition and
   nothing else → `X`'s struct, always nilable — a non-matching runtime
@@ -280,10 +289,11 @@ struct, so what you hold is a real `Book` or `Disc`, not a tag. Branch on the
 class and let Sorbet do the rest:
 
 ```ruby
-items.each do |item|          # item : T.any(Result::Item::Book, Result::Item::Disc)
+items.each do |item|          # item : T.any(Result::Item::Book, Result::Item::Disc, Result::Item::Other)
   case item
   when Result::Item::Book then item.title     # narrowed to Book — .title is available
   when Result::Item::Disc then item.runtime   # narrowed to Disc — .runtime is available
+  when Result::Item::Other then item.__typename # something this query names no fields on
   else T.absurd(item)
   end
 end
@@ -292,10 +302,17 @@ end
 Two things a `case item.__typename` on the string can't give you. `when Book`
 *narrows*: inside the branch `item` is statically a `Book`, so its fields
 typecheck (a `Disc` field would be a compile error) — a string value narrows
-nothing. And after every member, the `T.any` is exhausted, so `T.absurd` asserts
-the `else` is unreachable: add a member to the union, regenerate, and the
-`T.absurd` stops compiling until you handle it. Dispatching on the string tag
-gets you neither — mistakes and schema growth fall through to a runtime raise.
+nothing. And after every branch, the `T.any` is exhausted, so `T.absurd` asserts
+the `else` is unreachable: **write a fragment for another member, regenerate,
+and the `T.absurd` stops compiling until you handle it.** Dispatching on the
+string tag gets you neither — mistakes fall through to a runtime raise.
+
+What `T.absurd` proves is exhaustiveness over the members *this query asked
+about*, plus `Other`. That is deliberately not "every type in the schema":
+`Other` is the branch a member you never named lands in — including one the
+schema grows next quarter — so a `case` you wrote today keeps compiling *and*
+keeps working when upstream adds a union member. If you want the compiler to
+force you to handle a new member, name it in the query.
 
 `__typename` is still there as a plain `String` if you want the raw tag, but you
 rarely need it to dispatch. Its one real use is the case the class can't cover:

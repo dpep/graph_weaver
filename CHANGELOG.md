@@ -12,6 +12,16 @@ Codegen bug fixes from the library review (all with regression coverage):
 - A dispatched union/interface now requires its `__typename` to be unaliased and
   free of `@skip`/`@include` — `from_h` reads it unguarded, so either would have
   raised at runtime. Fix the selection if generation now refuses it.
+- **Unions and interfaces generate per named condition, plus one catch-all
+  `Other`** — not one struct per schema member. A two-condition query against
+  GitHub's `Node` (278 implementations) went from 5,386 lines / 279 structs to
+  162 lines / 4. **Regenerate, and expect member names to move**: a type your
+  query names no fields on is now `Other` rather than its own struct, so a
+  `case` over the members needs an `Other` branch (`T.absurd` will tell you).
+  In exchange, a `__typename` the query doesn't name — including a **member the
+  schema grows after you generate** — deserializes into `Other` instead of
+  raising `unexpected __typename`, so adding a union member upstream stays the
+  non-breaking change GraphQL says it is.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

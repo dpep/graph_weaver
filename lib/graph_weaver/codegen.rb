@@ -185,7 +185,8 @@ class GraphWeaver::Codegen
       end
       fragment = fragments.fetch(name)
       type = @schema.get_type(fragment.type.name)
-      UnionNode.new(class_name, union_members(type, fragment.selections))
+      members = union_members(type, fragment.selections)
+      UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
     end
 
     emit_unions_file(unions)
@@ -415,9 +416,10 @@ class GraphWeaver::Codegen
           conditions = concrete_conditions(core, sub_selections)
           bare = bare_fields(sub_selections) - ["__typename"]
 
-          if conditions.empty? && core.kind.name == "INTERFACE"
-            # interface-level fields only — every member shares them, so
-            # one struct suffices and no __typename dispatch is needed
+          if conditions.empty?
+            # abstract-level fields only — every member shares them, so one
+            # struct suffices and no __typename dispatch is needed (for a
+            # union that selection can only be __typename)
             name = pick_name(core.graphql_name, key, taken)
             type_ref(field_type) { object_node(core, sub_selections, name) }
           elsif conditions.size == 1 && bare.empty? &&
@@ -449,9 +451,10 @@ class GraphWeaver::Codegen
             type_ref(field_type) { ref }
           else
             members = union_members(core, sub_selections)
+            catch_all = catch_all_member(core, sub_selections, members)
             # reuse an identical sibling union (pick_name/name only on a miss)
-            union = (union_cache[union_signature(members)] ||=
-              UnionNode.new(pick_name(core.graphql_name, key, taken), members))
+            union = (union_cache[union_signature(members, catch_all)] ||=
+              UnionNode.new(pick_name(core.graphql_name, key, taken), members, catch_all))
             type_ref(field_type) { union }
           end
         when "ENUM"
@@ -688,13 +691,12 @@ class GraphWeaver::Codegen
     end
   end
 
-  # Abstract types (unions AND interfaces) whose selections vary by
-  # concrete type: one member struct per possible type; wire dispatch
-  # reads __typename, so the query must select it. For interfaces, the
-  # interface's own field selections gather into every member.
-  # The union's member structs (graphql type name => ObjectNode), sorted for
-  # deterministic output. Dispatch reads __typename, so the query must select
-  # it; for interfaces the interface-level fields gather into every member.
+  # Abstract types (unions AND interfaces) whose selections vary by concrete
+  # type: one member struct per type the selection NAMES (graphql type name =>
+  # ObjectNode, sorted for deterministic output), never one per schema member —
+  # a query against an interface with 278 implementations types the two it asked
+  # about. Dispatch reads __typename, so the query must select it; for
+  # interfaces the interface-level fields gather into every member.
   def union_members(type, selections)
     unless dispatchable_typename?(type, selections)
       raise ArgumentError,
@@ -703,15 +705,51 @@ class GraphWeaver::Codegen
         "single `... on Type` condition (no dispatch needed)"
     end
 
-    @schema.possible_types(type).sort_by(&:graphql_name).to_h do |possible|
+    selected_members(type, selections).sort_by(&:graphql_name).to_h do |possible|
       [possible.graphql_name, object_node(possible, selections, camelize(possible.graphql_name))]
     end
   end
 
+  # The concrete types a selection names through its type conditions, kept to
+  # the abstract type's own members. A condition naming another abstract type
+  # (`... on Named` inside a union) stands for the members it covers, since its
+  # fields are typed per member.
+  def selected_members(type, selections)
+    possible = @schema.possible_types(type).to_h { |member| [member.graphql_name, member] }
+
+    concrete_conditions(type, selections).flat_map { |name|
+      condition = @schema.get_type(name)
+      condition.kind.name == "OBJECT" ? [condition] : @schema.possible_types(condition)
+    }.map(&:graphql_name).uniq.filter_map { |name| possible[name] }
+  end
+
+  # The one struct everything else deserializes into: a member the query didn't
+  # name, and — the point — a member the schema grows AFTER this file was
+  # generated. It carries only what the abstract type itself guarantees (an
+  # interface's selected interface-level fields; for a union, just __typename),
+  # so a new upstream member bends the result rather than breaking it.
+  def catch_all_member(type, selections, members)
+    object_node(type, selections, catch_all_name(members))
+  end
+
+  # "Other", unless a real member already claims that name.
+  def catch_all_name(members)
+    taken = members.each_value.map(&:class_name)
+    name = "Other"
+    suffix = 2
+    while taken.include?(name)
+      name = "Other#{suffix}"
+      suffix += 1
+    end
+    name
+  end
+
   # A name-independent structural fingerprint of a union's members, so two
   # occurrences that generate identical structs collapse to one Ruby type.
-  def union_signature(members)
-    members.map { |gname, member| "#{gname}=#{signature(member)}" }.sort.join(",")
+  def union_signature(members, catch_all = nil)
+    parts = members.map { |gname, member| "#{gname}=#{signature(member)}" }
+    parts << "*=#{signature(catch_all)}" if catch_all
+    parts.sort.join(",")
   end
 
   # Structural signature of a node — ignores the generated class name (which
@@ -728,7 +766,7 @@ class GraphWeaver::Codegen
     when ObjectNode
       inner = node.fields.map { |f| "#{f.prop}=#{signature(f.node)}" }.sort.join(",")
       "o:#{node.graphql_type}(#{inner})"
-    when UnionNode then "u:(#{union_signature(node.members)})"
+    when UnionNode then "u:(#{union_signature(node.members, node.catch_all)})"
     when UnionRefNode then "ur:#{node.class_name}" # hoisted — identity is its shared name
     else "x:#{node.object_id}" # unknown node kind — never collapse
     end
