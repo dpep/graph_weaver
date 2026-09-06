@@ -41,7 +41,7 @@ initializer that fits:
 
 | flag | |
 |---|---|
-| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, the same one `rake graph_weaver:schema:diff` reads. Url only |
+| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`. Url only. Name a different one and the initializer follows, but `schema:refresh`/`schema:diff` still read `GRAPHWEAVER_AUTH` — set both |
 | `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh URL=...` does it later |
 
 Re-running is safe — every file goes through the usual Rails conflict
@@ -226,11 +226,10 @@ fragment FeedItemFields on FeedItem {
 query { feed { ...FeedItemFields } }   # feed : T::Array[FeedItemFields::Type]
 ```
 
-Hoisting is what the shared fragment buys you — there's no flag. It triggers
-only when the union field's selection is exactly that one spread (mix in other
-fields, or shadow the fragment with a query-local one of the same name, and the
-union stays inlined in that query). The module is always `GraphQLUnions`;
-override with `GraphWeaver.unions_module=`.
+There's no flag: hoisting triggers when the union field's selection is exactly
+that one spread. Mix in other fields, or shadow the fragment with a query-local
+one of the same name, and the union stays inlined in that query — see
+[abstract types](generated_modules.md#abstract-types).
 
 ## 4. Test against fakes
 
@@ -287,10 +286,7 @@ app/graphql/queries/person.graphql
 ```
 
 It exits non-zero when anything fails, so it drops straight into CI or a
-scheduled job. This is breaking-change detection scoped to the operations
-you actually ship — no usage metrics, no sampling window, no
-distinct-operation cap: your repository either still compiles against the
-server or it doesn't.
+scheduled job.
 
 The Ruby behind it returns the same thing as data, so you can wire it into
 whatever you already have (a spec, a Slack ping, an issue):
