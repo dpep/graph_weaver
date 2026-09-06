@@ -236,7 +236,7 @@ class GraphWeaver::Codegen
     # enum tables, input structs (dependency-ordered, forward-declared
     # when cyclic), the Result tree, and execute — assembled from the
     # generator's walked state.
-    def emit_module(root, variables)
+    def emit_module(root, variables, representations = [])
       flatten = flatten_input(variables)
       aliases = @inputs_namespace ? shared_alias_names(variables, flatten) : []
       # hoisted unions the result tree references, aliased so <Name>::Type and
@@ -281,12 +281,44 @@ class GraphWeaver::Codegen
         emit_variable_types(out)
       end
       emit_shared_aliases(out, union_aliases, @unions_namespace)
+      emit_representations(out, representations)
       emit_nested(root, out, 1)
       out << ""
       emit_execute(out, variables, flatten:)
       out << "end"
 
       out.join("\n") + "\n"
+    end
+
+    # Typed constructors for the entity references an
+    # `_entities(representations:)` query takes — one per entity the query's
+    # selection reaches, its kwargs the type's @key fields. A single-key
+    # entity types them required, so an incomplete representation is a
+    # Sorbet error rather than a round trip; alternative keys and nested key
+    # sets are what GraphWeaver::Representation.build checks at runtime.
+    def emit_representations(out, nodes)
+      return if nodes.empty?
+
+      out << "  # Entity references for _entities(representations:) — one builder"
+      out << "  # per entity this query can resolve, typed from its @key fields."
+      out << "  module Representations"
+      out << "    extend T::Sig" if GraphWeaver.extend_t_sig?
+
+      nodes.each do |node|
+        out << ""
+        out << "    # #{node.graphql_type} #{node.key_fields.map { |set| "@key(fields: #{set.inspect})" }.join(" ")}"
+        sig = node.params.map { |param| "#{param.kwarg}: #{param.type}" }.join(", ")
+        out << "    sig { params(#{sig}).returns(T::Hash[String, T.untyped]) }"
+        kwargs = node.params.map { |param| param.required ? "#{param.kwarg}:" : "#{param.kwarg}: nil" }.join(", ")
+        out << "    def self.#{node.method_name}(#{kwargs})"
+        out << "      GraphWeaver::Representation.build(#{node.graphql_type.inspect}, {"
+        node.params.each { |param| out << "        #{param.wire.inspect} => #{param.value}," }
+        out << "      }, #{node.key_sets.inspect})"
+        out << "    end"
+      end
+
+      out << "  end"
+      out << ""
     end
 
     # Is this node defined once at module level rather than inside the struct

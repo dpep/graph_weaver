@@ -351,6 +351,41 @@ describe "federation / subgraph SDL" do
     expect(GraphWeaver::SchemaLoader.subgraph_sdl?(SUPERGRAPH_SDL)).to be false
   end
 
+  # a published subgraph SDL never contains the entity resolver it serves, so
+  # the artifact people actually hold can't type the one query only a subgraph
+  # describes — weaver supplies the spec's plumbing the way it supplies @key
+  describe "entity plumbing" do
+    it "supplies _entities over the subgraph's own @key'd types" do
+      schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Catalog::Schema))
+
+      expect(schema.get_type("Query").fields.keys).to include("_entities", "_service")
+      expect(schema.possible_types(schema.get_type("_Entity")).map(&:graphql_name))
+        .to eq %w[Listing Product Variant Warehouse]
+    end
+
+    it "reads @key through a namespace, and through a type extension" do
+      v2 = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::UsersV2::Schema)) # @federation__key
+      pets = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Pets::Schema)) # `extend type User`
+
+      [v2, pets].each do |schema|
+        expect(schema.possible_types(schema.get_type("_Entity")).map(&:graphql_name)).to eq %w[User]
+      end
+    end
+
+    it "leaves a schema with no entities, and a subgraph that declares its own, alone" do
+      plain = GraphWeaver::SchemaLoader.load("type Query { a: Int }")
+      expect(plain.get_type("_Entity")).to be_nil
+
+      own = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+        scalar _Any
+        union _Entity = User
+        type Query { user: User _entities(representations: [_Any!]!): [_Entity]! }
+        type User @key(fields: "id") { id: ID! }
+      GRAPHQL
+      expect(own.get_type("Query").fields.keys).to eq %w[user _entities]
+    end
+  end
+
   it "generates typed structs from a subgraph SDL" do
     source = GraphWeaver::Codegen.new(
       schema: GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Users::Schema)),
@@ -360,5 +395,158 @@ describe "federation / subgraph SDL" do
     ).generate
 
     expect(source).to include("const :name, String")
+  end
+end
+
+# The input side of an _entities query. A representation must carry
+# __typename and satisfy one of the entity's @key field sets — both hard
+# requirements of the subgraph spec, and both invisible in a bare `[_Any!]!`
+# variable. Codegen reads the @key directives the subgraph SDL carries and
+# emits a typed builder per entity the query can resolve.
+describe "federation / _entities representations" do
+  def sdl_of(schema) = schema.execute("{ _service { sdl } }").to_h.dig("data", "_service", "sdl")
+
+  # eval'd rather than required: the generated module is the thing under
+  # test, and sorbet-runtime checks its sigs as we call them
+  def build(schema, query, module_name)
+    source = GraphWeaver::Codegen.new(schema:, query:, module_name:, client: "Fake").generate
+    container = Module.new
+    container.module_eval(source, "(graph_weaver spec)", 1)
+    [container.const_get(module_name), source]
+  end
+
+  let(:catalog) { GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Catalog::Schema)) }
+
+  ENTITY_QUERY = "query($reps: [_Any!]!) { _entities(representations: $reps) { ... on %s } }"
+
+  # Product's key is compound, Listing's nested, Variant's alternative —
+  # Warehouse is an entity this query never names
+  CATALOG_ENTITIES = <<~GRAPHQL
+    query($reps: [_Any!]!) {
+      _entities(representations: $reps) {
+        __typename
+        ... on Product { upc title }
+        ... on Listing { id price }
+        ... on Variant { id color }
+      }
+    }
+  GRAPHQL
+
+  let(:reps) { build(catalog, CATALOG_ENTITIES, "CatalogEntities").first::Representations }
+
+  it "injects __typename and types a single key's fields as required kwargs" do
+    schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Users::Schema))
+    mod, source = build(schema, ENTITY_QUERY % "User { id name }", "UserEntities")
+
+    expect(source).to include("def self.user(id:)")
+    expect(mod::Representations.user(id: "1")).to eq({ "__typename" => "User", "id" => "1" })
+  end
+
+  it "builds a compound key, typed field by field from the schema" do
+    expect(reps.product(upc: "u-1", sku: 42))
+      .to eq({ "__typename" => "Product", "upc" => "u-1", "sku" => 42 })
+    # Product.sku is Int! — the sig, not the wire, is what catches a bad one
+    expect { reps.product(upc: "u-1", sku: "42") }.to raise_error(TypeError)
+  end
+
+  it "builds a nested key, keeping only what the key set declares" do
+    expect(reps.listing(id: "1", organization: { id: "org-1" }))
+      .to eq({ "__typename" => "Listing", "id" => "1", "organization" => { "id" => "org-1" } })
+    # string keys read the same, and a field outside the key set stays off the wire
+    expect(reps.listing(id: "1", organization: { "id" => "org-1", "name" => "Acme" }))
+      .to eq({ "__typename" => "Listing", "id" => "1", "organization" => { "id" => "org-1" } })
+  end
+
+  it "lets either of two alternative keys resolve an entity" do
+    expect(reps.variant(id: "v-1")).to eq({ "__typename" => "Variant", "id" => "v-1" })
+    expect(reps.variant(serial: "s-1")).to eq({ "__typename" => "Variant", "serial" => "s-1" })
+  end
+
+  it "raises on a representation that satisfies no key" do
+    expect { reps.variant }.to raise_error(GraphWeaver::InputError, /Variant.*"id".*"serial"/)
+
+    # a single key set names the one field that's short, on the error too
+    expect { reps.listing(id: "1", organization: {}) }
+      .to raise_error(GraphWeaver::InputError) { |e| expect(e.field).to eq "organization.id" }
+  end
+
+  it "emits builders only for the entities the query reaches" do
+    expect(reps).to respond_to(:product, :listing, :variant)
+    expect(reps).not_to respond_to(:warehouse) # an entity of the same subgraph
+
+    # ...and none at all for a query that asks for no entities
+    _, source = build(catalog, "{ warehouse { region } }", "WarehouseQuery")
+    expect(source).not_to include("Representations")
+  end
+
+  # what docs/federation.md tells you to write: a built representation goes
+  # straight into the [_Any!]! variable, and the result comes back typed
+  it "feeds execute, which returns the entities in order" do
+    sent = nil
+    client = Class.new do
+      define_method(:execute) do |_query, variables:|
+        sent = variables
+        { "data" => { "_entities" => [{ "__typename" => "Variant", "id" => "v-1", "color" => "red" }, nil] } }
+      end
+    end.new
+
+    mod = build(catalog, CATALOG_ENTITIES, "CatalogExecute").first
+    result = mod.execute!(client, reps: [reps.variant(id: "v-1"), reps.variant(serial: "gone")])
+
+    expect(sent["reps"]).to eq [
+      { "__typename" => "Variant", "id" => "v-1" },
+      { "__typename" => "Variant", "serial" => "gone" },
+    ]
+    # order-preserving with a null hole for what the subgraph couldn't resolve
+    expect(result._entities.map { |e| e&.__typename }).to eq ["Variant", nil]
+  end
+
+  it "reads @key under a link namespace" do
+    schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::UsersV2::Schema)) # @federation__key
+    mod, = build(schema, ENTITY_QUERY % "User { id }", "UserV2Entities")
+
+    expect(mod::Representations.user(id: "1")).to eq({ "__typename" => "User", "id" => "1" })
+  end
+
+  # a builder is a Ruby method, so names that can't be one are refused at
+  # generation rather than emitting a file that won't load
+  {
+    "an entity whose name is a Ruby keyword" => [
+      "type End @key(fields: \"id\") { id: ID! }",
+      "End { id }",
+      /Representations\.end/,
+    ],
+    "two entities that build the same method" => [
+      "type User @key(fields: \"id\") { id: ID! }\ntype USER @key(fields: \"id\") { id: ID! }",
+      "User { id } __typename ... on USER { id }",
+      /User and USER/,
+    ],
+    "a @key naming a field the type doesn't declare" => [
+      "type Ghost @key(fields: \"missing\") { id: ID! }",
+      "Ghost { id }",
+      /Ghost @key names "missing"/,
+    ],
+  }.each do |label, (types, condition, message)|
+    it "refuses #{label}" do
+      schema = GraphWeaver::SchemaLoader.load("type Query { anchor: String }\n#{types}")
+
+      expect { build(schema, ENTITY_QUERY % condition, "RefusedEntities") }
+        .to raise_error(GraphWeaver::Error, message)
+    end
+  end
+
+  # `resolvable: false` declares a key this subgraph does NOT answer for, so
+  # nothing can be resolved by it — a builder offering it would be a lie
+  it "ignores a key the subgraph declares unresolvable" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      type Query { user: User }
+      type User @key(fields: "id") @key(fields: "email", resolvable: false) {
+        id: ID! email: String!
+      }
+    GRAPHQL
+    mod, source = build(schema, ENTITY_QUERY % "User { id }", "ResolvableEntities")
+
+    expect(source).to include("def self.user(id:)") # id required, email absent
+    expect(mod::Representations.user(id: "1")).to eq({ "__typename" => "User", "id" => "1" })
   end
 end
