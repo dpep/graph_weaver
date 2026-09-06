@@ -75,3 +75,68 @@ describe "federation / supergraph" do
     expect(result.user&.pet_names).to eq ["Shelby"]
   end
 end
+
+# The artifact a service repo actually holds — one subgraph's own SDL, which
+# applies @key/@external/... without declaring them (fed-1 leaves them
+# implicit, fed-2 imports them via @link). SchemaLoader supplies the missing
+# definitions so it loads like any schema.
+describe "federation / subgraph SDL" do
+  # what `rover subgraph fetch` / `_service { sdl }` hands you
+  def sdl_of(schema)
+    schema.execute("{ _service { sdl } }").to_h.dig("data", "_service", "sdl")
+  end
+
+  it "loads a real fed-1 subgraph, keeping its own type shapes" do
+    schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Users::Schema))
+
+    expect(schema.get_type("User").fields.keys).to eq %w[id name]
+    expect(schema.get_type("Query").fields["user"].type.unwrap.graphql_name).to eq "User"
+  end
+
+  it "loads a subgraph that extends an entity it doesn't own" do
+    schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Pets::Schema))
+
+    expect(schema.get_type("User").fields.keys).to eq %w[id petNames]
+  end
+
+  it "loads a fed-2 subgraph that @links the federation spec" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      extend schema
+        @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
+
+      type Query { user(id: ID!): User }
+      type User @key(fields: "id") { id: ID! name: String! @shareable }
+    GRAPHQL
+
+    expect(schema.get_type("User").fields.keys).to eq %w[id name]
+  end
+
+  it "leaves a subgraph's own directive definitions alone" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      directive @key(fields: _FieldSet!) repeatable on OBJECT
+      scalar _FieldSet
+      type Query { user: User }
+      type User @key(fields: "id") { id: ID! }
+    GRAPHQL
+
+    expect(schema.get_type("_FieldSet")).not_to be_nil
+    expect(schema.get_type("FieldSet")).to be_nil
+  end
+
+  it "detects a subgraph, and doesn't mistake a plain schema or a supergraph for one" do
+    expect(GraphWeaver::SchemaLoader.subgraph_sdl?(sdl_of(FederationDemo::Users::Schema))).to be true
+    expect(GraphWeaver::SchemaLoader.subgraph_sdl?("type Query { a: Int }")).to be false
+    expect(GraphWeaver::SchemaLoader.subgraph_sdl?(SUPERGRAPH_SDL)).to be false
+  end
+
+  it "generates typed structs from a subgraph SDL" do
+    source = GraphWeaver::Codegen.new(
+      schema: GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Users::Schema)),
+      client: "SubgraphSchema",
+      query: "query($id: ID!) { user(id: $id) { id name } }",
+      module_name: "SubgraphUserQuery",
+    ).generate
+
+    expect(source).to include("const :name, String")
+  end
+end

@@ -1,3 +1,15 @@
+## Unreleased
+- Federation schemas that previously wouldn't load now do:
+  - a supergraph whose `schema` definition carries a non-`@link` directive
+    (`@tag`, `@composeDirective`, a composed custom one) no longer dies with a
+    `GraphQL::ParseError` pointing into a document you never wrote.
+  - **raw subgraph SDL loads** — what `rover subgraph fetch`, `_service { sdl }`,
+    or your service repo's `.graphql` gives you. The federation directives a
+    subgraph applies but doesn't declare (`@key`, `@external`, `@shareable`, …)
+    are supplied on load, for both fed-1 and `@link`-style subgraphs. Note the
+    `@inaccessible` subtraction stays supergraph-only: a subgraph keeps those
+    fields, because it is not the public contract.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

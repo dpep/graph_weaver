@@ -39,13 +39,22 @@ module GraphWeaver::SchemaLoader
     end
   end
 
-  # Build a schema from SDL, first stripping Apollo Federation composition
-  # machinery when the SDL is a composed supergraph — so a supergraph dump
-  # (often the only artifact for the merged graph, and what the router
-  # actually serves) loads like any schema, with the federation plumbing
-  # gone rather than leaked into schema.types. Plain SDL passes through.
+  # Build a schema from SDL, first normalizing whichever federation artifact
+  # it is: a composed supergraph gets its composition machinery stripped (so
+  # a supergraph dump — often the only artifact for the merged graph, and
+  # what the router actually serves — loads like any schema, with the
+  # plumbing gone rather than leaked into schema.types); a subgraph gets the
+  # federation directive definitions it applies but doesn't declare. Plain
+  # SDL passes through.
   def self.build_sdl(sdl)
-    GraphQL::Schema.from_definition(federation_sdl?(sdl) ? strip_federation(sdl) : sdl)
+    sdl = if federation_sdl?(sdl)
+      strip_federation(sdl)
+    elsif subgraph_sdl?(sdl)
+      add_subgraph_definitions(sdl)
+    else
+      sdl
+    end
+    GraphQL::Schema.from_definition(sdl)
   end
   private_class_method :build_sdl
 
@@ -54,6 +63,77 @@ module GraphWeaver::SchemaLoader
   def self.federation_sdl?(sdl)
     sdl.match?(/@join__\w/)
   end
+
+  # The federation spec a fed-2 subgraph @links, and the directives a fed-1
+  # subgraph just applies. Both leave the definitions off the file: fed-1
+  # treats them as implicit, fed-2 imports them. A composed supergraph
+  # defines everything it applies (and federation_sdl? catches it first).
+  SUBGRAPH_LINK = %r{@link\s*\(\s*url:\s*"https://specs\.apollo\.dev/federation/}
+  SUBGRAPH_MARKERS = %w[key external extends provides requires shareable override interfaceObject].freeze
+
+  # A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the
+  # .graphql in a service repo — rather than a composed graph.
+  def self.subgraph_sdl?(sdl)
+    return false if federation_sdl?(sdl)
+    return true if sdl.match?(SUBGRAPH_LINK)
+
+    SUBGRAPH_MARKERS.any? { |name| sdl.match?(/@#{name}\b/) && !sdl.match?(/\bdirective\s+@#{name}\b/) }
+  end
+
+  # The subgraph spec's directives and the types they reference, keyed by
+  # what a definition in the SDL would be named ("@key" for a directive).
+  # https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/subgraph-spec
+  SUBGRAPH_DIRECTIVE_DEFS = {
+    "@key" => "directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE",
+    "@external" => "directive @external on OBJECT | FIELD_DEFINITION",
+    "@requires" => "directive @requires(fields: FieldSet!) on FIELD_DEFINITION",
+    "@provides" => "directive @provides(fields: FieldSet!) on FIELD_DEFINITION",
+    "@shareable" => "directive @shareable repeatable on OBJECT | FIELD_DEFINITION",
+    "@extends" => "directive @extends on OBJECT | INTERFACE",
+    "@override" => "directive @override(from: String!, label: String) on FIELD_DEFINITION",
+    "@interfaceObject" => "directive @interfaceObject on OBJECT",
+    "@inaccessible" => "directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION",
+    "@tag" => "directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA",
+    "@composeDirective" => "directive @composeDirective(name: String!) repeatable on SCHEMA",
+    "@authenticated" => "directive @authenticated on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@requiresScopes" => "directive @requiresScopes(scopes: [[Scope!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@policy" => "directive @policy(policies: [[Policy!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@link" => "directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA",
+  }.freeze
+
+  # The types those definitions reference — injected only alongside a
+  # directive that needs one, since a subgraph may well have its own Policy
+  # or Scope type.
+  SUBGRAPH_HELPER_TYPES = {
+    "FieldSet" => "scalar FieldSet",
+    "Scope" => "scalar Scope",
+    "Policy" => "scalar Policy",
+    "link__Import" => "scalar link__Import",
+    "link__Purpose" => "enum link__Purpose { SECURITY EXECUTION }",
+  }.freeze
+
+  # Prepend the definitions this subgraph applies but doesn't declare. Only
+  # the missing ones — a duplicate definition is a hard error in
+  # graphql-ruby, and a subgraph spelling out its own @key (fed-1 style, or a
+  # differing shape) must win.
+  def self.add_subgraph_definitions(sdl)
+    defined = GraphQL.parse(sdl).definitions.filter_map do |defn|
+      next unless defn.respond_to?(:name)
+
+      defn.is_a?(GraphQL::Language::Nodes::DirectiveDefinition) ? "@#{defn.name}" : defn.name
+    end.to_set
+
+    directives = SUBGRAPH_DIRECTIVE_DEFS
+      .select { |name, _| !defined.include?(name) && sdl.match?(/#{name}\b/) }
+      .values
+    types = SUBGRAPH_HELPER_TYPES
+      .select { |name, _| !defined.include?(name) && directives.any? { |defn| defn.include?(name) } }
+      .values
+
+    added = types + directives
+    added.empty? ? sdl : "#{added.join("\n")}\n\n#{sdl}"
+  end
+  private_class_method :add_subgraph_definitions
 
   FEDERATION_PREFIXES = %w[join__ link__ core__].freeze
   FEDERATION_DIRECTIVES = %w[link core inaccessible].to_set.freeze
@@ -190,7 +270,16 @@ module GraphWeaver::SchemaLoader
   def self.strip_federation_directives(node)
     changes = {}
     if node.respond_to?(:directives) && node.directives
-      changes[:directives] = node.directives.reject { |d| federation_directive_name?(d.name) }
+      # A schema definition keeps NONE: graphql-ruby's printer omits the
+      # `{ query: Query }` body when the root type names are conventional but
+      # still prints directives, so any survivor (@tag, @composeDirective, a
+      # composed custom one) reprints as an unparseable braceless `schema @tag`.
+      # Codegen never reads schema directives.
+      changes[:directives] = if node.is_a?(GraphQL::Language::Nodes::SchemaDefinition)
+        []
+      else
+        node.directives.reject { |d| federation_directive_name?(d.name) }
+      end
     end
     changes[:fields] = node.fields.map { |c| strip_federation_directives(c) } if node.respond_to?(:fields) && node.fields
     changes[:arguments] = node.arguments.map { |c| strip_federation_directives(c) } if node.respond_to?(:arguments) && node.arguments

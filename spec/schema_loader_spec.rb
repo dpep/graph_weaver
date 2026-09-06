@@ -314,6 +314,32 @@ describe GraphWeaver::SchemaLoader do
         expect(schema.get_type("Query").fields["node"].type.unwrap.graphql_name).to eq "link"
       end
 
+      it "loads a supergraph carrying non-federation directives on `schema`" do
+        sdl = <<~GRAPHQL
+          schema @link(url: "https://specs.apollo.dev/link/v1.0") @tag(name: "public") { query: Query }
+          directive @link(url: String!) repeatable on SCHEMA
+          directive @tag(name: String!) repeatable on SCHEMA | OBJECT
+          directive @join__type(graph: join__Graph!) repeatable on OBJECT
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          type Query @join__type(graph: A) @tag(name: "public") { thing: String }
+        GRAPHQL
+        schema = described_class.load(sdl)
+
+        expect(schema.get_type("Query").fields.keys).to eq %w[thing]
+      end
+
+      it "keeps a supergraph's non-conventional root type names" do
+        sdl = <<~GRAPHQL
+          schema @tag(name: "public") { query: RootQuery }
+          directive @tag(name: String!) repeatable on SCHEMA
+          directive @join__type(graph: join__Graph!) repeatable on OBJECT
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          type RootQuery @join__type(graph: A) { thing: String }
+        GRAPHQL
+
+        expect(described_class.load(sdl).query.graphql_name).to eq "RootQuery"
+      end
+
       it "raises a clear error when @inaccessible removes everything queryable" do
         sdl = <<~GRAPHQL
           directive @inaccessible on OBJECT
