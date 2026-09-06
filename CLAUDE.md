@@ -45,6 +45,13 @@ What this means when choosing between designs:
 When simplicity and capability genuinely conflict, say so out loud and pick
 deliberately — but the default is simple.
 
+**Docs are a complexity detector.** A section that belabors a topic is usually
+not a writing problem — it is the library pushing complexity onto the reader.
+Before expanding an explanation, ask whether the thing being explained should
+exist. If two paragraphs are needed to say which of two ways applies, delete one
+of the ways; the docs then shrink on their own, which is the signal the cut was
+right.
+
 ## Sorbet typing policy — type by value, not for coverage
 
 Sorbet being core does **not** mean every file should be `# typed: strict`. Type
