@@ -32,15 +32,21 @@ module GraphWeaver
     end
 
     # Flatten a selection set as seen by `type`, yielding (result_key,
-    # field_node) per field: plain fields yield directly; inline fragments
-    # and named spreads recurse when their type condition applies.
-    def each_field(type, selections, visiting = Set.new, &block)
+    # field_node, conditional) per field: plain fields yield directly; inline
+    # fragments and named spreads recurse when their type condition applies.
+    # `conditional` is true when any fragment on the way down carried
+    # @skip/@include — the whole block may be absent from the response, so
+    # everything under it is as optional as a directly-skipped field.
+    def each_field(type, selections, visiting = Set.new, conditional: false, &block)
       selections.each do |selection|
         case selection
         when GraphQL::Language::Nodes::Field
-          yield(selection.alias || selection.name, selection)
+          yield(selection.alias || selection.name, selection, conditional)
         when GraphQL::Language::Nodes::InlineFragment
-          each_field(type, selection.selections, visiting, &block) if applies?(selection.type&.name, type)
+          next unless applies?(selection.type&.name, type)
+
+          each_field(type, selection.selections, visiting,
+            conditional: conditional || conditional?(selection), &block)
         when GraphQL::Language::Nodes::FragmentSpread
           fragment = @fragments.fetch(selection.name) do
             raise ArgumentError, "unknown fragment: #{selection.name}"
@@ -50,7 +56,9 @@ module GraphWeaver
           end
 
           if applies?(fragment.type.name, type)
-            each_field(type, fragment.selections, visiting | [selection.name], &block)
+            # the directive rides on the SPREAD, not the definition it names
+            each_field(type, fragment.selections, visiting | [selection.name],
+              conditional: conditional || conditional?(selection), &block)
           end
         else
           raise GraphWeaver::Error, "unsupported selection: #{selection.class}"
@@ -64,9 +72,24 @@ module GraphWeaver
     # last-writer-wins. Codegen relies on this; FakeClient/Anonymizer must too,
     # or they'd fabricate/keep a shape the generated struct can't cast.
     def gather(type, selections)
+      gather_conditional(type, selections).transform_values { |occurrences| occurrences.map(&:first) }
+    end
+
+    # gather, keeping each occurrence's [field_node, conditional] — the wire
+    # key is guaranteed only when SOME occurrence is unconditional.
+    def gather_conditional(type, selections)
       out = {}
-      each_field(type, selections) { |key, node| (out[key] ||= []) << node }
+      each_field(type, selections) { |key, node, conditional| (out[key] ||= []) << [node, conditional] }
       out
+    end
+
+    # Directives that can drop a selection from the response whatever the
+    # schema says — the reason a conditional field's generated type is nilable.
+    CONDITIONAL_DIRECTIVES = %w[skip include].freeze
+
+    # Is this AST node (field, inline fragment, or spread) behind @skip/@include?
+    def conditional?(node)
+      node.directives.any? { |directive| CONDITIONAL_DIRECTIVES.include?(directive.name) }
     end
 
     # A fragment's type condition applies when it names this type exactly,

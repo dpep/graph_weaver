@@ -127,6 +127,19 @@ class GraphWeaver::Codegen
 
     def serialize_identity? = @of.serialize_identity?
 
+    # A list coerces exactly as its elements do, per element: `sort: ["POPULARITY_DESC"]`
+    # has to accept a wire string the way `type: "ANIME"` does. Sorbet's runtime
+    # doesn't check element types, so without this a String reached .serialize
+    # and raised a NoMethodError naming neither the variable nor the enum.
+    def coerce? = !hash_coerce_identity?
+    def coerce(expr) = hash_coerce(expr, 1)
+
+    def coerce_input_type
+      element = @of.coerce? ? @of.coerce_input_type : @of.prop_type
+      element = "T.nilable(#{element})" if @of.coerce? && !@of.non_null? && element != "T.untyped"
+      "T::Array[#{element}]"
+    end
+
     def hash_coerce(expr, depth)
       var = "v#{depth}"
       inner = if @of.non_null? || @of.hash_coerce_identity?
@@ -246,19 +259,28 @@ class GraphWeaver::Codegen
 
   # A single-condition narrowing of an abstract field (`... on Pet { ... }`
   # and nothing else): the member struct when the runtime type matches,
-  # nil when it doesn't — a non-match's response object carries no
-  # matching fields, so the hash arrives empty. Always nilable, whatever
-  # the schema's nullability, because narrowing filters.
+  # nil when it doesn't. Always nilable, whatever the schema's nullability,
+  # because narrowing filters.
+  #
+  # typename: is the member's GraphQL name when the selection also carries an
+  # unconditional `__typename` — then the match is read off the tag. Without
+  # it there is nothing to read but the object's emptiness: a non-match
+  # carries none of the selected fields, so the hash arrives empty.
   class NarrowedNode < Node
-    def initialize(of)
+    def initialize(of, typename: nil)
       @of = of
+      @typename = typename
     end
 
     def class_name = @of.class_name
     def bare_type = @of.bare_type
 
     def cast(expr, depth)
-      "(#{expr}.empty? ? nil : #{@of.cast(expr, depth)})"
+      if @typename
+        "(#{expr}[\"__typename\"] == #{@typename.inspect} ? #{@of.cast(expr, depth)} : nil)"
+      else
+        "(#{expr}.empty? ? nil : #{@of.cast(expr, depth)})"
+      end
     end
 
     def nested = @of
@@ -266,10 +288,13 @@ class GraphWeaver::Codegen
 
   class UnionNode < Node
     attr_reader :class_name, :members # graphql type name => ObjectNode
+    # the struct an unnamed (or newly-added) __typename deserializes into
+    attr_reader :catch_all
 
-    def initialize(class_name, members)
+    def initialize(class_name, members, catch_all = nil)
       @class_name = class_name
       @members = members
+      @catch_all = catch_all
     end
 
     def bare_type = "#{class_name}::Type"

@@ -87,14 +87,34 @@ module SearchQuery
         end
       end
 
-      Type = T.type_alias { T.any(Person, Pet) }
+      class Other < T::Struct
+        extend T::Sig
+        include GraphWeaver::Hints
+
+        const :__typename, String
+
+        sig { params(data: T::Hash[String, T.untyped]).returns(Other) }
+        def self.from_h(data)
+          new(
+            __typename: data.fetch("__typename"),
+          )
+        rescue GraphWeaver::TypeError
+          raise # already wrapped by a nested struct — keep the innermost context
+        rescue TypeError, ArgumentError, KeyError => e
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
+        end
+      end
+
+      Type = T.type_alias { T.any(Person, Pet, Other) }
 
       sig { params(data: T::Hash[String, T.untyped]).returns(Type) }
       def self.from_h(data)
-        case (typename = data.fetch("__typename"))
+        case data.fetch("__typename")
         when "Person" then Person.from_h(data)
         when "Pet" then Pet.from_h(data)
-        else raise GraphWeaver::TypeError.new(struct: self, message: "unexpected __typename: #{typename}")
+        # a member this query names no fields on — including one the
+        # schema grew since generation
+        else Other.from_h(data)
         end
       end
     end

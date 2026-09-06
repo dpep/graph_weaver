@@ -171,6 +171,8 @@ class GraphWeaver::Codegen
 
     @requires = []
     @mapped_enums = {}
+    @variable_enums = {}
+    @result_variable_enums = []
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
 
@@ -185,7 +187,8 @@ class GraphWeaver::Codegen
       end
       fragment = fragments.fetch(name)
       type = @schema.get_type(fragment.type.name)
-      UnionNode.new(class_name, union_members(type, fragment.selections))
+      members = union_members(type, fragment.selections)
+      UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
     end
 
     emit_unions_file(unions)
@@ -225,6 +228,8 @@ class GraphWeaver::Codegen
     @variable_enums = {}
     @variable_inputs = {}
     @mapped_enums = {}
+    # variable enums the result tree reuses (see the ENUM branch of object_node)
+    @result_variable_enums = []
     @used_unions = []
     # requires the generated file needs (custom scalars, enum mappings,
     # type helpers all contribute)
@@ -397,7 +402,8 @@ class GraphWeaver::Codegen
     # one Ruby type, so consumers get one exhaustive `case ... T.absurd`.
     union_cache = {}
 
-    gather(type, selections).each do |key, field_nodes|
+    gather_conditional(type, selections).each do |key, occurrences|
+      field_nodes = occurrences.map(&:first)
       field_name = field_nodes.first.name
       prop = underscore(key)
 
@@ -415,27 +421,31 @@ class GraphWeaver::Codegen
           conditions = concrete_conditions(core, sub_selections)
           bare = bare_fields(sub_selections) - ["__typename"]
 
-          if conditions.empty? && core.kind.name == "INTERFACE"
-            # interface-level fields only — every member shares them, so
-            # one struct suffices and no __typename dispatch is needed
+          if conditions.empty?
+            # abstract-level fields only — every member shares them, so one
+            # struct suffices and no __typename dispatch is needed (for a
+            # union that selection can only be __typename)
             name = pick_name(core.graphql_name, key, taken)
             type_ref(field_type) { object_node(core, sub_selections, name) }
           elsif conditions.size == 1 && bare.empty? &&
               (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
             # a single `... on X` condition: narrow to X's struct — nil
             # when the runtime type doesn't match (narrowing filters).
-            # Narrowing reads "no fields came back" as "type didn't
-            # match", so a fragment whose every field hides behind
-            # @skip/@include would make a real match indistinguishable
-            # from a miss ({} either way) — refuse rather than guess.
-            unless unconditional_field?(member, sub_selections)
+            # With `__typename` selected the match is read off the tag;
+            # without one there is nothing to read but emptiness, and a
+            # fragment whose every field hides behind @skip/@include would
+            # make a real match indistinguishable from a miss ({} either
+            # way) — refuse rather than guess.
+            tag = member.graphql_name if dispatchable_typename?(core, sub_selections)
+            unless tag || unconditional_field?(member, sub_selections)
               raise GraphWeaver::Error,
                 "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
-                "@skip/@include — an all-conditional selection makes a match indistinguishable from nil"
+                "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
+                "makes a match indistinguishable from nil"
             end
 
             name = pick_name(member.graphql_name, key, taken)
-            nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name)) }
+            nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name), typename: tag) }
           elsif @unions_namespace && (frag = lone_shared_spread(sub_selections)) &&
               @hoistable_unions.include?(frag)
             # a whole-union field spread as a named shared fragment: hoist to
@@ -446,14 +456,22 @@ class GraphWeaver::Codegen
             type_ref(field_type) { ref }
           else
             members = union_members(core, sub_selections)
+            catch_all = catch_all_member(core, sub_selections, members)
             # reuse an identical sibling union (pick_name/name only on a miss)
-            union = (union_cache[union_signature(members)] ||=
-              UnionNode.new(pick_name(core.graphql_name, key, taken), members))
+            union = (union_cache[union_signature(members, catch_all)] ||=
+              UnionNode.new(pick_name(core.graphql_name, key, taken), members, catch_all))
             type_ref(field_type) { union }
           end
         when "ENUM"
           if (mapped = mapped_enum_node(core))
             type_ref(field_type) { mapped }
+          elsif (shared = @variable_enums[core.graphql_name])
+            # the same GraphQL enum also arrives as a variable: reuse the
+            # module-level T::Enum so a value read out of a result can be handed
+            # straight back in (two classes for one enum failed srb tc AND the
+            # runtime sig)
+            @result_variable_enums << shared unless @result_variable_enums.include?(shared)
+            type_ref(field_type) { shared }
           else
             name = pick_name(core.graphql_name, key, taken)
             # sorted so output is deterministic across schema sources
@@ -468,9 +486,11 @@ class GraphWeaver::Codegen
         end
       end
 
-      # a field under @skip/@include may be absent from the response no
-      # matter what the schema says — its type must admit nil
-      if field_nodes.any? { |n| n.directives.any? { |d| %w[skip include].include?(d.name) } }
+      # A field under @skip/@include — on the field itself, or on any fragment
+      # it was reached through — may be absent from the response no matter what
+      # the schema says, so its type must admit nil. One unconditional
+      # selection of the same key still guarantees it, though.
+      if occurrences.all? { |node, conditional| conditional || conditional?(node) }
         child = child.of if child.is_a?(NonNull)
       end
 
@@ -596,7 +616,9 @@ class GraphWeaver::Codegen
         inner == "T.untyped" ? inner : "T.nilable(#{inner})"
       end
       "T::Array[#{element}]"
-    when ObjectNode, EnumNode, NarrowedNode then "#{prefix}#{node.class_name}"
+    when ObjectNode, NarrowedNode then "#{prefix}#{node.class_name}"
+    # a reused variable enum is module-level, so it takes no container prefix
+    when EnumNode then "#{module_level?(node) ? "" : prefix}#{node.class_name}"
     when UnionNode then "#{prefix}#{node.bare_type}"
     else node.bare_type # Scalar, MappedEnum, UnionRefNode — already top-level
     end
@@ -657,10 +679,21 @@ class GraphWeaver::Codegen
   # does the flattened selection (as seen by member) include at least one
   # field guaranteed to be present in a matching response?
   def unconditional_field?(member, selections)
-    each_field(member, selections) do |_key, node|
-      return true if node.directives.none? { |d| %w[skip include].include?(d.name) }
+    each_field(member, selections) do |_key, node, conditional|
+      return true if !conditional && !conditional?(node)
     end
     false
+  end
+
+  # Is the response guaranteed to carry a plain "__typename" key for this
+  # abstract selection? Every dispatch reads the tag unguarded, so an alias
+  # (which files it under another key) or an @skip/@include (which may drop
+  # it) means there is no tag to dispatch on.
+  def dispatchable_typename?(type, selections)
+    occurrences = gather_conditional(type, selections)["__typename"]
+    !!occurrences&.any? do |node, conditional|
+      node.name == "__typename" && !conditional && !conditional?(node)
+    end
   end
 
   # rebuild LIST wrappers but drop NON_NULLs — a narrowed member is nil
@@ -676,29 +709,65 @@ class GraphWeaver::Codegen
     end
   end
 
-  # Abstract types (unions AND interfaces) whose selections vary by
-  # concrete type: one member struct per possible type; wire dispatch
-  # reads __typename, so the query must select it. For interfaces, the
-  # interface's own field selections gather into every member.
-  # The union's member structs (graphql type name => ObjectNode), sorted for
-  # deterministic output. Dispatch reads __typename, so the query must select
-  # it; for interfaces the interface-level fields gather into every member.
+  # Abstract types (unions AND interfaces) whose selections vary by concrete
+  # type: one member struct per type the selection NAMES (graphql type name =>
+  # ObjectNode, sorted for deterministic output), never one per schema member —
+  # a query against an interface with 278 implementations types the two it asked
+  # about. Dispatch reads __typename, so the query must select it; for
+  # interfaces the interface-level fields gather into every member.
   def union_members(type, selections)
-    unless gather(type, selections).key?("__typename")
+    unless dispatchable_typename?(type, selections)
       raise ArgumentError,
-        "select __typename on #{type.graphql_name} so the union can dispatch — " \
-        "or narrow to a single `... on Type` condition (no dispatch needed)"
+        "select __typename on #{type.graphql_name} so the union can dispatch — unaliased and " \
+        "not under @skip/@include, since from_h reads it on every response — or narrow to a " \
+        "single `... on Type` condition (no dispatch needed)"
     end
 
-    @schema.possible_types(type).sort_by(&:graphql_name).to_h do |possible|
+    selected_members(type, selections).sort_by(&:graphql_name).to_h do |possible|
       [possible.graphql_name, object_node(possible, selections, camelize(possible.graphql_name))]
     end
   end
 
+  # The concrete types a selection names through its type conditions, kept to
+  # the abstract type's own members. A condition naming another abstract type
+  # (`... on Named` inside a union) stands for the members it covers, since its
+  # fields are typed per member.
+  def selected_members(type, selections)
+    possible = @schema.possible_types(type).to_h { |member| [member.graphql_name, member] }
+
+    concrete_conditions(type, selections).flat_map { |name|
+      condition = @schema.get_type(name)
+      condition.kind.name == "OBJECT" ? [condition] : @schema.possible_types(condition)
+    }.map(&:graphql_name).uniq.filter_map { |name| possible[name] }
+  end
+
+  # The one struct everything else deserializes into: a member the query didn't
+  # name, and — the point — a member the schema grows AFTER this file was
+  # generated. It carries only what the abstract type itself guarantees (an
+  # interface's selected interface-level fields; for a union, just __typename),
+  # so a new upstream member bends the result rather than breaking it.
+  def catch_all_member(type, selections, members)
+    object_node(type, selections, catch_all_name(members))
+  end
+
+  # "Other", unless a real member already claims that name.
+  def catch_all_name(members)
+    taken = members.each_value.map(&:class_name)
+    name = "Other"
+    suffix = 2
+    while taken.include?(name)
+      name = "Other#{suffix}"
+      suffix += 1
+    end
+    name
+  end
+
   # A name-independent structural fingerprint of a union's members, so two
   # occurrences that generate identical structs collapse to one Ruby type.
-  def union_signature(members)
-    members.map { |gname, member| "#{gname}=#{signature(member)}" }.sort.join(",")
+  def union_signature(members, catch_all = nil)
+    parts = members.map { |gname, member| "#{gname}=#{signature(member)}" }
+    parts << "*=#{signature(catch_all)}" if catch_all
+    parts.sort.join(",")
   end
 
   # Structural signature of a node — ignores the generated class name (which
@@ -715,7 +784,7 @@ class GraphWeaver::Codegen
     when ObjectNode
       inner = node.fields.map { |f| "#{f.prop}=#{signature(f.node)}" }.sort.join(",")
       "o:#{node.graphql_type}(#{inner})"
-    when UnionNode then "u:(#{union_signature(node.members)})"
+    when UnionNode then "u:(#{union_signature(node.members, node.catch_all)})"
     when UnionRefNode then "ur:#{node.class_name}" # hoisted — identity is its shared name
     else "x:#{node.object_id}" # unknown node kind — never collapse
     end

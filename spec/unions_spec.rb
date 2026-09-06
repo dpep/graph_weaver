@@ -79,6 +79,19 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
     %i[HomeQuery ArchiveQuery GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
   end
 
+  it "hoists the catch-all too, so a member added upstream bends the shared type" do
+    generate(@base)
+    expect(File.read("#{@base}/generated/unions.rb")).to include("class Other < T::Struct")
+
+    GraphWeaver.load_generated!("#{@base}/generated")
+    item = HomeQuery.from_response!("data" => { "feed" => [{ "__typename" => "Video" }] }).feed.first
+
+    expect(item).to be_a(GraphQLUnions::FeedItemFields::Other)
+    expect(item.__typename).to eq "Video"
+  ensure
+    %i[HomeQuery ArchiveQuery GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
+  end
+
   it "does not hoist a union whose fragment a query defines locally" do
     write("#{@base}/fragments", "feed.graphql", fragment)
     # local fragment of the same name shadows the shared one

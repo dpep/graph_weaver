@@ -1,4 +1,43 @@
 ## Unreleased
+Codegen bug fixes from the library review (all with regression coverage):
+- Narrowing (`... on X` and nothing else) now reads the match off `__typename`
+  when the selection carries it, instead of off "the object came back empty".
+  Selecting `__typename` guaranteed a non-empty object, so **every non-matching
+  member was cast into `X`'s struct** — loudly when it had a non-null field,
+  silently when all its fields were nullable. Regenerate: any query mixing
+  `__typename` with a single type condition (the `_entities { __typename
+  ... on Widget { … } }` federation shape) was mistyped and now filters
+  correctly.
+- A dispatched union/interface now requires its `__typename` to be unaliased and
+  free of `@skip`/`@include` — `from_h` reads it unguarded, so either would have
+  raised at runtime. Fix the selection if generation now refuses it.
+- **Unions and interfaces generate per named condition, plus one catch-all
+  `Other`** — not one struct per schema member. A two-condition query against
+  GitHub's `Node` (278 implementations) went from 5,386 lines / 279 structs to
+  162 lines / 4. **Regenerate, and expect member names to move**: a type your
+  query names no fields on is now `Other` rather than its own struct, so a
+  `case` over the members needs an `Other` branch (`T.absurd` will tell you).
+  In exchange, a `__typename` the query doesn't name — including a **member the
+  schema grows after you generate** — deserializes into `Other` instead of
+  raising `unexpected __typename`, so adding a union member upstream stays the
+  non-breaking change GraphQL says it is.
+- `@skip`/`@include` on an inline fragment or a named spread now makes the
+  fields under it nilable, as it always did for a directly-marked field —
+  previously they kept non-null typing and a `data.fetch`, so a skipped block
+  raised `key not found`. The narrowing guard sees the fragment's own directive
+  too. Conversely, a field selected both conditionally and unconditionally is no
+  longer over-nilable: one unguaranteed selection doesn't unmake the guarantee.
+- A GraphQL enum used as BOTH a result field and a variable now generates one
+  Ruby class, so a value read out of a result can be passed straight back in
+  (it used to raise `TypeError: expected T.any(M::Species, String), got
+  M::Result::Pet::Species`). **The result-side constant moves**: reach for
+  `M::Species::Dog`, not `M::Result::Pet::Species::Dog`, when the enum is also
+  a variable type. An enum that appears only in results is unchanged.
+- List variables coerce per element, so an enum inside a list accepts its wire
+  value the way a scalar enum already did (`sort: ["POPULARITY_DESC"]` used to
+  raise `NoMethodError: undefined method 'serialize' for String`). Input-object
+  and custom-scalar elements coerce in lists too.
+
 - Federation schemas that previously wouldn't load now do:
   - a supergraph whose `schema` definition carries a non-`@link` directive
     (`@tag`, `@composeDirective`, a composed custom one) no longer dies with a

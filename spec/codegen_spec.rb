@@ -1,4 +1,6 @@
 
+require "graph_weaver/testing" # FakeClient walks the same Selection module codegen does
+
 require_relative "generated/add_pet_query"
 require_relative "generated/adopt_query"
 require_relative "generated/find_pets_query"
@@ -18,6 +20,16 @@ describe GraphWeaver::Codegen do
         client: Demo::Schema,
       ),
     ).to be true
+  end
+
+  it "generates byte-identical source for the same inputs" do
+    # the checked-in-parity spec above pins determinism ACROSS processes; this
+    # pins it across calls, where a generator that leaked state between runs
+    # (caches, collected requires, hoisted names) would drift
+    query = File.read(File.expand_path("queries/search.graphql", __dir__))
+    args = { schema: Demo::Schema, query:, module_name: "SearchQuery" }
+
+    expect(described_class.generate(**args)).to eq(described_class.generate(**args))
   end
 
   describe "eval safety" do
@@ -249,6 +261,17 @@ describe GraphWeaver::Codegen do
 
       expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
     end
+
+    it "requires the dispatched __typename to be unconditional" do
+      # from_h reads data.fetch("__typename") on every response
+      expect {
+        GraphWeaver.parse(
+          schema: Demo::Schema,
+          query: 'query($d: Boolean!) { search(term: "x") { __typename @skip(if: $d) ' \
+            "... on Pet { species } ... on Person { email } } }",
+        )
+      }.to raise_error(ArgumentError, /not under @skip/)
+    end
   end
 
   describe "narrowed abstract selections" do
@@ -286,6 +309,35 @@ describe GraphWeaver::Codegen do
       expect(results&.first).to be_nil # Daniel is a Person — narrowed away
       expect(results&.last&.name).to eq "Shelby"
     end
+
+    it "narrows on the tag when __typename is selected alongside the condition" do
+      # selecting __typename means a non-match is never an empty object, so
+      # emptiness can't tell a Pet from a Person. Person.email is nullable, so
+      # the mis-cast used to be silent rather than a raise.
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: 'query { search(term: "el") { __typename ... on Person { email } } }',
+      )
+
+      results = mod.from_response!("data" => { "search" => [
+        { "__typename" => "Person", "email" => "d@e.f" },
+        { "__typename" => "Pet" },
+      ] }).search
+
+      expect(results&.map(&:class)).to eq [mod::Result::Person, NilClass]
+      expect(results&.first&.email).to eq "d@e.f"
+    end
+
+    it "narrows an interface-typed field on the tag too" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: "query { named(name: \"x\") { __typename ... on Pet { species } } }",
+      )
+
+      expect(mod.from_response!("data" => { "named" => { "__typename" => "Person" } }).named).to be_nil
+      expect(mod.from_response!("data" => { "named" => { "__typename" => "Pet", "species" => "DOG" } }).named)
+        .to be_a(mod::Result::Pet)
+    end
   end
 
   describe "interface-typed fields" do
@@ -296,7 +348,9 @@ describe GraphWeaver::Codegen do
       expect(pet).to be_a NamedQuery::Result::Named::Pet
       expect(pet.name).to eq "Shelby" # interface field, gathered into every member
       expect(pet.species).to eq NamedQuery::Result::Named::Pet::Species::Dog
-      expect(person).to be_a NamedQuery::Result::Named::Person
+      # the query names no Person fields, so Person shares the catch-all with
+      # every other Named implementation — the interface-level fields still cast
+      expect(person).to be_a NamedQuery::Result::Named::Other
       expect(person.name).to eq "Daniel"
     end
   end
@@ -306,7 +360,44 @@ describe GraphWeaver::Codegen do
       result = AddPetQuery.execute(name: "Rex", species: AddPetQuery::Species::Dog).data!
 
       expect(result.add_pet.name).to eq "Rex"
-      expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
+      # one Species class per module: the value read out of the result is the
+      # very one execute takes back in
+      expect(result.add_pet.species).to eq AddPetQuery::Species::Dog
+      expect(AddPetQuery.execute(name: "Rex", species: result.add_pet.species).data!.add_pet.species)
+        .to eq AddPetQuery::Species::Dog
+    end
+
+    it "accepts wire strings for enums inside a list variable, like a scalar one" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        enum Sort { ASC DESC }
+        type Query { items(sort: [Sort!], one: Sort): [String!]! }
+      GRAPHQL
+      sent = nil
+      executor = Class.new do
+        define_method(:execute) do |_query, variables:|
+          sent = variables
+          { "data" => { "items" => [] } }
+        end
+      end.new
+
+      mod = GraphWeaver.parse(schema:, query: "query Q($sort: [Sort!], $one: Sort) { items(sort: $sort, one: $one) }")
+      mod.execute!(executor, sort: ["DESC", mod::Sort::Asc], one: "ASC")
+
+      expect(sent).to eq("sort" => %w[DESC ASC], "one" => "ASC")
+    end
+
+    it "types a result enum and the same variable enum as one class" do
+      # separate classes for one GraphQL enum failed both srb tc and the runtime
+      # sig on the obvious move: read a value out, feed it back in
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        client: Demo::Schema,
+        query: "mutation($species: Species!) { addPet(name: \"Rex\", species: $species) { species } }",
+      )
+
+      species = mod.execute!(species: mod::Species::Dog).add_pet.species
+      expect(species).to be_a(mod::Species)
+      expect(mod.execute!(species:).add_pet.species).to eq species
     end
 
     it "hints when a result field is called by its camelCase wire name" do
@@ -329,7 +420,7 @@ describe GraphWeaver::Codegen do
     it "flattens a single input-object variable into typed kwargs" do
       pet = AdoptQuery.execute!(name: "Rex", species: AdoptQuery::Species::Dog).adopt
       expect(pet.name).to eq "Rex"
-      expect(pet.species).to eq AdoptQuery::Result::Pet::Species::Dog
+      expect(pet.species).to eq AdoptQuery::Species::Dog
 
       # enums accept their wire value; optional fields ride along when
       # set, stay off the wire when nil
@@ -732,6 +823,117 @@ describe GraphWeaver::Codegen do
       client = GraphWeaver::Client.new(schema)
       expect { client.register_scalar("Event.nope", Date) }
         .to raise_error(GraphWeaver::Error, /no scalar field/)
+    end
+  end
+
+  describe "@skip / @include on a fragment" do
+    it "nilables the fields reached through a conditional inline fragment" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: 'query Q($s: Boolean!) { people { id ... on Person @skip(if: $s) { name } } }',
+      )
+
+      # name is String! in the schema, but the whole block may be skipped
+      person = mod.from_response!("data" => { "people" => [{ "id" => "1" }] }).people.first
+      expect(person&.name).to be_nil
+    end
+
+    it "nilables the fields reached through a conditional named spread" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: <<~GRAPHQL,
+          query Q($s: Boolean!) { people { id ...Names @include(if: $s) } }
+          fragment Names on Person { name }
+        GRAPHQL
+      )
+
+      person = mod.from_response!("data" => { "people" => [{ "id" => "1" }] }).people.first
+      expect(person&.name).to be_nil
+    end
+
+    it "keeps a field non-null when some other selection of it is unconditional" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: 'query Q($s: Boolean!) { people { name ... on Person @skip(if: $s) { name } } }',
+      )
+
+      expect { mod.from_response!("data" => { "people" => [{}] }) }.to raise_error(GraphWeaver::TypeError)
+      expect(mod.from_response!("data" => { "people" => [{ "name" => "D" }] }).people.first&.name).to eq "D"
+    end
+
+    it "refuses to narrow when the fragment itself is conditional" do
+      # the guard has to see the directive on the fragment, not just on fields
+      expect {
+        GraphWeaver.parse(
+          schema: Demo::Schema,
+          query: 'query Q($s: Boolean!) { search(term: "el") { ... on Pet @skip(if: $s) { name } } }',
+        )
+      }.to raise_error(GraphWeaver::Error, /at least one field not under @skip/)
+    end
+
+    it "keeps FakeClient's fabricated data castable through a conditional fragment" do
+      # FakeClient walks the same Selection module — it must keep fabricating
+      # the fields codegen still types, conditional or not
+      query = 'query Q($s: Boolean!) { people { id ... on Person @skip(if: $s) { name } } }'
+      mod = GraphWeaver.parse(schema: Demo::Schema, query:)
+      fake = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1)
+
+      person = mod.from_response!(fake.execute(query, variables: { "s" => false })).people.first
+      expect(person&.name).to be_a(String)
+    end
+  end
+
+  describe "abstract selections are query-driven" do
+    # an interface/union with many implementations — the shape that made
+    # codegen emit a struct per schema member instead of per named condition
+    members = (1..40).map { |n| "Thing#{n}" }
+    let(:schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        interface Node { id: ID! }
+        #{members.map { |name| "type #{name} implements Node { id: ID! label: String! }" }.join("\n")}
+        type Query { node(id: ID!): Node }
+      GRAPHQL
+    end
+    let(:query) do
+      'query Q($id: ID!) { node(id: $id) { __typename ... on Thing1 { label } ... on Thing2 { label } } }'
+    end
+
+    it "emits one struct per named condition plus one catch-all, whatever the schema's size" do
+      src = described_class.generate(schema:, query:, module_name: "Q")
+
+      # Result + Thing1 + Thing2 + Other: bounded by the query, not by the 40
+      # types that implement Node
+      expect(src.scan(/< T::Struct/).size).to be <= 4
+      expect(src).to include("class Thing1 < T::Struct", "class Thing2 < T::Struct", "class Other < T::Struct")
+      expect(src).not_to include("class Thing3 < T::Struct")
+    end
+
+    it "deserializes a member the query never named into the catch-all" do
+      mod = GraphWeaver.parse(schema:, query:)
+      node = mod.from_response!("data" => { "node" => { "__typename" => "Thing7", "id" => "x" } }).node
+
+      expect(node).to be_a(mod::Result::Node::Other)
+      expect(node.__typename).to eq "Thing7"
+    end
+
+    it "absorbs a union member the schema grew after generation" do
+      v1 = <<~GRAPHQL
+        union Feed = Post | Photo
+        type Post { title: String! }
+        type Photo { url: String! }
+        type Query { feed: [Feed!]! }
+      GRAPHQL
+      mod = GraphWeaver.parse(
+        schema: GraphQL::Schema.from_definition(v1),
+        query: "query Q { feed { __typename ... on Post { title } ... on Photo { url } } }",
+      )
+
+      # upstream added `Video` to the union — a non-breaking schema change. The
+      # fields this query selects are still valid, so the response must bend.
+      item = mod.from_response!("data" => { "feed" => [{ "__typename" => "Video" }] }).feed.first
+
+      expect(item).to be_a(mod::Result::Feed::Other)
+      expect(item.__typename).to eq "Video"
     end
   end
 

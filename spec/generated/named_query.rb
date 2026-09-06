@@ -25,26 +25,6 @@ module NamedQuery
     module Named
       extend T::Sig
 
-      class Person < T::Struct
-        extend T::Sig
-        include GraphWeaver::Hints
-
-        const :__typename, String
-        const :name, String
-
-        sig { params(data: T::Hash[String, T.untyped]).returns(Person) }
-        def self.from_h(data)
-          new(
-            __typename: data.fetch("__typename"),
-            name: data.fetch("name"),
-          )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
-        end
-      end
-
       class Pet < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
@@ -74,14 +54,35 @@ module NamedQuery
         end
       end
 
-      Type = T.type_alias { T.any(Person, Pet) }
+      class Other < T::Struct
+        extend T::Sig
+        include GraphWeaver::Hints
+
+        const :__typename, String
+        const :name, String
+
+        sig { params(data: T::Hash[String, T.untyped]).returns(Other) }
+        def self.from_h(data)
+          new(
+            __typename: data.fetch("__typename"),
+            name: data.fetch("name"),
+          )
+        rescue GraphWeaver::TypeError
+          raise # already wrapped by a nested struct — keep the innermost context
+        rescue TypeError, ArgumentError, KeyError => e
+          raise GraphWeaver::TypeError.new(struct: self, error: e)
+        end
+      end
+
+      Type = T.type_alias { T.any(Pet, Other) }
 
       sig { params(data: T::Hash[String, T.untyped]).returns(Type) }
       def self.from_h(data)
-        case (typename = data.fetch("__typename"))
-        when "Person" then Person.from_h(data)
+        case data.fetch("__typename")
         when "Pet" then Pet.from_h(data)
-        else raise GraphWeaver::TypeError.new(struct: self, message: "unexpected __typename: #{typename}")
+        # a member this query names no fields on — including one the
+        # schema grew since generation
+        else Other.from_h(data)
         end
       end
     end
