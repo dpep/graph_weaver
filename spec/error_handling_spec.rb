@@ -172,6 +172,34 @@ describe "error handling" do
         expect(e.errors.first[:message]).to be_a String
       end
     end
+
+    it "renders one error per line under the file it came from" do
+      expect {
+        GraphWeaver::Codegen.generate(schema: Demo::Schema, module_name: "Bad", path: "queries/typo.graphql",
+          query: "query { person(id: 1) { nmae birthdy } }")
+      }.to raise_error(GraphWeaver::ValidationError) do |e|
+        expect(e.message.lines.map(&:chomp)).to match [
+          "invalid query in queries/typo.graphql:",
+          /\A {2}1:25 {2}Field 'nmae' /,
+          /\A {2}1:30 {2}Field 'birthdy' /,
+        ]
+        # the structured side keeps the prefixed message rake schema:check reads
+        expect(e.errors.first[:message]).to start_with "queries/typo.graphql:1:25 Field 'nmae'"
+      end
+    end
+
+    it "omits the file from a dynamically parsed query, rather than a dangling 'in'" do
+      expect { GraphWeaver.parse(schema: Demo::Schema, query: "{ nope }") }
+        .to raise_error(GraphWeaver::ValidationError) do |e|
+          expect(e.message.lines.map(&:chomp)).to match ["invalid query:", /\A {2}1:3 {2}Field 'nope' /]
+        end
+    end
+
+    it "omits the position from an error that carries none, rather than a bare colon" do
+      error = GraphWeaver::ValidationError.new([{ message: "no location for this one" }])
+
+      expect(error.message).to eq "invalid query:\n  no location for this one"
+    end
   end
 
   describe "schema drift detection" do

@@ -128,6 +128,24 @@ describe GraphWeaver::Client do
       end
     end
 
+    it "load_queries! logs what replacing a loaded module means for its objects" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
+        namespace = Module.new
+        client = GraphWeaver.new(url)
+        client.load_queries!(dir, namespace:)
+
+        io = StringIO.new
+        GraphWeaver.logger = Logger.new(io, level: Logger::INFO)
+        client.load_queries!(dir, namespace:)
+
+        expect(io.string)
+          .to include("replacing PersonQuery — objects built from the previous module stay instances of it")
+      ensure
+        GraphWeaver.logger = nil
+      end
+    end
+
     it "load_queries! walks every configured queries_path" do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
@@ -330,6 +348,16 @@ describe GraphWeaver::Client do
         .to raise_error(GraphWeaver::Error, /extend_type\("Pett"\).*did you mean 'Pet'/)
       expect { client.register_enum("Specis", PetKind) }
         .to raise_error(GraphWeaver::Error, /register_enum\("Specis"\).*did you mean 'Species'/)
+    end
+
+    it "names the map: keyword when a value map is passed positionally" do
+      # a bare "given 3, expected 2" never mentions the keyword
+      message = 'register_enum: the value map is a keyword — register_enum("Species", PetKind, map: {...})'
+
+      expect { GraphWeaver.new(Demo::Schema).register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
+        .to raise_error(GraphWeaver::Error, message)
+      expect { GraphWeaver.register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
+        .to raise_error(GraphWeaver::Error, message)
     end
 
     it "catches typo'd registrations at generation when the schema is lazy" do

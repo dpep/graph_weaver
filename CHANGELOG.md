@@ -406,6 +406,26 @@ constant → `GraphWeaver.client`.
 
 **What you must do:** regenerate (`rake graph_weaver:generate`). The files
 change; nothing about how you call them does.
+Error-message and console ergonomics from the same review:
+- **Validation errors name the query file and render one per line**, compiler
+  style — `invalid query in app/graphql/queries/person.graphql:` followed by an
+  indented `4:5  Field 'nmae' doesn't exist on type 'Person'` per error. They
+  arrived as one joined line with no file at all, because `generate!` had the
+  path in hand and never passed it to codegen, so thirty query files left you
+  hunting for a bare `4:5`. `ValidationError#errors` and `#to_h` keep the shape
+  `rake graph_weaver:schema:check` reads; only the message text changed, and
+  **it is multi-line now** — update anything matching on it.
+- **`register_enum("Species", PetKind, {"DOG" => :dog})` says the value map is a
+  keyword**, and shows the call with `map:` in it. Guessing the map as a third
+  positional argument used to get Ruby's `wrong number of arguments (given 3,
+  expected 2)`, which never mentions `map:`. Both `GraphWeaver.register_enum`
+  and `client.register_enum`.
+- **`load_queries!` logs when it replaces an already-loaded module**, at
+  `:info`, before swapping the constant: `replacing PersonQuery — objects built
+  from the previous module stay instances of it`. Reloading is unchanged and
+  still what the method is for; it just isn't silent about the structs it
+  orphans, which is how a console session ends up with an `is_a?` that fails
+  for no visible reason.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

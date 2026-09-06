@@ -108,7 +108,8 @@ class GraphWeaver::Client
   # Client-scoped enum mapping: this client's generated code speaks your
   # T::Enum for the named GraphQL enum (see Codegen::EnumType — inference
   # by name, map: for renames, fallback: to absorb unknown wire values).
-  def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
+  def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
+    GraphWeaver.reject_positional_map!(graphql_name, type, positional_map)
     validate_registration!("enum", graphql_name.to_s)
     @enums[graphql_name.to_s] =
       GraphWeaver::Codegen::EnumType.new(graphql_name, type, map:, fallback:, requires:)
@@ -154,7 +155,14 @@ class GraphWeaver::Client
     dirs = dir ? [dir] : GraphWeaver.queries_paths
     dirs.flat_map { |d| Dir[File.join(d, "*.graphql")].sort }.map do |path|
       name = GraphWeaver.module_name(path, File.read(path))
-      namespace.send(:remove_const, name) if namespace.const_defined?(name, false)
+      if namespace.const_defined?(name, false)
+        # the constant moves, its instances don't — a struct built before the
+        # reload keeps failing is_a? against the new module, silently
+        GraphWeaver.log(:info) do
+          "replacing #{name} — objects built from the previous module stay instances of it"
+        end
+        namespace.send(:remove_const, name)
+      end
       GraphWeaver.log(:info) { "loaded #{name} from #{path}" }
       namespace.const_set(name, parse(path))
     end
