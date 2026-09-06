@@ -12,19 +12,16 @@ API, end to end:
 ```ruby
 require "graph_weaver"
 
-# transport + auth in one object (see docs/transports.md for retries and
+# transport + auth in one object (docs/transports.md for retries and
 # advanced setup). cache: true dumps the schema at GraphWeaver.schema_path
-# on first introspection — the same file rake graph_weaver:generate reads —
-# and any fresh dump already present is reused regardless of format. The
-# extension picks the format: .json verbatim, .graphql SDL (reviewable
-# diffs) — or say cache: :graphql. Introspected dumps record their source
-# url in a header, so a stale dump says where it came from.
+# on first introspection — the same file rake graph_weaver:generate reads
+# (docs/getting_started.md for the formats), with the source url recorded
+# in a header, so a stale dump says where it came from.
 github = GraphWeaver.new("https://api.github.com/graphql", auth: `gh auth token`.strip, cache: true)
 
 # map GitHub's DateTime scalar onto Time (cast inferred from Time.parse).
-# One registry, global — the same one rake graph_weaver:generate reads, so
-# this line types your console and your checked-in code identically
-# (see docs/scalars.md).
+# Registrations are global and codegen-time, so this line types your
+# console and your checked-in code identically (docs/scalars.md).
 GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 
 RepoQuery = github.parse(<<~GRAPHQL)
@@ -51,9 +48,9 @@ is the schema `generate!` wants:
 GraphWeaver.generate!(schema: github)   # no dump on disk needed
 ```
 
-The introspection step (seconds
-on a big API) happens lazily on first `schema`/`parse` and caches per
-`cache:`/`ttl:`; for finer control the pieces are all public
+The introspection step (seconds on a big API) happens lazily on first
+`schema`/`parse` and caches per `cache:`/`ttl:`; for finer control the
+pieces are all public
 (`GraphWeaver::SchemaLoader.introspect(transport, cache:, ttl:)`, or cache
 `introspect(transport).to_json` in Rails.cache and `SchemaLoader.load` it).
 
