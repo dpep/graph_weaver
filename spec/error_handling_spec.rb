@@ -106,6 +106,40 @@ describe "error handling" do
       expect(e.status).to eq 500
       expect(e.body).to eq "kaboom"
       expect(e.message).to include("HTTP 500").and include("kaboom")
+      expect(e.headers).to be_empty
+      expect(e.retry_after).to be_nil
+      expect(e).not_to be_throttled
+    end
+
+    it "reads Retry-After as seconds or an HTTP-date, ignoring nonsense" do
+      seconds = GraphWeaver::ServerError.new(status: 429, headers: { "retry-after" => "30" })
+      date = GraphWeaver::ServerError.new(status: 503, headers: { "retry-after" => (Time.now + 60).httpdate })
+      past = GraphWeaver::ServerError.new(status: 503, headers: { "retry-after" => (Time.now - 60).httpdate })
+      junk = GraphWeaver::ServerError.new(status: 429, headers: { "retry-after" => "soon" })
+
+      expect(seconds.retry_after).to eq 30.0
+      expect(date.retry_after).to be_within(2).of(60)
+      expect(past.retry_after).to eq 0.0
+      expect(junk.retry_after).to be_nil
+
+      # 503 counts as throttling only when it says when to come back
+      expect([seconds, date, junk].map(&:throttled?)).to eq [true, true, true]
+      expect(GraphWeaver::ServerError.new(status: 503)).not_to be_throttled
+    end
+  end
+
+  describe "throttling" do
+    def query_error(code)
+      GraphWeaver::QueryError.new([GraphWeaver::GraphQLError.from_h(
+        "message" => "slow down", "extensions" => { "code" => code }
+      )])
+    end
+
+    it "recognizes the codes the big graphs send, whatever the dialect" do
+      expect(query_error("THROTTLED")).to be_throttled     # Shopify
+      expect(query_error("RATE_LIMITED")).to be_throttled  # GitHub
+      expect(query_error("NOT_FOUND")).not_to be_throttled
+      expect(query_error("THROTTLED").to_h["throttled"]).to be true
     end
   end
 

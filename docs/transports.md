@@ -163,7 +163,7 @@ transport:
 
 ```ruby
 rescue GraphWeaver::ServerError => e
-  e.rate_limited?                       # 429, or 503 + Retry-After
+  e.throttled?                          # 429, or 503 + Retry-After
   e.retry_after                         # seconds, or nil
   e.headers["x-ratelimit-remaining"]
 end

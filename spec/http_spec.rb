@@ -101,7 +101,7 @@ describe GraphWeaver::Transport::HTTP do
         expect(e.status).to eq 429
         expect(e.headers["x-ratelimit-remaining"]).to eq "0"
         expect(e.retry_after).to eq 7.0
-        expect(e).to be_rate_limited
+        expect(e).to be_throttled
       }
   end
 

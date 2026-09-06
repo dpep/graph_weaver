@@ -198,6 +198,14 @@ Transport improvements from the same review:
   retrying won't fix it"), which for the one status that exists to say "come
   back later" was exactly backwards, and left `Retry` incorrect against GitHub
   and Shopify. Pass `retry_if:` to restore the old behaviour.
+- **A throttling predicate, spelled the same everywhere**: `ServerError#throttled?`
+  (429, or a 503 that says when to come back) and `QueryError#throttled?` /
+  `Response#throttled?` (a throttle code in the errors array). An API says "slow
+  down" with an HTTP status or with a code in a 200 body, and callers shouldn't
+  have to know which. The codes are `GraphWeaver::GraphQLError::THROTTLE_CODES`
+  — Shopify's `THROTTLED`, GitHub's `RATE_LIMITED`, and the common Apollo/Hasura
+  spellings — so `retry_codes:` takes the constant instead of a hand-written
+  string. `QueryError#to_h` gains `"throttled"` alongside `"schema_stale"`.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

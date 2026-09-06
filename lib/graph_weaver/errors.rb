@@ -118,9 +118,10 @@ module GraphWeaver
     end
 
     # True when the server said "you're going too fast" — 429, or the
-    # 503 + Retry-After that some gateways send instead.
+    # 503 + Retry-After that some gateways send instead. Same question,
+    # same name, as QueryError#throttled?: an API may answer either way.
     sig { returns(T::Boolean) }
-    def rate_limited?
+    def throttled?
       status == 429 || (status == 503 && !retry_after.nil?)
     end
 
@@ -204,6 +205,23 @@ module GraphWeaver
       code == "GRAPHQL_VALIDATION_FAILED" || VALIDATION_MESSAGE.match?(message)
     end
 
+    # The codes servers use to say "you're going too fast". No standard
+    # exists, so this is the union of what the big graphs actually send:
+    # Shopify THROTTLED, GitHub RATE_LIMITED, Apollo/Hasura the rest.
+    # Pass it to Retry (retry_codes:) rather than hand-writing strings.
+    THROTTLE_CODES = T.let(
+      %w[THROTTLED RATE_LIMITED RATE_LIMIT_EXCEEDED TOO_MANY_REQUESTS REQUEST_LIMIT_EXCEEDED].freeze,
+      T::Array[String],
+    )
+
+    # True when this error is the GraphQL-level equivalent of a 429 —
+    # the same question ServerError#throttled? asks of an HTTP status,
+    # since an API may answer either way.
+    sig { returns(T::Boolean) }
+    def throttled?
+      THROTTLE_CODES.include?(code)
+    end
+
     # The field the error points at, as a stable dotted path with list
     # indices stripped — ["people", 3, "email"] => "people.email". The
     # parseable key for grouping/reporting (the raw #path keeps indices).
@@ -280,6 +298,15 @@ module GraphWeaver
     sig { returns(T::Boolean) }
     def schema_stale?
       errors.any?(&:validation?)
+    end
+
+    # True when the server said "you're going too fast" in the errors
+    # array rather than in an HTTP status — back off and retry, don't
+    # rewrite the query. Same name as ServerError#throttled?, because an
+    # API may answer either way and callers shouldn't have to care which.
+    sig { returns(T::Boolean) }
+    def throttled?
+      errors.any?(&:throttled?)
     end
 
     # Errors grouped by the field they point at (index-stripped dotted
@@ -387,6 +414,7 @@ module GraphWeaver
     def to_h
       super.merge(
         "schema_stale" => schema_stale?,
+        "throttled" => throttled?,
         "codes" => codes,
         "errors" => errors.map(&:to_h),
         "extensions" => extensions,

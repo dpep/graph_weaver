@@ -28,8 +28,8 @@ it failed:
 | Class | When |
 |-------|------|
 | `TransportError` | never reached the server — DNS, connection refused, TLS, timeout |
-| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#rate_limited?` |
-| `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes` |
+| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?` |
+| `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#field`, `#struct` |
 | `ValidationError` | build time: the query didn't validate against the schema |
@@ -40,11 +40,18 @@ begin
 rescue GraphWeaver::TransportError
   retry                                   # network blip
 rescue GraphWeaver::ServerError => e
-  e.status >= 500 ? backoff : raise       # retry 5xx; a 4xx is our bug
+  e.throttled? || e.status >= 500 ? backoff : raise  # a plain 4xx is our bug
 rescue GraphWeaver::QueryError => e
-  e.codes.include?("THROTTLED") ? backoff : raise
+  e.throttled? ? backoff : raise          # the same question, asked of the errors array
 end
 ```
+
+`#throttled?` deliberately spells the same on both: an API may say "slow
+down" with a 429 or with a `THROTTLED` error in a 200 body, and a caller
+shouldn't have to know which. It recognizes the codes the big graphs
+actually send (`GraphWeaver::GraphQLError::THROTTLE_CODES` — Shopify's
+`THROTTLED`, GitHub's `RATE_LIMITED`, and friends); pass that constant to
+`Retry`'s `retry_codes:` instead of hand-writing the strings.
 
 Or skip the hand-rolling — `Retry` wraps any transport with
 configurable retries:
