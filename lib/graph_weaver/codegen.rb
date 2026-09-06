@@ -1149,6 +1149,13 @@ class GraphWeaver::Codegen
   def pick_name(key, taken)
     name = camelize(key)
 
+    # a key that camelizes to no constant at all ("_", "_1") would emit
+    # `class  < T::Struct`
+    unless name.match?(/\A[A-Z]/)
+      raise GraphWeaver::Error,
+        "result key #{key.inspect} makes no class name (#{name.inspect}) — alias it to one starting with a letter"
+    end
+
     if name == taken.first
       # would shadow the struct it nests in — the parent's own `returns(Name)`
       # resolves lexically and would find the child

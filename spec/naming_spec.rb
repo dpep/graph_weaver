@@ -108,6 +108,11 @@ describe "generated class naming" do
         .to match_array ["Result", "Result::Home", "Result::Home::Primary", "Result::Home::Pet"]
     end
 
+    it "refuses a key that camelizes to no constant at all" do
+      expect { structs("query Q { _: person { name } } ") }
+        .to raise_error(GraphWeaver::Error, /makes no class name/)
+    end
+
     it "suffixes a name that would shadow the struct it nests in" do
       # a bare `Pet` inside class Pet resolves to the child, so the parent's own
       # `returns(Pet)` sig would name the wrong struct
