@@ -1,5 +1,7 @@
 require "graph_weaver/transport/faraday"
 require "graph_weaver/testing"
+require "logger"
+require "stringio"
 require "tmpdir"
 
 # app-owned types for the enum-mapping and type-helper specs
@@ -28,7 +30,7 @@ describe GraphWeaver::Client do
     it "builds the transport, introspects the schema lazily, and executes" do
       client = GraphWeaver.new(url)
 
-      expect(client.transport).to be_a GraphWeaver::Transport::Faraday # no retry wrapper by default
+      expect(client.transport).to be_a GraphWeaver::Transport::HTTP # no retry wrapper by default
       expect(client.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
       expect(client.schema.types).to have_key "Person"
     end
@@ -44,30 +46,51 @@ describe GraphWeaver::Client do
       expect(@requests.last[:headers]["x-api-key"]).to eq ["k"]
     end
 
-    it "prefers Faraday when loaded, with middleware pass-through" do
-      client = GraphWeaver.new(url) { |conn| conn.options.timeout = 3 }
+    it "stays on the built-in transport even when faraday is loaded" do
+      expect(defined?(::Faraday)).to be_truthy # transitively present, never chosen
 
+      expect(GraphWeaver.new(url).transport).to be_a GraphWeaver::Transport::HTTP
+      expect(GraphWeaver.new(url, transport: :http).transport).to be_a GraphWeaver::Transport::HTTP
+    end
+
+    it "builds Faraday on an explicit request or a middleware block" do
+      expect(GraphWeaver.new(url, transport: :faraday).transport).to be_a GraphWeaver::Transport::Faraday
+
+      client = GraphWeaver.new(url) { |conn| conn.options.timeout = 3 }
       expect(client.transport).to be_a GraphWeaver::Transport::Faraday
     end
 
-    it "threads timeouts through to whichever transport it picks" do
-      faraday = GraphWeaver.new(url, open_timeout: 2, read_timeout: 5).transport
+    it "logs the transport it built" do
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: Logger::INFO)
+      GraphWeaver.new(url, transport: :faraday)
+      expect(io.string).to include("transport: GraphWeaver::Transport::Faraday -> #{url}")
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    it "rejects an unknown transport, a block against :http, and a symbol without a url" do
+      expect { GraphWeaver.new(url, transport: :typhoeus) }.to raise_error(ArgumentError, /:http or :faraday/)
+      expect { GraphWeaver.new(url, transport: Demo::Schema) }.to raise_error(ArgumentError, /:http or :faraday/)
+      expect { GraphWeaver.new(url, transport: :http) { |conn| conn } }.to raise_error(ArgumentError, /:faraday/)
+      expect { GraphWeaver.new(Demo::Schema, transport: :faraday) }.to raise_error(ArgumentError, /needs a url/)
+    end
+
+    it "names the missing gem when faraday isn't installed" do
+      hide_const("Faraday")
+
+      expect { GraphWeaver.new(url, transport: :faraday) }.to raise_error(ArgumentError, /faraday gem/)
+      expect { GraphWeaver.new(url) { |conn| conn } }.to raise_error(ArgumentError, /faraday gem/)
+    end
+
+    it "threads timeouts through to either transport" do
+      faraday = GraphWeaver.new(url, transport: :faraday, open_timeout: 2, read_timeout: 5).transport
       expect(faraday.instance_variable_get(:@connection).options.open_timeout).to eq 2
       expect(faraday.instance_variable_get(:@connection).options.read_timeout).to eq 5
 
-      hide_const("Faraday")
       http = GraphWeaver.new(url, read_timeout: 5).transport
       expect(http.instance_variable_get(:@read_timeout)).to eq 5
       expect(http.instance_variable_get(:@open_timeout)).to eq 10 # untouched default
-    end
-
-    it "falls back to the built-in transport without faraday, rejecting middleware" do
-      hide_const("Faraday")
-
-      expect(GraphWeaver.new(url).transport).to be_a GraphWeaver::Transport::HTTP
-      expect {
-        GraphWeaver.new(url) { |conn| conn }
-      }.to raise_error(ArgumentError, /faraday/)
     end
 
     it "tunes retries with a Hash, or disables them" do
@@ -79,7 +102,7 @@ describe GraphWeaver::Client do
       expect(slept.size).to eq 2 # the Hash reached the Retry
 
       expect(GraphWeaver.new(url, retries: true).transport).to be_a GraphWeaver::Retry
-      expect(GraphWeaver.new(url, retries: false).transport).to be_a GraphWeaver::Transport::Faraday
+      expect(GraphWeaver.new(url, retries: false).transport).to be_a GraphWeaver::Transport::HTTP
     end
 
     it "parses typed modules bound to its transport" do
@@ -120,9 +143,6 @@ describe GraphWeaver::Client do
       end
     end
 
-    it "rejects a url plus transport:" do
-      expect { GraphWeaver.new(url, transport: Demo::Schema) }.to raise_error(ArgumentError, /not both/)
-    end
   end
 
   describe "from a schema source" do

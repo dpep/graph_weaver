@@ -311,6 +311,32 @@ New:
   order (`docs/generated_modules.md`). It was already true and spec-enforced;
   it was documented nowhere.
 
+**Faraday is no longer auto-selected — `GraphWeaver.new(url)` always builds
+`Transport::HTTP`.** Selection used to be `defined?(::Faraday)`, and faraday
+rides into most bundles transitively (stripe, octokit, ...), so adding an
+unrelated gem silently swapped your transport, its timeouts, and its connection
+behaviour. The accidental default was also the slower one: `Transport::HTTP`
+pools persistent sockets (1 TCP connection for 10 requests) where Faraday's
+default `net_http` adapter reconnects per request (10 for 10) — a full TLS
+handshake each time over HTTPS.
+
+**What you must do:** if you were relying on the auto-pick, ask for Faraday
+explicitly — `GraphWeaver.new(url, transport: :faraday)`. A middleware block
+still implies it (`GraphWeaver.new(url) { |conn| ... }`), since the block is
+Faraday's. Faraday is otherwise unchanged and fully supported. Alongside a url,
+`transport:` now takes `:http` (the default) or `:faraday` rather than a
+built transport object — passing an object there used to raise "pass a url or
+transport:, not both" and now raises naming the two symbols. Alongside a schema
+source it still takes a built transport, and now rejects a Symbol. The client
+logs which transport it built at `info`.
+
+`docs/transports.md` gains the recipe for giving Faraday the connection reuse
+`Transport::HTTP` has by default: the `:net_http_persistent` adapter, the two
+gems it needs, and the version pairing (Faraday 2.x requires
+`faraday-net_http_persistent` **2.x**; 1.2.0 raises `NoMethodError: undefined
+method 'dependency'` at load). graph_weaver depends on neither and never
+selects it for you.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

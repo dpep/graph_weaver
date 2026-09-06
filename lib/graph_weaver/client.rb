@@ -21,8 +21,11 @@ require_relative "transport/http"
 # from introspection on first use, cached per cache:/ttl:) or a schema
 # source — a live schema class (which also executes in-process, through
 # an InProcess wrapper that takes context:), or a path/SDL/introspection
-# dump via SchemaLoader. Pass transport: to bring your own transport for
-# a schema source.
+# dump via SchemaLoader.
+#
+# transport: means "which transport" alongside a url — :http (the
+# default, always, whatever else the Gemfile loads) or :faraday — and
+# "this transport" alongside a schema source.
 #
 # Clients are independent: each has its own transport, schema, and
 # scalar registrations, so one app can talk to several GraphQL servers —
@@ -33,14 +36,17 @@ class GraphWeaver::Client
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
     open_timeout: nil, read_timeout: nil, context: nil, &middleware)
     if source.is_a?(String) && source.match?(URL)
-      raise ArgumentError, "pass a url or transport:, not both" if transport
       raise ArgumentError, "context: applies to a schema class executing in-process" if context
 
-      built = build_transport(source, auth:, headers:, open_timeout:, read_timeout:, &middleware)
+      built = build_transport(source, auth:, headers:, kind: transport, open_timeout:, read_timeout:, &middleware)
       @transport = wrap_retries(built, retries)
     else
       if auth || middleware || retries || open_timeout || read_timeout
         raise ArgumentError, "auth:/retries:/timeouts/middleware apply to a url — got a schema source"
+      end
+      if transport.is_a?(Symbol)
+        # naming a bundled transport only builds one from a url
+        raise ArgumentError, "transport: #{transport.inspect} needs a url — got a schema source; pass a built transport"
       end
       if cache || ttl
         # a schema source never introspects, so a cache would silently no-op
@@ -181,15 +187,16 @@ class GraphWeaver::Client
   end
 
   # auth: is a token — "Bearer" is assumed unless the string carries its
-  # own scheme ("Basic dXNlcjpwYXNz..."). Transport pick: Faraday when
-  # the app already loads it (its middleware/proxy/timeout ecosystem
-  # comes along), the zero-dependency Transport::HTTP otherwise.
-  # Detection is `defined?(Faraday)` — deliberately NOT a require:
-  # faraday rides along transitively in most bundles (stripe, octokit,
-  # ...), and try-requiring would switch transports on apps that never
-  # chose it. With faraday under `require: false`, load it before
-  # building the client.
-  def build_transport(url, auth:, headers:, open_timeout: nil, read_timeout: nil, &middleware)
+  # own scheme ("Basic dXNlcjpwYXNz...").
+  #
+  # Transport pick: always Transport::HTTP unless you ask for Faraday
+  # (transport: :faraday, or a middleware block, which is Faraday's
+  # anyway). Deliberately NOT `defined?(Faraday)`: faraday rides along
+  # transitively in most bundles (stripe, octokit, ...), so sniffing for
+  # it lets an unrelated gem swap your transport — along with its
+  # timeouts and, since Faraday's default net_http adapter reconnects
+  # per request, your connection reuse. Same code, same transport.
+  def build_transport(url, auth:, headers:, kind:, open_timeout: nil, read_timeout: nil, &middleware)
     headers = headers.dup
     if auth
       headers["Authorization"] ||= auth.include?(" ") ? auth : "Bearer #{auth}"
@@ -198,14 +205,46 @@ class GraphWeaver::Client
     # nil means "the transport's default" — both bundled ones agree on it
     timeouts = { open_timeout:, read_timeout: }.compact
 
-    if defined?(::Faraday)
-      require_relative "transport/faraday"
-      GraphWeaver::Transport::Faraday.new(url, headers:, **timeouts, &middleware)
-    elsif middleware
-      raise ArgumentError, "middleware blocks require the faraday gem"
+    transport =
+      if transport_kind(kind, middleware) == :faraday
+        build_faraday(url, headers:, timeouts:, &middleware)
+      else
+        GraphWeaver::Transport::HTTP.new(url, headers:, **timeouts)
+      end
+
+    GraphWeaver.log(:info) { "transport: #{transport.class} -> #{url}" }
+    transport
+  end
+
+  # Which bundled transport a url client builds: the explicit
+  # transport:, else Faraday when a middleware block asks for it.
+  def transport_kind(kind, middleware)
+    case kind
+    when nil then middleware ? :faraday : :http
+    when :faraday then :faraday
+    when :http
+      raise ArgumentError, "middleware blocks are Faraday's — pass transport: :faraday" if middleware
+
+      :http
     else
-      GraphWeaver::Transport::HTTP.new(url, headers:, **timeouts)
+      raise ArgumentError, "transport: takes :http or :faraday alongside a url, got #{kind.inspect}"
     end
+  end
+
+  # The faraday gem is optional, so a missing one reads as a Gemfile
+  # problem rather than a stack trace out of require.
+  def build_faraday(url, headers:, timeouts:, &middleware)
+    begin
+      require_relative "transport/faraday"
+    rescue LoadError
+      nil # reported below, alongside a gem that loaded but wasn't there
+    end
+
+    unless defined?(::Faraday)
+      raise ArgumentError, "the faraday transport needs the faraday gem — add it to your Gemfile"
+    end
+
+    GraphWeaver::Transport::Faraday.new(url, headers:, **timeouts, &middleware)
   end
 
   # retries: is off by default — true for Retry defaults, or a

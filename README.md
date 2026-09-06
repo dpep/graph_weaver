@@ -84,8 +84,8 @@ the pieces:
 ```ruby
 require "graph_weaver"
 
-# a client for one server: transport (Faraday when loaded), auth, and a
-# lazily introspected schema. The first argument is a url or any schema
+# a client for one server: transport, auth, and a lazily introspected
+# schema. The first argument is a url or any schema
 # source — a live schema class, or a .json/.graphql dump
 api = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"], cache: true)
 
@@ -110,9 +110,9 @@ Module names derive from the **file** name — `person.graphql` →
 operation inside is called. Parsing a raw query string uses the operation
 name instead (`query GetPerson` → `GetPerson`). Pass `module_name:`/`name:`
 to override. Pass `client:` (a constant) to
-bake a default client into the generated module. Prefer Faraday? It's
-opt-in (`gem "faraday"`), and the client picks it up when loaded —
-middleware blocks and ready connections in [transports](docs/transports.md).
+bake a default client into the generated module. Prefer Faraday? Ask for
+it — `GraphWeaver.new(url, transport: :faraday)`; middleware blocks and
+ready connections in [transports](docs/transports.md).
 
 In development, skip the build step entirely — modules from `client.parse`
 carry the client's transport, no global wiring needed:
