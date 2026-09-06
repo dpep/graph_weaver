@@ -170,6 +170,7 @@ Codegen bug fixes from the library review (all with regression coverage):
   **`Representations` joins `Result`/`QUERY` as a reserved module-level name**
   — a shared fragment hoisting to it is now refused.
 
+<<<<<<< HEAD
 Transport improvements from the same review:
 - **`Transport::HTTP` pools its connections** (`pool_size:`, default 5) instead
   of serializing every request behind one socket and one mutex. The mutex was
@@ -240,6 +241,27 @@ Transport improvements from the same review:
   carries `:url`, `:schema`, `:operation` and `:status`, and deliberately not
   the query or variables (those are PII, and belong at debug on the logger
   where the level gates them). See `docs/logging.md`.
+Developer-experience fixes (all with regression coverage):
+- **FakeClient override keys are validated against the schema.** A typo'd key
+  (`"Person.nmae" => "Daniel"`) pinned nothing, and the example passed against
+  random fake data — a test that had quietly stopped checking what it claims to.
+  Keys now raise, spellchecked, at `FakeClient.new` and at `Testing.configure`
+  when a schema is already set. Bare field-name keys (`"name"`) still work;
+  **fix or drop any key that doesn't name a field in your schema.**
+- Codegen validation errors name the position they already captured: each
+  message is prefixed `4:5`, and `queries/typo.graphql:4:5` when the file is
+  known (`Codegen.new`/`Codegen.generate` take it as `path:`), instead of
+  leaving a project of thirty query files to search by hand.
+- A strict `alias:` whose path doesn't fit a query now names the query that
+  failed and ends with `— pass optional: true to skip selections that don't
+  fit`, the documented way out.
+- Generation lists the custom scalars it had no registration for at `info`
+  (`3 unregistered custom scalars → T.untyped: …`). Informational — a scalar
+  without a codec is a legitimate choice, just no longer a silent one.
+- `Response#ok?` (and `#success?`) — the positive form of `errors?`.
+- `FakeClient#schema` reads back the schema responses are fabricated against,
+  which is how to reach it under `auto_fake`, where `GraphWeaver.client` is the
+  fake; `Testing.config.schema` reads back too.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

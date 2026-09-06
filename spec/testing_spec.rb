@@ -72,6 +72,38 @@ describe GraphWeaver::Testing do
       expect(person&.pets&.map(&:name)).to all(eq "generic") # field-name fallback
     end
 
+    it "exposes the schema it fabricates against" do
+      expect(fake.schema).to be Demo::Schema
+    end
+
+    describe "override key validation" do
+      def fake_with(overrides)
+        GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, overrides:)
+      end
+
+      it "rejects a typo'd field, spellchecked" do
+        expect { fake_with("Person.nmae" => "Daniel") }
+          .to raise_error(GraphWeaver::Error, /"Person.nmae" is not a field of Person — did you mean 'name'\?/)
+        expect { fake_with("nmae" => "Daniel") }
+          .to raise_error(GraphWeaver::Error, /matches no field in this schema — did you mean 'name'\?/)
+      end
+
+      it "rejects a key whose type isn't in the schema" do
+        expect { fake_with("Persn.name" => "Daniel") }
+          .to raise_error(GraphWeaver::Error, /names no object type in this schema — did you mean 'Person'\?/)
+      end
+
+      it "accepts both key forms, and introspection fields" do
+        expect { fake_with("Person.name" => "a", "name" => "b", "__typename" => "c") }.not_to raise_error
+      end
+
+      it "validates config overrides against the schema in play" do
+        GraphWeaver::Testing.configure { |config| config.overrides = { "Person.nmae" => "Daniel" } }
+
+        expect { fake_with({}) }.to raise_error(GraphWeaver::Error, /"Person.nmae"/)
+      end
+    end
+
     it "honors first/last/limit args when fabricating lists" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
@@ -217,6 +249,15 @@ describe GraphWeaver::Testing do
       )
 
       expect(PersonQuery.execute!(executor, id: "1").person&.name).to eq "explicit"
+    end
+
+    it "validates override keys when a schema is already configured" do
+      expect {
+        described_class.configure do |config|
+          config.schema = Demo::Schema
+          config.overrides = { "Person.nmae" => "Daniel" }
+        end
+      }.to raise_error(GraphWeaver::Error, /did you mean 'name'\?/)
     end
 
     it "resets to defaults" do

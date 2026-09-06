@@ -31,6 +31,10 @@ GraphWeaver::Testing::FakeClient.new(schema:, overrides: {
 })
 ```
 
+Keys are checked against the schema, spellchecked — `"Person.nmae"` raises
+rather than quietly pinning nothing and leaving the example green against
+random data.
+
 With rspec, the setup is two lines in `spec/support/graph_weaver.rb` —
 the require, plus an explicit opt-in to per-example fakes (deliberately
 not a default: silently swapping every example onto a fake would be
@@ -56,6 +60,12 @@ app client per example (generate modules *without* a baked `client:` so
 they consult `GraphWeaver.client`). `mode:` picks value fabrication: `:faker`
 (semantic, field-name matched — raises if the gem is missing),
 `:literal` (plain type-derived), or nil to auto-detect faker.
+
+Need the schema itself inside an example — to sample a field, or build a
+query on the fly? `GraphWeaver::Testing.config.schema` reads back what
+`config.schema =` set, falling back to the committed dump; under
+`auto_fake` the client in play exposes the same object as
+`GraphWeaver.client.schema`.
 
 Test-only queries don't have to live in `app/` — the conventional paths
 are appendable lists, so the same support file can register a

@@ -66,6 +66,13 @@ describe "GraphWeaver.logger" do
     end
   end
 
+  it "names the scalars generation left as T.untyped" do
+    GraphWeaver.parse(schema: Demo::Schema, query: "query Meta { people { pets { metadata } } }")
+
+    expect(io.string)
+      .to include("1 unregistered custom scalar → T.untyped: Metadata (register with GraphWeaver.register_scalar)")
+  end
+
   it "warns on every raised error" do
     bad = GraphWeaver::Transport::HTTP.new("http://127.0.0.1:#{@port}/nope")
     expect { bad.execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
