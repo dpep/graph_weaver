@@ -97,6 +97,59 @@ module FederationDemo
     end
   end
 
+  # A subgraph whose entities exercise the @key shapes past the easy one:
+  # Product declares a compound key AND an alternative single key (either
+  # resolves it), Listing's key reaches into a nested selection, and
+  # Warehouse is an entity the catalog query never selects.
+  module Catalog
+    class Organization < BaseObject
+      graphql_name "Organization"
+
+      field :id, ID, null: false
+    end
+
+    class Product < BaseObject
+      graphql_name "Product"
+      key fields: "upc sku"
+      key fields: :id
+
+      field :id, ID, null: false
+      field :upc, String, null: false
+      field :sku, Integer, null: false
+      field :title, String, null: false
+    end
+
+    class Listing < BaseObject
+      graphql_name "Listing"
+      key fields: "id organization { id }"
+
+      field :id, ID, null: false
+      field :organization, Organization, null: false
+      field :price, Int, null: false
+    end
+
+    class Warehouse < BaseObject
+      graphql_name "Warehouse"
+      key fields: :id
+
+      field :id, ID, null: false
+      field :region, String, null: false
+    end
+
+    class Query < BaseObject
+      graphql_name "Query"
+
+      field :product, Product, null: true
+      field :listing, Listing, null: true
+      field :warehouse, Warehouse, null: true
+    end
+
+    class Schema < GraphQL::Schema
+      include ApolloFederation::Schema
+      query Query
+    end
+  end
+
   # The same USERS graph as a federation *2* subgraph: `extend schema @link`
   # to the federation spec, and — since apollo-federation links it under the
   # default "federation" namespace — directives applied as @federation__key.

@@ -230,10 +230,66 @@ module GraphWeaver::SchemaLoader
       .select { |name, _| !defined.include?(name) && directives.any? { |defn| defn.include?(name) } }
       .values
 
-    added = types + directives
+    added = types + directives + entity_plumbing(sdl, namespace, defined)
     added.empty? ? sdl : "#{added.join("\n")}\n\n#{sdl}"
   end
   private_class_method :add_subgraph_definitions
+
+  # The entity resolver every subgraph serves — and which no subgraph SDL
+  # contains: `_service { sdl }` and `rover subgraph fetch` both print the
+  # published schema, where the plumbing is implicit. Supply it so an
+  # `_entities` query can be typed against the artifact you actually have
+  # (a supergraph doesn't describe `_entities` at all). `_Entity` is the
+  # union of the file's own @key'd types, so it stays accurate per subgraph.
+  # https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/subgraph-spec
+  def self.entity_plumbing(sdl, namespace, defined)
+    doc = GraphQL.parse(sdl)
+    root = query_root_name(doc)
+    entities = entity_names(doc, namespace)
+    return [] if entities.empty? || root.nil? || defined.include?("_Any")
+
+    [
+      "scalar _Any",
+      "type _Service { sdl: String }",
+      "union _Entity = #{entities.join(" | ")}",
+      "extend type #{root} {\n" \
+        "  _entities(representations: [_Any!]!): [_Entity]!\n" \
+        "  _service: _Service!\n" \
+        "}",
+    ]
+  end
+  private_class_method :entity_plumbing
+
+  # The object types this subgraph resolves as entities: the ones it applies
+  # @key to, under whichever name it applies it by (@federation__key when the
+  # spec is linked under a namespace). Type extensions count — fed-1 spells an
+  # entity it doesn't own as `extend type User @key(...)`.
+  def self.entity_names(doc, namespace)
+    key_names = ["key", "#{namespace}__key"]
+
+    doc.definitions.filter_map do |defn|
+      next unless defn.is_a?(GraphQL::Language::Nodes::ObjectTypeDefinition) ||
+        defn.is_a?(GraphQL::Language::Nodes::ObjectTypeExtension)
+
+      defn.name if defn.directives.any? { |d| key_names.include?(d.name) }
+    end.uniq
+  end
+  private_class_method :entity_names
+
+  # The query root's name — `schema { query: Root }` when the file says so,
+  # `Query` by convention. nil when the file has no query root to extend.
+  def self.query_root_name(doc)
+    declared = doc.definitions.grep(GraphQL::Language::Nodes::SchemaDefinition).first ||
+      doc.definitions.grep(GraphQL::Language::Nodes::SchemaExtension).first
+    name = declared&.query || "Query"
+    root_present = doc.definitions.any? do |defn|
+      defn.respond_to?(:name) && defn.name == name &&
+        (defn.is_a?(GraphQL::Language::Nodes::ObjectTypeDefinition) ||
+          defn.is_a?(GraphQL::Language::Nodes::ObjectTypeExtension))
+    end
+    name if root_present
+  end
+  private_class_method :query_root_name
 
   # how a schema declares the specs it's built from: @link in fed 2, @core in fed 1
   LINK_DIRECTIVES = %w[link core].to_set.freeze

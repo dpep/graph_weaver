@@ -351,6 +351,41 @@ describe "federation / subgraph SDL" do
     expect(GraphWeaver::SchemaLoader.subgraph_sdl?(SUPERGRAPH_SDL)).to be false
   end
 
+  # a published subgraph SDL never contains the entity resolver it serves, so
+  # the artifact people actually hold can't type the one query only a subgraph
+  # describes — weaver supplies the spec's plumbing the way it supplies @key
+  describe "entity plumbing" do
+    it "supplies _entities over the subgraph's own @key'd types" do
+      schema = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Catalog::Schema))
+
+      expect(schema.get_type("Query").fields.keys).to include("_entities", "_service")
+      expect(schema.possible_types(schema.get_type("_Entity")).map(&:graphql_name))
+        .to eq %w[Listing Product Warehouse]
+    end
+
+    it "reads @key through a namespace, and through a type extension" do
+      v2 = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::UsersV2::Schema)) # @federation__key
+      pets = GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Pets::Schema)) # `extend type User`
+
+      [v2, pets].each do |schema|
+        expect(schema.possible_types(schema.get_type("_Entity")).map(&:graphql_name)).to eq %w[User]
+      end
+    end
+
+    it "leaves a schema with no entities, and a subgraph that declares its own, alone" do
+      plain = GraphWeaver::SchemaLoader.load("type Query { a: Int }")
+      expect(plain.get_type("_Entity")).to be_nil
+
+      own = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+        scalar _Any
+        union _Entity = User
+        type Query { user: User _entities(representations: [_Any!]!): [_Entity]! }
+        type User @key(fields: "id") { id: ID! }
+      GRAPHQL
+      expect(own.get_type("Query").fields.keys).to eq %w[user _entities]
+    end
+  end
+
   it "generates typed structs from a subgraph SDL" do
     source = GraphWeaver::Codegen.new(
       schema: GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Users::Schema)),
