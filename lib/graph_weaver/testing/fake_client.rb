@@ -18,9 +18,10 @@ require "json"
 #
 # overrides: pin fields by GraphQL name — schema vocabulary, so keys
 # survive query refactors. "Type.field" beats "field"; values are
-# literals or zero-arg procs. (An override with a wrong-typed value is
-# also the way to simulate a corrupt payload — casting raises
-# GraphWeaver::TypeError.)
+# literals or zero-arg procs. Keys are checked against the schema, since
+# a typo'd one would pin nothing and leave the test green. (An override
+# with a wrong-typed value is also the way to simulate a corrupt
+# payload — casting raises GraphWeaver::TypeError.)
 #
 #      FakeClient.new(schema:, overrides: {
 #        "Person.name" => "Daniel",
@@ -58,6 +59,7 @@ class GraphWeaver::Testing::FakeClient
     config = GraphWeaver::Testing.config
     @schema = schema
     @overrides = config.overrides.merge(overrides)
+    GraphWeaver::Testing.validate_overrides!(schema, @overrides)
     @values = GraphWeaver::Testing::Values.new(seed:, mode:)
     @list_size = list_size || config.list_size
     @null_chance = null_chance || config.null_chance
