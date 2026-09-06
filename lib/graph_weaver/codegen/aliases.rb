@@ -48,11 +48,9 @@ class GraphWeaver::Codegen
         "alias #{name.inspect} on #{node.graphql_type} collides with an existing field or method"
     end
 
-    # Registered aliases for a GraphQL type: global registry plus this client's
-    # overlay (client-scoped wins on a name clash).
+    # Registered aliases for a GraphQL type (see extend_type alias:).
     def type_aliases(graphql_name)
-      global = GraphWeaver::Codegen.type_registry[graphql_name]&.dig(:aliases) || {}
-      (global.merge(@types[graphql_name]&.dig(:aliases) || {}))
+      GraphWeaver::Codegen.type_registry[graphql_name]&.dig(:aliases) || {}
     end
 
     # methods every generated struct already answers to; Ruby keywords are

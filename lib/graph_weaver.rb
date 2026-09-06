@@ -186,7 +186,8 @@ module GraphWeaver
 
     # Generate every .graphql query in a directory into checked-in Ruby
     # files. Paths default to the conventions above; schema: defaults to
-    # the dump at schema_path (any supported extension):
+    # the dump at schema_path (any supported extension), and also takes a
+    # Client (its schema — the console object, no dump needed):
     #
     #      GraphWeaver.generate!   # queries_path -> generated_path
     #
@@ -196,7 +197,7 @@ module GraphWeaver
     # behind. Pair with a freshness spec (docs/generated_modules.md).
     def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil,
       inputs_module: nil, unions_module: nil)
-      schema ||= locate_schema!
+      schema = schema ? schema_for(schema) : locate_schema!
       inputs_module ||= self.inputs_module(output)
       unions_module ||= self.unions_module(output)
 
@@ -249,7 +250,7 @@ module GraphWeaver
     #      end
     def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil,
       inputs_module: nil, unions_module: nil)
-      schema ||= locate_schema!
+      schema = schema ? schema_for(schema) : locate_schema!
       inputs_module ||= self.inputs_module(output)
       unions_module ||= self.unions_module(output)
       plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:)
@@ -287,7 +288,7 @@ module GraphWeaver
     # committed Ruby matches the committed schema. `rake
     # graph_weaver:schema:check` prints this and exits non-zero.
     def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
-      schema ||= refreshed_schema
+      schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
 
       Dir[File.join(queries, "*.graphql")].sort.each_with_object({}) do |path, failures|
@@ -343,6 +344,11 @@ module GraphWeaver
       log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
       files
     end
+
+    # Anywhere GraphWeaver takes schema:, a Client stands for its schema — so
+    # the console object and the rake task point at the same thing.
+    def schema_for(source) = source.is_a?(Client) ? source.schema : source
+    private :schema_for
 
     # the conventional schema dump, required
     def locate_schema!
@@ -482,26 +488,9 @@ module GraphWeaver
     # renames, fallback: absorbs unknown wire values on cast (inputs stay
     # strict), requires: names files the generated code should require.
     # Generation fails naming any schema value that doesn't resolve —
-    # exhaustiveness checked ahead of runtime. Global; client.register_enum
-    # scopes to one client.
+    # exhaustiveness checked ahead of runtime.
     def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
-      reject_positional_map!(graphql_name, type, positional_map)
-      Codegen.register_enum(graphql_name, type, map:, fallback:, requires:)
-    end
-
-    # Internal: a value map is a natural third *positional* guess, and Ruby's
-    # arity complaint ("given 3, expected 2") never mentions the keyword.
-    # Shared with Client#register_enum.
-    def reject_positional_map!(graphql_name, type, map)
-      return unless map
-
-      raise Error, "register_enum: the value map is a keyword — " \
-        "register_enum(#{graphql_name.inspect}, #{type}, map: {...})"
-    end
-
-    # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
-    def register_enums(mappings)
-      Codegen.register_enums(mappings)
+      Codegen.register_enum(graphql_name, type, positional_map, map:, fallback:, requires:)
     end
 
     # Include app-owned helper modules into every struct generated from a
@@ -519,8 +508,7 @@ module GraphWeaver
     #        def display_name = "#{name} the pet"
     #      end
     #
-    # Additive (repeated and client-scoped registrations stack). Global;
-    # client.extend_type scopes to one client.
+    # Additive — repeated registrations stack.
     def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
       Codegen.extend_type(graphql_name, *mixins, requires:, **kw, &block)
     end
@@ -542,14 +530,17 @@ module GraphWeaver
     #
     #      PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
     #
-    # query is a .graphql/.gql path (module name derived from the file name
+    # schema: is a graphql-ruby schema or a Client (its schema, and its
+    # transport as the module's default). query is a .graphql/.gql path (module
+    # name derived from the file name
     # and the operation — see #module_name) or a raw query string (name
     # derived from the operation name,
     # falling back to "Query" for anonymous operations — collisions are
     # impossible since each parse gets its own container). Pass name: to
     # override, client: to bake the module's default client/transport.
-    def parse(schema:, query:, name: nil, client: nil, scalars: nil, enums: nil, types: nil,
-      fragments: fragments_paths)
+    def parse(schema:, query:, name: nil, client: nil, fragments: fragments_paths)
+      client ||= schema.transport if schema.is_a?(Client)
+      schema = schema_for(schema)
       path = query if query.end_with?(".graphql", ".gql")
       if path
         query = File.read(path)
@@ -557,7 +548,7 @@ module GraphWeaver
       end
       query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 
-      Codegen.parse(schema:, query:, module_name: name, client:, scalars:, enums:, types:)
+      Codegen.parse(schema:, query:, module_name: name, client:)
     end
 
     # One-shot dynamic execution — a throwaway client, no build step:

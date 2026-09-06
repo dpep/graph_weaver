@@ -12,7 +12,6 @@ require_relative "transport/http"
 # generation:
 #
 #      github = GraphWeaver.new("https://api.github.com/graphql", auth: token, cache: true)
-#      github.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 #
 #      RepoQuery = github.parse("queries/repo.graphql")   # implicit schema + transport
 #      github.execute!("query { viewer { login } }")      # one-shot
@@ -27,9 +26,10 @@ require_relative "transport/http"
 # default, always, whatever else the Gemfile loads) or :faraday — and
 # "this transport" alongside a schema source.
 #
-# Clients are independent: each has its own transport, schema, and
-# scalar registrations, so one app can talk to several GraphQL servers —
-# even ones that disagree about what a "DateTime" is.
+# Clients are independent: each has its own transport and schema, so one
+# app can talk to several GraphQL servers. Scalar/enum/type registrations
+# are a codegen concern and live in one global registry (see
+# GraphWeaver.register_scalar) — the same registry the rake tasks bake.
 class GraphWeaver::Client
   URL = %r{\Ahttps?://}i
 
@@ -71,9 +71,6 @@ class GraphWeaver::Client
 
     @cache = cache
     @ttl = ttl
-    @scalars = {}
-    @enums = {}
-    @types = {}
   end
 
   # The transport queries run through: a url-built transport, an
@@ -94,51 +91,13 @@ class GraphWeaver::Client
     @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
   end
 
-  # Client-scoped scalar registration: consulted before the global
-  # registry when this client generates code, so two clients can map the
-  # same scalar name onto different Ruby types. A `Type.field` coordinate
-  # (e.g. "User.birthday") overrides just that field. Same signature as
-  # GraphWeaver.register_scalar.
-  def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
-    validate_registration!("scalar", graphql_name.to_s)
-    @scalars[graphql_name.to_s] =
-      GraphWeaver::Codegen::ScalarType.new(graphql_name, type, cast:, serialize:, requires:, coerce:)
-  end
-
-  # Client-scoped enum mapping: this client's generated code speaks your
-  # T::Enum for the named GraphQL enum (see Codegen::EnumType — inference
-  # by name, map: for renames, fallback: to absorb unknown wire values).
-  def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
-    GraphWeaver.reject_positional_map!(graphql_name, type, positional_map)
-    validate_registration!("enum", graphql_name.to_s)
-    @enums[graphql_name.to_s] =
-      GraphWeaver::Codegen::EnumType.new(graphql_name, type, map:, fallback:, requires:)
-  end
-
-  # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
-  def register_enums(mappings)
-    mappings.each { |graphql_name, type| register_enum(graphql_name, type) }
-  end
-
-  # Client-scoped type helpers: include app-owned modules into every
-  # struct this client generates from the named GraphQL type — pass
-  # modules, or a block to build one inline. Additive with global
-  # registrations (see GraphWeaver.extend_type).
-  def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
-    validate_registration!("type", graphql_name.to_s)
-    aliases = GraphWeaver::Codegen.take_aliases(kw)
-    entry = @types[graphql_name.to_s] ||= { mixins: [], requires: [], aliases: {} }
-    GraphWeaver::Codegen.add_type_helpers(entry, graphql_name, mixins, requires, block, aliases)
-  end
-
   # Parse a query (a .graphql path or raw string) into a typed module
-  # bound to this client's schema, scalars, enums, helpers, and transport
-  # (including a live schema class executing in-process — the module came
-  # from this client, so it runs against it; pass a client per call to
-  # override, e.g. with a fake).
+  # bound to this client's schema and transport (including a live schema
+  # class executing in-process — the module came from this client, so it
+  # runs against it; pass a client per call to override, e.g. with a
+  # fake). Same as GraphWeaver.parse(schema: self, ...).
   def parse(query, name: nil)
-    GraphWeaver.parse(schema:, query:, name:, client: transport,
-      scalars: @scalars, enums: @enums, types: @types)
+    GraphWeaver.parse(schema: self, query:, name:)
   end
 
   # Parse every .graphql query in a directory into typed modules, named
@@ -183,17 +142,6 @@ class GraphWeaver::Client
   end
 
   private
-
-  # Fail a typo'd registration at the call site when the schema is
-  # already in hand (a schema-source client, or a url client after first
-  # use) — immediate feedback in consoles. Lazily-introspecting clients
-  # get the same check at generation time instead; never trigger an
-  # introspection just to validate a name.
-  def validate_registration!(kind, name)
-    return unless @schema
-
-    GraphWeaver::Codegen.validate_registration!(@schema, kind, name)
-  end
 
   # auth: is a token — "Bearer" is assumed unless the string carries its
   # own scheme ("Basic dXNlcjpwYXNz...").

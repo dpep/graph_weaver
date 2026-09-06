@@ -6,8 +6,8 @@ ships is the checked-in codegen path in the [getting started](getting_started.md
 this page is how you get there (the `parse` below becomes a `.graphql`
 file plus `rake graph_weaver:generate`, everything else stays).
 
-Everything hangs off a client — transport, schema, and scalars for one
-server. GitHub's API, end to end:
+Everything hangs off a client — transport and schema for one server. GitHub's
+API, end to end:
 
 ```ruby
 require "graph_weaver"
@@ -21,9 +21,11 @@ require "graph_weaver"
 # url in a header, so a stale dump says where it came from.
 github = GraphWeaver.new("https://api.github.com/graphql", auth: `gh auth token`.strip, cache: true)
 
-# map GitHub's DateTime scalar onto Time (cast inferred from Time.parse) —
-# scoped to this client; GraphWeaver.register_scalar sets the global default
-github.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+# map GitHub's DateTime scalar onto Time (cast inferred from Time.parse).
+# One registry, global — the same one rake graph_weaver:generate reads, so
+# this line types your console and your checked-in code identically
+# (see docs/scalars.md).
+GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 
 RepoQuery = github.parse(<<~GRAPHQL)
   query($owner: String!, $name: String!) {
@@ -41,8 +43,15 @@ repo&.created_at        # => 2026-07-07 ... (a real Time)
 repo&.stargazer_count   # => Integer
 ```
 
-Clients are independent — build one per server, each with its own
-transport, schema, and scalar mappings. The introspection step (seconds
+Clients are independent — build one per server, each with its own transport
+and schema. When you're ready to check the generated code in, the same client
+is the schema `generate!` wants:
+
+```ruby
+GraphWeaver.generate!(schema: github)   # no dump on disk needed
+```
+
+The introspection step (seconds
 on a big API) happens lazily on first `schema`/`parse` and caches per
 `cache:`/`ttl:`; for finer control the pieces are all public
 (`GraphWeaver::SchemaLoader.introspect(transport, cache:, ttl:)`, or cache

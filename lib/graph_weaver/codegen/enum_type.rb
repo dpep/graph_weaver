@@ -72,15 +72,19 @@ class GraphWeaver::Codegen
   end
 
   class << self
-    # Map a GraphQL enum onto an app-owned T::Enum (see EnumType); the
-    # global default — client.register_enum scopes to one client.
-    def register_enum(graphql_name, type, map: nil, fallback: nil, requires: nil)
-      enum_registry[graphql_name.to_s] = EnumType.new(graphql_name, type, map:, fallback:, requires:)
-    end
+    # Map a GraphQL enum onto an app-owned T::Enum (see EnumType). The one
+    # implementation — GraphWeaver.register_enum is a delegate, so the same
+    # call reaches it whichever door you came in by.
+    #
+    # A value map is a natural third *positional* guess, and Ruby's arity
+    # complaint ("given 3, expected 2") never mentions the keyword.
+    def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
+      if positional_map
+        raise GraphWeaver::Error, "register_enum: the value map is a keyword — " \
+          "register_enum(#{graphql_name.inspect}, #{type}, map: {...})"
+      end
 
-    # Bulk, inference-only form: register_enums("Species" => PetKind, ...)
-    def register_enums(mappings)
-      mappings.each { |graphql_name, type| register_enum(graphql_name, type) }
+      enum_registry[graphql_name.to_s] = EnumType.new(graphql_name, type, map:, fallback:, requires:)
     end
 
     def enum_registry

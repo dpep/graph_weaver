@@ -9,6 +9,30 @@ a variable in the query (`query($clientId: ID!)`) before regenerating.** A
 single input-object variable whose *field* is one of those names (which you
 can't rename) simply keeps its wrapping kwarg instead of being flattened.
 
+**One registration registry, not two.** `Client#register_scalar`,
+`#register_enum`, `#register_enums` and `#extend_type` are **deleted** — a
+client-scoped registration was invisible to `GraphWeaver.generate!` (the rake
+tasks have no client), so the console typed a field richly and the checked-in
+code silently generated `T.untyped`. **Move any `client.register_*` /
+`client.extend_type` call to the `GraphWeaver.` form** (an initializer, next to
+the rest of your config). The one thing client scoping bought — two servers
+disagreeing about a scalar — is what the per-field coordinate form is for:
+`GraphWeaver.register_scalar("User.birthday", Date)`.
+
+Also gone with it: `GraphWeaver.register_enums` (bulk) — there was never a
+`register_scalars` to match it, so call `register_enum` per line — and
+`GraphWeaver.reject_positional_map!`, now folded into the one
+`Codegen.register_enum` that every door reaches (so all three doors give the
+same "the value map is a keyword" error instead of a bare arity complaint).
+`Codegen.parse` / `.generate` / `.generate_inputs` / `.generate_unions` no
+longer take `scalars:`/`enums:`/`types:`.
+
+**`generate!` now takes a Client where it takes a schema** — `GraphWeaver.generate!(schema: api)`,
+`verify_generated!`, `check_queries` and `parse` all accept one, so the object
+you built in the console is the object the build step wants and no schema dump
+is needed. `client:` still means what it meant (a constant name to bake as
+`DEFAULT_CLIENT`) and still refuses a live object.
+
 **Generated struct names now come from the query's own field names.** A struct
 is named for the response key that selects it — `stargazers` becomes
 `Stargazers`, `edges` becomes `Edges` — so its name is a function of its own

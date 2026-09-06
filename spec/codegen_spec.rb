@@ -929,15 +929,15 @@ describe GraphWeaver::Codegen do
       expect(src).to include("const :created_on, Date")  # the field override wins
     end
 
-    it "deserializes each field to its own Ruby type end to end (client-scoped)" do
+    it "deserializes each field to its own Ruby type end to end" do
       executor = Class.new do
         def execute(_query, variables:, operation_name: nil)
           { "data" => { "event" => { "startsAt" => "2020-01-02T03:04:05Z", "createdOn" => "2021-06-15" } } }
         end
       end.new
       client = GraphWeaver::Client.new(schema, transport: executor)
-      client.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
-      client.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
+      GraphWeaver.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
+      GraphWeaver.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
 
       event = client.execute!("query E { event { startsAt createdOn } }").event
       expect(event.starts_at).to be_a(Time)
@@ -945,8 +945,9 @@ describe GraphWeaver::Codegen do
     end
 
     it "validates the coordinate names a real scalar field" do
-      client = GraphWeaver::Client.new(schema)
-      expect { client.register_scalar("Event.nope", Date) }
+      GraphWeaver.register_scalar("Event.nope", Date)
+
+      expect { described_class.generate(schema:, query: "query E { event { startsAt } }") }
         .to raise_error(GraphWeaver::Error, /no scalar field/)
     end
   end

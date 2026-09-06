@@ -9,10 +9,10 @@ Ruby object (and serializes back when used as a variable). A field typed
 GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
 ```
 
-Registrations are global by default. A [client](transports.md) scopes
-them: `client.register_scalar(...)` overlays the global registry for that
-client's generation only — so two servers can disagree about what a
-`DateTime` is, and neither leaks into the other.
+There is one registry, and it is global — the same one `rake
+graph_weaver:generate` reads, so a registration made in an initializer types
+your checked-in code and your console identically. Register before generating:
+it's a codegen-time concern, baked into the emitted source.
 
 Pass a `Type.field` **coordinate** instead of a scalar name to override just
 that one field — so the same scalar can deserialize as different Ruby types
@@ -23,9 +23,10 @@ GraphWeaver.register_scalar("ISO8601DateTime", Time)   # the default, everywhere
 GraphWeaver.register_scalar("User.birthday", Date)     # this field only
 ```
 
-A field override wins over the scalar-name registration; both stack the same
-global-then-client way. (GraphQL names can't contain `.`, so the coordinate is
-unambiguous — and it's validated against the schema, so a typo'd field raises.)
+A field override wins over the scalar-name registration — which is also how two
+servers that disagree about a `DateTime` coexist in one process. (GraphQL names
+can't contain `.`, so the coordinate is unambiguous — and it's validated against
+the schema, so a typo'd field raises.)
 
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
@@ -124,8 +125,7 @@ once and the seam disappears — generated code speaks your enum
 everywhere, casting wire values in and serializing members out:
 
 ```ruby
-GraphWeaver.register_enum("Species", PetKind)                # global
-api.register_enums("Species" => PetKind, "Role" => Role)     # or per client, in bulk
+GraphWeaver.register_enum("Species", PetKind)
 
 pet.species                                   # => PetKind::Dog — compare, case, persist directly
 pet.species == other_pet.species              # same type across every query
@@ -160,9 +160,7 @@ Two safety properties do the real work:
 
 The translation tables are emitted into the generated source
 (`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) — reviewable in the diff, no
-runtime registry. And because registration can be client-scoped, two
-servers with different ideas of `"Species"` can map onto different (or
-the same) domain enums without touching each other.
+runtime registry.
 
 ## Type helpers: your logic on generated structs
 
@@ -177,7 +175,7 @@ module PetHelpers
   def display_name = adult? ? "#{name} 🦴" : "#{name} 🐶"
 end
 
-GraphWeaver.extend_type("Pet", PetHelpers)   # or api.extend_type(...)
+GraphWeaver.extend_type("Pet", PetHelpers)
 
 pet.display_name   # => "Shelby 🦴"
 pet.name           # => "Shelby" — the wire value stays honest
@@ -185,7 +183,7 @@ pet.name           # => "Shelby" — the wire value stays honest
 
 The methods live on the struct, so they see its wire fields at runtime and
 fakes/cassettes get the behavior automatically; registrations are additive
-(global plus client-scoped stack). One caveat on *static* typing, though:
+(repeated ones stack). One caveat on *static* typing, though:
 `srb tc` checks a mixin's method bodies in the module's own scope, not the
 including struct's — so a helper that reads a wire field (`name`, `birthday`)
 doesn't resolve it and fails with "method does not exist on the module." Write
@@ -201,7 +199,7 @@ For quick decoration, build the mixin inline — the block is
 `GraphWeaver::TypeHelpers` so generated files can reference it:
 
 ```ruby
-api.extend_type("Pet") do
+GraphWeaver.extend_type("Pet") do
   def display_name = "#{name} 🐶"
 end
 ```
@@ -243,7 +241,7 @@ nullable hop makes the accessor nilable and inserts `&.`; the leaf can be a
 scalar, enum, or nested struct. It's validated against each query at generation —
 an unselected or misspelled segment (`did you mean 'tag'?`), a selector on a
 non-list, or a name that collides with a real field all fail with a pointed
-error. Registrations stack and are client-scopable, like the mixin forms.
+error. Registrations stack, like the mixin forms.
 
 A segment can also be `first` or `last` to pick one element out of a list hop —
 always nilable, since the list may be empty. This is what turns an

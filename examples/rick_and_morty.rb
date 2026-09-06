@@ -12,9 +12,9 @@ require_relative "../lib/graph_weaver"
 
 api = GraphWeaver.new("https://rickandmortyapi.com/graphql")
 
-# decorate every Character struct this client generates — derived values
+# decorate every Character struct generated from this type — derived values
 # live as methods, the wire data stays honest
-api.extend_type("Character") do
+GraphWeaver.extend_type("Character") do
   def emoji
     { "Alive" => "🟢", "Dead" => "💀" }.fetch(status, "❓")
   end

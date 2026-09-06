@@ -48,9 +48,7 @@ class GraphWeaver::Codegen
   # defaults to the operation's
   # name; default_module_name: is parse's container-scoped fallback (file
   # generation stays strict — a checked-in file deserves a deliberate
-  # name). scalars:/enums:/types: are client-scoped overlays consulted
-  # before the global registries (ScalarType, EnumType, and arrays of
-  # mixin modules, each keyed by GraphQL name). inputs_namespace: is the
+  # name). inputs_namespace: is the
   # shared-inputs workflow (see GraphWeaver.generate!): variable types
   # live once in that module and the query module aliases what it uses.
   # unions_namespace:/hoistable_unions: are the parallel shared-unions
@@ -59,16 +57,12 @@ class GraphWeaver::Codegen
   # file the query was read from, named alongside line and column in
   # validation errors.
   def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
-    scalars: nil, enums: nil, types: nil, inputs_namespace: nil, unions_namespace: nil,
-    hoistable_unions: nil, path: nil)
+    inputs_namespace: nil, unions_namespace: nil, hoistable_unions: nil, path: nil)
     @schema = schema
     @query = query.strip
     @path = path
     @module_name = module_name
     @default_module_name = default_module_name
-    @scalars = scalars || {}
-    @enums = enums || {}
-    @types = types || {}
     @inputs_namespace = inputs_namespace
     # the shared-unions workflow: unions_namespace names the module hoisted
     # unions live in; hoistable_unions is the set of shared fragment names this
@@ -97,9 +91,8 @@ class GraphWeaver::Codegen
   end
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil,
-    path: nil)
-    new(schema:, query:, module_name:, client:, scalars:, enums:, types:, path:).generate
+  def self.generate(schema:, query:, module_name: nil, client: nil, path: nil)
+    new(schema:, query:, module_name:, client:, path:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -107,11 +100,10 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
-  def self.parse(schema:, query:, module_name: nil, client: nil, scalars: nil, enums: nil, types: nil)
+  def self.parse(schema:, query:, module_name: nil, client: nil)
     client_const = client_const(client)
 
-    codegen = new(schema:, query:, module_name:, client: client_const, default_module_name: "Query",
-      scalars:, enums:, types:)
+    codegen = new(schema:, query:, module_name:, client: client_const, default_module_name: "Query")
     source = codegen.generate
 
     container = Module.new
@@ -141,9 +133,8 @@ class GraphWeaver::Codegen
   # a manifest (inputs.rb) plus one file per type under inputs/, so a
   # schema migration diffs only the types it touched. Returns
   # { relative_filename => source }.
-  def self.generate_inputs(schema:, module_name:, input_types: [], enum_types: [],
-    scalars: nil, enums: nil, types: nil)
-    codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
+  def self.generate_inputs(schema:, module_name:, input_types: [], enum_types: [])
+    codegen = new(schema:, query: "", module_name:)
     codegen.generate_inputs(input_types, enum_types)
   end
 
@@ -168,9 +159,8 @@ class GraphWeaver::Codegen
   # across queries resolves to one Ruby type family. `fragments` is the loaded
   # shared-fragment table (nested spreads resolve through it); `names` the
   # fragments to build. Returns { "unions.rb" => source }.
-  def self.generate_unions(schema:, module_name:, fragments:, names:,
-    scalars: nil, enums: nil, types: nil)
-    codegen = new(schema:, query: "", module_name:, scalars:, enums:, types:)
+  def self.generate_unions(schema:, module_name:, fragments:, names:)
+    codegen = new(schema:, query: "", module_name:)
     codegen.generate_unions(fragments, names)
   end
 
@@ -442,9 +432,7 @@ class GraphWeaver::Codegen
 
   # A registration names a type in a specific schema — a typo'd name would
   # otherwise be a silent no-op, the most confusing failure mode available.
-  # Called eagerly by Client#register_* when the schema is already loaded, and
-  # again at generation for every registration in play, client-scoped or global
-  # (file generation has no client overlay, so globals are the only path there).
+  # Called at generation for every registration in play.
   def self.validate_registration!(schema, kind, name)
     # register_scalar("Type.field", ...) overrides one field's scalar — validate
     # the field exists and is a scalar, not that a type named "Type.field" exists.
@@ -569,19 +557,16 @@ class GraphWeaver::Codegen
     { message: prefix.empty? ? message : "#{prefix} #{message}", line:, column: }
   end
 
-  # Every registration this generation could consult, client-scoped overlay and
-  # global registry alike. The built-in scalars are pre-registered entries in
-  # the same global table rather than user intent, so they're exempt — a schema
-  # with no Date scalar is not a mistake.
+  # Every registration this generation could consult. The built-in scalars are
+  # pre-registered entries in the same table rather than user intent, so
+  # they're exempt — a schema with no Date scalar is not a mistake.
   def validate_registrations!
     {
-      "enum" => [@enums, GraphWeaver::Codegen.enum_registry],
-      "scalar" => [@scalars, GraphWeaver::Codegen.scalar_registry.except(*BUILTIN_SCALARS)],
-      "type" => [@types, GraphWeaver::Codegen.type_registry],
-    }.each do |kind, registries|
-      registries.each do |registry|
-        registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
-      end
+      "enum" => GraphWeaver::Codegen.enum_registry,
+      "scalar" => GraphWeaver::Codegen.scalar_registry.except(*BUILTIN_SCALARS),
+      "type" => GraphWeaver::Codegen.type_registry,
+    }.each do |kind, registry|
+      registry.each_key { |name| self.class.validate_registration!(@schema, kind, name) }
     end
   end
 
@@ -948,19 +933,19 @@ class GraphWeaver::Codegen
     values
   end
 
-  # Registered helper-module names for a GraphQL type (additive: global
-  # registrations plus this client's), collecting their requires.
+  # Registered helper-module names for a GraphQL type, collecting their requires.
   def type_mixins(graphql_name)
-    entries = [GraphWeaver::Codegen.type_registry[graphql_name], @types[graphql_name]].compact
-    entries.each { |entry| @requires.concat(entry[:requires]) }
-    entries.flat_map { |entry| entry[:mixins].map(&:name) }
+    entry = GraphWeaver::Codegen.type_registry[graphql_name]
+    return [] unless entry
+
+    @requires.concat(entry[:requires])
+    entry[:mixins].map(&:name)
   end
 
   # The MappedEnum node for a schema enum with a registered app-enum
-  # mapping (client overlay first, then the global registry); nil when
-  # unregistered, falling back to a generated T::Enum.
+  # mapping; nil when unregistered, falling back to a generated T::Enum.
   def mapped_enum_node(core)
-    enum_type = @enums[core.graphql_name] || GraphWeaver::Codegen.enum_registry[core.graphql_name]
+    enum_type = GraphWeaver::Codegen.enum_registry[core.graphql_name]
     return unless enum_type
 
     @requires.concat(enum_type.requires)
@@ -970,12 +955,10 @@ class GraphWeaver::Codegen
   # A Scalar node, recording any requires its registered type needs so the
   # generated file can require them (collected across the whole query).
   # Resolution, most specific first: a per-field override (`Type.field`), then
-  # the scalar-name registration — each checked client-scoped, then global.
+  # the scalar-name registration.
   def scalar_node(name, coordinate = nil)
-    scalar =
-      (coordinate && (@scalars[coordinate] || GraphWeaver::Codegen.scalar_registry[coordinate])) ||
-      @scalars[name.to_s] ||
-      GraphWeaver::Codegen.scalar_registry[name.to_s]
+    registry = GraphWeaver::Codegen.scalar_registry
+    scalar = (coordinate && registry[coordinate]) || registry[name.to_s]
     if scalar.nil?
       @untyped_scalars << name.to_s
       scalar = GraphWeaver::Codegen.scalar(name)
