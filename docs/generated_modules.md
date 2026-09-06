@@ -157,7 +157,7 @@ module PersonQuery
     const :person, T.nilable(Person)
   end
 
-  def self.client ...            # default client (see below)
+  extend GraphWeaver::QueryModule # client / client= (see below)
   def self.execute(client = nil, id:)   # -> GraphWeaver::Response[Result]
   def self.execute!(client = nil, id:)  # -> Result, or raises QueryError
 
@@ -422,6 +422,12 @@ canonical list lives in [transports](transports.md#client-resolution).
 Generate *without* a baked constant when you want modules to follow the
 app default (`GraphWeaver.client =` in an initializer) — that's also what
 lets [testing's auto_fake](testing.md) swap in a fake per example.
+
+`client`/`client=` themselves live in the gem (`GraphWeaver::QueryModule`,
+extended by every generated module) — they carry no per-query types, so
+there is nothing to generate. A baked constant is emitted as
+`DEFAULT_CLIENT`, resolved on first use so a module can load before the
+initializer that builds its client.
 
 ## Dynamic mode
 

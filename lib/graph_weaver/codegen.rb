@@ -16,8 +16,9 @@ require "sorbet-runtime"
 # still open.
 #
 # Split across: codegen/scalar_type.rb (the scalar registry),
-# codegen/nodes.rb (the typed IR), codegen/emit.rb (source emission);
-# this file holds the public API and the query walk.
+# codegen/nodes.rb (the typed IR), codegen/aliases.rb (registered alias
+# paths), codegen/emit.rb (source emission); this file holds the public
+# API and the query walk.
 require_relative "hints"
 require_relative "input_struct"
 require_relative "representation"
@@ -26,11 +27,13 @@ require_relative "selection"
 require_relative "codegen/enum_type"
 require_relative "codegen/scalar_type"
 require_relative "codegen/nodes"
+require_relative "codegen/aliases"
 require_relative "codegen/emit"
 
 class GraphWeaver::Codegen
   include GraphWeaver::Inflect
   include GraphWeaver::Selection
+  include Aliases
   include Emit
 
   attr_reader :module_name
@@ -237,6 +240,7 @@ class GraphWeaver::Codegen
 
     validate_registrations!
 
+    # per-run walk state, cleared so one Codegen can generate more than once
     @variable_enums = {}
     @variable_inputs = {}
     @mapped_enums = {}
@@ -260,10 +264,21 @@ class GraphWeaver::Codegen
       raise ArgumentError, "module_name: must be a constant name, got #{@module_name.inspect}"
     end
 
+    variables = build_variables(operation)
+    root = object_node(root_type, operation.selections, "Result")
+
+    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
+      .tap { report_untyped_scalars }
+  end
+
+  private
+
+  # The operation's variables as execute's kwarg surface: one VarDef each,
+  # typed from the AST. A variable is optional when nullable or defaulted —
+  # optional kwargs default to nil and are omitted from the wire.
+  def build_variables(operation)
     variables = operation.variables.map do |var|
       node = ast_type_ref(var.type)
-      # a variable is optional when nullable or defaulted; optional kwargs
-      # default to nil and are omitted from the wire
       required = node.non_null? && var.default_value.nil?
       kwarg = underscore(var.name)
       # kwargs are declared and forwarded bare in generated source
@@ -284,13 +299,8 @@ class GraphWeaver::Codegen
         "variables #{wire} both map to the kwarg '#{collision.first}:' — rename one"
     end
 
-    root = object_node(root_type, operation.selections, "Result")
-
-    emit_module(root, variables, representation_nodes(operation, root_type), operation.name)
-      .tap { report_untyped_scalars }
+    variables
   end
-
-  private
 
   # Builders for the entity types this query's representation-taking fields
   # can return. The hook is the schema, not the field name: the subgraph spec
@@ -698,149 +708,6 @@ class GraphWeaver::Codegen
     end
 
     props[prop] = key
-  end
-
-  # Resolve each registered alias (extend_type alias:) for this struct's type
-  # against its actual selection — path -> a typed delegator emitted into the
-  # struct body. Validated here, per query, so an unselected or untraversable
-  # path fails at generation with a pointed message.
-  def resolve_aliases(node)
-    type_aliases(node.graphql_type).filter_map do |name, spec|
-      # a bad accessor name (reserved, or colliding with a real field) is a
-      # registration mistake — it fails for every query, so it always raises,
-      # even for optional aliases (which otherwise mask it as "doesn't fit").
-      check_alias_name!(node, name)
-      begin
-        resolve_alias(node, name, spec[:segments])
-      rescue GraphWeaver::Error => e
-        # a path that doesn't fit THIS query's selection: optional simply
-        # omits the accessor; strict breaks generation for every query on the
-        # type, so name the one that failed and the way out
-        next nil if spec[:optional]
-
-        raise e.class, "#{[@module_name, e.message].compact.join(": ")} " \
-          "— pass optional: true to skip selections that don't fit"
-      end
-    end
-  end
-
-  def check_alias_name!(node, name)
-    if node.fields.any? { |f| f.prop == name } || ALIAS_RESERVED.include?(name)
-      raise GraphWeaver::Error,
-        "alias #{name.inspect} on #{node.graphql_type} collides with an existing field or method"
-    end
-  end
-
-  # Registered aliases for a GraphQL type: global registry plus this client's
-  # overlay (client-scoped wins on a name clash).
-  def type_aliases(graphql_name)
-    global = GraphWeaver::Codegen.type_registry[graphql_name]&.dig(:aliases) || {}
-    (global.merge(@types[graphql_name]&.dig(:aliases) || {}))
-  end
-
-  ALIAS_RESERVED = (%w[from_h serialize to_h].to_set + RUBY_KEYWORDS).freeze
-  # list selectors — pick one element out of a list-typed hop, always nilable
-  # (the list may be empty). Everything else is a field prop.
-  LIST_SELECTORS = %w[first last].freeze
-
-  # Walk a dotted path through this struct's selected shape, building the
-  # delegator expression (`meta&.tag`, `_entities.first&.name`) and its return
-  # type. A segment is a field prop, or `first`/`last` to pick a list element.
-  # Everything is checked against the node tree: a field on a non-object, a
-  # selector on a non-list, or an unselected segment raises. Any nilable hop
-  # (a nullable field, or a list element) makes the accessor nilable.
-  def resolve_alias(node, name, segments)
-    cur = T.let(node, T.untyped)           # the node the path has reached
-    cur_nilable = T.let(false, T::Boolean) # is the expression so far nilable
-    nilable = T.let(false, T::Boolean)     # is the accessor overall nilable
-    containers = T.let([], T::Array[String]) # nested-struct class names on the way to the leaf
-    expr = +""
-
-    segments.each do |seg|
-      connector = expr.empty? ? "" : (cur_nilable ? "&." : ".")
-
-      # `first`/`last` select an element only when the current hop is actually a
-      # list; otherwise they're an ordinary field (a schema field named `first`)
-      if LIST_SELECTORS.include?(seg) && list_of(cur)
-        expr << connector << seg
-        cur = list_of(cur).of
-        cur_nilable = true # first/last is nil on an empty list
-        nilable = true
-      else
-        obj = object_of(cur)
-        unless obj
-          hint = if list_of(cur)
-            " — use .first or .last to pick an element"
-          elsif LIST_SELECTORS.include?(seg)
-            " — .#{seg} needs a list"
-          else
-            ""
-          end
-          raise GraphWeaver::Error,
-            "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' can't be read here (not an object)#{hint}"
-        end
-        # the object a field is read from is the lexical container of its result
-        # (nested structs emit inside their parent); the aliased struct itself is
-        # the delegator's own scope, so it contributes no prefix
-        containers << obj.class_name unless obj.equal?(node)
-        field = obj.fields.find { |f| f.prop == seg }
-        unless field
-          props = obj.fields.map(&:prop)
-          suggestion = GraphWeaver.did_you_mean(props, seg)
-          hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
-          raise GraphWeaver::Error,
-            "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a selected field#{hint}"
-        end
-        expr << connector << seg
-        cur = field.node
-        cur_nilable = !field.node.non_null?
-        nilable ||= cur_nilable
-      end
-    end
-
-    leaf = qualified_alias_type(cur, containers)
-    type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
-    ObjectNode::Alias.new(name, expr, type)
-  end
-
-  # The leaf's Sorbet type as referenced from the aliased struct. Generated
-  # nested constants (structs, enums, unions) must carry the container path,
-  # since the delegator's `sig` is emitted in an outer struct where a bare
-  # `Sub` wouldn't resolve; scalars, mapped enums, and hoisted union refs are
-  # already top-level. `containers` is the class-name chain to the leaf.
-  def qualified_alias_type(node, containers)
-    node = node.of if node.is_a?(NonNull)
-    prefix = containers.empty? ? "" : "#{containers.join("::")}::"
-
-    case node
-    when List
-      element = node.of.is_a?(NonNull) ? qualified_alias_type(node.of, containers) : begin
-        inner = qualified_alias_type(node.of, containers)
-        inner == "T.untyped" ? inner : "T.nilable(#{inner})"
-      end
-      "T::Array[#{element}]"
-    when ObjectNode, NarrowedNode then "#{prefix}#{node.class_name}"
-    # a reused variable enum is module-level, so it takes no container prefix
-    when EnumNode then "#{module_level?(node) ? "" : prefix}#{node.class_name}"
-    when UnionNode then "#{prefix}#{node.bare_type}"
-    else node.bare_type # Scalar, MappedEnum, UnionRefNode — already top-level
-    end
-  end
-
-  # the List a node wraps (through NON_NULL), or nil
-  def list_of(node)
-    node = T.let(node, T.untyped)
-    node = node.of while node.is_a?(NonNull)
-    node if node.is_a?(List)
-  end
-
-  # the ObjectNode a node resolves to for field access (through NON_NULL and a
-  # narrowed abstract member), or nil — unions/scalars/lists can't be read into
-  def object_of(node)
-    node = T.let(node, T.untyped)
-    node = node.of while node.is_a?(NonNull)
-    node = node.nested if node.is_a?(NarrowedNode)
-    node if node.is_a?(ObjectNode)
   end
 
   # The concrete type conditions a selection mentions, minus conditions naming

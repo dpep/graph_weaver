@@ -454,20 +454,14 @@ class GraphWeaver::Codegen
     end
 
     def emit_execute(out, variables, flatten: nil)
-      out << "  @client = T.let(nil, T.untyped)"
-      out << ""
-      out << "  class << self"
-      out << "    extend T::Sig" << "" if GraphWeaver.extend_t_sig?
-      out << "    sig { params(client: T.untyped).void }"
-      out << "    attr_writer :client"
-      out << ""
-      out << "    # default client (a GraphWeaver::Client or any transport) for"
-      out << "    # execute: per-module override, else the app default"
-      out << "    sig { returns(T.untyped) }"
-      out << "    def client"
-      out << "      @client || #{@client_const || "GraphWeaver.client!"}"
-      out << "    end"
-      out << "  end"
+      # client/client= carry no per-query types, so they live in the gem
+      out << "  # client / client= — see GraphWeaver::QueryModule"
+      out << "  extend GraphWeaver::QueryModule"
+      if @client_const
+        out << ""
+        out << "  # the baked default client, resolved on first use"
+        out << "  DEFAULT_CLIENT = T.let(-> { #{@client_const} }, T.proc.returns(T.untyped))"
+      end
       out << ""
 
       # the kwarg surface: the input's fields when flattened, else one

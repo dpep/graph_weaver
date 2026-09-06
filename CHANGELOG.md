@@ -393,6 +393,20 @@ nested constants like `AdoptQuery::AdoptionInput`. Regeneration prunes the old
 Changing a file's `query` to `mutation` from here on renames its constant the
 same way, which CI now catches rather than letting it drift.
 
+**Generated modules get their client plumbing from
+`GraphWeaver::QueryModule`.** `client`/`client=` carry no per-query type
+information, so every generated file repeated the same fifteen untyped lines;
+they now live in the gem, beside the input-struct runtime, and a module says
+`extend GraphWeaver::QueryModule` instead. `execute`, `execute!`,
+`from_response` and `from_response!` stay generated — their sigs are your
+query's types. A baked `client:` constant is emitted as `DEFAULT_CLIENT`,
+still resolved on first use so a module can load before the initializer that
+builds its client, and resolution is unchanged: per call → per module → baked
+constant → `GraphWeaver.client`.
+
+**What you must do:** regenerate (`rake graph_weaver:generate`). The files
+change; nothing about how you call them does.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
