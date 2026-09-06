@@ -186,6 +186,10 @@ New:
 - New [editor support](docs/editors.md) doc: the `graphql.config.yml` that gives
   VS Code and RubyMine validation, autocomplete and hover docs in your
   `.graphql` files — no JS project, no gem code, five lines of YAML.
+- **Byte-identical generation is now a stated guarantee**, not just a property:
+  the same schema and queries produce the same files on any machine, in any
+  order (`docs/generated_modules.md`). It was already true and spec-enforced;
+  it was documented nowhere.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
