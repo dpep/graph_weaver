@@ -22,6 +22,12 @@ Codegen bug fixes from the library review (all with regression coverage):
   schema grows after you generate** — deserializes into `Other` instead of
   raising `unexpected __typename`, so adding a union member upstream stays the
   non-breaking change GraphQL says it is.
+- `@skip`/`@include` on an inline fragment or a named spread now makes the
+  fields under it nilable, as it always did for a directly-marked field —
+  previously they kept non-null typing and a `data.fetch`, so a skipped block
+  raised `key not found`. The narrowing guard sees the fragment's own directive
+  too. Conversely, a field selected both conditionally and unconditionally is no
+  longer over-nilable: one unguaranteed selection doesn't unmake the guarantee.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

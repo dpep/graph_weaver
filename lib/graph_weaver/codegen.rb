@@ -398,7 +398,8 @@ class GraphWeaver::Codegen
     # one Ruby type, so consumers get one exhaustive `case ... T.absurd`.
     union_cache = {}
 
-    gather(type, selections).each do |key, field_nodes|
+    gather_conditional(type, selections).each do |key, occurrences|
+      field_nodes = occurrences.map(&:first)
       field_name = field_nodes.first.name
       prop = underscore(key)
 
@@ -474,9 +475,11 @@ class GraphWeaver::Codegen
         end
       end
 
-      # a field under @skip/@include may be absent from the response no
-      # matter what the schema says — its type must admit nil
-      if field_nodes.any? { |n| conditional?(n) }
+      # A field under @skip/@include — on the field itself, or on any fragment
+      # it was reached through — may be absent from the response no matter what
+      # the schema says, so its type must admit nil. One unconditional
+      # selection of the same key still guarantees it, though.
+      if occurrences.all? { |node, conditional| conditional || conditional?(node) }
         child = child.of if child.is_a?(NonNull)
       end
 
@@ -663,8 +666,8 @@ class GraphWeaver::Codegen
   # does the flattened selection (as seen by member) include at least one
   # field guaranteed to be present in a matching response?
   def unconditional_field?(member, selections)
-    each_field(member, selections) do |_key, node|
-      return true if !conditional?(node)
+    each_field(member, selections) do |_key, node, conditional|
+      return true if !conditional && !conditional?(node)
     end
     false
   end
@@ -674,8 +677,10 @@ class GraphWeaver::Codegen
   # (which files it under another key) or an @skip/@include (which may drop
   # it) means there is no tag to dispatch on.
   def dispatchable_typename?(type, selections)
-    nodes = gather(type, selections)["__typename"]
-    !!nodes&.any? { |node| node.name == "__typename" && !conditional?(node) }
+    occurrences = gather_conditional(type, selections)["__typename"]
+    !!occurrences&.any? do |node, conditional|
+      node.name == "__typename" && !conditional && !conditional?(node)
+    end
   end
 
   # rebuild LIST wrappers but drop NON_NULLs — a narrowed member is nil

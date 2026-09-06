@@ -1,4 +1,6 @@
 
+require "graph_weaver/testing" # FakeClient walks the same Selection module codegen does
+
 require_relative "generated/add_pet_query"
 require_relative "generated/adopt_query"
 require_relative "generated/find_pets_query"
@@ -784,6 +786,63 @@ describe GraphWeaver::Codegen do
       client = GraphWeaver::Client.new(schema)
       expect { client.register_scalar("Event.nope", Date) }
         .to raise_error(GraphWeaver::Error, /no scalar field/)
+    end
+  end
+
+  describe "@skip / @include on a fragment" do
+    it "nilables the fields reached through a conditional inline fragment" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: 'query Q($s: Boolean!) { people { id ... on Person @skip(if: $s) { name } } }',
+      )
+
+      # name is String! in the schema, but the whole block may be skipped
+      person = mod.from_response!("data" => { "people" => [{ "id" => "1" }] }).people.first
+      expect(person&.name).to be_nil
+    end
+
+    it "nilables the fields reached through a conditional named spread" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: <<~GRAPHQL,
+          query Q($s: Boolean!) { people { id ...Names @include(if: $s) } }
+          fragment Names on Person { name }
+        GRAPHQL
+      )
+
+      person = mod.from_response!("data" => { "people" => [{ "id" => "1" }] }).people.first
+      expect(person&.name).to be_nil
+    end
+
+    it "keeps a field non-null when some other selection of it is unconditional" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: 'query Q($s: Boolean!) { people { name ... on Person @skip(if: $s) { name } } }',
+      )
+
+      expect { mod.from_response!("data" => { "people" => [{}] }) }.to raise_error(GraphWeaver::TypeError)
+      expect(mod.from_response!("data" => { "people" => [{ "name" => "D" }] }).people.first&.name).to eq "D"
+    end
+
+    it "refuses to narrow when the fragment itself is conditional" do
+      # the guard has to see the directive on the fragment, not just on fields
+      expect {
+        GraphWeaver.parse(
+          schema: Demo::Schema,
+          query: 'query Q($s: Boolean!) { search(term: "el") { ... on Pet @skip(if: $s) { name } } }',
+        )
+      }.to raise_error(GraphWeaver::Error, /at least one field not under @skip/)
+    end
+
+    it "keeps FakeClient's fabricated data castable through a conditional fragment" do
+      # FakeClient walks the same Selection module — it must keep fabricating
+      # the fields codegen still types, conditional or not
+      query = 'query Q($s: Boolean!) { people { id ... on Person @skip(if: $s) { name } } }'
+      mod = GraphWeaver.parse(schema: Demo::Schema, query:)
+      fake = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1)
+
+      person = mod.from_response!(fake.execute(query, variables: { "s" => false })).people.first
+      expect(person&.name).to be_a(String)
     end
   end
 
