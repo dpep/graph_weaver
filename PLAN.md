@@ -62,12 +62,14 @@ to_h, hash coercion at the execute boundary.
 ~~Release~~ 0.1.0 cut 2026-07-11 (breaking: execute returns the
 Response envelope; execute! for raise-or-result).
 
-1. Stable class naming design — names come from GraphQL type names per
-   selection site; must not shift when unrelated selections are added
-   (generated code is app-code API). Current: one-level field-name
-   disambiguation, then raise. Shipped in 0.1.0 as-is — a naming change
-   is fair game pre-1.0 but should land early.
-2. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
+~~Stable class naming~~ DONE: types are named for the response key that
+selects them (`stargazers` -> Stargazers), so a name is a function of its
+own position — adding, removing, or reordering an unrelated selection can't
+rename anything, and the type-name collisions that used to raise are gone.
+Union members keep their type-condition names. spec/naming_spec.rb pins the
+guarantee; breaking, so the changelog says to regenerate.
+
+1. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
    bin/generate is spec-fixture tooling, not shipped.
 3. Subscriptions (unsupported; raise). Recursive input types (raise).
 6. Parse/execute memoization: repeated GraphWeaver.parse/execute of the

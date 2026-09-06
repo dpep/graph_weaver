@@ -347,7 +347,7 @@ describe "error handling" do
       }
 
       expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::TypeError) do |e|
-        expect(e.struct.name).to eq "PersonQuery::Result::Person::Pet"
+        expect(e.struct.name).to eq "PersonQuery::Result::Person::Pets"
       end
     end
   end

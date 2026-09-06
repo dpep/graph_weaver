@@ -1,4 +1,30 @@
 ## Unreleased
+**Generated struct names now come from the query's own field names.** A struct
+is named for the response key that selects it — `stargazers` becomes
+`Stargazers`, `edges` becomes `Edges` — so its name is a function of its own
+position in the query and nothing else. Names came from GraphQL *type* names
+before, disambiguated by field name only on collision, which meant **a second
+selection of the same type renamed the first**: a silent break in checked-in
+code your app references. Deep queries could also collide outright and refuse
+to generate.
+
+**Regenerate, and expect renames.** Nearly every nested struct changes name
+(`PersonQuery::Result::Person::Pet` becomes `...::Person::Pets`), and app code
+naming one won't typecheck until it's updated — `srb tc` finds them all. The
+payoff: adding, removing, or reordering an unrelated selection can never move
+a name again.
+
+- The key is used verbatim, with no pluralization heuristic — a list field
+  `pets` generates `Pets`. To pick a different name, alias the field in the
+  query: `pet: pets { name }` generates `Pet` (and a `.pet` accessor).
+- Union and interface members keep their type-condition names (`... on Book`
+  gives `Book`), inside a container named for the field; a union hoisted from
+  a shared fragment is still named for the fragment.
+- Two ties that walk order used to settle now resolve on their own: fields
+  sharing one collapsed union type take the first of their keys
+  alphabetically, and a name that would shadow the struct it nests in
+  (`pet { pet { ... } }`) takes a numeric suffix (`Pet2`).
+
 **Requests now send `operationName`** — every graph_weaver request used to be
 anonymous in Apollo Studio, Hasura, and any APM that keys traces, rate limits
 and slow-query reports on it. Generated modules emit their operation name as

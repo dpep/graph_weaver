@@ -36,7 +36,7 @@ module SearchQuery
     extend T::Sig
     include GraphWeaver::Hints
 
-    module SearchResult
+    module Search
       extend T::Sig
 
       class Person < T::Struct
@@ -122,12 +122,12 @@ module SearchQuery
       end
     end
 
-    const :search, T::Array[SearchResult::Type]
+    const :search, T::Array[Search::Type]
 
     sig { params(data: T::Hash[String, T.untyped]).returns(Result) }
     def self.from_h(data)
       new(
-        search: data.fetch("search").map { |v1| SearchResult.from_h(v1) },
+        search: data.fetch("search").map { |v1| Search.from_h(v1) },
       )
     rescue GraphWeaver::Error
       raise # already branded by a nested struct — keep the innermost context

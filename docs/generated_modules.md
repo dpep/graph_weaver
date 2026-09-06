@@ -378,8 +378,39 @@ Module names derive from the operation name (`query GetPerson` → `GetPerson`);
 `parse` defaults to `Query` (its constants are container-scoped, so collisions
 are impossible).
 
-Nested struct names come from GraphQL type names, disambiguated one level by
-field name on collision.
+**Every nested type is named for the response key that selects it**, camelized
+(`stargazers` → `Stargazers`, `nameWithOwner` → `NameWithOwner`, `_entities` →
+`Entities`). Structs nest the way the selection does, so the constant path
+reads like the query:
+
+```graphql
+query { repository { stargazers { edges { node { login } } } } }
+```
+
+```ruby
+StargazersQuery::Result::Repository::Stargazers::Edges::Node
+```
+
+The name is a function of that field's own position and nothing else, which is
+the property that matters when generated code is checked in and referenced from
+app code: **adding, removing, or reordering an unrelated selection can never
+rename a struct you already use.** (Names came from GraphQL type names in
+earlier releases, so a second selection of the same type renamed the first.)
+
+The key is used verbatim — no pluralization heuristics, so a list field `pets`
+generates `Pets`, not `Pet`. To choose the name yourself, alias the field in the
+query: `pet: pets { name }` generates `Pet` (and a `.pet` accessor).
+
+Two kinds of name don't come from a key, both equally position-determined:
+
+- **Union and interface members** are named for the type condition that
+  produces them (`... on Book` → `Book`) inside the container named for the
+  field, plus the catch-all `Other`. A union hoisted out of a shared fragment
+  is named for the fragment.
+- Where several fields share one collapsed union type (identical selections),
+  it takes the first of their keys alphabetically; and a name that would shadow
+  the struct it nests in (`pet { pet { ... } }`) takes a numeric suffix
+  (`Pet2`), since a bare `Pet` inside `class Pet` would resolve to the child.
 
 ## Clients
 

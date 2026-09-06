@@ -78,7 +78,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
   it "picks a list element with .first (nilable) and can read into it" do
     GraphWeaver.extend_type("Widget", alias: { top_bit: "bits.first", top_code: "bits.first.code" })
     src = generate("query W { widget { bits { code } } }")
-    expect(src).to include("sig { returns(T.nilable(Bit)) }", "def top_bit = bits.first")
+    expect(src).to include("sig { returns(T.nilable(Bits)) }", "def top_bit = bits.first")
     expect(src).to include("sig { returns(T.nilable(String)) }", "def top_code = bits.first&.code")
   end
 
@@ -162,7 +162,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
         query: "query($r: [_Any!]!) { _entities(representations: $r) { ... on Widget { id name } } }")
 
       got = mod.from_response!("data" => { "_entities" => [{ "id" => "1", "name" => "Shelby" }] })
-      expect(got.entity).to be_a(mod::Result::Widget) # concrete member, not the union
+      expect(got.entity).to be_a(mod::Result::Entities) # concrete member, not the union
       expect(got.entity&.name).to eq "Shelby"
       expect(got.entity_name).to eq "Shelby"          # projected straight through
     end

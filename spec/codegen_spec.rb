@@ -267,8 +267,8 @@ describe GraphWeaver::Codegen do
 
     it "dispatches each result to its member struct via __typename" do
       expect(results.map(&:class)).to eq [
-        SearchQuery::Result::SearchResult::Person,
-        SearchQuery::Result::SearchResult::Pet,
+        SearchQuery::Result::Search::Person,
+        SearchQuery::Result::Search::Pet,
       ]
       expect(results.map(&:__typename)).to eq %w[Person Pet]
     end
@@ -279,11 +279,11 @@ describe GraphWeaver::Codegen do
       expect(person.name).to eq "Daniel" # selected via `... on Named`
       expect(person.birthday).to eq Date.new(1990, 6, 15)
       expect(pet.name).to eq "Shelby"
-      expect(pet.species).to eq SearchQuery::Result::SearchResult::Pet::Species::Dog
+      expect(pet.species).to eq SearchQuery::Result::Search::Pet::Species::Dog
     end
 
     it "deserializes enums into generated T::Enums" do
-      species = SearchQuery::Result::SearchResult::Pet::Species
+      species = SearchQuery::Result::Search::Pet::Species
 
       expect(species.values).to eq [species::Cat, species::Dog]
       expect(species::Dog.serialize).to eq "DOG"
@@ -362,7 +362,7 @@ describe GraphWeaver::Codegen do
         { "__typename" => "Pet" },
       ] }).search
 
-      expect(results&.map(&:class)).to eq [mod::Result::Person, NilClass]
+      expect(results&.map(&:class)).to eq [mod::Result::Search, NilClass]
       expect(results&.first&.email).to eq "d@e.f"
     end
 
@@ -374,7 +374,7 @@ describe GraphWeaver::Codegen do
 
       expect(mod.from_response!("data" => { "named" => { "__typename" => "Person" } }).named).to be_nil
       expect(mod.from_response!("data" => { "named" => { "__typename" => "Pet", "species" => "DOG" } }).named)
-        .to be_a(mod::Result::Pet)
+        .to be_a(mod::Result::Named)
     end
   end
 
@@ -1032,24 +1032,26 @@ describe GraphWeaver::Codegen do
     end
     let(:sel) { "{ __typename ... on Email { address } ... on Phone { number } }" }
 
+    # the shared type takes the first of the sharing keys alphabetically —
+    # see spec/naming_spec.rb for why walk order can't decide it
     it "collapses the same union selected identically into one type family" do
       src = source(sdl, "query D { user { primary #{sel} secondary #{sel} } }")
-      expect(src.scan(/module \w*Contact\b/).uniq).to eq(["module Contact"])
-      expect(src).to include("const :primary, T.nilable(Contact::Type)")
-      expect(src).to include("const :secondary, Contact::Type") # shared type, wrapper differs
+      expect(src.scan(/module (?:Primary|Secondary)\b/).uniq).to eq(["module Primary"])
+      expect(src).to include("const :primary, T.nilable(Primary::Type)")
+      expect(src).to include("const :secondary, Primary::Type") # shared type, wrapper differs
     end
 
     it "keeps distinct types when the selections differ" do
       differ = "query D { user { primary #{sel} " \
                "secondary { __typename ... on Email { address label } ... on Phone { number } } } }"
-      expect(source(sdl, differ).scan(/module \w*Contact\b/).uniq.size).to eq(2)
+      expect(source(sdl, differ).scan(/module (?:Primary|Secondary)\b/).uniq.size).to eq(2)
     end
 
     it "shares the core across a list and a single field (wrappers differ)" do
       list_sdl = sdl.sub("secondary: Contact!", "secondary: [Contact!]!")
       src = source(list_sdl, "query D { user { primary #{sel} secondary #{sel} } }")
-      expect(src.scan(/module \w*Contact\b/).uniq.size).to eq(1)
-      expect(src).to include("const :secondary, T::Array[Contact::Type]")
+      expect(src.scan(/module (?:Primary|Secondary)\b/).uniq.size).to eq(1)
+      expect(src).to include("const :secondary, T::Array[Primary::Type]")
     end
 
     it "deserializes both fields into one member family — one dispatch handles both" do
@@ -1060,10 +1062,10 @@ describe GraphWeaver::Codegen do
         "primary" => { "__typename" => "Email", "address" => "a" },
         "secondary" => { "__typename" => "Phone", "number" => "n" },
       )
-      expect(u.primary).to be_a(user::Contact::Email)
-      expect(u.secondary).to be_a(user::Contact::Phone)
+      expect(u.primary).to be_a(user::Primary::Email)
+      expect(u.secondary).to be_a(user::Primary::Phone)
 
-      render = ->(opt) { opt.is_a?(user::Contact::Email) ? :email : :phone }
+      render = ->(opt) { opt.is_a?(user::Primary::Email) ? :email : :phone }
       expect([u.primary, u.secondary].map(&render)).to eq(%i[email phone])
     end
   end
