@@ -508,6 +508,33 @@ describe "federation / _entities representations" do
     expect(mod::Representations.user(id: "1")).to eq({ "__typename" => "User", "id" => "1" })
   end
 
+  # a builder is a Ruby method, so names that can't be one are refused at
+  # generation rather than emitting a file that won't load
+  {
+    "an entity whose name is a Ruby keyword" => [
+      "type End @key(fields: \"id\") { id: ID! }",
+      "End { id }",
+      /Representations\.end/,
+    ],
+    "two entities that build the same method" => [
+      "type User @key(fields: \"id\") { id: ID! }\ntype USER @key(fields: \"id\") { id: ID! }",
+      "User { id } __typename ... on USER { id }",
+      /User and USER/,
+    ],
+    "a @key naming a field the type doesn't declare" => [
+      "type Ghost @key(fields: \"missing\") { id: ID! }",
+      "Ghost { id }",
+      /Ghost @key names "missing"/,
+    ],
+  }.each do |label, (types, condition, message)|
+    it "refuses #{label}" do
+      schema = GraphWeaver::SchemaLoader.load("type Query { anchor: String }\n#{types}")
+
+      expect { build(schema, ENTITY_QUERY % condition, "RefusedEntities") }
+        .to raise_error(GraphWeaver::Error, message)
+    end
+  end
+
   # `resolvable: false` declares a key this subgraph does NOT answer for, so
   # nothing can be resolved by it — a builder offering it would be a lie
   it "ignores a key the subgraph declares unresolvable" do

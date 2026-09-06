@@ -292,7 +292,21 @@ class GraphWeaver::Codegen
   # selection names. Query-driven like everything else — a subgraph with
   # fifty entities emits builders only for the ones the query reaches.
   def representation_nodes(operation, root_type)
-    # `_entities` is a root field, and the spec defines it nowhere else
+    nodes = entity_types(operation, root_type).filter_map { |entity| representation_node(entity) }
+
+    collision = nodes.group_by(&:method_name).find { |_, group| group.size > 1 }
+    if collision
+      types = collision.last.map(&:graphql_type).join(" and ")
+      raise GraphWeaver::Error,
+        "entities #{types} both build Representations.#{collision.first} — rename one, or drop it from the selection"
+    end
+
+    nodes
+  end
+
+  # The types a representation-taking field's selection names. `_entities` is
+  # a root field and the spec defines it nowhere else, so this looks no deeper.
+  def entity_types(operation, root_type)
     gather_conditional(root_type, operation.selections).each_value.flat_map { |occurrences|
       fields = occurrences.map(&:first)
       definition = @schema.get_field(root_type.graphql_name, fields.first.name)
@@ -302,14 +316,7 @@ class GraphWeaver::Codegen
       next [] unless %w[UNION INTERFACE].include?(core.kind.name)
 
       selected_members(core, fields.flat_map(&:selections))
-    }.uniq(&:graphql_name).filter_map { |entity| representation_node(entity) }.tap do |nodes|
-      collision = nodes.group_by(&:method_name).find { |_, group| group.size > 1 }
-      if collision
-        types = collision.last.map(&:graphql_type).join(" and ")
-        raise GraphWeaver::Error,
-          "entities #{types} both build Representations.#{collision.first} — one of them can't be represented"
-      end
-    end
+    }.uniq(&:graphql_name)
   end
 
   # The subgraph spec's representation scalar. A field taking one is the
@@ -382,17 +389,26 @@ class GraphWeaver::Codegen
       end
 
       kwarg = underscore(name)
+      if RUBY_KEYWORDS.include?(kwarg)
+        raise GraphWeaver::Error,
+          "#{entity.graphql_name} @key field #{name.inspect} would become the kwarg '#{kwarg}:', " \
+          "which generated code can't declare (a Ruby keyword)"
+      end
+
       core = unwrap(field.type)
       if core.kind.name == "SCALAR"
         node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
+        type = required ? node.bare_type : node.prop_type
         value = node.serialize_identity? ? kwarg : "#{kwarg}&.then { |v1| #{node.serialize("v1", 2)} }"
-        RepresentationNode::Param.new(kwarg, name, required ? node.bare_type : node.prop_type, value, required)
       else
-        # a nested key set, or an enum/composite one — passed through, and
-        # narrowed to the declared sub-paths by the runtime
+        # a nested key set — or an enum/composite one — passes through as an
+        # open hash, narrowed to the declared sub-paths by the runtime
         type = "T::Hash[T.untyped, T.untyped]"
-        RepresentationNode::Param.new(kwarg, name, required ? type : "T.nilable(#{type})", kwarg, required)
+        type = "T.nilable(#{type})" unless required
+        value = kwarg
       end
+
+      RepresentationNode::Param.new(kwarg, name, type, value, required)
     end
   end
 
