@@ -36,8 +36,12 @@ module RouterGraph
 
   PRODUCTS = {
     "p1" => { upc: "p1", name: "Table", price: 899, weight: 100 },
-    "p2" => { upc: "p2", name: "Couch", price: 1299, weight: 1000 },
+    "p2" => { upc: "p2", name: "Couch", price: 1299, weight: 900 },
     "p3" => { upc: "p3", name: "Chair", price: 54, weight: 50 },
+    # OVERWEIGHT: shippingEstimate raises on it, so a stitched fetch can put a
+    # null where the composed schema says Int! and null propagation has
+    # something to do
+    "p4" => { upc: "p4", name: "Piano", price: 4200, weight: OVERWEIGHT = 1000 },
   }.freeze
 
   REVIEWS = [
@@ -45,6 +49,10 @@ module RouterGraph
     { id: "r2", body: "Too expensive", author_id: "1", upc: "p2" },
     { id: "r3", body: "Could be better", author_id: "2", upc: "p3" },
   ].freeze
+
+  # a review pointing at a product no subgraph can resolve: the entity fetch
+  # comes back null where Review.product says Product!
+  ORPHAN_REVIEWS = [{ id: "r9", body: "Vanished product", author_id: "1", upc: "gone" }].freeze
 
   module Accounts
     class User < RouterGraph::BaseObject
@@ -154,7 +162,10 @@ module RouterGraph
       end
 
       def shipping_estimate
-        ((object[:weight] || object["weight"]) * 0.5).round
+        weight = object[:weight] || object["weight"]
+        raise GraphQL::ExecutionError, "carrier unavailable" if weight == OVERWEIGHT
+
+        (weight * 0.5).round
       end
 
       def self.resolve_reference(reference, _context) = reference
@@ -201,12 +212,14 @@ module RouterGraph
 
       field :feed, [FeedItem], null: false
       field :reviews, [Review], null: false
+      field :orphan_reviews, [Review], null: false
       field :review, Review, null: true do
         argument :id, ID, required: true
       end
 
       def feed = [REVIEWS.first, { headline: "New in stock" }]
       def reviews = REVIEWS
+      def orphan_reviews = ORPHAN_REVIEWS
       def review(id:) = REVIEWS.find { |r| r[:id] == id.to_s }
     end
 

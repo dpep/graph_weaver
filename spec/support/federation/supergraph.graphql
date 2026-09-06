@@ -76,6 +76,7 @@ type Query
   product(upc: String!): Product @join__field(graph: PRODUCTS)
   topProducts(first: Int = 3): [Product!]! @join__field(graph: PRODUCTS)
   feed: [FeedItem!]! @join__field(graph: REVIEWS)
+  orphanReviews: [Review!]! @join__field(graph: REVIEWS)
   review(id: ID!): Review @join__field(graph: REVIEWS)
   reviews: [Review!]! @join__field(graph: REVIEWS)
 }
