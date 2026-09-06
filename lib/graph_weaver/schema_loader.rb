@@ -120,8 +120,8 @@ module GraphWeaver::SchemaLoader
       "left in it still references an @inaccessible element",
     subgraph: "a federation subgraph SDL — a directive it applies may be outside the " \
       "subgraph spec; declare that one in the file",
-    sdl: "plain SDL — a supergraph is recognized by its @join__* markers, a subgraph by " \
-      "applied-but-undeclared @key/@shareable/…",
+    sdl: "plain SDL — a supergraph is recognized by its @join__* markers or the @link/@core " \
+      "specs it declares, a subgraph by applied-but-undeclared @key/@shareable/…",
     introspection: 'an introspection result — it should be the whole envelope, {"data": {"__schema": …}}',
   }.freeze
 
@@ -140,10 +140,17 @@ module GraphWeaver::SchemaLoader
   end
   private_class_method :build
 
+  # A composed graph declares the specs that compose it: fed-2 links join,
+  # fed-1 @cores the core spec itself. Neither matches a subgraph, which links
+  # only the federation spec — so this catches the composed graphs the
+  # @join__ marker misses: one that renamed join (`as: "j"`), and a core
+  # schema that merged nothing but still carries core__Purpose.
+  COMPOSITION_SPEC = %r{@(?:link\s*\(\s*url|core\s*\(\s*feature):\s*"https://specs\.apollo\.dev/(?:join|core)/}
+
   # A composed Fed2 supergraph is marked by @join__* directives (every merged
   # type carries them); a plain schema has none.
   def self.federation_sdl?(sdl)
-    sdl.match?(/@join__\w/)
+    sdl.match?(/@join__\w/) || sdl.match?(COMPOSITION_SPEC)
   end
 
   # The federation spec a fed-2 subgraph @links, and the directives a fed-1
@@ -228,19 +235,108 @@ module GraphWeaver::SchemaLoader
   end
   private_class_method :add_subgraph_definitions
 
-  FEDERATION_PREFIXES = %w[join__ link__ core__].freeze
-  FEDERATION_DIRECTIVES = %w[link core inaccessible].to_set.freeze
+  # how a schema declares the specs it's built from: @link in fed 2, @core in fed 1
+  LINK_DIRECTIVES = %w[link core].to_set.freeze
+
+  # The floor a supergraph gets whether it declares the specs or not — a
+  # hand-written or trimmed one often has no @link header at all. Derivation
+  # only ever adds to this.
+  DEFAULT_PREFIXES = %w[join__ link__ core__].freeze
+  DEFAULT_DIRECTIVES = %w[link core inaccessible].freeze
+
+  # What THIS document calls federation's machinery — type-name prefixes,
+  # directive names, and the local names @inaccessible answers to — read off
+  # its own @link/@core declarations rather than assumed: a linked spec's name
+  # gives both a `join__` type prefix and a root `@join` directive, `as:`
+  # renames it, and each `import:` entry binds one more directive in the root
+  # namespace, possibly under a different local name. A missed @inaccessible
+  # rename over-permits the derived API schema, not merely leaks a type.
+  # https://specs.apollo.dev/link/v1.0/ · https://specs.apollo.dev/core/v0.2/
+  def self.link_namespaces(doc)
+    prefixes = DEFAULT_PREFIXES.dup
+    directives = DEFAULT_DIRECTIVES.to_set
+    inaccessible = Set["inaccessible"]
+
+    link_declarations(doc).each do |args|
+      spec = spec_name(args["url"] || args["feature"])
+      local = args["as"].is_a?(String) ? args["as"] : spec
+      if local
+        prefixes << "#{local}__"
+        directives << local
+        # a spec's root directive is its own name: @link(url: ".../inaccessible/v0.2", as: "private")
+        inaccessible << local if spec == "inaccessible"
+      end
+
+      imports(args["import"]).each do |name, as|
+        next unless as.start_with?("@")
+
+        directives << as.delete_prefix("@")
+        inaccessible << as.delete_prefix("@") if name == "@inaccessible"
+      end
+    end
+
+    { prefixes: prefixes.uniq.freeze, directives: directives.freeze, inaccessible: inaccessible.freeze }
+  end
+  private_class_method :link_namespaces
+
+  # The @link/@core applications on the document's schema definition, each as
+  # a plain argument hash.
+  def self.link_declarations(doc)
+    doc.definitions.flat_map do |defn|
+      next [] unless defn.is_a?(GraphQL::Language::Nodes::SchemaDefinition) ||
+        defn.is_a?(GraphQL::Language::Nodes::SchemaExtension)
+
+      defn.directives
+        .select { |d| LINK_DIRECTIVES.include?(d.name) }
+        .map { |d| d.arguments.to_h { |arg| [ arg.name, arg.value ] } }
+    end
+  end
+  private_class_method :link_declarations
+
+  # `import: ["@key", {name: "@inaccessible", as: "@private"}]` as
+  # [spec name, local name] pairs.
+  def self.imports(value)
+    Array(value).filter_map do |entry|
+      case entry
+      when String then [ entry, entry ]
+      when GraphQL::Language::Nodes::InputObject
+        fields = entry.to_h
+        name = fields["name"]
+        [ name, fields["as"].is_a?(String) ? fields["as"] : name ] if name.is_a?(String)
+      end
+    end
+  end
+  private_class_method :imports
+
+  VERSION_TAG = /\Av\d+\.\d+\z/
+  GRAPHQL_NAME = /\A[A-Za-z][A-Za-z0-9_]*\z/
+
+  # The name a linked spec's elements are namespaced under: the URL's
+  # penultimate path segment when the last is a version tag, else the last one.
+  # Query strings, fragments and empty segments don't count. A segment that
+  # can't be a namespace (a bare host, or a name carrying the `__` separator)
+  # means the URL is just an opaque identifier and nothing is derived.
+  # https://specs.apollo.dev/link/v1.0/
+  def self.spec_name(url)
+    return unless url.is_a?(String)
+
+    segments = url.split(/[?#]/).first.to_s.split("/").reject(&:empty?)
+    segments.pop if segments.last&.match?(VERSION_TAG)
+    name = segments.last
+    name if name&.match?(GRAPHQL_NAME) && !name.include?("__") && !name.end_with?("_")
+  end
+  private_class_method :spec_name
 
   # Synthetic composition TYPES are always prefixed (join__Graph, link__Import).
   # The bare names (link/core/inaccessible) are DIRECTIVES only — a user type
   # literally named `link` (Hasura-style lowercase) must not be dropped.
-  def self.federation_type_name?(name)
-    !!name && name.start_with?(*FEDERATION_PREFIXES)
+  def self.federation_type_name?(name, ns)
+    !!name && name.start_with?(*ns[:prefixes])
   end
   private_class_method :federation_type_name?
 
-  def self.federation_directive_name?(name)
-    !!name && (name.start_with?(*FEDERATION_PREFIXES) || FEDERATION_DIRECTIVES.include?(name))
+  def self.federation_directive_name?(name, ns)
+    !!name && (name.start_with?(*ns[:prefixes]) || ns[:directives].include?(name))
   end
   private_class_method :federation_directive_name?
 
@@ -253,9 +349,10 @@ module GraphWeaver::SchemaLoader
   # and no join__* leaking into schema.types.
   def self.strip_federation(sdl)
     doc = GraphQL.parse(sdl)
-    defs = remove_inaccessible(doc.definitions)
-      .reject { |defn| federation_definition?(defn) }
-      .map { |defn| strip_federation_directives(defn) }
+    ns = link_namespaces(doc)
+    defs = remove_inaccessible(doc.definitions, ns)
+      .reject { |defn| federation_definition?(defn, ns) }
+      .map { |defn| strip_federation_directives(defn, ns) }
 
     if defs.none? { |d| d.is_a?(GraphQL::Language::Nodes::ObjectTypeDefinition) }
       raise GraphWeaver::Error,
@@ -268,13 +365,13 @@ module GraphWeaver::SchemaLoader
 
   # a synthetic composition definition to drop: a federation directive
   # definition (by name), or a synthetic join__*/link__* type (by prefix)
-  def self.federation_definition?(defn)
+  def self.federation_definition?(defn, ns)
     return false unless defn.respond_to?(:name)
 
     if defn.is_a?(GraphQL::Language::Nodes::DirectiveDefinition)
-      federation_directive_name?(defn.name)
+      federation_directive_name?(defn.name, ns)
     else
-      federation_type_name?(defn.name)
+      federation_type_name?(defn.name, ns)
     end
   end
   private_class_method :federation_definition?
@@ -287,12 +384,12 @@ module GraphWeaver::SchemaLoader
   # removed — repeated to a fixpoint. So codegen matches exactly what clients
   # can query, without the over-permitting a raw supergraph would allow and
   # without Apollo's JS tooling to subtract the API schema.
-  def self.remove_inaccessible(definitions)
-    removed = definitions.select { |d| type_definition?(d) && inaccessible?(d) }.map(&:name).to_set
+  def self.remove_inaccessible(definitions, ns)
+    removed = definitions.select { |d| type_definition?(d) && inaccessible?(d, ns) }.map(&:name).to_set
     loop do
       survivors = definitions
         .reject { |d| type_definition?(d) && removed.include?(d.name) }
-        .map { |d| prune_inaccessible(d, removed) }
+        .map { |d| prune_inaccessible(d, removed, ns) }
       # survivors already exclude `removed`, so anything newly emptied is fresh
       newly = survivors.select { |d| type_definition?(d) && type_emptied?(d) }.map(&:name)
       return survivors if newly.empty?
@@ -311,8 +408,9 @@ module GraphWeaver::SchemaLoader
   end
   private_class_method :type_definition?
 
-  def self.inaccessible?(node)
-    node.respond_to?(:directives) && node.directives.any? { |d| d.name == "inaccessible" }
+  # @inaccessible under whatever local name the schema's @link bound it to.
+  def self.inaccessible?(node, ns)
+    node.respond_to?(:directives) && node.directives.any? { |d| ns[:inaccessible].include?(d.name) }
   end
   private_class_method :inaccessible?
 
@@ -337,9 +435,9 @@ module GraphWeaver::SchemaLoader
   # Remove @inaccessible children and children referencing a removed type,
   # from a type's fields (and their arguments), enum values, union members,
   # and implemented interfaces.
-  def self.prune_inaccessible(node, removed)
+  def self.prune_inaccessible(node, removed, ns)
     gone = lambda do |child|
-      inaccessible?(child) || (child.respond_to?(:type) && removed.include?(unwrapped_type_name(child)))
+      inaccessible?(child, ns) || (child.respond_to?(:type) && removed.include?(unwrapped_type_name(child)))
     end
 
     changes = {}
@@ -364,7 +462,7 @@ module GraphWeaver::SchemaLoader
 
   # Recursively remove @join__*/@link applications from a definition and its
   # fields, arguments, and enum values.
-  def self.strip_federation_directives(node)
+  def self.strip_federation_directives(node, ns)
     changes = {}
     if node.respond_to?(:directives) && node.directives
       # A schema definition keeps NONE: graphql-ruby's printer omits the
@@ -375,12 +473,12 @@ module GraphWeaver::SchemaLoader
       changes[:directives] = if node.is_a?(GraphQL::Language::Nodes::SchemaDefinition)
         []
       else
-        node.directives.reject { |d| federation_directive_name?(d.name) }
+        node.directives.reject { |d| federation_directive_name?(d.name, ns) }
       end
     end
-    changes[:fields] = node.fields.map { |c| strip_federation_directives(c) } if node.respond_to?(:fields) && node.fields
-    changes[:arguments] = node.arguments.map { |c| strip_federation_directives(c) } if node.respond_to?(:arguments) && node.arguments
-    changes[:values] = node.values.map { |c| strip_federation_directives(c) } if node.respond_to?(:values) && node.values
+    changes[:fields] = node.fields.map { |c| strip_federation_directives(c, ns) } if node.respond_to?(:fields) && node.fields
+    changes[:arguments] = node.arguments.map { |c| strip_federation_directives(c, ns) } if node.respond_to?(:arguments) && node.arguments
+    changes[:values] = node.values.map { |c| strip_federation_directives(c, ns) } if node.respond_to?(:values) && node.values
     changes.empty? ? node : node.merge(changes)
   end
   private_class_method :strip_federation_directives

@@ -279,6 +279,21 @@ describe GraphWeaver::SchemaLoader do
       expect(described_class.federation_sdl?("type Query { a: Int }")).to be(false)
     end
 
+    # a composed graph also declares the specs that compose it, which is the
+    # only marker left when join was renamed or nothing was merged
+    it "detects a composed graph that carries no @join__ marker" do
+      expect(described_class.federation_sdl?(
+        'schema @link(url: "https://specs.apollo.dev/join/v0.3", as: "j") { query: Query }',
+      )).to be(true)
+      expect(described_class.federation_sdl?(
+        'schema @core(feature: "https://specs.apollo.dev/core/v0.2") { query: Query }',
+      )).to be(true)
+      # a subgraph links the federation spec, and stays a subgraph
+      expect(described_class.federation_sdl?(
+        'extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])',
+      )).to be(false)
+    end
+
     it "strips the composition machinery, keeping the merged type shapes" do
       schema = described_class.load(supergraph)
 

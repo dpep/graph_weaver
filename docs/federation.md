@@ -22,7 +22,7 @@ artifact — the supergraph or the API schema.
 
 ## Pointing weaver at a supergraph
 
-A supergraph SDL works as-is. When `SchemaLoader` sees the `@join__*` markers it
+A supergraph SDL works as-is. When `SchemaLoader` recognizes a composed graph it
 strips the composition machinery before building the schema — the synthetic
 `join__*`/`link__*` types and directive definitions, and every `@join__*`/`@link`
 application on the real types — so what codegen sees is the merged graph's
@@ -32,6 +32,18 @@ schemas pass through untouched.) Field shapes — nullability, args, enums,
 inputs — are identical to the API schema, so your generated structs are correct;
 and because codegen is **query-driven**, nothing federation-internal could
 generate code anyway.
+
+**Which names count as machinery is read off the schema**, not a fixed list.
+Federation namespaces itself through [`@link`](https://specs.apollo.dev/link/v1.0/)
+(v2) or [`@core`](https://specs.apollo.dev/core/v0.2/) (v1), and weaver applies
+those declarations as written: a spec URL's name segment gives the namespace
+(`https://specs.apollo.dev/join/v0.3` → `join__`), `as:` renames it, and
+`import:` binds names into the root namespace, `{name: "@key", as: "@myKey"}`
+renames included. So a graph on fed 2.5+ auth strips its `@requiresScopes` /
+`@policy` / `@context` machinery (`federation__Scope`, `context__ContextFieldValue`,
+…) the same way `join__` goes, and a renamed `@inaccessible` still hides what it
+marks. A schema that declares nothing still gets the `join__`/`link__`/`core__`
+floor.
 
 Federation **v1** supergraphs (`@core` + `@join__owner`/`@join__type`) load the
 same way — the older spelling of the same machinery is stripped too.
@@ -66,6 +78,10 @@ What makes that subtraction *exact* is composition, not the cascade: Apollo's
 visible element references a hidden one, so on a real supergraph the cascade
 has nothing left to find. It earns its keep on hand-written or hand-edited
 supergraphs, where nothing has checked that invariant.
+
+The directive is matched by the **local name it was linked under**, so
+`@link(url: "…/federation/v2.5", import: [{name: "@inaccessible", as: "@private"}])`
+subtracts what `@private` marks.
 
 **Only on the supergraph path.** The subtraction runs when weaver recognizes a
 composed supergraph. Plain SDL and subgraph SDL are taken at face value:
