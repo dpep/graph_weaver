@@ -10,7 +10,7 @@ describe "Countries API", :integration do
   it "introspects the schema and runs a typed query with variables" do
     country_query = GraphWeaver.parse(
       schema:,
-      executor:,
+      client: executor,
       query: <<~GRAPHQL,
         query($code: ID!) {
           country(code: $code) {

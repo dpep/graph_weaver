@@ -26,7 +26,7 @@ describe "GitHub API", :integration do
   it "queries the viewer" do
     viewer_query = GraphWeaver.parse(
       schema:,
-      executor:,
+      client: executor,
       query: "query { viewer { login name } }",
     )
 
@@ -40,7 +40,7 @@ describe "GitHub API", :integration do
 
     repo_query = GraphWeaver.parse(
       schema:,
-      executor:,
+      client: executor,
       query: <<~GRAPHQL,
         query($owner: String!, $name: String!) {
           repository(owner: $owner, name: $name) {
@@ -66,7 +66,7 @@ describe "GitHub API", :integration do
   it "dispatches union search results via __typename" do
     search_query = GraphWeaver.parse(
       schema:,
-      executor:,
+      client: executor,
       query: <<~GRAPHQL,
         query($q: String!) {
           search(query: $q, type: REPOSITORY, first: 3) {

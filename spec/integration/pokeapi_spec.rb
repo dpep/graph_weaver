@@ -12,7 +12,7 @@ describe "PokeAPI (Hasura)", :integration do
   it "generates snake_case types and filters through a recursive bool_exp variable" do
     pokemon_query = GraphWeaver.parse(
       schema:,
-      executor:,
+      client: executor,
       query: <<~GRAPHQL,
         query($where: pokemon_v2_pokemon_bool_exp) {
           pokemon_v2_pokemon(where: $where, limit: 5, order_by: { id: asc }) {
@@ -37,10 +37,11 @@ describe "PokeAPI (Hasura)", :integration do
   end
 
   it "passes unregistered scalars (jsonb) through untyped" do
+    # execute! takes a client-or-schema positionally; kwargs are query variables,
+    # so the transport rides in on the client rather than beside it
     sprites = GraphWeaver.execute!(
-      schema,
+      GraphWeaver.new(schema, transport: executor),
       "query { pokemon_v2_pokemonsprites(limit: 1, order_by: { id: asc }) { sprites } }",
-      executor:,
     ).pokemon_v2_pokemonsprites.first&.sprites
 
     expect(sprites).to be_a Hash # jsonb arrives as plain data
