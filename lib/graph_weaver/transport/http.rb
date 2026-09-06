@@ -24,7 +24,8 @@ module GraphWeaver
       GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
 
       def initialize(url, headers: {}, open_timeout: DEFAULT_OPEN_TIMEOUT,
-        read_timeout: DEFAULT_READ_TIMEOUT, keep_alive_timeout: 2, pool_size: 5)
+        read_timeout: DEFAULT_READ_TIMEOUT, keep_alive_timeout: 2, pool_size: 5,
+        ca_file: nil, ca_path: nil, cert: nil, key: nil, verify_mode: nil)
         raise ArgumentError, "pool_size: must be >= 1" unless pool_size >= 1
 
         @url = url
@@ -33,6 +34,14 @@ module GraphWeaver
         @open_timeout = open_timeout
         @read_timeout = read_timeout
         @keep_alive_timeout = keep_alive_timeout
+
+        # TLS, forwarded verbatim to Net::HTTP.start: a private CA
+        # (ca_file:/ca_path:), a client certificate (cert:/key:), or a
+        # verify_mode: — so mTLS doesn't mean reaching for Faraday
+        @ssl = { ca_file:, ca_path:, cert:, key:, verify_mode: }.compact
+        if @ssl.any? && @uri.scheme != "https"
+          raise ArgumentError, "TLS options need an https url — got #{url}"
+        end
 
         # One permit per allowed socket: holding a permit is the right to
         # hold a connection, so at most pool_size requests are in flight
@@ -91,6 +100,7 @@ module GraphWeaver
           use_ssl: @uri.scheme == "https",
           open_timeout: @open_timeout, read_timeout: @read_timeout,
           keep_alive_timeout: @keep_alive_timeout,
+          **@ssl,
         )
       end
 

@@ -1,4 +1,6 @@
 require "socket"
+require "tempfile"
+require "webrick/https"
 require_relative "generated/person_query"
 
 # Generated modules run against a remote server by swapping the client:
@@ -155,6 +157,55 @@ describe GraphWeaver::Transport::HTTP do
   it "wraps unserializable variables (NaN) instead of leaking JSON errors" do
     expect { executor.execute("query", variables: { "amount" => Float::NAN }) }
       .to raise_error(GraphWeaver::Error, /not JSON-serializable/)
+  end
+
+  # a self-signed https endpoint: the CA the client must be told to trust
+  describe "TLS options" do
+    before(:all) do
+      @tls = WEBrick::HTTPServer.new(
+        Port: 0,
+        Logger: WEBrick::Log.new(File::NULL),
+        AccessLog: [],
+        SSLEnable: true,
+        SSLCertName: [["CN", "127.0.0.1"]],
+      )
+      @tls.mount_proc("/graphql") do |request, response|
+        payload = JSON.parse(request.body)
+        result = Demo::Schema.execute(payload["query"], variables: payload["variables"] || {})
+        response["Content-Type"] = "application/json"
+        response.body = JSON.generate(result.to_h)
+      end
+      @tls_thread = Thread.new { @tls.start }
+      @ca = Tempfile.new(["ca", ".pem"])
+      @ca.write(@tls.ssl_context.cert.to_pem)
+      @ca.flush
+      @tls_url = "https://127.0.0.1:#{@tls.listeners.first.addr[1]}/graphql"
+    end
+
+    after(:all) do
+      @tls.shutdown
+      @tls_thread.join
+      @ca.close!
+    end
+
+    it "trusts a private CA given ca_file:" do
+      transport = described_class.new(@tls_url, ca_file: @ca.path)
+
+      expect(PersonQuery.execute(transport, id: "1").data!.person&.name).to eq "Daniel"
+    end
+
+    it "still verifies by default, and honours verify_mode:" do
+      expect { PersonQuery.execute(described_class.new(@tls_url), id: "1") }
+        .to raise_error(GraphWeaver::TransportError, /certificate verify failed/)
+
+      unverified = described_class.new(@tls_url, verify_mode: OpenSSL::SSL::VERIFY_NONE)
+      expect(PersonQuery.execute(unverified, id: "1").data!.person&.name).to eq "Daniel"
+    end
+
+    it "refuses TLS options on a plain http url rather than ignoring them" do
+      expect { described_class.new(url, ca_file: @ca.path) }
+        .to raise_error(ArgumentError, /https/)
+    end
   end
 
   it "never leaks auth headers through inspect/to_s" do

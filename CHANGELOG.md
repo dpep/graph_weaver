@@ -206,6 +206,10 @@ Transport improvements from the same review:
   — Shopify's `THROTTLED`, GitHub's `RATE_LIMITED`, and the common Apollo/Hasura
   spellings — so `retry_codes:` takes the constant instead of a hand-written
   string. `QueryError#to_h` gains `"throttled"` alongside `"schema_stale"`.
+- `Transport::HTTP` takes `ca_file:`/`ca_path:`/`cert:`/`key:`/`verify_mode:`,
+  forwarded to `Net::HTTP.start` — a private CA or mTLS no longer means
+  switching to Faraday, which was the real but undiscoverable answer. Passing
+  one to an `http://` url raises instead of quietly doing nothing.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

@@ -64,6 +64,14 @@ GraphWeaver::Transport::HTTP.new(
   open_timeout: 10, read_timeout: 30,  # seconds (the defaults)
   keep_alive_timeout: 2,               # idle window before reconnecting
   pool_size: 5,                        # concurrent requests in flight
+
+  # TLS, forwarded to Net::HTTP.start — a private CA, or mTLS, without
+  # reaching for Faraday. Passing any of these to an http:// url raises
+  # rather than quietly doing nothing.
+  ca_file: "/etc/ssl/private-ca.pem",  # or ca_path: for a directory
+  cert: OpenSSL::X509::Certificate.new(File.read("client.crt")),
+  key: OpenSSL::PKey::RSA.new(File.read("client.key")),
+  verify_mode: OpenSSL::SSL::VERIFY_PEER,  # the default; VERIFY_NONE to skip
 )
 
 # Faraday: a url (+ optional middleware block), or a ready connection.
