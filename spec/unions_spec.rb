@@ -5,6 +5,22 @@ require "tmpdir"
 require "fileutils"
 
 RSpec.describe "shared unions (fragment-driven hoisting)" do
+  # These examples load generated modules, so they must put the constants back.
+  # Removing them blind takes the *fixture's* GraphQLInputs with it, and
+  # spec/generated/inputs.rb won't redefine it — require_relative is a no-op the
+  # second time — leaving a later spec's constant gone under a random order.
+  GENERATED_CONSTANTS = %i[HomeQuery ArchiveQuery GraphQLInputs GraphQLUnions].freeze
+
+  around do |example|
+    prior = GENERATED_CONSTANTS.to_h { |c| [c, (Object.const_get(c) if Object.const_defined?(c))] }
+    example.run
+  ensure
+    GENERATED_CONSTANTS.each do |c|
+      Object.send(:remove_const, c) if Object.const_defined?(c)
+      Object.const_set(c, prior[c]) if prior[c]
+    end
+  end
+
   def write(dir, name, content)
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, name), content)
@@ -75,8 +91,6 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
     expect(home.class).to eq(archive.class)
     expect(home.class).to eq(GraphQLUnions::FeedItemFields::Post)
     expect(home.title).to eq("hi")
-  ensure
-    %i[HomeQuery ArchiveQuery GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
   end
 
   it "hoists the catch-all too, so a member added upstream bends the shared type" do
@@ -88,8 +102,6 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
 
     expect(item).to be_a(GraphQLUnions::FeedItemFields::Other)
     expect(item.__typename).to eq "Video"
-  ensure
-    %i[HomeQuery ArchiveQuery GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
   end
 
   it "does not hoist a union whose fragment a query defines locally" do
@@ -173,8 +185,6 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
       GraphWeaver.load_generated!("#{@base}/generated")
       response = { "data" => { "feed" => [{ "__typename" => "Photo", "url" => "x" }] } }
       expect(HomeQuery.from_response!(response).feed.first.url).to eq("x")
-    ensure
-      %i[HomeQuery GraphQLInputs GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
     end
   end
 
@@ -216,7 +226,6 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
     ensure
       registry.clear
       registry.merge!(saved)
-      %i[HomeQuery ArchiveQuery GraphQLUnions].each { |c| Object.send(:remove_const, c) if Object.const_defined?(c) }
     end
 
     it "refuses to hoist a shared fragment whose name collides with a generated constant" do

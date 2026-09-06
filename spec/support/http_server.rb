@@ -69,7 +69,13 @@ RSpec.shared_context "graphql http server" do
     @inflight_lock.synchronize { @inflight[:max] }
   end
 
+  # Let stragglers drain before zeroing the mark. A client that abandons a
+  # /slow request (the read_timeout example) leaves the handler sleeping with
+  # :current still raised, and it would otherwise count toward the next
+  # example's peak — which only shows up under a random spec order.
   def reset_inflight!
+    deadline = Time.now + (SLOW_ENDPOINT_DELAY * 10)
+    sleep 0.005 while @inflight_lock.synchronize { @inflight[:current] }.positive? && Time.now < deadline
     @inflight_lock.synchronize { @inflight[:max] = 0 }
   end
 end
