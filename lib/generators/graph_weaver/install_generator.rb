@@ -13,9 +13,8 @@ require "graph_weaver"
 #
 # The argument is what you'd pass to GraphWeaver.new, and the same three
 # source forms are accepted; the initializer it writes reflects the one
-# you chose. It reads nothing from the app: at install time the
-# initializer doesn't exist yet, so the source arrives on the command
-# line.
+# you chose. The source arrives on the command line rather than being read
+# from config: at install time the initializer doesn't exist yet.
 module GraphWeaver
   module Generators
     class InstallGenerator < Rails::Generators::Base
@@ -37,9 +36,8 @@ module GraphWeaver
       class_option :schema, type: :boolean, default: true,
         desc: "write the schema dump codegen reads"
 
-      # Ruby constant path — a schema class named on the command line, which
-      # nothing has loaded yet. Everything that is neither this nor a url is
-      # taken as a path to a dump.
+      # a Ruby constant path names a schema class; anything that is neither
+      # this nor a url is taken as a path to a dump
       CONSTANT = /\A[A-Z]\w*(::[A-Z]\w*)*\z/
 
       DEFAULT_AUTH = "GRAPHWEAVER_AUTH"
