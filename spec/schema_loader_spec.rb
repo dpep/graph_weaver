@@ -254,6 +254,57 @@ describe GraphWeaver::SchemaLoader do
     end
   end
 
+  describe ".refresh!" do
+    before { GraphWeaver.schema_path = File.join(@dir, "schema.json") }
+
+    after { GraphWeaver.schema_path = nil }
+
+    # stands in for GraphWeaver.new(url).transport — no network, but it
+    # records the url refresh! picked, which is the thing under test
+    let(:introspected) { [] }
+
+    before do
+      urls = introspected # a local: define_singleton_method rebinds self
+      allow(GraphWeaver).to receive(:new) do |url, **|
+        transport = Object.new
+        transport.define_singleton_method(:url) { url }
+        transport.define_singleton_method(:execute) do |query, variables:, operation_name: nil|
+          urls << url
+          Demo::Schema.execute(query, variables:, operation_name:)
+        end
+        Struct.new(:transport).new(transport)
+      end
+    end
+
+    it "bootstraps the first dump from a given url" do
+      path, url = described_class.refresh!(url: "https://api.example.com/graphql")
+
+      expect(path).to eq GraphWeaver.schema_path
+      expect(introspected).to eq [url]
+      expect(described_class.provenance(path)["url"]).to eq url
+    end
+
+    it "falls back to the url the dump recorded" do
+      described_class.refresh!(url: "https://api.example.com/graphql")
+
+      expect(described_class.refresh!).to eq [GraphWeaver.schema_path, "https://api.example.com/graphql"]
+      expect(introspected.size).to eq 2 # ttl: 0 — never satisfied by the dump it just wrote
+    end
+
+    it "names the fix when there is no dump to read a url from" do
+      expect { described_class.refresh! }
+        .to raise_error(GraphWeaver::Error, /no schema dump.*URL=/)
+    end
+
+    it "names the fix when the dump records no url" do
+      File.write(GraphWeaver.schema_path, JSON.generate(Demo::Schema.as_json))
+
+      expect { described_class.refresh! }
+        .to raise_error(GraphWeaver::Error, /records no source url.*URL=/)
+    end
+  end
+
+
   describe "federation supergraph SDL" do
     let(:supergraph) do
       <<~GRAPHQL

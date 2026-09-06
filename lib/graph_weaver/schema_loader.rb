@@ -651,6 +651,27 @@ module GraphWeaver::SchemaLoader
     fresh.to_definition != load(path).to_definition
   end
 
+  # Re-introspect and rewrite the local dump, returning [path, url].
+  # url: defaults to the one the dump recorded, so a refresh needs no
+  # arguments once a dump exists — and passing one bootstraps the first
+  # dump, which is what `rails g graph_weaver:install` does.
+  def self.refresh!(url: nil)
+    path = locate_path
+    url ||= path && provenance(path)&.dig("url")
+    raise GraphWeaver::Error, refresh_hint(path) unless url
+
+    path ||= GraphWeaver.schema_path
+    # ttl: 0 — an existing dump never counts as fresh, a refresh always refetches
+    introspect(GraphWeaver.new(url, auth: ENV["GRAPHWEAVER_AUTH"]).transport, cache: path, ttl: 0)
+    [path, url]
+  end
+
+  def self.refresh_hint(path)
+    missing = path ? "#{path} records no source url" : "no schema dump at #{GraphWeaver.schema_path}"
+    "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+  end
+  private_class_method :refresh_hint
+
   # a transport to the dump's recorded url (GRAPHWEAVER_AUTH supplies a
   # token when set)
   def self.source_transport(path)
