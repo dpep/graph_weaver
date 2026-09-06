@@ -174,9 +174,9 @@ design:
 ## Open questions
 
 - interface-typed fields (vs fragment conditions, which work)
-- name collisions: the generator disambiguates one level (field-name
-  prefix) and raises otherwise. A real gem needs a *stable* naming scheme:
-  names shouldn't shift when unrelated selections are added (generated
-  code is checked in and referenced by app code), which argues for
-  path-based or explicitly-aliased names over first-come-first-served
+- ~~name collisions~~ ANSWERED: path-based won. A generated type is named
+  for the response key that selects it, so the name is a function of the
+  field's own position — no walk order, no first-come-first-served, and an
+  unrelated selection can't move it. GraphQL aliases double as the explicit
+  naming escape hatch (`pet: pets` names the struct `Pet`)
 - mutations/subscriptions (only query operations generate)

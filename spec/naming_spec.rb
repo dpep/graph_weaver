@@ -3,8 +3,8 @@
 # Generated code is checked in and referenced by app code, so a struct's name
 # must be a function of its own position in the query and nothing else: adding,
 # removing, or reordering an UNRELATED selection may not rename it. Every
-# example below fails under the pre-0.5.0 scheme (GraphQL type names, one level
-# of field-name disambiguation, first-come-first-served).
+# example below fails under the old scheme (GraphQL type names, one level of
+# field-name disambiguation, first-come-first-served).
 describe "generated class naming" do
   let(:schema) do
     GraphQL::Schema.from_definition(<<~GRAPHQL)
