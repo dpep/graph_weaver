@@ -171,6 +171,8 @@ class GraphWeaver::Codegen
 
     @requires = []
     @mapped_enums = {}
+    @variable_enums = {}
+    @result_variable_enums = []
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
 
@@ -226,6 +228,8 @@ class GraphWeaver::Codegen
     @variable_enums = {}
     @variable_inputs = {}
     @mapped_enums = {}
+    # variable enums the result tree reuses (see the ENUM branch of object_node)
+    @result_variable_enums = []
     @used_unions = []
     # requires the generated file needs (custom scalars, enum mappings,
     # type helpers all contribute)
@@ -461,6 +465,13 @@ class GraphWeaver::Codegen
         when "ENUM"
           if (mapped = mapped_enum_node(core))
             type_ref(field_type) { mapped }
+          elsif (shared = @variable_enums[core.graphql_name])
+            # the same GraphQL enum also arrives as a variable: reuse the
+            # module-level T::Enum so a value read out of a result can be handed
+            # straight back in (two classes for one enum failed srb tc AND the
+            # runtime sig)
+            @result_variable_enums << shared unless @result_variable_enums.include?(shared)
+            type_ref(field_type) { shared }
           else
             name = pick_name(core.graphql_name, key, taken)
             # sorted so output is deterministic across schema sources
@@ -605,7 +616,9 @@ class GraphWeaver::Codegen
         inner == "T.untyped" ? inner : "T.nilable(#{inner})"
       end
       "T::Array[#{element}]"
-    when ObjectNode, EnumNode, NarrowedNode then "#{prefix}#{node.class_name}"
+    when ObjectNode, NarrowedNode then "#{prefix}#{node.class_name}"
+    # a reused variable enum is module-level, so it takes no container prefix
+    when EnumNode then "#{module_level?(node) ? "" : prefix}#{node.class_name}"
     when UnionNode then "#{prefix}#{node.bare_type}"
     else node.bare_type # Scalar, MappedEnum, UnionRefNode — already top-level
     end

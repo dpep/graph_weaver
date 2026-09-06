@@ -28,6 +28,12 @@ Codegen bug fixes from the library review (all with regression coverage):
   raised `key not found`. The narrowing guard sees the fragment's own directive
   too. Conversely, a field selected both conditionally and unconditionally is no
   longer over-nilable: one unguaranteed selection doesn't unmake the guarantee.
+- A GraphQL enum used as BOTH a result field and a variable now generates one
+  Ruby class, so a value read out of a result can be passed straight back in
+  (it used to raise `TypeError: expected T.any(M::Species, String), got
+  M::Result::Pet::Species`). **The result-side constant moves**: reach for
+  `M::Species::Dog`, not `M::Result::Pet::Species::Dog`, when the enum is also
+  a variable type. An enum that appears only in results is unchanged.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

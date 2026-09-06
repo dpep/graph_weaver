@@ -25,7 +25,7 @@ describe GraphWeaver::Testing do
       end
 
       pet = AddPetQuery.execute!(fake, name: "Rex", species: AddPetQuery::Species::Dog).add_pet
-      expect([AddPetQuery::Result::Pet::Species::Dog, AddPetQuery::Result::Pet::Species::Cat])
+      expect([AddPetQuery::Species::Dog, AddPetQuery::Species::Cat])
         .to include(pet.species)
     end
 

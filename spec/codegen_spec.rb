@@ -360,7 +360,25 @@ describe GraphWeaver::Codegen do
       result = AddPetQuery.execute(name: "Rex", species: AddPetQuery::Species::Dog).data!
 
       expect(result.add_pet.name).to eq "Rex"
-      expect(result.add_pet.species).to eq AddPetQuery::Result::Pet::Species::Dog
+      # one Species class per module: the value read out of the result is the
+      # very one execute takes back in
+      expect(result.add_pet.species).to eq AddPetQuery::Species::Dog
+      expect(AddPetQuery.execute(name: "Rex", species: result.add_pet.species).data!.add_pet.species)
+        .to eq AddPetQuery::Species::Dog
+    end
+
+    it "types a result enum and the same variable enum as one class" do
+      # separate classes for one GraphQL enum failed both srb tc and the runtime
+      # sig on the obvious move: read a value out, feed it back in
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        client: Demo::Schema,
+        query: "mutation($species: Species!) { addPet(name: \"Rex\", species: $species) { species } }",
+      )
+
+      species = mod.execute!(species: mod::Species::Dog).add_pet.species
+      expect(species).to be_a(mod::Species)
+      expect(mod.execute!(species:).add_pet.species).to eq species
     end
 
     it "hints when a result field is called by its camelCase wire name" do
@@ -383,7 +401,7 @@ describe GraphWeaver::Codegen do
     it "flattens a single input-object variable into typed kwargs" do
       pet = AdoptQuery.execute!(name: "Rex", species: AdoptQuery::Species::Dog).adopt
       expect(pet.name).to eq "Rex"
-      expect(pet.species).to eq AdoptQuery::Result::Pet::Species::Dog
+      expect(pet.species).to eq AdoptQuery::Species::Dog
 
       # enums accept their wire value; optional fields ride along when
       # set, stay off the wire when nil

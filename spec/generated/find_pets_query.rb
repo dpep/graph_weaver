@@ -19,6 +19,7 @@ module FindPetsQuery
   GRAPHQL
 
   PetFilter = GraphQLInputs::PetFilter
+  Species = GraphQLInputs::Species
 
   class Result < T::Struct
     extend T::Sig
@@ -27,13 +28,6 @@ module FindPetsQuery
     class Pet < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
-
-      class Species < T::Enum
-        enums do
-          Cat = new("CAT")
-          Dog = new("DOG")
-        end
-      end
 
       const :name, String
       const :species, Species

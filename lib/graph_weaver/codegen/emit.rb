@@ -98,11 +98,14 @@ class GraphWeaver::Codegen
       # keep ONE identity across every module that touches them.
       # Only the shared names THIS module's emission references: variable
       # root types (and, when flattened, the root input's field types)
-      # plus every mapped-enum table (result casting reads them too).
+      # plus every mapped-enum table (result casting reads them too), and
+      # any variable enum a result field reuses — which may sit several
+      # levels down an input type, so it isn't reachable from the roots.
       # Nested types stay un-aliased — they live in the inputs module.
       def shared_alias_names(variables, flatten)
         nodes = variables.map(&:node)
         nodes += flatten.fields.map(&:node) if flatten
+        nodes += @result_variable_enums
 
         names = @mapped_enums.each_value.flat_map { |m| ["#{m.const_prefix}_FROM_WIRE", "#{m.const_prefix}_TO_WIRE"] }
         nodes.each do |wrapped|
@@ -286,6 +289,12 @@ class GraphWeaver::Codegen
       out.join("\n") + "\n"
     end
 
+    # Is this node defined once at module level rather than inside the struct
+    # that references it? (Variable enums — see the ENUM branch of object_node.)
+    def module_level?(node)
+      @variable_enums.value?(node)
+    end
+
     def emit_nested(node, out, indent)
       case node
       when UnionNode then emit_union(node, out, indent)
@@ -334,7 +343,11 @@ class GraphWeaver::Codegen
 
       # uniq by object identity: deduped sibling unions share one node, so the
       # shared type is emitted once (both fields' consts already reference it).
-      node.fields.filter_map { |field| field.node.nested }.uniq.each do |child|
+      # A variable enum a result field reuses is already defined at module
+      # level (or aliased from the shared inputs module) — redefining it here
+      # would shadow the shared type back apart.
+      children = node.fields.filter_map { |field| field.node.nested }.uniq
+      children.reject { |child| module_level?(child) }.each do |child|
         emit_nested(child, out, indent + 1)
         out << ""
       end

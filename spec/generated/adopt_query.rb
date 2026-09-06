@@ -31,13 +31,6 @@ module AdoptQuery
       extend T::Sig
       include GraphWeaver::Hints
 
-      class Species < T::Enum
-        enums do
-          Cat = new("CAT")
-          Dog = new("DOG")
-        end
-      end
-
       const :id, String
       const :name, String
       const :species, Species
