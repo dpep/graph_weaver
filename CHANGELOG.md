@@ -8,6 +8,11 @@ verbatim — and raises `Unplannable` (a `GraphWeaver::Error`) for anything that
 crosses a boundary, at plan time, before any subgraph runs. See
 [docs/testing.md](docs/testing.md#a-local-federation-router).
 
+**`rake graph_weaver:federation:coverage SUPERGRAPH=…` says how much of your
+query set that router can plan**, and groups every refusal by what stopped it —
+the number that decides whether wiring it up is worth it. Planning needs the
+supergraph alone, so it runs in CI with no subgraph loadable.
+
 **A supergraph's routing table is now readable:
 `GraphWeaver::SchemaLoader.routing_table(supergraph)`.** `load` strips the
 `@join__*` machinery to get the API schema; this keeps it — `owners("Product",

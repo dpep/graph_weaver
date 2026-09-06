@@ -1,0 +1,3 @@
+query ShippingQuotes($first: Int!) {
+  topProducts(first: $first) { name shippingEstimate }
+}

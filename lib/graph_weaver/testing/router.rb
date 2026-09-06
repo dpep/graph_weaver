@@ -14,17 +14,75 @@ module GraphWeaver
     # the alternative is a test that passes against semantics production
     # doesn't have.
     #
-    # #category says which construct stopped it, so a pile of refusals
-    # aggregates (see Coverage).
+    # A refusal is #detail (what stopped this query) plus the advice its
+    # #category carries, so a pile of refusals aggregates by category and
+    # still reads as one sentence each. `rake
+    # graph_weaver:federation:coverage` is that pile, counted.
     class Unplannable < GraphWeaver::Error
-      attr_reader :category
+      # every way the local router refuses: the label a report groups by, and
+      # the next action the message ends with
+      CATEGORIES = {
+        crosses_subgraph: [
+          "crosses a subgraph boundary",
+          "the local router hands one query to one subgraph verbatim and doesn't stitch across a " \
+            "boundary. Run this one against a real router.",
+        ],
+        root_fields_span: [
+          "root fields span subgraphs",
+          "the local router hands one query to one subgraph verbatim, so every field has to resolve " \
+            "in the same one. Split it into one operation per subgraph, or run this one against a " \
+            "real router.",
+        ],
+        requires: [
+          "@requires needs a fetch chain",
+          "the router fetches those first and hands them back, a chain the local router doesn't " \
+            "plan. Run this one against a real router.",
+        ],
+        no_owner: [
+          "the routing table names no subgraph",
+          "nothing can route a field the supergraph doesn't place. Run this one against a real router.",
+        ],
+        mixed_introspection: [
+          "introspection mixed with data",
+          "the local router answers introspection from the composed API schema and data from one " \
+            "subgraph, and can't merge the two. Split them into two operations.",
+        ],
+        ambiguous_operation: [
+          "the document isn't one operation",
+          "pass operation_name: naming one of them.",
+        ],
+        operation_type: [
+          "not a query or a mutation",
+          "the local router plans queries and mutations against the composed schema's roots. Run " \
+            "this one against a real router.",
+        ],
+        undefined_fragment: [
+          "a fragment the document never defines",
+          "define it, or point the query at the file that does.",
+        ],
+        unsupported_federation: [
+          "a federation construct the routing table doesn't read",
+          "the routing table is incomplete, so every answer it gives about this supergraph would be " \
+            "a guess. Run this graph's queries against a real router.",
+        ],
+        too_deep: [
+          "nested deeper than the router walks",
+          "run this one against a real router.",
+        ],
+      }.freeze
 
-      def initialize(message, category:)
+      attr_reader :category, :detail
+
+      def initialize(detail, category:)
         @category = category
-        super(message)
+        @detail = detail
+        super("#{detail} — #{CATEGORIES.fetch(category).last}")
       end
 
-      def to_h = super.merge("category" => category.to_s)
+      # the short label a report groups this refusal under
+      def label = CATEGORIES.fetch(category).first
+
+      def to_h = super.merge("category" => category.to_s, "detail" => detail)
     end
 
     # A federation router for tests: it satisfies the client contract, so
@@ -79,9 +137,8 @@ module GraphWeaver
         # means the routing table is incomplete, and every answer it gives
         # about this supergraph is a guess
         raise Unplannable.new(
-          "this supergraph uses federation constructs the local router doesn't read:\n" +
-            @table.unsupported.map { |line| "  - #{line}" }.join("\n") +
-            "\nRun this graph's queries against a real router.",
+          "this supergraph uses federation constructs the local router doesn't read: " +
+            @table.unsupported.join("; "),
           category: :unsupported_federation,
         )
       end
@@ -178,11 +235,8 @@ module GraphWeaver
 
         def plan(document, operation_name: nil)
           operation = pick_operation(document, operation_name)
-          if operation.operation_type == "subscription"
-            refuse :operation_type,
-              "the local router plans queries and mutations — got a subscription. " \
-              "Run this one against a real router."
-          end
+          refuse(:operation_type, "this document is a subscription") if
+            operation.operation_type == "subscription"
 
           fragments = document.definitions
             .grep(GraphQL::Language::Nodes::FragmentDefinition).to_h { |f| [f.name, f] }
@@ -193,9 +247,8 @@ module GraphWeaver
           if introspection.any?
             if data.any? { |node| node.name != "__typename" }
               refuse :mixed_introspection,
-                "this operation selects #{introspection.map(&:name).uniq.join(" and ")} alongside data " \
-                "fields — the local router answers introspection from the composed API schema and data " \
-                "from one subgraph, and can't merge the two. Split them into two operations."
+                "this operation selects #{introspection.map(&:name).uniq.join(" and ")} " \
+                "alongside data fields"
             end
 
             return Plan.new(nil, operation.name, true)
@@ -208,22 +261,20 @@ module GraphWeaver
 
         def pick_operation(document, name)
           operations = document.definitions.grep(GraphQL::Language::Nodes::OperationDefinition)
+          named = operations.map { |op| op.name || "anonymous" }
           if name
-            return operations.find { |op| op.name == name } ||
-              refuse(:ambiguous_operation, "no operation named #{name.inspect} in this document")
+            return operations.find { |op| op.name == name } || refuse(:ambiguous_operation,
+              "the document defines no operation named #{name.inspect} (it has #{named.join(", ")})")
           end
           return operations.first if operations.one?
 
-          refuse :ambiguous_operation,
-            "the document holds #{operations.size} operations " \
-            "(#{operations.map { |op| op.name || "anonymous" }.join(", ")}) — pass operation_name: " \
-            "to say which one to run."
+          refuse :ambiguous_operation, "the document holds #{operations.size} operations (#{named.join(", ")})"
         end
 
         def root_type_name(operation)
           root = (operation.operation_type == "mutation") ? @schema.mutation : @schema.query
-          root&.graphql_name ||
-            refuse(:no_owner, "this schema has no #{operation.operation_type || "query"} root type")
+          root&.graphql_name || refuse(:operation_type,
+            "the composed schema has no #{operation.operation_type || "query"} root type")
         end
 
         # Which subgraph runs the whole operation. Root fields fix the
@@ -248,18 +299,14 @@ module GraphWeaver
 
           owners = fields.to_h { |node| [node.name, @table.owners(root, node.name)] }
           if (nowhere = owners.select { |_, graphs| graphs.empty? }.keys).any?
-            refuse :no_owner,
-              "the supergraph's routing table names no subgraph for #{root}.#{nowhere.first} — " \
-              "it can't say where the field lives. Run this one against a real router."
+            refuse :no_owner, "the supergraph places #{root}.#{nowhere.first} in no subgraph"
           end
 
           shared = owners.values.reduce(:&)
           return shared if shared.any?
 
           refuse :root_fields_span,
-            "this operation's root fields span subgraphs — #{describe(owners, root)}. The local router " \
-            "hands one query to one subgraph verbatim, so every field has to resolve in the same one. " \
-            "Split it into one operation per subgraph, or run this one against a real router."
+            "this operation's root fields span subgraphs: #{describe(owners, root)}"
         end
 
         # Every field this operation reaches is resolvable by `subgraph`.
@@ -291,15 +338,12 @@ module GraphWeaver
 
           unless owners.include?(subgraph) || provided.include?(node.name)
             if owners.empty?
-              refuse :no_owner,
-                "the supergraph's routing table names no subgraph for #{type_name}.#{node.name} — " \
-                "it can't say where the field lives. Run this one against a real router."
+              refuse :no_owner, "the supergraph places #{type_name}.#{node.name} in no subgraph"
             end
 
             refuse :crosses_subgraph,
-              "#{type_name}.#{node.name} is resolved by #{owners.join(" or ")}, and this operation runs " \
-              "in #{subgraph} — the local router hands one query to one subgraph verbatim and doesn't " \
-              "stitch across a boundary. Run this one against a real router."
+              "#{type_name}.#{node.name} is resolved by #{owners.join(" or ")}, " \
+              "and this operation runs in #{subgraph}"
           end
 
           verify_requires!(type_name, node, subgraph, field)
@@ -325,9 +369,7 @@ module GraphWeaver
           refuse :requires,
             "#{type_name}.#{node.name} runs in #{subgraph} and @requires #{field.requires.inspect}, " \
             "which #{subgraph} doesn't hold (#{missing.join(", ")} " \
-            "#{holders.any? ? "come from #{holders.join(" or ")}" : "belong to no subgraph"}) — the " \
-            "router fetches those first and hands them back, a chain the local router doesn't plan. " \
-            "Run this one against a real router."
+            "#{holders.any? ? "come from #{holders.join(" or ")}" : "belong to no subgraph"})"
         end
 
         # A fragment's type condition has to exist in the subgraph running the
@@ -339,9 +381,7 @@ module GraphWeaver
           return if declared.empty? || declared.include?(subgraph)
 
           refuse :crosses_subgraph,
-            "#{type_name} lives in #{declared.join(" and ")}, and this operation runs in #{subgraph} — " \
-            "the local router hands one query to one subgraph verbatim and doesn't stitch across a " \
-            "boundary. Run this one against a real router."
+            "#{type_name} lives in #{declared.join(" and ")}, and this operation runs in #{subgraph}"
         end
 
         # @provides says this subgraph carries its own copy of fields it

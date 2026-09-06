@@ -1,0 +1,3 @@
+query UserLookup($id: ID!) {
+  user(id: $id) { id username email }
+}

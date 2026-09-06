@@ -105,8 +105,8 @@ describe GraphWeaver::Testing::Router do
       error = refusal("{ me { username } topProducts(first: 2) { name } }")
 
       expect(error.category).to eq :root_fields_span
-      expect(error.message).to start_with "this operation's root fields span subgraphs — " \
-        "Query.me (accounts), Query.topProducts (products)."
+      expect(error.detail).to eq "this operation's root fields span subgraphs: " \
+        "Query.me (accounts), Query.topProducts (products)"
       expect(error.message).to end_with "Split it into one operation per subgraph, or run this one " \
         "against a real router."
     end
@@ -153,7 +153,7 @@ describe GraphWeaver::Testing::Router do
 
     it "refuses a subscription" do
       expect { split.execute("subscription { ticks }") }
-        .to raise_error(Unplannable, /plans queries and mutations — got a subscription/)
+        .to raise_error(Unplannable, /\Athis document is a subscription — the local router plans/)
     end
 
     it "refuses introspection mixed with data fields" do
@@ -168,7 +168,7 @@ describe GraphWeaver::Testing::Router do
 
       expect(error.category).to eq :ambiguous_operation
       expect(error.message).to eq "the document holds 2 operations (A, B) — pass operation_name: " \
-        "to say which one to run."
+        "naming one of them."
       expect(router.execute("query A { me { username } } query B { me { email } }", operation_name: "B"))
         .to eq({ "data" => { "me" => { "email" => "pepper.daniel@gmail.com" } } })
     end

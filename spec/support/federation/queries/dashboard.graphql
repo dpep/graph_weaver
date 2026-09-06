@@ -1,0 +1,3 @@
+query Dashboard {
+  me { username reviews { id body } }
+}

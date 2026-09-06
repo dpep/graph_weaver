@@ -18,6 +18,7 @@
 #      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
 #      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
 #      rake graph_weaver:schema:refresh  # re-introspect and rewrite the dump
+#      rake graph_weaver:federation:coverage  # what the local test router can plan
 require_relative "../graph_weaver"
 
 namespace :graph_weaver do
@@ -89,6 +90,28 @@ namespace :graph_weaver do
 
       abort "#{failures.size} invalid #{(failures.size == 1) ? "query" : "queries"}" if failures.any?
       puts "every query validates against the schema"
+    end
+  end
+
+  namespace :federation do
+    desc "Report how many queries the local test router can plan (SUPERGRAPH=, QUERIES=)"
+    task coverage: :environment do
+      require "graph_weaver/testing"
+
+      supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
+      unless supergraph
+        abort "pass the composed supergraph: rake graph_weaver:federation:coverage " \
+          "SUPERGRAPH=supergraph.graphql"
+      end
+
+      puts GraphWeaver::Testing::Coverage.new(
+        supergraph:,
+        queries: ENV["QUERIES"] || GraphWeaver.queries_path,
+      ).report
+    rescue GraphWeaver::Error => e
+      # a supergraph the routing table can't read fully is itself the answer:
+      # nothing is plannable, and the message says which construct
+      abort e.message
     end
   end
 

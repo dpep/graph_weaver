@@ -1,0 +1,3 @@
+query ReviewCards {
+  reviews { body author { username email } }
+}

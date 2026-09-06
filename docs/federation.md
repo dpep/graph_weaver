@@ -82,6 +82,38 @@ The derivation is diffed against Apollo's own `composeServices` +
 over composed supergraphs carrying `@interfaceObject`, `@join__unionMember`,
 `@join__enumValue` and an aliased `@inaccessible` — identical in each.
 
+### The routing table
+
+Stripping the machinery answers "what does this graph look like". The other
+question a supergraph answers is "who resolves what", and
+`SchemaLoader.routing_table` keeps that side rather than discarding it:
+
+```ruby
+table = GraphWeaver::SchemaLoader.routing_table("supergraph.graphql")
+
+table.subgraphs                                # => ["accounts", "products", "reviews"]
+table.owners("Product", "shippingEstimate")    # => ["reviews"]
+table.owners("User", "username")               # => ["accounts"] — the @external copy isn't an owner
+table.keys("User", "accounts")                 # => [["id"]]
+table.field("Product", "shippingEstimate").requires  # => "price weight"
+```
+
+Subgraphs are named the way `@join__graph(name:)` names them — the strings a
+router config and `rover` use, not the SDL's uppercase enum spelling. A `@key`
+field set comes back as dotted paths (`"id organization { id }"` → `["id",
+"organization.id"]`), so a nested one is recognizable by its shape. A field
+with no `@join__field` at all lives wherever its type does; that omission is
+how the composer says "everywhere".
+
+A `@join__` directive the table hasn't been taught lands in `#unsupported`
+rather than being skipped — a table that silently ignores half a spec version
+answers confidently and wrongly. Callers refuse on a non-empty list; that is
+what bounds the maintenance tail across federation spec versions.
+
+The table is what [`Testing::Router`](testing.md#a-local-federation-router)
+plans against, and it's a reasonable read on its own — "which subgraph owns
+this field" is the sentence a good error message wants.
+
 ## Pointing weaver at a subgraph
 
 A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the

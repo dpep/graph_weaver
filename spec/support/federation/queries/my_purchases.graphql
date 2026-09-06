@@ -1,0 +1,3 @@
+query MyPurchases {
+  me { reviews { body product { name price } } }
+}
