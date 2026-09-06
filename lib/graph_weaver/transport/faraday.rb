@@ -29,14 +29,14 @@ module GraphWeaver
         ::Faraday::ConnectionFailed, ::Faraday::TimeoutError, ::Faraday::SSLError
       )
 
-      def initialize(url_or_connection, headers: {}, &block)
+      def initialize(url_or_connection, headers: {}, open_timeout: nil, read_timeout: nil, &block)
         @connection = case url_or_connection
         when ::Faraday::Connection
-          # a prebuilt connection carries its own headers/middleware, so
-          # headers:/block would be silently dropped — fail loudly instead
-          unless headers.empty? && block.nil?
+          # a prebuilt connection carries its own headers/middleware/
+          # timeouts, so they'd be silently dropped — fail loudly instead
+          unless headers.empty? && block.nil? && open_timeout.nil? && read_timeout.nil?
             raise ArgumentError,
-              "headers:/block are ignored when passing a prebuilt Faraday::Connection — configure them on it"
+              "headers:/timeouts/block are ignored when passing a prebuilt Faraday::Connection — configure them on it"
           end
 
           url_or_connection
@@ -44,9 +44,24 @@ module GraphWeaver
           # Faraday appends the default adapter when the block doesn't set
           # one. Our defaults go on the connection so ours is the
           # User-Agent, not Faraday's stock one; caller headers still win.
-          ::Faraday.new(url: url_or_connection, headers: DEFAULT_HEADERS.merge(headers), &block)
+          # Timeouts default to Transport::HTTP's — Faraday would
+          # otherwise inherit net/http's 60s/60s.
+          ::Faraday.new(
+            url: url_or_connection,
+            headers: DEFAULT_HEADERS.merge(headers),
+            request: {
+              open_timeout: open_timeout || DEFAULT_OPEN_TIMEOUT,
+              read_timeout: read_timeout || DEFAULT_READ_TIMEOUT,
+            },
+            &block
+          )
         end
         @url = @connection.url_prefix.to_s
+
+        # which adapter got picked decides socket reuse — Faraday's
+        # default net_http one opens a connection per request. Naming it
+        # is the cheapest way to make that discoverable.
+        GraphWeaver.log(:info) { "faraday transport #{@url} (adapter: #{@connection.builder.adapter})" }
       end
 
       private

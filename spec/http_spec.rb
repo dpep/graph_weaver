@@ -76,6 +76,11 @@ describe GraphWeaver::Transport::HTTP do
       expect(peak_inflight).to eq 1
     end
 
+    it "applies read_timeout: to a pooled socket" do
+      expect { PersonQuery.execute(described_class.new(slow_url, read_timeout: 0.01), id: "1") }
+        .to raise_error(GraphWeaver::TransportError, /Timeout/)
+    end
+
     it "rejects a pool that can't hold a connection" do
       expect { described_class.new(url, pool_size: 0) }.to raise_error(ArgumentError, /pool_size/)
     end

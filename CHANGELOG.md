@@ -164,6 +164,16 @@ Transport improvements from the same review:
   server operators can attribute the traffic. Previously the only header sent
   was `Content-Type`, and net/http supplied `Accept: */*`. `headers:` still
   overrides both; a prebuilt `Faraday::Connection` keeps whatever it carries.
+- **`Transport::Faraday` takes `open_timeout:`/`read_timeout:` and defaults them
+  to 10s/30s**, the same as `Transport::HTTP`. It had no timeout knobs at all,
+  so it inherited net/http's 60s/60s — 6× and 2× the documented defaults, on the
+  transport an app is *more* likely to get, since Faraday is auto-selected
+  whenever it's loaded and it rides in transitively via stripe/octokit. Both
+  timeouts now also thread through the client: `GraphWeaver.new(url,
+  read_timeout: 5)` works whichever transport is picked. Passing a timeout
+  alongside a prebuilt `Faraday::Connection` raises, as `headers:` already did.
+  The Faraday transport also logs its adapter at `:info` — the default
+  `net_http` one opens a connection per request, which was invisible.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

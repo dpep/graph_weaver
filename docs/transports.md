@@ -31,6 +31,8 @@ introspected lazily, and `parse`/`execute` bound to both.
 - `headers:` — anything else (API keys, custom headers)
 - `retries:` — off by default; `true` for a `Retry` with defaults,
   or a Hash of its options
+- `open_timeout:` / `read_timeout:` — seconds, defaulting to 10 and 30 on
+  either transport
 - `cache:` / `ttl:` — schema introspection caching (see
   [real world](real_world.md)); url clients only — a schema source never
   introspects, so passing them raises
@@ -64,7 +66,10 @@ GraphWeaver::Transport::HTTP.new(
   pool_size: 5,                        # concurrent requests in flight
 )
 
-# Faraday: a url (+ optional middleware block), or a ready connection
+# Faraday: a url (+ optional middleware block), or a ready connection.
+# Timeouts default to the same 10/30 as Transport::HTTP — without them
+# Faraday inherits net/http's 60s/60s.
+GraphWeaver::Transport::Faraday.new(url, open_timeout: 10, read_timeout: 30)
 GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.request :authorization, "Bearer", -> { Tokens.fetch }  # dynamic tokens
   conn.response :logger
@@ -74,7 +79,8 @@ GraphWeaver::Transport::Faraday.new(MyApp.faraday_connection)
 # One Faraday::Connection is reused for the transport's lifetime, but
 # socket keep-alive depends on the ADAPTER: Faraday's default net_http
 # adapter opens a fresh connection per request. For persistent sockets
-# (and real pooling), pick a persistent adapter:
+# (and real pooling), pick a persistent adapter — the transport logs the
+# adapter it ended up with at :info:
 GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.adapter :net_http_persistent   # gem "net-http-persistent"
 end

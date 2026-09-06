@@ -29,14 +29,16 @@ require_relative "transport/http"
 class GraphWeaver::Client
   URL = %r{\Ahttps?://}i
 
-  def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil, &middleware)
+  def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
+    open_timeout: nil, read_timeout: nil, &middleware)
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, "pass a url or transport:, not both" if transport
 
-      @transport = wrap_retries(build_transport(source, auth:, headers:, &middleware), retries)
+      built = build_transport(source, auth:, headers:, open_timeout:, read_timeout:, &middleware)
+      @transport = wrap_retries(built, retries)
     else
-      if auth || middleware || retries
-        raise ArgumentError, "auth:/retries:/middleware apply to a url — got a schema source"
+      if auth || middleware || retries || open_timeout || read_timeout
+        raise ArgumentError, "auth:/retries:/timeouts/middleware apply to a url — got a schema source"
       end
       if cache || ttl
         # a schema source never introspects, so a cache would silently no-op
@@ -175,19 +177,22 @@ class GraphWeaver::Client
   # ...), and try-requiring would switch transports on apps that never
   # chose it. With faraday under `require: false`, load it before
   # building the client.
-  def build_transport(url, auth:, headers:, &middleware)
+  def build_transport(url, auth:, headers:, open_timeout: nil, read_timeout: nil, &middleware)
     headers = headers.dup
     if auth
       headers["Authorization"] ||= auth.include?(" ") ? auth : "Bearer #{auth}"
     end
 
+    # nil means "the transport's default" — both bundled ones agree on it
+    timeouts = { open_timeout:, read_timeout: }.compact
+
     if defined?(::Faraday)
       require_relative "transport/faraday"
-      GraphWeaver::Transport::Faraday.new(url, headers:, &middleware)
+      GraphWeaver::Transport::Faraday.new(url, headers:, **timeouts, &middleware)
     elsif middleware
       raise ArgumentError, "middleware blocks require the faraday gem"
     else
-      GraphWeaver::Transport::HTTP.new(url, headers:)
+      GraphWeaver::Transport::HTTP.new(url, headers:, **timeouts)
     end
   end
 

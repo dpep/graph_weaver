@@ -33,6 +33,12 @@ class GraphWeaver::Transport
     "User-Agent" => "graph_weaver/#{GraphWeaver::VERSION}",
   }.freeze
 
+  # Timeouts, in seconds, shared by the bundled transports — a missing
+  # timeout is an outage, and net/http's own 60s/60s is far too patient
+  # for an API call.
+  DEFAULT_OPEN_TIMEOUT = 10
+  DEFAULT_READ_TIMEOUT = 30
+
   # the endpoint this transport talks to — recorded into cached schema
   # dumps as provenance (see SchemaLoader.introspect)
   attr_reader :url

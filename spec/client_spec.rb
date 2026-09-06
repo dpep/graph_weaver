@@ -50,6 +50,17 @@ describe GraphWeaver::Client do
       expect(client.transport).to be_a GraphWeaver::Transport::Faraday
     end
 
+    it "threads timeouts through to whichever transport it picks" do
+      faraday = GraphWeaver.new(url, open_timeout: 2, read_timeout: 5).transport
+      expect(faraday.instance_variable_get(:@connection).options.open_timeout).to eq 2
+      expect(faraday.instance_variable_get(:@connection).options.read_timeout).to eq 5
+
+      hide_const("Faraday")
+      http = GraphWeaver.new(url, read_timeout: 5).transport
+      expect(http.instance_variable_get(:@read_timeout)).to eq 5
+      expect(http.instance_variable_get(:@open_timeout)).to eq 10 # untouched default
+    end
+
     it "falls back to the built-in transport without faraday, rejecting middleware" do
       hide_const("Faraday")
 

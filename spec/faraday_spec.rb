@@ -40,6 +40,20 @@ describe GraphWeaver::Transport::Faraday do
     expect(headers["accept"]).to eq ["application/graphql-response+json, application/json;q=0.9"]
   end
 
+  it "defaults its timeouts to Transport::HTTP's, not net/http's 60s/60s" do
+    options = described_class.new(url).instance_variable_get(:@connection).options
+
+    expect(options.open_timeout).to eq 10
+    expect(options.read_timeout).to eq 30
+  end
+
+  it "applies read_timeout: to the socket" do
+    executor = described_class.new(slow_url, read_timeout: 0.01)
+
+    expect { PersonQuery.execute(executor, id: "1") }
+      .to raise_error(GraphWeaver::TransportError, /Timeout/)
+  end
+
   it "accepts an existing Faraday connection" do
     connection = Faraday.new(url:, headers: { "X-Client" => "custom" })
     executor = described_class.new(connection)
@@ -73,9 +87,11 @@ describe GraphWeaver::Transport::Faraday do
     expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
   end
 
-  it "rejects headers: with a prebuilt connection (they'd be silently ignored)" do
+  it "rejects headers:/timeouts with a prebuilt connection (they'd be silently ignored)" do
     conn = Faraday.new(url: "http://example.test/graphql")
     expect { GraphWeaver::Transport::Faraday.new(conn, headers: { "X-A" => "b" }) }
+      .to raise_error(ArgumentError, /prebuilt/)
+    expect { GraphWeaver::Transport::Faraday.new(conn, read_timeout: 5) }
       .to raise_error(ArgumentError, /prebuilt/)
     expect { GraphWeaver::Transport::Faraday.new(conn) }.not_to raise_error # bare prebuilt is fine
   end

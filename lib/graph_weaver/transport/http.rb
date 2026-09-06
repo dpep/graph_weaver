@@ -23,8 +23,8 @@ module GraphWeaver
       # transport-error set.
       GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
 
-      def initialize(url, headers: {}, open_timeout: 10, read_timeout: 30, keep_alive_timeout: 2,
-        pool_size: 5)
+      def initialize(url, headers: {}, open_timeout: DEFAULT_OPEN_TIMEOUT,
+        read_timeout: DEFAULT_READ_TIMEOUT, keep_alive_timeout: 2, pool_size: 5)
         raise ArgumentError, "pool_size: must be >= 1" unless pool_size >= 1
 
         @url = url
