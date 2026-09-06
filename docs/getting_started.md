@@ -152,15 +152,52 @@ order. Pin values with `overrides:`, simulate failures with `Failure.*`
 ```sh
 rake graph_weaver:verify          # generated code fresh? fails on any drift
 rake graph_weaver:schema:verify   # server drifted? re-introspects and compares
+rake graph_weaver:schema:check    # did that drift break any of your queries?
 ```
 
-Two different questions. `graph_weaver:verify` checks that the committed
-generated files match what the current schema + queries + registrations
-would produce — run it in every CI build. `graph_weaver:schema:verify`
-asks whether the *server* has moved since the dump was taken — it needs
-network, a dump with a recorded source url (introspected dumps have one),
-and `GRAPHWEAVER_AUTH` for private APIs; run it on a schedule and refresh
-with `rake graph_weaver:schema:refresh`.
+Three different questions.
+
+`graph_weaver:verify` checks that the committed generated files match what
+the current schema + queries + registrations would produce — run it in
+every CI build. No network.
+
+`graph_weaver:schema:verify` asks whether the *server* has moved since the
+dump was taken. It needs network, a dump with a recorded source url
+(introspected dumps have one), and `GRAPHWEAVER_AUTH` for private APIs;
+run it on a schedule and refresh with `rake graph_weaver:schema:refresh`.
+
+`graph_weaver:schema:check` answers the question that actually matters
+when it *has* moved: **which of your queries no longer validate, and
+why.** It re-introspects the recorded url (without rewriting the dump) and
+validates every `.graphql` file against the schema as it is right now,
+naming each error's line and column:
+
+```
+app/graphql/queries/person.graphql
+  4:5  Field 'nmae' doesn't exist on type 'Person' (Did you mean `name`?)
+
+1 invalid query
+```
+
+It exits non-zero when anything fails, so it drops straight into CI or a
+scheduled job. This is breaking-change detection scoped to the operations
+you actually ship — no usage metrics, no sampling window, no
+distinct-operation cap: your repository either still compiles against the
+server or it doesn't.
+
+The Ruby behind it returns the same thing as data, so you can wire it into
+whatever you already have (a spec, a Slack ping, an issue):
+
+```ruby
+GraphWeaver.check_queries
+# => { "app/graphql/queries/person.graphql" =>
+#      [{ "message" => "Field 'nmae' doesn't exist on type 'Person' (Did you mean `name`?)",
+#         "line" => 4, "column" => 5 }] }
+```
+
+Empty means everything validates. Pass `schema:` to check against a
+schema you already have and nothing touches the network — handy for
+checking a *proposed* schema (a subgraph about to ship) before it's live.
 
 ## Sorbet, with or without
 

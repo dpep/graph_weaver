@@ -170,6 +170,17 @@ Codegen bug fixes from the library review (all with regression coverage):
   **`Representations` joins `Result`/`QUERY` as a reserved module-level name**
   — a shared fragment hoisting to it is now refused.
 
+New:
+- **`rake graph_weaver:schema:check` — which of your queries a schema change
+  broke.** Re-introspects the url the dump records (leaving the dump alone) and
+  validates every checked-in `.graphql` against the server as it is now,
+  reporting file plus line:col plus message and exiting non-zero on any
+  failure, so it drops into CI. `GraphWeaver.check_queries` returns the same
+  thing as data (`{path => [{"message", "line", "column"}]}`, empty when
+  everything validates); pass `schema:` to check a schema you already have
+  without touching the network. Complements `graph_weaver:verify`, which asks
+  the different question of whether the committed Ruby is stale.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
