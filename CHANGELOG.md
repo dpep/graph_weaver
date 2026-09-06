@@ -71,6 +71,12 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- An enum whose values differ only in case (`enum E { active ACTIVE }`) is
+  refused at generation naming both wire values, instead of emitting two
+  `Active` constants and raising `RuntimeError: Enum values must be assigned to
+  constants` when the file loads. **Map such an enum onto one of yours**
+  (`register_enum`). `AB`/`A_B` and `IN_PROGRESS`/`INPROGRESS` still generate
+  fine — they name distinct constants.
 - A `.graphql` file that won't parse raises `GraphWeaver::ValidationError`
   **naming the file**, instead of a bare `GraphQL::ParseError` whose `[6, 1]`
   pointed into a document you never wrote — fragment inlining parses on the

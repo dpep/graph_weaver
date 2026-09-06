@@ -406,6 +406,23 @@ describe GraphWeaver::Codegen do
       expect(sent).to eq("sort" => %w[DESC ASC], "one" => "ASC")
     end
 
+    it "refuses enum values that would share one Ruby constant" do
+      schema = GraphQL::Schema.from_definition("enum E { active ACTIVE }\ntype Query { e: E }")
+
+      # T::Enum raises "Enum values must be assigned to constants" at LOAD time
+      expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", module_name: "Q") }
+        .to raise_error(GraphWeaver::Error, /ACTIVE and active both become the constant Active/)
+    end
+
+    it "leaves values that merely look alike alone" do
+      schema = GraphQL::Schema.from_definition(
+        "enum E { AB A_B IN_PROGRESS INPROGRESS }\ntype Query { e: E }",
+      )
+      src = GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", module_name: "Q")
+
+      expect(src).to include("Ab = new", "AB = new", "InProgress = new", "Inprogress = new")
+    end
+
     it "types a result enum and the same variable enum as one class" do
       # separate classes for one GraphQL enum failed both srb tc and the runtime
       # sig on the obvious move: read a value out, feed it back in

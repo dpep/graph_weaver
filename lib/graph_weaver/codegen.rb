@@ -505,9 +505,7 @@ class GraphWeaver::Codegen
             type_ref(field_type) { shared }
           else
             name = pick_name(core.graphql_name, key, taken)
-            # sorted so output is deterministic across schema sources
-            # (SDL round-trips reorder values alphabetically)
-            type_ref(field_type) { EnumNode.new(name, core.values.keys.sort) }
+            type_ref(field_type) { EnumNode.new(name, enum_values(core)) }
           end
         when "SCALAR"
           coordinate = "#{type.graphql_name}.#{field_name}"
@@ -863,7 +861,7 @@ class GraphWeaver::Codegen
       scalar_node(core.graphql_name)
     when "ENUM"
       mapped_enum_node(core) || (@variable_enums[core.graphql_name] ||=
-        EnumNode.new(camelize(core.graphql_name), core.values.keys.sort))
+        EnumNode.new(camelize(core.graphql_name), enum_values(core)))
     when "INPUT_OBJECT"
       input_node(core)
     else
@@ -899,6 +897,23 @@ class GraphWeaver::Codegen
   # The InputNodes a struct's fields reference, through NON_NULL/LIST
   # wrappers — the edges of the input dependency graph.
 
+
+  # A schema enum's wire values, sorted so output is deterministic across schema
+  # sources (SDL round-trips reorder values alphabetically). Values that differ
+  # only in case name the same T::Enum constant, which raises at LOAD time
+  # ("Enum values must be assigned to constants") — catch it here instead.
+  def enum_values(core)
+    values = core.values.keys.sort
+    collision = values.group_by { |value| camelize(value.downcase) }.find { |_, group| group.size > 1 }
+    if collision
+      raise GraphWeaver::Error,
+        "enum #{core.graphql_name} values #{collision.last.join(" and ")} both become the constant " \
+        "#{collision.first} — map the enum onto one of yours: " \
+        "register_enum(#{core.graphql_name.inspect}, YourEnum)"
+    end
+
+    values
+  end
 
   # Registered helper-module names for a GraphQL type (additive: global
   # registrations plus this client's), collecting their requires.
