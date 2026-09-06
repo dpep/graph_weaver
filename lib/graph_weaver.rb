@@ -254,14 +254,14 @@ module GraphWeaver
     #      #      [{ "message" => "Field 'titel' doesn't exist on type 'Person'",
     #      #         "line" => 4, "column" => 5 }] }
     #
-    # Empty means every query validates. schema: defaults to a FRESH
-    # introspection of the url the dump records — the whole point is
-    # checking against the server as it is now — and the dump is left
-    # alone; pass schema: and nothing touches the network.
+    # Empty means every query validates. schema: defaults to the server as
+    # it is now — a FRESH introspection of the url the dump records, or the
+    # live schema class when the app default runs in-process — and the dump
+    # is left alone; pass schema: and nothing touches the network.
     #
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
-    # graph_weaver:schema:check` prints this and exits non-zero.
+    # graph_weaver:queries:check` prints this and exits non-zero.
     def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
@@ -272,11 +272,18 @@ module GraphWeaver
       end
     end
 
-    # The schema check_queries defaults to: a fresh introspection of the url
-    # the local dump recorded, so no refresh step (and no rewritten dump) is
-    # needed first. Dumps with no url — hand-written SDL, a composed
-    # supergraph — have nothing to re-read, so they're checked as they are.
+    # The schema check_queries defaults to: the server as it is now. Over a
+    # socket that's a fresh introspection of the url the local dump recorded,
+    # so no refresh step (and no rewritten dump) is needed first. In-process
+    # it's the live schema class — for an app that IS the server, a dump is a
+    # snapshot of its own code, and checking against it reports phantom
+    # errors about a field you just added. Dumps with no url and no live
+    # class — hand-written SDL, a composed supergraph — have nothing to
+    # re-read, so they're checked as they are.
     def refreshed_schema
+      live = live_schema
+      return live if live
+
       # locate_schema! raises the conventional "no schema dump" message
       path = SchemaLoader.locate_path or locate_schema!
       meta = SchemaLoader.provenance(path)
@@ -285,6 +292,17 @@ module GraphWeaver
       SchemaLoader.introspect(new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport)
     end
     private :refreshed_schema
+
+    # The graphql-ruby schema class the app default executes against, when it
+    # runs in-process — a Client wrapping one, or the class in the slot bare.
+    # nil for every network client. Not memoized: in dev the class object is
+    # replaced on reload.
+    def live_schema
+      target = client.is_a?(Client) ? client.transport : client
+      target = target.schema if target.is_a?(InProcess)
+      target if target.is_a?(Class) && target <= GraphQL::Schema
+    end
+    private :live_schema
 
     # One query's schema-validation errors as JSON-ready hashes, with the
     # source position graphql-ruby reports. Unparseable counts as an error

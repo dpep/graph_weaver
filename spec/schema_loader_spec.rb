@@ -224,10 +224,14 @@ describe GraphWeaver::SchemaLoader do
       drifted = GraphQL::Schema.from_definition("type Query { renamed: String }")
       expect(described_class.stale?(path, transport: drifted)).to be true
 
-      # without transport: it needs a recorded url to rebuild one
+      # without transport: it needs a recorded url to rebuild one, and a dump
+      # from a schema class never records one — say so rather than dead-end
       expect {
         described_class.stale?(path)
-      }.to raise_error(GraphWeaver::Error, /no source url/)
+      }.to raise_error(
+        GraphWeaver::Error,
+        /records no source url — it wasn't introspected from one\. Pass transport:, or rebuild it from the schema class/,
+      )
     end
 
     it "refreshes the cache when the ttl has elapsed" do
@@ -251,6 +255,23 @@ describe GraphWeaver::SchemaLoader do
       expect {
         described_class.introspect(failing.new)
       }.to raise_error(GraphWeaver::Error, /introspection failed/)
+    end
+
+    # the newcomer's mistake: a REST base url, a GraphiQL page, a proxy that
+    # ate the path — 200, valid JSON, no __schema
+    it "names the endpoint when a 200 body isn't an introspection result" do
+      not_graphql = Class.new do
+        def url = "https://httpbin.org/post"
+
+        def execute(_query, variables:, operation_name: nil)
+          { "json" => { "query" => "query IntrospectionQuery { ... }" } }
+        end
+      end
+
+      expect { described_class.introspect(not_graphql.new) }.to raise_error(
+        GraphWeaver::Error,
+        %r{introspection at https://httpbin\.org/post returned no __schema — is that a GraphQL endpoint\? got: .*IntrospectionQuery},
+      )
     end
   end
 
@@ -299,8 +320,10 @@ describe GraphWeaver::SchemaLoader do
     it "names the fix when the dump records no url" do
       File.write(GraphWeaver.schema_path, JSON.generate(Demo::Schema.as_json))
 
-      expect { described_class.refresh! }
-        .to raise_error(GraphWeaver::Error, /records no source url.*URL=/)
+      expect { described_class.refresh! }.to raise_error(
+        GraphWeaver::Error,
+        /records no source url.*URL=.*rebuilt from code, not re-fetched.*getting_started/m,
+      )
     end
   end
 

@@ -2,9 +2,10 @@
 
 A *client* is anything with `execute(query, variables:, operation_name:)` whose result
 `to_h`s into `{"data" => ..., "errors" => ...}` — from a full
-`GraphWeaver::Client` down to a schema class (in-process execution), a
-[FakeClient](testing.md), or anything you write. Every slot that takes a
-client accepts any of them.
+`GraphWeaver::Client` down to a schema class
+([in-process execution](getting_started.md#your-apps-own-schema-in-process) —
+typed access to your own app's API, no socket), a [FakeClient](testing.md), or
+anything you write. Every slot that takes a client accepts any of them.
 
 A *transport* is the network end of that contract — GraphQL-over-HTTP. The bundled
 two — `Transport::HTTP` (net/http, zero dependencies, loaded by default)
@@ -104,11 +105,11 @@ GraphWeaver::Transport::Faraday.new(url) do |conn|
   conn.adapter :net_http_persistent
 end
 
-# In-process: a live graphql-ruby schema class, no socket. The class
-# alone works in any client slot; the wrapper adds a request context,
-# the same debug logging the network transports emit, and errors branded
-# under GraphWeaver::Error (a resolver raise becomes a ServerError,
-# status 500, with the original as #cause).
+# In-process: a live graphql-ruby schema class, no socket — typed access
+# to your own app's API. The class alone works in any client slot; the
+# wrapper adds a request context, the same debug logging the network
+# transports emit, and errors branded under GraphWeaver::Error (a resolver
+# raise becomes a ServerError, status 500, with the original as #cause).
 GraphWeaver::InProcess.new(MySchema, context: { current_user: user })
 GraphWeaver.new(MySchema, context: { current_user: user })   # same, via a client
 

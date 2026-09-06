@@ -118,6 +118,8 @@ describe "GraphWeaver.instrumenter" do
     expect(payload[:status]).to eq 200 # set inside the block, APM-style
   end
 
+  # one subscriber has to work both sides of the seam, so a success reports
+  # the status a 200 over the wire would
   it "wraps an in-process request through the same seam" do
     GraphWeaver::InProcess.new(Demo::Schema).execute("query Local { people { name } }")
 
@@ -125,6 +127,7 @@ describe "GraphWeaver.instrumenter" do
     expect(payload[:schema]).to eq "Demo::Schema"
     expect(payload[:operation]).to eq "Local"
     expect(payload[:url]).to be_nil
+    expect(payload[:status]).to eq 200
   end
 
   it "carries the query text and variables nowhere near the payload (PII)" do

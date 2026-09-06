@@ -183,7 +183,7 @@ describe "error handling" do
           /\A {2}1:25 {2}Field 'nmae' /,
           /\A {2}1:30 {2}Field 'birthdy' /,
         ]
-        # the structured side keeps the prefixed message rake schema:check reads
+        # the structured side keeps the prefixed message rake queries:check reads
         expect(e.errors.first[:message]).to start_with "queries/typo.graphql:1:25 Field 'nmae'"
       end
     end

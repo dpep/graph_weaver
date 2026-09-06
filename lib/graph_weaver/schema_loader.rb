@@ -171,12 +171,15 @@ module GraphWeaver::SchemaLoader
 
   # The subgraph spec's directives and the types they reference, keyed by
   # what a definition in the SDL would be named ("@key" for a directive).
+  # The helper scalars are spelled `federation__*` — they are weaver's own
+  # injections into someone else's schema, and a subgraph with its own
+  # `FieldSet` type must not collide with one.
   # https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/subgraph-spec
   SUBGRAPH_DIRECTIVE_DEFS = {
-    "@key" => "directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE",
+    "@key" => "directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE",
     "@external" => "directive @external on OBJECT | FIELD_DEFINITION",
-    "@requires" => "directive @requires(fields: FieldSet!) on FIELD_DEFINITION",
-    "@provides" => "directive @provides(fields: FieldSet!) on FIELD_DEFINITION",
+    "@requires" => "directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION",
+    "@provides" => "directive @provides(fields: federation__FieldSet!) on FIELD_DEFINITION",
     "@shareable" => "directive @shareable repeatable on OBJECT | FIELD_DEFINITION",
     "@extends" => "directive @extends on OBJECT | INTERFACE",
     "@override" => "directive @override(from: String!, label: String) on FIELD_DEFINITION",
@@ -185,18 +188,19 @@ module GraphWeaver::SchemaLoader
     "@tag" => "directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA",
     "@composeDirective" => "directive @composeDirective(name: String!) repeatable on SCHEMA",
     "@authenticated" => "directive @authenticated on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
-    "@requiresScopes" => "directive @requiresScopes(scopes: [[Scope!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
-    "@policy" => "directive @policy(policies: [[Policy!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@requiresScopes" => "directive @requiresScopes(scopes: [[federation__Scope!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@policy" => "directive @policy(policies: [[federation__Policy!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
     "@link" => "directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA",
   }.freeze
 
   # The types those definitions reference — injected only alongside a
-  # directive that needs one, since a subgraph may well have its own Policy
-  # or Scope type.
+  # directive that needs one. `_Any`/`_Entity`/`_Service` (see
+  # entity_plumbing) keep their spec-mandated names; these are ours to
+  # namespace, so they can't shadow a subgraph's own type.
   SUBGRAPH_HELPER_TYPES = {
-    "FieldSet" => "scalar FieldSet",
-    "Scope" => "scalar Scope",
-    "Policy" => "scalar Policy",
+    "federation__FieldSet" => "scalar federation__FieldSet",
+    "federation__Scope" => "scalar federation__Scope",
+    "federation__Policy" => "scalar federation__Policy",
     "link__Import" => "scalar link__Import",
     "link__Purpose" => "enum link__Purpose { SECURITY EXECUTION }",
   }.freeze
@@ -589,11 +593,20 @@ module GraphWeaver::SchemaLoader
       GraphWeaver.log(:info) { "schema cache miss: #{cache}" }
     end
 
-    result = GraphWeaver.log_timed(:info, "introspected #{transport.respond_to?(:url) ? transport.url : transport.class}") do
+    result = GraphWeaver.log_timed(:info, "introspected #{endpoint(transport)}") do
       transport.execute(GraphQL::Introspection.query, variables: {}).to_h
     end
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
+    end
+    # a 200 of well-formed JSON that isn't an introspection result — a REST
+    # base url, a GraphiQL page, a proxy that ate the path. from_introspection
+    # would raise a bare NoMethodError on the missing "__schema" key.
+    data = result["data"]
+    unless data.is_a?(Hash) && data["__schema"]
+      raise GraphWeaver::Error,
+        "introspection at #{endpoint(transport)} returned no __schema — is that a GraphQL " \
+        "endpoint? got: #{result.inspect[0, 200]}"
     end
 
     schema = GraphQL::Schema.from_introspection(result)
@@ -616,6 +629,13 @@ module GraphWeaver::SchemaLoader
 
     schema
   end
+
+  # What to call the thing we introspected, for a log line or an error: its
+  # url when it has one, else the class (a schema class, a fake).
+  def self.endpoint(transport)
+    (transport.respond_to?(:url) && transport.url) || transport.class
+  end
+  private_class_method :endpoint
 
   # The conventional schema dump, whatever its format: schema_path or the
   # first sibling extension that exists. nil when none is on disk.
@@ -643,7 +663,7 @@ module GraphWeaver::SchemaLoader
   # Re-introspect a dump's source and compare — true when the server has
   # drifted from what's on disk. transport: overrides the transport (auth
   # etc); by default one is built from the dump's recorded url. Wired up
-  # as `rake graph_weaver:schema:verify` / `:refresh`.
+  # as `rake graph_weaver:schema:diff` / `:refresh`.
   def self.stale?(path, transport: nil)
     transport ||= source_transport(path)
     fresh = introspect(transport)
@@ -670,7 +690,9 @@ module GraphWeaver::SchemaLoader
 
   def self.refresh_hint(path)
     missing = path ? "#{path} records no source url" : "no schema dump at #{GraphWeaver.schema_path}"
-    "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+    "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql " \
+      "(a dump taken from a schema class is rebuilt from code, not re-fetched — see " \
+      "docs/getting_started.md#your-apps-own-schema-in-process)"
   end
   private_class_method :refresh_hint
 
@@ -679,7 +701,9 @@ module GraphWeaver::SchemaLoader
   def self.source_transport(path)
     meta = provenance(path)
     unless meta&.key?("url")
-      raise GraphWeaver::Error, "#{path} records no source url — pass transport:"
+      raise GraphWeaver::Error,
+        "#{path} records no source url — it wasn't introspected from one. Pass transport:, " \
+        "or rebuild it from the schema class that produced it."
     end
 
     GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport

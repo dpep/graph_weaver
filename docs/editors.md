@@ -76,7 +76,7 @@ So the division of labour is:
 | Is this query valid, right now, as I type it? | the editor plugin |
 | Do the result types match the query? | `rake graph_weaver:generate` + `srb tc` |
 | Is my checked-in Ruby stale? | `rake graph_weaver:verify` |
-| Did the server break my queries? | `rake graph_weaver:schema:check` |
+| Did the server break my queries? | `rake graph_weaver:queries:check` |
 
 The last two are the Ruby-side answers, and they need no JS at all — see
 [getting started](getting_started.md#5-verify-in-ci).

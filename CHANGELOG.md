@@ -611,6 +611,57 @@ no-dump and no-provenance messages now name that fix. The same logic is
 `GraphWeaver::SchemaLoader.refresh!(url:, auth:)`, which is what the generator
 calls.
 
+**Pointing a client at a url that isn't a GraphQL endpoint now says so.** A
+REST base url, a GraphiQL page or a proxy that ate the path answers 200 with
+well-formed JSON, and `.schema` raised a bare `KeyError`/`NoMethodError` out of
+graphql-ruby — unbranded, no url, and it escaped `rescue GraphWeaver::Error`
+(a 404 on the same path was already branded and clear). Introspection now
+checks for `data.__schema` and raises `GraphWeaver::Error` naming the endpoint
+and the first 200 characters of what came back.
+
+**A subgraph's own `FieldSet` / `Scope` / `Policy` type no longer collides with
+weaver's.** Loading subgraph SDL injects the federation directive definitions
+the file applies but doesn't declare, and the scalars they reference went in
+unnamespaced — so a subgraph that owns a type by one of those names either had
+it shadowed or failed to build, with advice pointing at the wrong file. Those
+three are now `federation__FieldSet` / `federation__Scope` /
+`federation__Policy`. `_Any` / `_Entity` / `_Service` keep their names — those
+are spec-mandated and queryable.
+
+**`rake graph_weaver:schema:check` no longer compares an in-process app's
+schema against itself.** For an app whose schema is its own graphql-ruby class
+there is no server to re-introspect, so the check degraded to re-reading the
+committed dump — reporting phantom errors about the app's own schema, a field
+you just added reading as "doesn't exist". When `GraphWeaver.client` executes
+in-process (a `Client` wrapping a schema class, or the class itself), the check
+now validates against the live class. Network clients are unchanged.
+
+**The two dead-end "records no source url" messages now say what to do.** A
+dump taken from a schema class is rebuilt from code, not re-fetched — both
+`schema:refresh` and `schema:diff` say that instead of naming a `URL=` that
+doesn't exist for you.
+
+**Two rake tasks are renamed so each one names its own subject.** There were
+three checks and two of them were called `verify`, while the one people run
+most — "did schema drift break my queries?" — lived under `schema:` and doesn't
+check the schema. **Update your CI:**
+
+| Was | Now | Asks |
+|---|---|---|
+| `graph_weaver:schema:check` | `graph_weaver:queries:check` | do my checked-in queries still validate? |
+| `graph_weaver:schema:verify` | `graph_weaver:schema:diff` | has the server drifted from the dump? |
+
+`graph_weaver:verify` (is the committed Ruby fresh?) and
+`graph_weaver:schema:refresh` are unchanged. No aliases — the old names are
+gone.
+
+**The instrumentation payload now carries `:status` in-process too.** `InProcess`
+brands a resolver raise as `ServerError(500)` precisely so callers needn't
+branch on which side of the seam a query ran — but the payload had no `:status`
+in-process and no `:schema` over the wire, so a subscriber had to branch
+anyway. A successful in-process execute now sets `:status` to 200; a failure
+still rides the exception the hook already sees.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

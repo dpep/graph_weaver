@@ -116,15 +116,14 @@ itself upgrades (emission may differ across versions; `verify_generated!`
 catches it).
 
 Introspected dumps record their source url, so drift is checkable ahead
-of the late signal: `rake graph_weaver:schema:verify` re-introspects the
+of the late signal: `rake graph_weaver:schema:diff` re-introspects the
 recorded url and fails when the server has moved;
 `rake graph_weaver:schema:refresh` rewrites the dump
-(`GRAPHWEAVER_AUTH` supplies a token for private APIs). Don't confuse
-the two verifies: `graph_weaver:verify` asks "is the generated code
-fresh?" — local, every CI run; `graph_weaver:schema:verify` asks "has the
-*server* drifted from the dump?" — network, needs the recorded url, run
-on a schedule. When the server *has* moved,
-`rake graph_weaver:schema:check` names the queries that no longer validate
+(`GRAPHWEAVER_AUTH` supplies a token for private APIs). Each task names its subject:
+`graph_weaver:verify` asks "is the generated code fresh?" — local, every
+CI run; `graph_weaver:schema:diff` asks "has the *server* drifted from
+the dump?" — network, needs the recorded url, run on a schedule. When the server *has* moved,
+`rake graph_weaver:queries:check` names the queries that no longer validate
 against it and where — see [getting started](getting_started.md#5-verify-in-ci).
 
 In development, skip the build entirely — `client.load_queries!` parses
