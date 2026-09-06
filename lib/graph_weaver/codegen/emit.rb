@@ -94,7 +94,7 @@ class GraphWeaver::Codegen
 
       # In the shared-inputs workflow the variable types live once in the
       # inputs module; the query module aliases what it uses, so
-      # AdoptQuery::AdoptionInput stays a real constant — and shared types
+      # AdoptMutation::AdoptionInput stays a real constant — and shared types
       # keep ONE identity across every module that touches them.
       # Only the shared names THIS module's emission references: variable
       # root types (and, when flattened, the root input's field types)
