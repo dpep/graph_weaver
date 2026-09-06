@@ -132,9 +132,65 @@ sockets:
 ```ruby
 GraphWeaver.client = GraphWeaver::Testing::Router.new(
   supergraph: Rails.root.join("supergraph.graphql"),
-  subgraphs: { "accounts" => Accounts::Schema, "products" => Products::Schema },
   context: { current_user: user },
 )
+```
+
+Or wire it once and every example runs against your real resolvers, with no
+per-test setup:
+
+```ruby
+# spec/spec_helper.rb — require "graph_weaver/rspec"
+GraphWeaver::Testing.configure do |config|
+  config.router = { supergraph: Rails.root.join("supergraph.graphql") }
+end
+```
+
+The router is built once for the suite and installed as `GraphWeaver.client`
+for each example; the prior client is restored after. An example that runs as
+someone else sets `GraphWeaver.client.context = { current_user: user }`, and
+the configured context is restored before the next one. `auto_fake` and
+`router` both install a client for every example, so configuring both refuses
+— pick the one you want.
+
+### Which schema serves which subgraph
+
+`subgraphs:` is optional. Left out, each one is **derived from what the loaded
+schemas define**: a schema serves subgraph `s` when it defines every type and
+field the routing table says `s` resolves. That's evidence rather than a guess
+— matching on class names would be one (`Accounts::Schema`, `AccountsSchema`,
+`Subgraphs::Accounts`), and a wrong guess points a suite at the wrong resolvers
+and still passes. So exactly one match is used, and anything else refuses,
+naming the candidates or what it looked for.
+
+Name them yourself when you'd rather have the wiring committed, or when
+detection can't settle it — including partially, with the rest derived:
+
+```ruby
+subgraphs: { "accounts" => Accounts::Schema }   # products, reviews derived
+```
+
+Either way the map is **checked**: a schema that doesn't define what the
+supergraph says its subgraph resolves fails at construction, naming what's
+missing, rather than surfacing as a mystery three fetches later.
+
+```
+subgraphs["accounts"] is Products::Schema, which doesn't define User,
+User.email, User.username, Query.me, Query.user and 1 more — the supergraph
+says accounts resolves them. Did two entries get swapped?
+```
+
+Detection only sees what's **loaded**, and in Rails an autoloaded schema isn't
+until something references it — so the not-found message says so. To see what
+detection sees (and get a map to paste):
+
+```
+$ rake graph_weaver:federation:subgraphs SUPERGRAPH=supergraph.graphql
+subgraphs: {
+  "accounts" => Accounts::Schema,  # matched: defines Query.me, Query.user, Query.users
+  "products" => Products::Schema,  # matched: defines Product.name, Product.price, Product.weight
+  "reviews" => nil,                # no loaded schema defines Query.feed, Review.author, Query — fill this in
+}
 ```
 
 Fakes fabricate plausible data; this runs your actual resolvers, with your
@@ -200,10 +256,10 @@ What's left, and why:
 | no usable `@key` | nothing to build a representation from |
 | a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them would run them in whatever order the plan happened to (query roots are independent, so those are fine) |
 
-Two things it refuses at construction, before a single query: a supergraph
-carrying a `@join__*` construct the routing table hasn't been taught (an
-incomplete table makes every answer a guess), and a `subgraphs:` hash that
-doesn't name every subgraph in the supergraph.
+It also refuses at construction, before a single query, a supergraph carrying
+a `@join__*` construct the routing table hasn't been taught — an incomplete
+table makes every answer a guess — and any subgraph map it can't settle
+(above).
 
 Introspection is answered from the composed API schema, never from a subgraph,
 which would reply with its own slice — the one split a real router also makes.

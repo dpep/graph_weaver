@@ -199,6 +199,53 @@ describe GraphWeaver::Testing do
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
+    # spec/support/federation_router_graph.rb composes it; naming the path
+    # rather than its constant keeps this file type-checked
+    let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
+
+    it "auto-injects the federation router per example when opted in" do
+      GraphWeaver::Testing.configure do |config|
+        config.router = { supergraph: }
+      end
+
+      run([:before, :each])
+      expect(GraphWeaver.client).to be_a GraphWeaver::Testing::Router
+      expect(GraphWeaver.client.execute("{ me { username reviews { body } } }").dig("data", "me"))
+        .to eq({ "username" => "dpep", "reviews" => [{ "body" => "Love it" }, { "body" => "Too expensive" }] })
+
+      run([:after, :each])
+      expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
+    end
+
+    # parsing a supergraph per example is real time; a context set by one
+    # example leaking into the next is a real bug
+    it "builds the router once, and resets its context every example" do
+      GraphWeaver::Testing.configure do |config|
+        config.router = { supergraph:, context: { current_user_id: "2" } }
+      end
+
+      run([:before, :each])
+      router = GraphWeaver.client
+      expect(router.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
+      router.context = { current_user_id: "1" }
+      run([:after, :each])
+
+      run([:before, :each])
+      expect(GraphWeaver.client).to be router
+      expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
+      run([:after, :each])
+    end
+
+    it "refuses to run both a fake and the router" do
+      expect {
+        GraphWeaver::Testing.configure do |config|
+          config.schema = Demo::Schema
+          config.auto_fake = true
+          config.router = { supergraph: }
+        end
+      }.to raise_error(GraphWeaver::Error, /pick one/)
+    end
+
     it "defaults OFF — fakes are an explicit opt-in" do
       expect(GraphWeaver::Testing.config.auto_fake).to be false
 

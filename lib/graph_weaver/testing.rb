@@ -16,6 +16,7 @@ end
 #
 #      GraphWeaver::Testing.configure do |config|
 #        config.schema = MySchema                  # for auto_fake / cassettes
+#        config.router = { supergraph: "supergraph.graphql" }  # federated apps
 #        config.seed = 42                          # reproducible fakes
 #        config.mode = :faker                      # or :literal; nil = auto
 #        config.overrides = { "Person.name" => "Daniel" }
@@ -39,7 +40,7 @@ module GraphWeaver
       attr_accessor :overrides, :seed, :list_size, :null_chance, :cassette_dir, :auto_fake,
         :record, :anonymize
       attr_writer :schema
-      attr_reader :mode
+      attr_reader :mode, :router
 
       def initialize
         @overrides = {}
@@ -53,6 +54,9 @@ module GraphWeaver
         # surprising to be a default — a little friction beats unexpected
         # behavior (the schema still auto-locates once you opt in)
         @auto_fake = false
+        # the Router arguments a federated app's suite runs every example
+        # against — { supergraph:, subgraphs:, context: }, subgraphs optional
+        @router = nil
         # GRAPHWEAVER_RECORD=1 rspec ...  -> Testing.cassette re-records
         @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
         # anonymize responses as they're recorded (needs config.schema)
@@ -78,6 +82,26 @@ module GraphWeaver
 
         @mode = mode
       end
+
+      # The Router every example runs against (graph_weaver/rspec), as the
+      # arguments to build one: `{ supergraph: "supergraph.graphql" }` is
+      # enough — subgraphs are derived from what each loaded schema defines.
+      def router=(arguments)
+        unless arguments.nil? || (arguments.is_a?(Hash) && arguments[:supergraph])
+          raise ArgumentError,
+            "router: must be the arguments to build one, e.g. { supergraph: \"supergraph.graphql\" }"
+        end
+
+        @router = arguments
+        @built_router = nil
+      end
+
+      # Built once: parsing the supergraph is setup, not per-example work.
+      # #context is settable, so an example that runs as someone else sets
+      # that rather than rebuilding — the rspec hook resets it each time.
+      def built_router
+        @built_router ||= Router.new(**@router)
+      end
     end
 
     class << self
@@ -90,6 +114,12 @@ module GraphWeaver
         # a typo'd override key pins nothing and the test still passes, so
         # catch it here — while the block that set it is still on the stack
         validate_overrides!(config.explicit_schema, config.overrides) if config.explicit_schema
+        if config.auto_fake && config.router
+          raise GraphWeaver::Error, "auto_fake and router both install a client for every " \
+            "example — pick one: auto_fake fabricates data from the schema, router runs your real " \
+            "subgraph resolvers"
+        end
+
         config
       end
 

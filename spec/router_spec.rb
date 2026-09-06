@@ -200,40 +200,10 @@ describe GraphWeaver::Testing::Router do
         "Run this one against a real router."
     end
 
-    # a union whose members live in different subgraphs, a mutation whose
-    # roots do, and a subscription — none of them shapes the demo graph has
-    SPLIT_UNION = <<~SDL
-      schema @link(url: "https://specs.apollo.dev/link/v1.0")
-        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
-      { query: Query, mutation: Mutation, subscription: Subscription }
-      directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
-      directive @join__graph(name: String!, url: String!) on ENUM_VALUE
-      directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | UNION
-      directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
-      scalar join__FieldSet
-      enum join__Graph {
-        A @join__graph(name: "a", url: "http://a")
-        B @join__graph(name: "b", url: "http://b")
-      }
-      type Query @join__type(graph: A) @join__type(graph: B) {
-        search: [Result!]! @join__field(graph: A)
-      }
-      type Mutation @join__type(graph: A) @join__type(graph: B) {
-        publish: Doc @join__field(graph: A)
-        annotate: Note @join__field(graph: B)
-      }
-      type Subscription @join__type(graph: A) { ticks: Int @join__field(graph: A) }
-      union Result @join__type(graph: A) @join__type(graph: B)
-        @join__unionMember(graph: A, member: "Doc")
-        @join__unionMember(graph: B, member: "Note") = Doc | Note
-      type Doc @join__type(graph: A) { id: ID! }
-      type Note @join__type(graph: B) { id: ID! }
-    SDL
-
-    # nothing here is ever executed — every one of these refuses at plan time
+    # a union split across subgraphs, a mutation whose roots are, and a
+    # subscription — none of them shapes the demo graph has
     let(:split) do
-      stand_in = RouterGraph::Accounts::Schema
-      described_class.new(supergraph: SPLIT_UNION, subgraphs: { "a" => stand_in, "b" => stand_in })
+      described_class.new(supergraph: SplitGraph::SUPERGRAPH, subgraphs: SplitGraph::SUBGRAPHS)
     end
 
     it "refuses a fragment on a type the running subgraph doesn't declare" do
@@ -253,12 +223,17 @@ describe GraphWeaver::Testing::Router do
     # its own subgraph; mutation roots run in series, and splitting them
     # would run them in whatever order the plan happened to
     it "refuses a mutation whose root fields span subgraphs" do
-      split.execute("mutation { publish { id } annotate { id } }")
-      raise "expected a refusal"
-    rescue Unplannable => e
-      expect(e.category).to eq :root_fields_span
-      expect(e.detail).to eq "this mutation's root fields span subgraphs: " \
-        "Mutation.publish (a), Mutation.annotate (b)"
+      begin
+        split.execute("mutation { publish { id } annotate { id } }")
+        raise "expected a refusal"
+      rescue Unplannable => e
+        expect(e.category).to eq :root_fields_span
+        expect(e.detail).to eq "this mutation's root fields span subgraphs: " \
+          "Mutation.publish (a), Mutation.annotate (b)"
+      end
+
+      split.execute("mutation { publish { id } }") # the same shape, one subgraph
+      expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
     end
 
     it "refuses introspection mixed with data fields" do
@@ -305,16 +280,40 @@ describe GraphWeaver::Testing::Router do
   end
 
   describe "construction" do
-    it "requires every subgraph in the supergraph, and only those" do
-      expect { described_class.new(supergraph: RouterGraph::SUPERGRAPH, subgraphs: { "accounts" => RouterGraph::Accounts::Schema }) }
-        .to raise_error(ArgumentError, /missing products, reviews/)
+    it "works out the subgraph map from what each schema defines" do
+      auto = described_class.new(supergraph: RouterGraph::SUPERGRAPH)
 
+      expect(auto.execute("{ me { username reviews { body } } }").dig("data", "me", "username"))
+        .to eq "dpep"
+      expect(auto.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts", "reviews"]
+    end
+
+    it "fills in the entries a partial map leaves out" do
+      partial = described_class.new(
+        supergraph: RouterGraph::SUPERGRAPH,
+        subgraphs: { "reviews" => RouterGraph::Reviews::Schema },
+      )
+
+      expect(partial.execute("{ me { username } }").dig("data", "me", "username")).to eq "dpep"
+    end
+
+    # a swapped pair used to surface as a mystery three fetches later
+    it "names what a mis-wired entry doesn't define" do
+      expect {
+        described_class.new(
+          supergraph: RouterGraph::SUPERGRAPH,
+          subgraphs: RouterGraph::SUBGRAPHS.merge("accounts" => RouterGraph::Products::Schema),
+        )
+      }.to raise_error(ArgumentError, /\Asubgraphs\["accounts"\] is RouterGraph::Products::Schema, which doesn't define .*Query\.me/)
+    end
+
+    it "names a subgraph the supergraph doesn't have" do
       expect {
         described_class.new(
           supergraph: RouterGraph::SUPERGRAPH,
           subgraphs: RouterGraph::SUBGRAPHS.merge("billing" => RouterGraph::Accounts::Schema),
         )
-      }.to raise_error(ArgumentError, /unknown billing/)
+      }.to raise_error(ArgumentError, /names billing, which this supergraph doesn't have/)
     end
 
     # bounding the maintenance tail across federation spec versions: a

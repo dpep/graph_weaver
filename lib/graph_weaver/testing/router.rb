@@ -6,6 +6,7 @@ require "json"
 
 require_relative "../schema_loader"
 require_relative "../transport"
+require_relative "subgraphs"
 
 module GraphWeaver
   module Testing
@@ -138,33 +139,41 @@ module GraphWeaver
       # who resolves what (GraphWeaver::SchemaLoader::RoutingTable)
       attr_reader :table
 
-      # the context handed to every subgraph, and the fetches the last
-      # execute made
-      attr_reader :context, :trace
+      # the fetches the last execute made
+      attr_reader :trace
+
+      # the context handed to every subgraph — settable, so one example can
+      # run as a different user without rebuilding the router
+      attr_accessor :context
 
       # response keys the planner injects to carry a @key across a boundary,
       # stripped before the caller sees the tree
       PREFIX = "_gw_"
 
-      def initialize(supergraph:, subgraphs:, context: {})
+      # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
+      # any of its entries) and the rest are derived from what each loaded
+      # schema defines — see {Subgraphs}, which also checks the ones you name.
+      def initialize(supergraph:, subgraphs: nil, context: {})
         source = supergraph.to_s # a path, or the SDL itself — Pathname included
         @schema = GraphWeaver::SchemaLoader.load(source)
         @table = GraphWeaver::SchemaLoader.routing_table(source)
         @context = context
         @trace = []
-        @subgraphs = checked_subgraphs(subgraphs)
-        @planner = Planner.new(table: @table, schema: @schema)
-
-        return if @table.unsupported.empty?
 
         # refuse at construction, not per query: an unread @join__ construct
         # means the routing table is incomplete, and every answer it gives
-        # about this supergraph is a guess
-        raise Unplannable.new(
-          "this supergraph uses federation constructs the local router doesn't read: " +
-            @table.unsupported.join("; "),
-          category: :unsupported_federation,
-        )
+        # about this supergraph is a guess — including which schema serves
+        # which subgraph, so this comes before resolving those
+        unless @table.unsupported.empty?
+          raise Unplannable.new(
+            "this supergraph uses federation constructs the local router doesn't read: " +
+              @table.unsupported.join("; "),
+            category: :unsupported_federation,
+          )
+        end
+
+        @subgraphs = Subgraphs.resolve(@table, subgraphs)
+        @planner = Planner.new(table: @table, schema: @schema)
       end
 
       def execute(query, variables: {}, operation_name: nil)
@@ -194,20 +203,6 @@ module GraphWeaver
       alias to_s inspect
 
       private
-
-      def checked_subgraphs(subgraphs)
-        given = subgraphs.to_h { |name, schema| [name.to_s, schema] }
-        missing = @table.subgraphs - given.keys
-        unknown = given.keys - @table.subgraphs
-        if missing.any? || unknown.any?
-          raise ArgumentError,
-            "subgraphs: must name every subgraph in the supergraph (#{@table.subgraphs.join(", ")})" \
-            "#{" — missing #{missing.join(", ")}" if missing.any?}" \
-            "#{" — unknown #{unknown.join(", ")}" if unknown.any?}"
-        end
-
-        given
-      end
 
       # __schema / __type describe the COMPOSED graph; a subgraph would
       # answer with its own slice
