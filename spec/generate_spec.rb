@@ -24,6 +24,17 @@ describe "GraphWeaver.generate!" do
       .to eq File.read(File.join(root, "spec/generated/person_query.rb"))
   end
 
+  it "brands an unparseable query file and names it" do
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "broken.graphql"), "query { people {{ name } }")
+
+    # fragment inlining parses before Codegen#generate's rescue, so this used to
+    # escape as a bare GraphQL::ParseError pointing into an unnamed document
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
+      .to raise_error(GraphWeaver::ValidationError, %r{queries/broken\.graphql:})
+  end
+
   it "derives the shared-inputs module from a multi-schema output path" do
     root = File.expand_path("..", __dir__)
     output = File.join(@dir, "github", "generated")

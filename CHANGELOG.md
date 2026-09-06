@@ -71,6 +71,11 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- A `.graphql` file that won't parse raises `GraphWeaver::ValidationError`
+  **naming the file**, instead of a bare `GraphQL::ParseError` whose `[6, 1]`
+  pointed into a document you never wrote — fragment inlining parses on the
+  `generate!` path before `Codegen#generate`'s rescue could brand it. Fragment
+  files get the same treatment.
 - Generated `from_response` shape-checks the envelope, so a malformed one stays
   under `GraphWeaver::Error`. A non-object `data`, a `Hash` (or an array of
   strings) for `errors`, and non-object `extensions` all escaped as a raw Sorbet

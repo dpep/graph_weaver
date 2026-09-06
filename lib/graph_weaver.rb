@@ -260,12 +260,12 @@ module GraphWeaver
         source = File.read(path)
         codegen = Codegen.new(
           schema:,
-          query: Codegen.inline_fragments(source, shared),
+          query: Codegen.inline_fragments(source, shared, path),
           module_name: "#{Inflect.camelize(base)}Query",
           client:,
           inputs_namespace: inputs_module,
           unions_namespace: unions_module,
-          hoistable_unions: Codegen.shared_fragment_spreads(source, shared),
+          hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
         )
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
@@ -428,11 +428,12 @@ module GraphWeaver
     # override, client: to bake the module's default client/transport.
     def parse(schema:, query:, name: nil, client: nil, scalars: nil, enums: nil, types: nil,
       fragments: fragments_paths)
-      if query.end_with?(".graphql", ".gql")
-        name ||= "#{Inflect.camelize(File.basename(query, ".*"))}Query"
-        query = File.read(query)
+      path = query if query.end_with?(".graphql", ".gql")
+      if path
+        name ||= "#{Inflect.camelize(File.basename(path, ".*"))}Query"
+        query = File.read(path)
       end
-      query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments))
+      query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 
       Codegen.parse(schema:, query:, module_name: name, client:, scalars:, enums:, types:)
     end

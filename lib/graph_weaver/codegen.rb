@@ -324,7 +324,7 @@ class GraphWeaver::Codegen
   # fragments (no operations); names are unique across them.
   def self.load_fragments(paths)
     Array(paths).flat_map { |dir| Dir[File.join(dir, "*.graphql")].sort }.each_with_object({}) do |file, out|
-      doc = GraphQL.parse(File.read(file))
+      doc = parse_document(File.read(file), file)
       if doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).any?
         raise GraphWeaver::Error, "#{file}: fragment files define only fragments, no operations"
       end
@@ -339,18 +339,33 @@ class GraphWeaver::Codegen
   # shadows with a local definition of the same name — the names
   # inline_fragments appends, and the set the generate! workflow may hoist
   # when they sit on a whole-union field.
-  def self.shared_fragment_spreads(query, shared)
+  def self.shared_fragment_spreads(query, shared, path = nil)
+    # parsed even with nothing to spread: this is the first look at the document
+    # on the generate! path, so it's where a syntax error gets branded and
+    # pinned to the file it came from
+    doc = parse_document(query, path)
     return [] if shared.empty?
 
-    doc = GraphQL.parse(query)
     local = doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).map(&:name)
     reachable_fragments(fragment_spreads(doc.definitions), shared, local)
   end
 
+  # Parse a GraphQL document, branding graphql-ruby's ParseError under the
+  # umbrella and naming the file it came from — its own location is a line and
+  # column in a document the caller never sees. This runs on the generate! path
+  # BEFORE Codegen#generate's rescue, so it needs its own guard.
+  def self.parse_document(query, path = nil)
+    GraphQL.parse(query)
+  rescue GraphQL::ParseError => e
+    raise GraphWeaver::ValidationError.new(
+      [{ message: path ? "#{path}: #{e.message}" : e.message, line: e.line, column: e.col }],
+    )
+  end
+
   # Append the shared fragments a query spreads (transitively) to its source, so
   # the sent query is self-contained. Unused shared fragments are left out.
-  def self.inline_fragments(query, shared)
-    used = shared_fragment_spreads(query, shared)
+  def self.inline_fragments(query, shared, path = nil)
+    used = shared_fragment_spreads(query, shared, path)
     return query if used.empty?
 
     "#{query.rstrip}\n\n#{used.sort.map { |name| shared.fetch(name).to_query_string }.join("\n\n")}\n"
