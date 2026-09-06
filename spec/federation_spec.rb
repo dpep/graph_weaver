@@ -109,6 +109,183 @@ describe "federation / supergraph" do
   end
 end
 
+# Which names are federation's own is declared by the schema, through @link
+# (fed 2) or @core (fed 1) — the spec URL names the namespace, `as:` renames
+# it, and `import:` binds names into the root namespace. Reading those beats
+# a fixed join__/link__/core__ list: the fixed list misses every graph that
+# uses a spec it doesn't know, and misses a renamed @inaccessible entirely.
+describe "federation / @link namespaces" do
+  def load(sdl) = GraphWeaver::SchemaLoader.load(sdl)
+
+  LINK_DEF = <<~GRAPHQL
+    directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+    scalar link__Import
+    enum link__Purpose { SECURITY EXECUTION }
+    directive @join__type(graph: join__Graph!) repeatable on OBJECT
+    enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+  GRAPHQL
+
+  # fed 2.5+ auth: @requiresScopes/@policy/@context each bring a namespaced
+  # type along, and none of those namespaces is join__/link__/core__
+  it "strips the namespaces a fed-2.5 auth graph links" do
+    schema = load(<<~GRAPHQL)
+      schema
+        @link(url: "https://specs.apollo.dev/link/v1.0")
+        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+        @link(url: "https://specs.apollo.dev/federation/v2.5", import: ["@requiresScopes", "@policy"])
+        @link(url: "https://specs.apollo.dev/context/v0.1", for: SECURITY)
+      {
+        query: Query
+      }
+
+      #{LINK_DEF}
+      directive @requiresScopes(scopes: [[federation__Scope!]!]!) on FIELD_DEFINITION | OBJECT
+      directive @policy(policies: [[federation__Policy!]!]!) on FIELD_DEFINITION | OBJECT
+      directive @context(name: String!) repeatable on OBJECT
+      directive @context__fromContext(field: context__ContextFieldValue) on ARGUMENT_DEFINITION
+
+      scalar federation__Scope
+      scalar federation__Policy
+      scalar context__ContextFieldValue
+
+      type Query @join__type(graph: A) @context(name: "ctx") {
+        user: User @requiresScopes(scopes: [["read:user"]]) @policy(policies: [["viewer"]])
+      }
+
+      type User @join__type(graph: A) { id: ID! name: String! }
+    GRAPHQL
+
+    expect(schema.types.keys.grep(/federation__|context__|join__|link__/)).to be_empty
+    expect(schema.get_type("User").fields.keys).to eq %w[id name]
+  end
+
+  it "follows an `as:` rename of the join spec" do
+    schema = load(<<~GRAPHQL)
+      schema
+        @link(url: "https://specs.apollo.dev/link/v1.0")
+        @link(url: "https://specs.apollo.dev/join/v0.3", as: "j", for: EXECUTION)
+      {
+        query: Query
+      }
+
+      directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+      scalar link__Import
+      enum link__Purpose { SECURITY EXECUTION }
+      directive @j__type(graph: j__Graph!) repeatable on OBJECT
+      directive @j__field(graph: j__Graph) on FIELD_DEFINITION
+      scalar j__FieldSet
+      enum j__Graph { A @j__graph(name: "a", url: "http://a") }
+
+      type Query @j__type(graph: A) { user: User @j__field(graph: A) }
+      type User @j__type(graph: A) { id: ID! name: String! }
+    GRAPHQL
+
+    expect(schema.types.keys.grep(/j__|link__/)).to be_empty
+    expect(schema.get_type("User").fields.keys).to eq %w[id name]
+  end
+
+  # the correctness one: a missed rename leaves the hidden field in the derived
+  # API schema, so codegen over-permits what the router will actually serve
+  {
+    "an import: rename" =>
+      '@link(url: "https://specs.apollo.dev/federation/v2.5", import: [{name: "@inaccessible", as: "@private"}])',
+    "a spec-level as:" =>
+      '@link(url: "https://specs.apollo.dev/inaccessible/v0.2", as: "private")',
+  }.each do |label, link|
+    it "hides a field behind @inaccessible renamed by #{label}" do
+      schema = load(<<~GRAPHQL)
+        schema
+          @link(url: "https://specs.apollo.dev/link/v1.0")
+          @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+          #{link}
+        {
+          query: Query
+        }
+
+        #{LINK_DEF}
+        directive @private on FIELD_DEFINITION | OBJECT
+
+        type Query @join__type(graph: A) { user: User }
+        type User @join__type(graph: A) { id: ID! name: String! ssn: String @private }
+      GRAPHQL
+
+      expect(schema.get_type("User").fields.keys).to eq %w[id name]
+      expect(schema.types.keys.grep(/join__|link__/)).to be_empty
+    end
+  end
+
+  # fed 1 with nothing merged: no @join__ marker at all, but the core schema
+  # still carries core__Purpose and still hides elements
+  it "strips a @core-only fed-1 schema" do
+    schema = load(<<~GRAPHQL)
+      schema
+        @core(feature: "https://specs.apollo.dev/core/v0.2")
+        @core(feature: "https://specs.apollo.dev/inaccessible/v0.1", for: SECURITY)
+      {
+        query: Query
+      }
+
+      directive @core(feature: String!, as: String, for: core__Purpose) repeatable on SCHEMA
+      directive @inaccessible on FIELD_DEFINITION | OBJECT
+      enum core__Purpose { EXECUTION SECURITY }
+
+      type Query { user: User }
+      type User { id: ID! name: String! secret: String @inaccessible }
+    GRAPHQL
+
+    expect(schema.types.keys.grep(/core__/)).to be_empty
+    expect(schema.get_type("User").fields.keys).to eq %w[id name]
+  end
+
+  # the other direction: derivation must not start eating names that merely
+  # look federation-ish (v0.4.6 fixed a user type named `link` being dropped)
+  it "keeps user types and fields that only look federation-ish" do
+    schema = load(<<~GRAPHQL)
+      schema
+        @link(url: "https://specs.apollo.dev/link/v1.0")
+        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+      {
+        query: Query
+      }
+
+      #{LINK_DEF}
+      type Link @join__type(graph: A) { url: String! }
+      type Query @join__type(graph: A) { join: String link: Link core: Int inaccessible: Boolean }
+    GRAPHQL
+
+    expect(schema.get_type("Link")).not_to be_nil
+    expect(schema.get_type("Query").fields.keys).to eq %w[join link core inaccessible]
+  end
+
+  # https://specs.apollo.dev/link/v1.0/ — the last two path segments name the
+  # spec: a query, a fragment and a trailing slash don't count, and a final
+  # segment that isn't a version tag is the name itself
+  it "normalizes the spec URL the way the link spec says" do
+    schema = load(<<~GRAPHQL)
+      schema
+        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+        @link(url: "https://spec.example.com/a/b/mySchema/v1.0/?q=v#frag")
+        @link(url: "https://spec.example.com/vX")
+        @link(url: "https://specs.apollo.dev/v1.0")
+      {
+        query: Query
+      }
+
+      directive @join__type(graph: join__Graph!) repeatable on OBJECT
+      enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+      scalar mySchema__Thing
+      scalar vX__Thing
+
+      type Query @join__type(graph: A) { a: Int }
+    GRAPHQL
+
+    expect(schema.types.keys.grep(/mySchema__|vX__/)).to be_empty
+    # the nameless URL is an opaque identifier — it derives nothing, and takes
+    # nothing with it
+    expect(schema.get_type("Query").fields.keys).to eq %w[a]
+  end
+end
+
 # The artifact a service repo actually holds — one subgraph's own SDL, which
 # applies @key/@external/... without declaring them (fed-1 leaves them
 # implicit, fed-2 imports them via @link). SchemaLoader supplies the missing

@@ -123,6 +123,24 @@ Codegen bug fixes from the library review (all with regression coverage):
   operation name). `docs/federation.md` covers subgraph SDL, federation v1
   supergraphs, and that `@inaccessible` is subtracted only on the supergraph
   path. `docs/cassettes.md` names `MissingRecording` correctly.
+- **Federation namespaces are derived from the schema's own `@link`/`@core`
+  declarations** instead of a hardcoded `join__`/`link__`/`core__` list — the
+  spec URL's name segment gives the namespace, `as:` renames it, and `import:`
+  binds names into the root namespace (`{name: "@key", as: "@myKey"}` included).
+  Four things this fixes:
+  - a graph using fed-2.5+ auth (`@requiresScopes`/`@policy`/`@context`) no
+    longer leaks `federation__Scope`, `federation__Policy` or
+    `context__ContextFieldValue` into `schema.types`;
+  - a supergraph that renamed a spec (`@link(url: ".../join/v0.3", as: "j")`)
+    strips its `j__*` machinery — it previously failed to load at all;
+  - **a renamed `@inaccessible`** (`import: [{name: "@inaccessible", as:
+    "@private"}]`, or `as:` on the inaccessible spec) hides what it marks. It
+    was missed entirely before, so the derived API schema kept fields the
+    router does not serve and codegen over-permitted them. **Regenerate** if
+    your supergraph renames it.
+  - a `@core`-only fed-1 schema, and any composed graph carrying no `@join__`
+    marker, is now recognized as composed rather than loaded as plain SDL
+    (`core__Purpose` used to survive, and `@inaccessible` went unsubtracted).
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
