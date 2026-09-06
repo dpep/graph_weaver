@@ -17,11 +17,14 @@ module StarQuery
     }
   GRAPHQL
 
+  # sent as the request's operationName — what an APM keys traces on
+  OPERATION_NAME = T.let(nil, T.nilable(String))
+
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
 
-    class AddStarPayload < T::Struct
+    class AddStar < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
 
@@ -38,37 +41,37 @@ module StarQuery
             stargazer_count: data.fetch("stargazerCount"),
             viewer_has_starred: data.fetch("viewerHasStarred"),
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
 
       const :starrable, T.nilable(Starrable)
 
-      sig { params(data: T::Hash[String, T.untyped]).returns(AddStarPayload) }
+      sig { params(data: T::Hash[String, T.untyped]).returns(AddStar) }
       def self.from_h(data)
         new(
           starrable: data["starrable"]&.then { |v1| Starrable.from_h(v1) },
         )
-      rescue GraphWeaver::TypeError
-        raise # already wrapped by a nested struct — keep the innermost context
-      rescue TypeError, ArgumentError, KeyError => e
+      rescue GraphWeaver::Error
+        raise # already branded by a nested struct — keep the innermost context
+      rescue StandardError => e
         raise GraphWeaver::TypeError.new(struct: self, error: e)
       end
     end
 
-    const :add_star, T.nilable(AddStarPayload)
+    const :add_star, T.nilable(AddStar)
 
     sig { params(data: T::Hash[String, T.untyped]).returns(Result) }
     def self.from_h(data)
       new(
-        add_star: data["addStar"]&.then { |v1| AddStarPayload.from_h(v1) },
+        add_star: data["addStar"]&.then { |v1| AddStar.from_h(v1) },
       )
-    rescue GraphWeaver::TypeError
-      raise # already wrapped by a nested struct — keep the innermost context
-    rescue TypeError, ArgumentError, KeyError => e
+    rescue GraphWeaver::Error
+      raise # already branded by a nested struct — keep the innermost context
+    rescue StandardError => e
       raise GraphWeaver::TypeError.new(struct: self, error: e)
     end
   end
@@ -96,7 +99,21 @@ module StarQuery
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    raw = transport.execute(QUERY, variables: variables).to_h
+    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+  end
+
+  sig { params(client: T.untyped, id: String).returns(Result) }
+  def self.execute!(client = nil, id:)
+    execute(client, id:).data!
+  end
+
+  # Deserialize a raw GraphQL response into the typed envelope — the
+  # network-free half of execute, for responses fetched by any client.
+  # Takes the response hash (or anything with #to_h): {"data" => ...,
+  # "errors" => ..., "extensions" => ...} with wire-cased string keys.
+  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.from_response(response)
+    raw = GraphWeaver.check_envelope!(response.to_h, Result)
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
@@ -104,8 +121,9 @@ module StarQuery
     )
   end
 
-  sig { params(client: T.untyped, id: String).returns(Result) }
-  def self.execute!(client = nil, id:)
-    execute(client, id: id).data!
+  # from_response + data! — the typed result, or a raised QueryError.
+  sig { params(response: T.untyped).returns(Result) }
+  def self.from_response!(response)
+    from_response(response).data!
   end
 end

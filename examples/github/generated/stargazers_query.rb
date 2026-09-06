@@ -33,6 +33,9 @@ module StargazersQuery
     }
   GRAPHQL
 
+  # sent as the request's operationName — what an APM keys traces on
+  OPERATION_NAME = T.let(nil, T.nilable(String))
+
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
@@ -41,100 +44,100 @@ module StargazersQuery
       extend T::Sig
       include GraphWeaver::Hints
 
-      class StargazerConnection < T::Struct
+      class Stargazers < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
 
-        class StargazerEdge < T::Struct
+        class Edges < T::Struct
           extend T::Sig
           include GraphWeaver::Hints
 
-          class User < T::Struct
+          class Node < T::Struct
             extend T::Sig
             include GraphWeaver::Hints
 
-            class RepositoryConnection < T::Struct
+            class Repositories < T::Struct
               extend T::Sig
               include GraphWeaver::Hints
 
-              class Repository < T::Struct
+              class Nodes < T::Struct
                 extend T::Sig
                 include GraphWeaver::Hints
 
                 const :name_with_owner, String
                 const :stargazer_count, Integer
 
-                sig { params(data: T::Hash[String, T.untyped]).returns(Repository) }
+                sig { params(data: T::Hash[String, T.untyped]).returns(Nodes) }
                 def self.from_h(data)
                   new(
                     name_with_owner: data.fetch("nameWithOwner"),
                     stargazer_count: data.fetch("stargazerCount"),
                   )
-                rescue GraphWeaver::TypeError
-                  raise # already wrapped by a nested struct — keep the innermost context
-                rescue TypeError, ArgumentError, KeyError => e
+                rescue GraphWeaver::Error
+                  raise # already branded by a nested struct — keep the innermost context
+                rescue StandardError => e
                   raise GraphWeaver::TypeError.new(struct: self, error: e)
                 end
               end
 
-              const :nodes, T.nilable(T::Array[T.nilable(Repository)])
+              const :nodes, T.nilable(T::Array[T.nilable(Nodes)])
 
-              sig { params(data: T::Hash[String, T.untyped]).returns(RepositoryConnection) }
+              sig { params(data: T::Hash[String, T.untyped]).returns(Repositories) }
               def self.from_h(data)
                 new(
-                  nodes: data["nodes"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Repository.from_h(v3) } } },
+                  nodes: data["nodes"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Nodes.from_h(v3) } } },
                 )
-              rescue GraphWeaver::TypeError
-                raise # already wrapped by a nested struct — keep the innermost context
-              rescue TypeError, ArgumentError, KeyError => e
+              rescue GraphWeaver::Error
+                raise # already branded by a nested struct — keep the innermost context
+              rescue StandardError => e
                 raise GraphWeaver::TypeError.new(struct: self, error: e)
               end
             end
 
             const :login, String
             const :name, T.nilable(String)
-            const :repositories, RepositoryConnection
+            const :repositories, Repositories
 
-            sig { params(data: T::Hash[String, T.untyped]).returns(User) }
+            sig { params(data: T::Hash[String, T.untyped]).returns(Node) }
             def self.from_h(data)
               new(
                 login: data.fetch("login"),
                 name: data["name"],
-                repositories: RepositoryConnection.from_h(data.fetch("repositories")),
+                repositories: Repositories.from_h(data.fetch("repositories")),
               )
-            rescue GraphWeaver::TypeError
-              raise # already wrapped by a nested struct — keep the innermost context
-            rescue TypeError, ArgumentError, KeyError => e
+            rescue GraphWeaver::Error
+              raise # already branded by a nested struct — keep the innermost context
+            rescue StandardError => e
               raise GraphWeaver::TypeError.new(struct: self, error: e)
             end
           end
 
           const :starred_at, Time
-          const :node, User
+          const :node, Node
 
-          sig { params(data: T::Hash[String, T.untyped]).returns(StargazerEdge) }
+          sig { params(data: T::Hash[String, T.untyped]).returns(Edges) }
           def self.from_h(data)
             new(
               starred_at: Time.parse(data.fetch("starredAt")),
-              node: User.from_h(data.fetch("node")),
+              node: Node.from_h(data.fetch("node")),
             )
-          rescue GraphWeaver::TypeError
-            raise # already wrapped by a nested struct — keep the innermost context
-          rescue TypeError, ArgumentError, KeyError => e
+          rescue GraphWeaver::Error
+            raise # already branded by a nested struct — keep the innermost context
+          rescue StandardError => e
             raise GraphWeaver::TypeError.new(struct: self, error: e)
           end
         end
 
-        const :edges, T.nilable(T::Array[T.nilable(StargazerEdge)])
+        const :edges, T.nilable(T::Array[T.nilable(Edges)])
 
-        sig { params(data: T::Hash[String, T.untyped]).returns(StargazerConnection) }
+        sig { params(data: T::Hash[String, T.untyped]).returns(Stargazers) }
         def self.from_h(data)
           new(
-            edges: data["edges"]&.then { |v1| v1.map { |v2| v2&.then { |v3| StargazerEdge.from_h(v3) } } },
+            edges: data["edges"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Edges.from_h(v3) } } },
           )
-        rescue GraphWeaver::TypeError
-          raise # already wrapped by a nested struct — keep the innermost context
-        rescue TypeError, ArgumentError, KeyError => e
+        rescue GraphWeaver::Error
+          raise # already branded by a nested struct — keep the innermost context
+        rescue StandardError => e
           raise GraphWeaver::TypeError.new(struct: self, error: e)
         end
       end
@@ -142,7 +145,7 @@ module StargazersQuery
       const :id, String
       const :name_with_owner, String
       const :stargazer_count, Integer
-      const :stargazers, StargazerConnection
+      const :stargazers, Stargazers
 
       sig { params(data: T::Hash[String, T.untyped]).returns(Repository) }
       def self.from_h(data)
@@ -150,11 +153,11 @@ module StargazersQuery
           id: data.fetch("id"),
           name_with_owner: data.fetch("nameWithOwner"),
           stargazer_count: data.fetch("stargazerCount"),
-          stargazers: StargazerConnection.from_h(data.fetch("stargazers")),
+          stargazers: Stargazers.from_h(data.fetch("stargazers")),
         )
-      rescue GraphWeaver::TypeError
-        raise # already wrapped by a nested struct — keep the innermost context
-      rescue TypeError, ArgumentError, KeyError => e
+      rescue GraphWeaver::Error
+        raise # already branded by a nested struct — keep the innermost context
+      rescue StandardError => e
         raise GraphWeaver::TypeError.new(struct: self, error: e)
       end
     end
@@ -166,9 +169,9 @@ module StargazersQuery
       new(
         repository: data["repository"]&.then { |v1| Repository.from_h(v1) },
       )
-    rescue GraphWeaver::TypeError
-      raise # already wrapped by a nested struct — keep the innermost context
-    rescue TypeError, ArgumentError, KeyError => e
+    rescue GraphWeaver::Error
+      raise # already branded by a nested struct — keep the innermost context
+    rescue StandardError => e
       raise GraphWeaver::TypeError.new(struct: self, error: e)
     end
   end
@@ -198,7 +201,21 @@ module StargazersQuery
     }
 
     transport = GraphWeaver.resolve_transport(client || self.client)
-    raw = transport.execute(QUERY, variables: variables).to_h
+    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+  end
+
+  sig { params(client: T.untyped, owner: String, name: String, first: Integer).returns(Result) }
+  def self.execute!(client = nil, owner:, name:, first:)
+    execute(client, owner:, name:, first:).data!
+  end
+
+  # Deserialize a raw GraphQL response into the typed envelope — the
+  # network-free half of execute, for responses fetched by any client.
+  # Takes the response hash (or anything with #to_h): {"data" => ...,
+  # "errors" => ..., "extensions" => ...} with wire-cased string keys.
+  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.from_response(response)
+    raw = GraphWeaver.check_envelope!(response.to_h, Result)
     GraphWeaver::Response[Result].new(
       data: (Result.from_h(raw["data"]) if raw["data"]),
       errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
@@ -206,8 +223,9 @@ module StargazersQuery
     )
   end
 
-  sig { params(client: T.untyped, owner: String, name: String, first: Integer).returns(Result) }
-  def self.execute!(client = nil, owner:, name:, first:)
-    execute(client, owner: owner, name: name, first: first).data!
+  # from_response + data! — the typed result, or a raised QueryError.
+  sig { params(response: T.untyped).returns(Result) }
+  def self.from_response!(response)
+    from_response(response).data!
   end
 end
