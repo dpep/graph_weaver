@@ -1,4 +1,10 @@
 ## Unreleased
+**Shared-fragment directories are scanned recursively, and `.gql` files count.**
+The scan was `fragments/*.graphql`, so `fragments/person/fields.graphql` — how
+anyone with sixty fragments organizes them — was skipped in silence, and a
+`.gql` file was ignored even though `parse("x.gql")` reads one. A duplicate
+fragment name now names both files that define it.
+
 **`execute` now takes one kwarg per declared variable, always — a single
 required input-object variable is no longer flattened into per-field kwargs.**
 `mutation($input: AdoptionInput!)` generated `execute!(name:, species:, …)`,

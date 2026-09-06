@@ -36,6 +36,11 @@ class GraphWeaver::Codegen
   include Aliases
   include Emit
 
+  # How a directory of GraphQL documents is scanned: both extensions the rest of
+  # the library already accepts, and nested — `queries/admin/pets.graphql` is
+  # how anyone with sixty queries organizes them.
+  DOCUMENT_GLOB = "**/*.{graphql,gql}"
+
   attr_reader :module_name
 
   # A client is anything responding to `execute(query, variables:)`
@@ -494,13 +499,19 @@ class GraphWeaver::Codegen
   # map — reusable fragments a query can spread. Fragment files hold only
   # fragments (no operations); names are unique across them.
   def self.load_fragments(paths)
-    Array(paths).flat_map { |dir| Dir[File.join(dir, "*.graphql")].sort }.each_with_object({}) do |file, out|
+    source = {} # fragment name => the file that defined it, for the collision message
+
+    Array(paths).flat_map { |dir| Dir[File.join(dir, DOCUMENT_GLOB)].sort }.each_with_object({}) do |file, out|
       doc = parse_document(File.read(file), file)
       if doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).any?
         raise GraphWeaver::Error, "#{file}: fragment files define only fragments, no operations"
       end
       doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).each do |frag|
-        raise GraphWeaver::Error, "duplicate shared fragment '#{frag.name}' (#{file})" if out.key?(frag.name)
+        if (earlier = source[frag.name])
+          raise GraphWeaver::Error,
+            "duplicate shared fragment '#{frag.name}' — defined in #{earlier} and #{file}; rename one"
+        end
+        source[frag.name] = file
         out[frag.name] = frag
       end
     end
