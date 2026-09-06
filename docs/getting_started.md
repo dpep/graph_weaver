@@ -18,7 +18,7 @@ gem "graph_weaver"
 ## 2. Run the generator
 
 ```sh
-rails g graph_weaver:install --url=https://api.example.com/graphql
+rails g graph_weaver:install https://api.example.com/graphql
 ```
 
 ```
@@ -29,11 +29,20 @@ rails g graph_weaver:install --url=https://api.example.com/graphql
   introspect  app/graphql/schema.json from https://api.example.com/graphql
 ```
 
+The argument is whatever you'd pass to `GraphWeaver.new` — the generator
+takes the same three source forms the library does, and writes the
+initializer that fits:
+
+| source | |
+|---|---|
+| `https://api.example.com/graphql` | an endpoint: introspected now, and the dump committed |
+| `MyApp::Schema` | your own graphql-ruby schema, executing [in-process](#your-apps-own-schema-in-process) |
+| `db/schema.graphql` | a [dump you already have](#a-schema-dump-you-already-have) — pointed at, not copied |
+
 | flag | |
 |---|---|
-| `--url` | the endpoint to introspect (required) |
-| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, the same one `rake graph_weaver:schema:verify` reads |
-| `--no-schema` | skip the introspection; `rake graph_weaver:schema:refresh URL=...` does it later |
+| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, the same one `rake graph_weaver:schema:verify` reads. Url only |
+| `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh URL=...` does it later |
 
 Re-running is safe — every file goes through the usual Rails conflict
 prompt, so an initializer you've edited is never overwritten silently.
@@ -49,6 +58,21 @@ What it wrote:
 
   ```ruby
   GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+  ```
+
+  Initializers run before autoloading is set up, so a constant a
+  registration *names* — a `T::Enum` for `register_enum`, a mixin module for
+  `extend_type` — can't be autoloaded from `app/` here (you get
+  `uninitialized constant PetKind`). Keep it out of the autoload paths and
+  require it, or build a mixin inline with a block, which needs no constant
+  at all:
+
+  ```ruby
+  # config.autoload_lib(ignore: %w[assets tasks graph_weaver])
+  require Rails.root.join("lib/graph_weaver/pet_kind")
+  GraphWeaver.register_enum("Species", PetKind, requires: "graph_weaver/pet_kind")
+
+  GraphWeaver.extend_type("Pet") { def adopted? = !adopted_at.nil? }
   ```
 
 - **`app/graphql/schema.json`.** The schema dump codegen reads
@@ -68,6 +92,70 @@ Rake needs no wiring either: in Rails the `graph_weaver:*` tasks register
 themselves (a Railtie) and depend on `:environment`, so your initializer —
 and its registrations — runs first. The generated modules load at boot the
 same way, after `config/initializers`.
+
+### Your app's own schema, in-process
+
+An app that *serves* GraphQL with graphql-ruby can have the same typed
+access to its own API — same generated structs, no socket, no HTTP:
+
+```sh
+rails g graph_weaver:install MyApp::Schema
+```
+
+```ruby
+# config/initializers/graph_weaver.rb
+Rails.application.config.to_prepare do
+  # queries run in-process against the app's own schema — no socket
+  GraphWeaver.client = GraphWeaver.new(MyApp::Schema)
+end
+```
+
+`to_prepare`, not a bare assignment: the schema class is autoloaded, so it
+isn't resolvable while initializers run, and a dev reload replaces it with
+a new class object that a captured one would go stale against.
+
+**Context is per request, not per app.** A resolver reading
+`context[:current_user]` gets nil from the app default — build a client
+where you know the request and pass it per call:
+
+```ruby
+client = GraphWeaver.new(MyApp::Schema, context: { current_user: })
+PetQuery.execute!(client, id: "1").pet.owner   # => the context's user
+```
+
+**Keep the dump in step with the schema.** Codegen reads the committed
+dump at `GraphWeaver.schema_path`, never the live class — that's what
+makes `rake graph_weaver:verify` a deterministic CI check. The generator
+writes the first dump; after that it's an artifact derived from code in
+your own repo, so rebuild it with graphql-ruby's own rake task:
+
+```ruby
+# lib/tasks/graphql.rake
+require "graphql/rake_task"
+GraphQL::RakeTask.new(schema_name: "MyApp::Schema", directory: "app/graphql",
+  dependencies: [:environment])
+```
+
+```sh
+rake graphql:schema:json     # rewrites app/graphql/schema.json
+rake graph_weaver:generate
+```
+
+Run the dump step ahead of the checks in CI. Skip it and a stale dump
+reads as a confusing lie — `rake graph_weaver:schema:check` reporting
+`Field 'nickname' doesn't exist on type 'Pet'` about a field that does.
+(`graph_weaver:schema:verify` and `:refresh` are for servers you *don't*
+own; a dump taken from a schema class records no url, and they say so.)
+
+### A schema dump you already have
+
+```sh
+rails g graph_weaver:install db/schema.graphql
+```
+
+Sets `GraphWeaver.schema_path` to that file rather than writing a second
+copy, and introspects nothing. A dump has no resolvers, so it can't
+execute — set `GraphWeaver.client` to whatever serves the API.
 
 ## 3. Write a query, generate, commit
 
@@ -152,12 +240,18 @@ require "graph_weaver/rspec"
 GraphWeaver::Testing.configure { |config| config.auto_fake = true }
 ```
 
+A fresh `rails g rspec:install` leaves the `spec/support` glob commented
+out in `spec/rails_helper.rb`, so uncomment it — or put those two lines in
+`rails_helper.rb` itself. Nothing warns you that a support file went
+unread.
+
 The opt-in is deliberate (no surprise fakes); once on, the schema
 auto-locates from the committed dump and every query in every example
 executes against a seeded, schema-correct `FakeClient` — no server, no
 stubs, and `rspec --seed 1234` reproduces the fake data along with test
 order. Pin values with `overrides:`, simulate failures with `Failure.*`
-— see [testing](testing.md).
+— see [testing](testing.md). Running in-process? Fake off the live class
+instead of the dump with `config.schema = MyApp::Schema`.
 
 ## 5. Verify in CI
 
