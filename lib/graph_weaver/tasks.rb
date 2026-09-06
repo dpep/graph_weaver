@@ -33,7 +33,7 @@ namespace :graph_weaver do
   end
 
   namespace :schema do
-    # both tasks re-introspect from the url recorded in the dump
+    # all three re-introspect from the url recorded in the dump
     # (GRAPHWEAVER_AUTH supplies a token for private APIs)
 
     desc "Fail when the server's schema has drifted from the local dump"
@@ -65,6 +65,7 @@ namespace :graph_weaver do
           position = [error["line"], error["column"]].compact.join(":")
           puts "  #{position.empty? ? "" : "#{position}  "}#{error["message"]}"
         end
+        puts
       end
 
       abort "#{failures.size} invalid #{(failures.size == 1) ? "query" : "queries"}" if failures.any?

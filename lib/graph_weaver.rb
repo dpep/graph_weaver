@@ -269,8 +269,8 @@ module GraphWeaver
       # path omitted: the caller keys the report by file, so branding the
       # message with it too would just print the path twice
       schema.validate(Codegen.inline_fragments(source, shared)).map do |error|
-        location = error.to_h["locations"]&.first
-        { "message" => error.message, "line" => location&.fetch("line", nil), "column" => location&.fetch("column", nil) }
+        location = error.to_h["locations"]&.first || {}
+        { "message" => error.message, "line" => location["line"], "column" => location["column"] }
       end
     rescue GraphWeaver::ValidationError => e
       e.errors.map { |detail| detail.transform_keys(&:to_s) }

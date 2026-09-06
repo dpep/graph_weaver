@@ -104,7 +104,7 @@ describe "rake graph_weaver:schema:check" do
     )
     out, err, status = run_task
 
-    expect(out).to eq "app/graphql/queries/person.graphql\n  4:5  Field 'titel' doesn't exist on type 'Media'\n"
+    expect(out).to eq "app/graphql/queries/person.graphql\n  4:5  Field 'titel' doesn't exist on type 'Media'\n\n"
     expect(err).to eq "1 invalid query\n"
     expect(status).to eq 1
   end
