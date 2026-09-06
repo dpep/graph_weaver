@@ -345,6 +345,20 @@ describe "federation / subgraph SDL" do
     expect(schema.get_type("User").fields.keys).to eq %w[id email] # @external was supplied
   end
 
+  # weaver's injected helper scalars are namespaced, so a subgraph is free to
+  # own the obvious names — an unnamespaced `scalar FieldSet` used to be
+  # shadowed by (or, for an object type, collide with) the injected @key
+  it "doesn't collide with a subgraph's own FieldSet type" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      type FieldSet { paths: [String!]! }
+      type Query { user: User }
+      type User @key(fields: "id") { id: ID! mask: FieldSet }
+    GRAPHQL
+
+    expect(schema.get_type("FieldSet").fields.keys).to eq %w[paths]
+    expect(schema.get_type("User").fields["mask"].type.unwrap.graphql_name).to eq "FieldSet"
+  end
+
   it "detects a subgraph, and doesn't mistake a plain schema or a supergraph for one" do
     expect(GraphWeaver::SchemaLoader.subgraph_sdl?(sdl_of(FederationDemo::Users::Schema))).to be true
     expect(GraphWeaver::SchemaLoader.subgraph_sdl?("type Query { a: Int }")).to be false

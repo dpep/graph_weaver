@@ -583,6 +583,15 @@ graphql-ruby — unbranded, no url, and it escaped `rescue GraphWeaver::Error`
 checks for `data.__schema` and raises `GraphWeaver::Error` naming the endpoint
 and the first 200 characters of what came back.
 
+**A subgraph's own `FieldSet` / `Scope` / `Policy` type no longer collides with
+weaver's.** Loading subgraph SDL injects the federation directive definitions
+the file applies but doesn't declare, and the scalars they reference went in
+unnamespaced — so a subgraph that owns a type by one of those names either had
+it shadowed or failed to build, with advice pointing at the wrong file. Those
+three are now `federation__FieldSet` / `federation__Scope` /
+`federation__Policy`. `_Any` / `_Entity` / `_Service` keep their names — those
+are spec-mandated and queryable.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant

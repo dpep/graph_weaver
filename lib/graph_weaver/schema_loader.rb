@@ -171,12 +171,15 @@ module GraphWeaver::SchemaLoader
 
   # The subgraph spec's directives and the types they reference, keyed by
   # what a definition in the SDL would be named ("@key" for a directive).
+  # The helper scalars are spelled `federation__*` — they are weaver's own
+  # injections into someone else's schema, and a subgraph with its own
+  # `FieldSet` type must not collide with one.
   # https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/subgraph-spec
   SUBGRAPH_DIRECTIVE_DEFS = {
-    "@key" => "directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE",
+    "@key" => "directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE",
     "@external" => "directive @external on OBJECT | FIELD_DEFINITION",
-    "@requires" => "directive @requires(fields: FieldSet!) on FIELD_DEFINITION",
-    "@provides" => "directive @provides(fields: FieldSet!) on FIELD_DEFINITION",
+    "@requires" => "directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION",
+    "@provides" => "directive @provides(fields: federation__FieldSet!) on FIELD_DEFINITION",
     "@shareable" => "directive @shareable repeatable on OBJECT | FIELD_DEFINITION",
     "@extends" => "directive @extends on OBJECT | INTERFACE",
     "@override" => "directive @override(from: String!, label: String) on FIELD_DEFINITION",
@@ -185,18 +188,19 @@ module GraphWeaver::SchemaLoader
     "@tag" => "directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA",
     "@composeDirective" => "directive @composeDirective(name: String!) repeatable on SCHEMA",
     "@authenticated" => "directive @authenticated on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
-    "@requiresScopes" => "directive @requiresScopes(scopes: [[Scope!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
-    "@policy" => "directive @policy(policies: [[Policy!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@requiresScopes" => "directive @requiresScopes(scopes: [[federation__Scope!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
+    "@policy" => "directive @policy(policies: [[federation__Policy!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
     "@link" => "directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA",
   }.freeze
 
   # The types those definitions reference — injected only alongside a
-  # directive that needs one, since a subgraph may well have its own Policy
-  # or Scope type.
+  # directive that needs one. `_Any`/`_Entity`/`_Service` (see
+  # entity_plumbing) keep their spec-mandated names; these are ours to
+  # namespace, so they can't shadow a subgraph's own type.
   SUBGRAPH_HELPER_TYPES = {
-    "FieldSet" => "scalar FieldSet",
-    "Scope" => "scalar Scope",
-    "Policy" => "scalar Policy",
+    "federation__FieldSet" => "scalar federation__FieldSet",
+    "federation__Scope" => "scalar federation__Scope",
+    "federation__Policy" => "scalar federation__Policy",
     "link__Import" => "scalar link__Import",
     "link__Purpose" => "enum link__Purpose { SECURITY EXECUTION }",
   }.freeze
