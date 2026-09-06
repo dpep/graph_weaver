@@ -719,6 +719,13 @@ in-process and no `:schema` over the wire, so a subscriber had to branch
 anyway. A successful in-process execute now sets `:status` to 200; a failure
 still rides the exception the hook already sees.
 
+**`extend_type` and `alias:` moved from `docs/scalars.md` to
+`docs/generated_modules.md`** — they decorate a generated struct, and now sit
+next to what a generated struct looks like. **Update any bookmark to
+`scalars.md#type-helpers-your-logic-on-generated-structs`**; it is
+`generated_modules.md#type-helpers` now. `scalars.md` still owns
+`register_scalar` and `register_enum`.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
