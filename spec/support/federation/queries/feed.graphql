@@ -1,0 +1,6 @@
+query Feed {
+  feed {
+    ... on Review { id body }
+    ... on Announcement { headline }
+  }
+}

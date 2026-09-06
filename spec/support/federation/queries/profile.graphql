@@ -1,0 +1,3 @@
+query Profile {
+  me { id username email }
+}

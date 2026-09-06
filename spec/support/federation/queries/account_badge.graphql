@@ -1,0 +1,8 @@
+query AccountBadge {
+  me { ...Badge }
+}
+
+fragment Badge on User {
+  username
+  email
+}

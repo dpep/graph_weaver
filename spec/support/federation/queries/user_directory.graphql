@@ -1,0 +1,3 @@
+query UserDirectory {
+  users { id username }
+}

@@ -5,3 +5,4 @@ coverage
 doc/
 examples/github/schema.json
 .claude/
+spec/support/federation/node_modules

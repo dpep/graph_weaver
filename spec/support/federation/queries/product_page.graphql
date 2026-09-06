@@ -1,0 +1,3 @@
+query ProductPage($upc: String!) {
+  product(upc: $upc) { name price reviews { id body } }
+}

@@ -1,0 +1,3 @@
+query ProductDetail($upc: String!) {
+  product(upc: $upc) { upc name price weight }
+}

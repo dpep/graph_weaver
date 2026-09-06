@@ -1,0 +1,4 @@
+query Home {
+  me { username }
+  topProducts(first: 4) { upc name }
+}

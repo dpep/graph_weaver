@@ -120,3 +120,98 @@ Re-record with `GRAPHWEAVER_RECORD=1`, and set `config.anonymize = true` so
 real data never lands in a committed file — the full workflow guide is
 **[cassettes](cassettes.md)**.
 
+
+## A local federation router
+
+If your app is a client of a **federated** graph, its subgraphs are Ruby
+schema classes you can run in-process. `Testing::Router` takes the composed
+supergraph and those classes and satisfies the client contract, so every
+generated module runs against the real resolvers — no gateway, no node, no
+sockets:
+
+```ruby
+GraphWeaver.client = GraphWeaver::Testing::Router.new(
+  supergraph: Rails.root.join("supergraph.graphql"),
+  subgraphs: { "accounts" => Accounts::Schema, "products" => Products::Schema },
+  context: { current_user: user },
+)
+```
+
+Fakes fabricate plausible data; this runs your actual resolvers, with your
+actual `context`, against the schema the router serves. `router.trace` records
+the fetch each `execute` made (subgraph, query, variables) — the same line goes
+to `GraphWeaver.logger` at `:debug`.
+
+**It is not a router.** It plans exactly one shape: an operation whose every
+field resolves in a **single subgraph**, handed to that subgraph verbatim.
+Anything crossing a boundary raises `GraphWeaver::Testing::Unplannable` (a
+`GraphWeaver::Error`), at plan time, before any subgraph runs. Apollo's planner
+is ~20k lines and the interesting part is the stitching; a double that
+approximated it would let a test pass on an answer production disagrees with,
+which is the most expensive thing this library can produce. So it refuses:
+
+```
+User.reviews is resolved by reviews, and this operation runs in accounts — the
+local router hands one query to one subgraph verbatim and doesn't stitch across
+a boundary. Run this one against a real router.
+```
+
+What it *does* plan past the obvious: a `@provides` copy (the router reads that
+copy too, so nothing leaves the subgraph), unions and fragments whose types are
+all in one subgraph, mutations, and introspection — answered from the composed
+API schema, never from a subgraph, which would reply with its own slice.
+
+Two things it refuses at construction, before a single query: a supergraph
+carrying a `@join__*` construct the routing table hasn't been taught (an
+incomplete table makes every answer a guess), and a `subgraphs:` hash that
+doesn't name every subgraph in the supergraph.
+
+### Is it worth wiring up? Measure.
+
+The router's value is one number — the fraction of *your* queries it can plan —
+and that depends on the shape of your graph and of your queries, so measure it
+rather than guess:
+
+```
+$ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
+10/17 queries plannable locally (59%)
+  accounts 4, reviews 4, products 2
+
+refused (7)
+
+  crosses a subgraph boundary (5)
+    dashboard.graphql        User.reviews is resolved by reviews, and this operation runs in accounts
+    ...
+
+  @requires needs a fetch chain (1)
+    shipping.graphql         Product.shippingEstimate runs in reviews and @requires "price weight", ...
+
+  root fields span subgraphs (1)
+    home.graphql             this operation's root fields span subgraphs: Query.me (accounts), Query.topProducts (products)
+```
+
+`QUERIES=` picks the directory (default `GraphWeaver.queries_path`). Planning
+needs the supergraph and nothing else, so this runs in CI with the SDL alone —
+no subgraph has to be loadable. The reasons group by category so one glance
+says whether the gap is one construct or many; the run above is against the
+demo graph in `spec/support/federation`, not a real app's mix.
+
+### How the refusals are kept honest
+
+A double that quietly answered *differently* from the router would be worse
+than no double at all, so
+[`spec/integration/router_parity_spec.rb`](../spec/integration/router_parity_spec.rb)
+serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
+supergraph, and runs every corpus query through both. Three outcomes, one of
+them a defect: match, refuse, or answer differently. On 26 queries — the corpus
+plus nine boundary probes — the local router is byte-identical to the gateway
+on 16, refuses 10, and is wrong on none; a second example checks the gateway
+answers all ten refusals cleanly, so each is a capability gap rather than a
+broken query. `make integration` runs it (node required).
+
+Where the ten fall says what moving the boundary would cost: eight are ordinary
+entity joins across a boundary (`User.reviews` reached from `accounts`) and one
+splits its root fields between two subgraphs — nine that entity stitching would
+solve — while the tenth is a `@requires` chain, which needs a dependency DAG
+rather than one pass. Nothing is refused for being exotic; they're refused
+because the router would fetch twice and merge.

@@ -767,4 +767,222 @@ module GraphWeaver::SchemaLoader
     File.exist?(path) && (ttl.nil? || Time.now - File.mtime(path) < ttl)
   end
   private_class_method :fresh?
+
+  # The other half of a supergraph. `load` strips the @join__* machinery to
+  # get the API schema; this keeps it — who resolves what:
+  #
+  #      table = GraphWeaver::SchemaLoader.routing_table("supergraph.graphql")
+  #      table.owners("Product", "shippingEstimate")  # => ["reviews"]
+  #      table.keys("Product", "products")            # => [["upc"]]
+  #
+  # Takes the same sources `load` does, minus an introspection result — a
+  # router's introspection answers with the API schema, which by design says
+  # nothing about subgraphs.
+  def self.routing_table(source)
+    sdl = supergraph_sdl(source)
+    unless federation_sdl?(sdl)
+      raise GraphWeaver::Error,
+        "no routing table here — a composed supergraph SDL carries one in its @join__* markers, " \
+        "and this schema has none (a subgraph or an API schema describes one service's slice, " \
+        "not who resolves what)"
+    end
+
+    RoutingTable.new(sdl)
+  end
+
+  def self.supergraph_sdl(source)
+    if source.is_a?(Hash)
+      raise GraphWeaver::Error,
+        "an introspection result carries no routing table — introspection answers with the API " \
+        "schema. Load the composed supergraph SDL instead."
+    end
+
+    text = source.to_s
+    sdl_content?(text) ? text : read_schema(text)
+  end
+  private_class_method :supergraph_sdl
+
+  # Which subgraph resolves what, read off a composed supergraph's @join__*
+  # directives. Subgraphs are named the way `@join__graph(name:)` names them —
+  # the same strings a router config and `rover` use — not the SDL's uppercase
+  # enum spelling.
+  #
+  # Everything here is a plain read of the artifact. It cannot plan a query;
+  # it answers the questions a planner (or an error message) asks.
+  class RoutingTable
+    # One field's routing: `graphs` resolve it, `external` declare it without
+    # resolving it (an @external copy exists so that subgraph can @key or
+    # @requires on it), and requires/provides/override carry the field sets and
+    # the migration marker verbatim.
+    Field = Struct.new(:graphs, :external, :requires, :provides, :override)
+
+    # Every @join__ directive this table understands. One it doesn't is a
+    # federation construct nobody has taught it to read, and it lands in
+    # `unsupported` rather than being skipped — a routing table that silently
+    # ignores half a spec version routes confidently and wrongly.
+    KNOWN = %w[
+      join__type join__field join__graph join__implements
+      join__unionMember join__enumValue join__owner
+    ].to_set.freeze
+
+    # every subgraph in the graph, in the order the supergraph declares them
+    attr_reader :subgraphs
+
+    # constructs found in this supergraph that the table can't describe
+    # faithfully, each as a one-line explanation
+    attr_reader :unsupported
+
+    def initialize(sdl)
+      @document = GraphQL.parse(sdl)
+      @names = {}        # "ACCOUNTS" => "accounts"
+      @declared_in = {}  # "User" => ["accounts", "reviews"]
+      @keys = {}         # "User" => { "accounts" => [["id"]] }
+      @fields = {}       # "User" => { "reviews" => Field }
+      @unsupported = []
+
+      read_graphs
+      read_types
+      @subgraphs = @names.values.freeze
+    end
+
+    # Which subgraphs can resolve Type.field, by name. A field with no
+    # @join__field at all lives wherever its type does — the composer omits
+    # the directive when it has nothing to say, and that omission is the
+    # supergraph spec's way of saying "everywhere".
+    def owners(type_name, field_name)
+      field = self.field(type_name, field_name)
+      return declared_in(type_name) if field.nil?
+      return field.graphs if field.graphs.any?
+
+      # declared only as @external/@usedOverridden: a reference, not a resolver
+      field.external.any? ? [] : declared_in(type_name)
+    end
+
+    # The routing for Type.field, or nil when the supergraph says nothing
+    # about it (see owners).
+    def field(type_name, field_name) = @fields.dig(type_name, field_name)
+
+    # which subgraphs declare a type, by name
+    def declared_in(type_name) = @declared_in[type_name] || []
+
+    # The @key field sets a subgraph will answer an `_entities` fetch on, each
+    # as a list of dotted paths ("id organization { id }" => ["id",
+    # "organization.id"]). A `resolvable: false` key declares a shape this
+    # subgraph does not answer for, so it isn't one.
+    def keys(type_name, subgraph) = @keys.dig(type_name, subgraph) || []
+
+    # whether any subgraph will resolve this type from a key
+    def entity?(type_name) = (@keys[type_name] || {}).each_value.any?(&:any?)
+
+    def inspect = "#<#{self.class.name} subgraphs=#{@subgraphs.inspect}>"
+    alias to_s inspect
+
+    # A @key/@requires/@provides field set is a selection set. Flattened to
+    # dotted paths, so a nested one is recognizable as nested by its shape.
+    def self.parse_field_set(text)
+      flatten(GraphQL.parse("{ #{text} }").definitions.first.selections, [])
+    end
+
+    def self.flatten(selections, prefix)
+      selections.flat_map do |node|
+        unless node.is_a?(GraphQL::Language::Nodes::Field)
+          raise GraphWeaver::Error, "a field set holds plain fields only, got #{node.class}"
+        end
+
+        if node.selections.any?
+          flatten(node.selections, prefix + [node.name])
+        else
+          [(prefix + [node.name]).join(".")]
+        end
+      end
+    end
+    private_class_method :flatten
+
+    private
+
+    # join__Graph's enum values ARE the subgraphs: ACCOUNTS
+    # @join__graph(name: "accounts", url: "...").
+    def read_graphs
+      enum = @document.definitions.find do |defn|
+        defn.is_a?(GraphQL::Language::Nodes::EnumTypeDefinition) && defn.name == "join__Graph"
+      end
+      return unless enum
+
+      enum.values.each do |value|
+        name = argument(value.directives.find { |d| d.name == "join__graph" }, "name")
+        @names[value.name] = name if name
+      end
+    end
+
+    def read_types
+      @document.definitions.each do |defn|
+        note_unknown(defn, defn.respond_to?(:name) ? defn.name : "schema")
+        next unless defn.respond_to?(:name) && defn.respond_to?(:directives)
+        next if defn.name.start_with?("join__", "link__", "core__")
+
+        joins = defn.directives.select { |d| d.name == "join__type" }
+        @declared_in[defn.name] = joins.filter_map { |d| subgraph(d) }.uniq
+        @keys[defn.name] = read_keys(joins)
+
+        if joins.any? { |d| argument(d, "isInterfaceObject") == true }
+          @unsupported << "#{defn.name} is an @interfaceObject — one subgraph resolves a whole " \
+            "interface's implementations, which this table cannot attribute field by field"
+        end
+
+        read_fields(defn)
+      end
+    end
+
+    def read_keys(joins)
+      joins.each_with_object({}) do |directive, acc|
+        name = subgraph(directive) or next
+        acc[name] ||= []
+        key = argument(directive, "key")
+        acc[name] << self.class.parse_field_set(key) if key && argument(directive, "resolvable") != false
+      end
+    end
+
+    def read_fields(defn)
+      return unless defn.respond_to?(:fields) && defn.fields
+
+      @fields[defn.name] = defn.fields.filter_map do |field|
+        note_unknown(field, "#{defn.name}.#{field.name}")
+        applied = field.directives.select { |d| d.name == "join__field" }
+        next if applied.empty? # the supergraph says nothing — see owners
+
+        external, resolvable = applied.partition do |d|
+          argument(d, "external") == true || argument(d, "usedOverridden") == true
+        end
+
+        [field.name, Field.new(
+          resolvable.filter_map { |d| subgraph(d) },
+          external.filter_map { |d| subgraph(d) },
+          resolvable.filter_map { |d| argument(d, "requires") }.first,
+          resolvable.filter_map { |d| argument(d, "provides") }.first,
+          applied.filter_map { |d| argument(d, "override") }.first,
+        )]
+      end.to_h
+    end
+
+    def note_unknown(node, where)
+      return unless node.respond_to?(:directives) && node.directives
+
+      node.directives.each do |directive|
+        next unless directive.name.start_with?("join__")
+        next if KNOWN.include?(directive.name)
+
+        @unsupported << "#{where} applies @#{directive.name}, which this table doesn't read"
+      end
+    end
+
+    # the subgraph NAME a directive's graph: argument points at
+    def subgraph(directive) = @names[argument(directive, "graph")]
+
+    def argument(directive, name)
+      return unless directive
+
+      value = directive.arguments.find { |arg| arg.name == name }&.value
+      value.is_a?(GraphQL::Language::Nodes::Enum) ? value.name : value
+    end
+  end
 end

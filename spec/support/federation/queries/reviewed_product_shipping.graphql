@@ -1,0 +1,3 @@
+query ReviewedProductShipping {
+  reviews { id product { shippingEstimate } }
+}
