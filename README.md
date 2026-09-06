@@ -50,7 +50,7 @@ byte-identical files, on any machine, in any order — sorted throughout and
 enforced by a spec. Regenerating never shows a diff you didn't earn.
 
 New here? In Rails it's one command —
-`rails g graph_weaver:install --url=https://api.example.com/graphql` writes
+`rails g graph_weaver:install https://api.example.com/graphql` writes
 the initializer, the `app/graphql` layout, the editor config and the schema
 dump. The **[getting started](docs/getting_started.md)** guide walks the
 production setup end to end — codegen, fakes, CI. Or run the

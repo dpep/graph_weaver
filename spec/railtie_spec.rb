@@ -5,10 +5,13 @@ require "tmpdir"
 
 describe "GraphWeaver::Railtie" do
   # a minimal Rails::Railtie stand-in capturing the registration blocks
-  def load_railtie(tasks, initializers)
+  def load_railtie(tasks, initializers, ordering = {})
     railtie_base = Class.new do
       define_singleton_method(:rake_tasks) { |&block| tasks << block }
-      define_singleton_method(:initializer) { |name, **, &block| initializers[name] = block }
+      define_singleton_method(:initializer) do |name, **options, &block|
+        initializers[name] = block
+        ordering[name] = options
+      end
     end
     stub_const("Rails", Module.new)
     Rails.const_set(:Railtie, railtie_base)
@@ -28,10 +31,49 @@ describe "GraphWeaver::Railtie" do
     expect(Rake::Task.task_defined?("graph_weaver:schema:verify")).to be true
   end
 
+  # Rails defines :environment AFTER every railtie's rake_tasks block, so the
+  # tasks can only ask for it when they run — asking at load time left every
+  # Rails app generating without its initializer's registrations.
+  it "boots the app before generating, however late Rails defines :environment" do
+    original = Rake.application
+    Rake.application = Rake::Application.new
+    load "graph_weaver/tasks.rb"
+
+    expect(Rake::Task["graph_weaver:generate"].prerequisites).to eq %w[environment]
+
+    booted = false
+    Rake::Task.define_task(:environment) { booted = true }
+    Rake::Task["graph_weaver:environment"].invoke
+
+    expect(booted).to be true
+  ensure
+    Rake.application = original
+  end
+
+  # generated/person_query.rb defines ::PersonQuery, not the
+  # Generated::PersonQuery Zeitwerk infers from the path — and the default
+  # generated_path is inside an autoload root, so eager loading (production)
+  # raised until the loader was told to skip it.
+  it "hides the generated directory from Zeitwerk, before it is set up" do
+    initializers, ordering = {}, {}
+    load_railtie([], initializers, ordering)
+    expect(ordering["graph_weaver.ignore_generated"]).to eq(before: :setup_main_autoloader)
+
+    ignored = []
+    loader = Object.new
+    loader.define_singleton_method(:ignore) { |path| ignored << path }
+    Rails.define_singleton_method(:autoloaders) { [loader] }
+    Rails.define_singleton_method(:root) { Pathname.new("/app") }
+
+    initializers["graph_weaver.ignore_generated"].call
+
+    expect(ignored).to eq GraphWeaver.generated_paths.map { |path| "/app/#{path}" }
+  end
+
   it "loads generated modules at boot when the directory exists" do
     initializers = {}
     load_railtie([], initializers)
-    expect(initializers.keys).to eq %w[graph_weaver.logger graph_weaver.load_generated]
+    expect(initializers.keys).to eq %w[graph_weaver.ignore_generated graph_weaver.logger graph_weaver.load_generated]
 
     Dir.mktmpdir do |dir|
       GraphWeaver.generated_path = dir

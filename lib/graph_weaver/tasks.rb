@@ -15,21 +15,32 @@
 #      rake graph_weaver:schema:check   # fail if a query no longer validates (CI)
 require_relative "../graph_weaver"
 
-# in Rails, run app config first (initializers register scalars/enums/
-# helpers, and they're baked into generated source)
-GRAPH_WEAVER_DEPS = Rake::Task.task_defined?("environment") ? ["environment"] : []
-
 namespace :graph_weaver do
+  # In Rails, boot the app first — initializers register scalars/enums/
+  # helpers and they're baked into generated source. Rails defines
+  # :environment *after* every railtie's rake_tasks block (see
+  # Rails::Application#run_tasks_blocks), so whether it exists can only be
+  # asked when the task runs, not when this file loads.
+  task :environment do
+    Rake::Task["environment"].invoke if Rake::Task.task_defined?("environment")
+  end
+
   desc "Generate typed query modules (#{GraphWeaver.queries_path} -> #{GraphWeaver.generated_path})"
-  task generate: GRAPH_WEAVER_DEPS do
+  task generate: :environment do
     # schema auto-located at GraphWeaver.schema_path, any supported extension
     GraphWeaver.generate!.each { |path| puts "wrote #{path}" }
+  rescue GraphWeaver::Error => e
+    # a typo'd query is a user error — the message names file, position and
+    # fix, and a rake backtrace through codegen only buries it
+    abort e.message
   end
 
   desc "Verify generated query modules are up to date"
-  task verify: GRAPH_WEAVER_DEPS do
+  task verify: :environment do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
+  rescue GraphWeaver::Error => e
+    abort e.message
   end
 
   namespace :schema do
@@ -44,6 +55,9 @@ namespace :graph_weaver do
       end
 
       puts "#{path} matches the server"
+    rescue GraphWeaver::Error => e
+      # e.g. a dump with no recorded url — same clean exit as :refresh
+      abort e.message
     end
 
     desc "Re-introspect and rewrite the local dump (URL= to bootstrap the first one)"
@@ -55,7 +69,7 @@ namespace :graph_weaver do
     end
 
     desc "Report checked-in queries that no longer validate against the server's schema"
-    task check: GRAPH_WEAVER_DEPS do
+    task check: :environment do
       failures = GraphWeaver.check_queries
       failures.each do |path, errors|
         puts path

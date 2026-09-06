@@ -90,6 +90,46 @@ longer take `scalars:`/`enums:`/`types:`.
 you built in the console is the object the build step wants and no schema dump
 is needed. `client:` still means what it meant (a constant name to bake as
 `DEFAULT_CLIENT`) and still refuses a live object.
+**Rails integration fixes, found by running the gem in a real Rails app.**
+
+- **Production boot no longer raises `uninitialized constant
+  Generated::PersonQuery`.** The default `generated_path` is
+  `app/graphql/generated`, which Zeitwerk claims as an autoload root, while
+  the files there define top-level constants. Development (lazy) was fine and
+  eager loading was not, so this only showed up in production or
+  `rails zeitwerk:check`. The Railtie now hides the generated directory from
+  the loader; nothing to configure.
+- **`rake graph_weaver:generate` runs your initializer again.** The tasks
+  asked whether Rails' `:environment` task existed at *load* time, but Rails
+  defines it after every Railtie's `rake_tasks` block, so the answer was
+  always no. Generation and `verify` therefore ran without booting the app —
+  silently dropping every `register_scalar` / `register_enum` / `extend_type`
+  in `config/initializers`, and generating code that disagreed with the
+  running app. **Regenerate**: if you register anything in an initializer,
+  your committed generated files are wrong, and `rake graph_weaver:verify`
+  will now say so.
+- `generate`, `verify` and `schema:verify` report a `GraphWeaver::Error` the
+  way `schema:refresh` already did — the message, and a non-zero exit,
+  instead of a rake backtrace through codegen.
+
+**`rails g graph_weaver:install` takes any source `GraphWeaver.new` takes.**
+The endpoint moves from `--url=` to a positional argument, and a schema class
+or an existing dump work the same way:
+
+```sh
+rails g graph_weaver:install https://api.example.com/graphql
+rails g graph_weaver:install MyApp::Schema        # in-process, no socket
+rails g graph_weaver:install db/schema.graphql    # a dump you already have
+```
+
+`--url=` no longer exists — pass the url as the argument. The initializer
+reflects the form chosen: a schema class is resolved in a `to_prepare` block
+(it is autoloaded, so an initializer can not read it, and a dev reload
+replaces the class object), and a dump you already have becomes
+`GraphWeaver.schema_path` rather than being copied. `--auth` and the
+introspection step are url-only; a source that can not use them, a constant
+that does not resolve, and a class that is not a schema are all refused
+before any file is written.
 
 **Generated struct names now come from the query's own field names.** A struct
 is named for the response key that selects it — `stargazers` becomes
