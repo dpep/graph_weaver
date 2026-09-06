@@ -402,6 +402,11 @@ Error-message and console ergonomics from the same review:
   hunting for a bare `4:5`. `ValidationError#errors` and `#to_h` keep the shape
   `rake graph_weaver:schema:check` reads; only the message text changed, and
   **it is multi-line now** — update anything matching on it.
+- **`register_enum("Species", PetKind, {"DOG" => :dog})` says the value map is a
+  keyword**, and shows the call with `map:` in it. Guessing the map as a third
+  positional argument used to get Ruby's `wrong number of arguments (given 3,
+  expected 2)`, which never mentions `map:`. Both `GraphWeaver.register_enum`
+  and `client.register_enum`.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

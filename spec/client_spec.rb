@@ -332,6 +332,16 @@ describe GraphWeaver::Client do
         .to raise_error(GraphWeaver::Error, /register_enum\("Specis"\).*did you mean 'Species'/)
     end
 
+    it "names the map: keyword when a value map is passed positionally" do
+      # a bare "given 3, expected 2" never mentions the keyword
+      message = 'register_enum: the value map is a keyword — register_enum("Species", PetKind, map: {...})'
+
+      expect { GraphWeaver.new(Demo::Schema).register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
+        .to raise_error(GraphWeaver::Error, message)
+      expect { GraphWeaver.register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
+        .to raise_error(GraphWeaver::Error, message)
+    end
+
     it "catches typo'd registrations at generation when the schema is lazy" do
       # a url client hasn't introspected yet — registration can't validate
       # eagerly, so the next parse raises instead
