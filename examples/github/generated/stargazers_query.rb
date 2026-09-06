@@ -9,7 +9,7 @@ module StargazersQuery
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    query($owner: String!, $name: String!, $first: Int!) {
+    query StargazersQuery($owner: String!, $name: String!, $first: Int!) {
       repository(owner: $owner, name: $name) {
         id
         nameWithOwner
@@ -34,7 +34,7 @@ module StargazersQuery
   GRAPHQL
 
   # sent as the request's operationName — what an APM keys traces on
-  OPERATION_NAME = T.let(nil, T.nilable(String))
+  OPERATION_NAME = T.let("StargazersQuery", T.nilable(String))
 
   class Result < T::Struct
     extend T::Sig

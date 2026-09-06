@@ -23,7 +23,8 @@ end
 CharacterQuery = api.parse(<<~GRAPHQL)
   query($name: String, $page: Int) {
     characters(page: $page, filter: { name: $name }) {
-      info { count pages next }
+      # `next` is a Ruby keyword, so codegen refuses it as a prop — alias it
+      info { count pages nextPage: next }
       results {
         name
         status
@@ -49,7 +50,7 @@ loop do
     puts "#{character.emoji} #{character.name} — #{character.species} from #{character.origin&.name}, debuted in #{debut.inspect}"
   end
 
-  page = characters.info&.next
+  page = characters.info&.next_page
   break unless page
 end
 

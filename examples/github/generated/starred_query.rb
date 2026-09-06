@@ -7,7 +7,7 @@ module StarredQuery
   extend T::Sig
 
   QUERY = T.let(<<~'GRAPHQL', String)
-    query($login: String!, $first: Int!) {
+    query StarredQuery($login: String!, $first: Int!) {
       user(login: $login) {
         starredRepositories(first: $first, orderBy: { field: STARRED_AT, direction: DESC }) {
           totalCount
@@ -21,7 +21,7 @@ module StarredQuery
   GRAPHQL
 
   # sent as the request's operationName — what an APM keys traces on
-  OPERATION_NAME = T.let(nil, T.nilable(String))
+  OPERATION_NAME = T.let("StarredQuery", T.nilable(String))
 
   class Result < T::Struct
     extend T::Sig

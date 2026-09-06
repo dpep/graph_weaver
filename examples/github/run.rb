@@ -18,7 +18,7 @@ repo = StargazersQuery.execute!(owner: OWNER, name: NAME, first: 1).repository
 abort "repository not found" unless repo
 
 # join the club (idempotent — starring twice is fine)
-starrable = StarQuery.execute!(id: repo.id).add_star&.starrable
+starrable = StarMutation.execute!(id: repo.id).add_star&.starrable
 puts "⭐ starred #{repo.name_with_owner} — #{starrable&.stargazer_count} star(s). Thanks!"
 
 # refreshed, so the list includes you
