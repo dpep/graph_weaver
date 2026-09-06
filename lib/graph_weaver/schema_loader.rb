@@ -655,14 +655,16 @@ module GraphWeaver::SchemaLoader
   # url: defaults to the one the dump recorded, so a refresh needs no
   # arguments once a dump exists — and passing one bootstraps the first
   # dump, which is what `rails g graph_weaver:install` does.
-  def self.refresh!(url: nil)
+  # auth: defaults to GRAPHWEAVER_AUTH; the generator passes whichever
+  # var it wrote into the initializer.
+  def self.refresh!(url: nil, auth: ENV["GRAPHWEAVER_AUTH"])
     path = locate_path
     url ||= path && provenance(path)&.dig("url")
     raise GraphWeaver::Error, refresh_hint(path) unless url
 
     path ||= GraphWeaver.schema_path
     # ttl: 0 — an existing dump never counts as fresh, a refresh always refetches
-    introspect(GraphWeaver.new(url, auth: ENV["GRAPHWEAVER_AUTH"]).transport, cache: path, ttl: 0)
+    introspect(GraphWeaver.new(url, auth:).transport, cache: path, ttl: 0)
     [path, url]
   end
 
