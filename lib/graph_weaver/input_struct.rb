@@ -27,12 +27,24 @@ module GraphWeaver
 
     # the wire hash — optional fields left nil stay off the wire
     def serialize
-      self.class.const_get(:FIELDS).each_with_object({}) do |field, wire|
+      wire = self.class.const_get(:FIELDS).each_with_object({}) do |field, out|
         value = public_send(field.prop)
         next if value.nil? && !field.required
 
-        wire[field.wire] = field.serializer && !value.nil? ? field.serializer.call(value) : value
+        out[field.wire] = field.serializer && !value.nil? ? field.serializer.call(value) : value
       end
+
+      # @oneOf declares "exactly one of these", but every field is nullable, so
+      # nothing before here can enforce it — not the struct's types, not the
+      # server until the round trip
+      if wire.size != 1 && self.class.const_defined?(:ONE_OF, false)
+        raise GraphWeaver::InputError.new(
+          "#{self.class} is @oneOf — supply exactly one field, got #{wire.empty? ? "none" : wire.keys.sort.join(", ")}",
+          struct: self.class,
+        )
+      end
+
+      wire
     end
     alias_method :to_h, :serialize
 

@@ -334,10 +334,15 @@ class GraphWeaver::Codegen
     Field = Struct.new(:prop, :wire, :node, :required)
 
     attr_reader :class_name, :fields
+    # @oneOf: exactly one field may be supplied. The schema can't say so — every
+    # @oneOf field is nullable — so the generated struct carries the flag and
+    # InputStruct#serialize enforces it.
+    attr_accessor :one_of
 
     def initialize(class_name)
       @class_name = class_name
       @fields = []
+      @one_of = false
     end
 
     def bare_type = class_name

@@ -468,6 +468,28 @@ describe GraphWeaver::Codegen do
       expect { AdoptQuery.execute!(name: "Rex", species: "DRAGON") }.to raise_error(GraphWeaver::InputError)
     end
 
+    describe "@oneOf inputs" do
+      # nothing before serialize can enforce this: every @oneOf field is
+      # nullable, so the struct's own types accept zero or many
+      let(:mod) do
+        schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+          input Ref @oneOf { id: ID name: String }
+          type Query { thing(ref: Ref!): String }
+        GRAPHQL
+        GraphWeaver.parse(schema:, query: "query Q($ref: Ref!) { thing(ref: $ref) }")
+      end
+
+      it "puts the one supplied field on the wire" do
+        expect(mod::Ref.coerce(id: "1").serialize).to eq("id" => "1")
+      end
+
+      it "rejects zero or many, naming what was supplied" do
+        expect { mod::Ref.coerce({}).serialize }.to raise_error(GraphWeaver::InputError, /got none/)
+        expect { mod.execute(nil, id: "1", name: "x") }
+          .to raise_error(GraphWeaver::InputError, /got id, name/)
+      end
+    end
+
     it "keeps the input: kwarg when other variables ride along" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,

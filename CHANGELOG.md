@@ -71,6 +71,11 @@ Codegen bug fixes from the library review (all with regression coverage):
   surfacing later as `NoMethodError … for an instance of Hash`.
 - Generated structs answer `respond_to?` the way `method_missing` behaves, so
   `struct.method(:nmae)` gets the same "did you mean" hint the direct call does.
+- `@oneOf` input objects enforce exactly one field. The schema can't express it
+  — every `@oneOf` field is nullable — so the struct accepted zero or many and
+  the server rejected the round trip; supplying the wrong number now raises
+  `GraphWeaver::InputError` naming the type and the keys. **Regenerate** to pick
+  it up.
 - An enum whose values differ only in case (`enum E { active ACTIVE }`) is
   refused at generation naming both wire values, instead of emitting two
   `Active` constants and raising `RuntimeError: Enum values must be assigned to

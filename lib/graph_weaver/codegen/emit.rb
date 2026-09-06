@@ -557,6 +557,11 @@ class GraphWeaver::Codegen
       out << "#{pad}  include GraphWeaver::InputStruct"
       out << "#{pad}  extend GraphWeaver::InputStruct::ClassMethods"
       out << ""
+      if node.one_of
+        out << "#{pad}  # @oneOf: every field is nullable, so exactly-one is checked at runtime"
+        out << "#{pad}  ONE_OF = T.let(true, T::Boolean)"
+        out << ""
+      end
       node.fields.each do |field|
         default = field.required ? "" : ", default: nil"
         out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}#{default}"
