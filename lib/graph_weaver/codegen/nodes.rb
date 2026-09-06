@@ -287,7 +287,10 @@ class GraphWeaver::Codegen
   end
 
   class UnionNode < Node
-    attr_reader :class_name, :members # graphql type name => ObjectNode
+    # class_name is writable: fields sharing one collapsed union settle on the
+    # alphabetically first of their keys, which the walk may reach second
+    attr_accessor :class_name
+    attr_reader :members # graphql type name => ObjectNode
     # the struct an unnamed (or newly-added) __typename deserializes into
     attr_reader :catch_all
 

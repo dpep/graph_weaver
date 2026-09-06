@@ -590,7 +590,7 @@ class GraphWeaver::Codegen
 
         case (core = unwrap(field_type)).kind.name
         when "OBJECT"
-          name = pick_name(core.graphql_name, key, taken)
+          name = pick_name(key, taken)
           type_ref(field_type) { object_node(core, sub_selections, name) }
         when "UNION", "INTERFACE"
           conditions = concrete_conditions(core, sub_selections)
@@ -600,7 +600,7 @@ class GraphWeaver::Codegen
             # abstract-level fields only — every member shares them, so one
             # struct suffices and no __typename dispatch is needed (for a
             # union that selection can only be __typename)
-            name = pick_name(core.graphql_name, key, taken)
+            name = pick_name(key, taken)
             type_ref(field_type) { object_node(core, sub_selections, name) }
           elsif conditions.size == 1 && bare.empty? &&
               (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
@@ -619,7 +619,7 @@ class GraphWeaver::Codegen
                 "makes a match indistinguishable from nil"
             end
 
-            name = pick_name(member.graphql_name, key, taken)
+            name = pick_name(key, taken)
             nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name), typename: tag) }
           elsif @unions_namespace && (frag = lone_shared_spread(sub_selections)) &&
               @hoistable_unions.include?(frag)
@@ -632,9 +632,15 @@ class GraphWeaver::Codegen
           else
             members = union_members(core, sub_selections)
             catch_all = catch_all_member(core, sub_selections, members)
-            # reuse an identical sibling union (pick_name/name only on a miss)
-            union = (union_cache[union_signature(members, catch_all)] ||=
-              UnionNode.new(pick_name(core.graphql_name, key, taken), members, catch_all))
+            # reuse an identical sibling union — the shared type takes the
+            # first of the sharing keys alphabetically, not in walk order
+            signature = union_signature(members, catch_all)
+            union = union_cache[signature]
+            if union
+              rename_union(union, key, taken) if camelize(key) < union.class_name
+            else
+              union = union_cache[signature] = UnionNode.new(pick_name(key, taken), members, catch_all)
+            end
             type_ref(field_type) { union }
           end
         when "ENUM"
@@ -648,7 +654,7 @@ class GraphWeaver::Codegen
             @result_variable_enums << shared unless @result_variable_enums.include?(shared)
             type_ref(field_type) { shared }
           else
-            name = pick_name(core.graphql_name, key, taken)
+            name = pick_name(key, taken)
             type_ref(field_type) { EnumNode.new(name, enum_values(core)) }
           end
         when "SCALAR"
@@ -1131,16 +1137,39 @@ class GraphWeaver::Codegen
     type
   end
 
-  # GraphQL type names become struct names — camelized, because schemas
-  # in the wild use snake_case type names (Hasura, PostGraphile) and a
-  # verbatim lowercase name is not a Ruby constant
-  def pick_name(type_name, key, taken)
-    candidate = camelize(type_name)
-    candidate = "#{camelize(key)}#{candidate}" if taken.include?(candidate)
-    raise GraphWeaver::Error, "class name collision: #{candidate}" if taken.include?(candidate)
+  # A generated type is named for the response key that selects it, camelized
+  # (`stargazers` => Stargazers) — a function of the field's own position and
+  # nothing else, so adding, removing, or reordering an unrelated selection can
+  # never rename it. Generated code is app-code API; a name that shifts under
+  # an unrelated edit is a silent break. `taken` is the names claimed in this
+  # struct's scope, its first entry the struct itself.
+  #
+  # (Union members are the exception: they are named for the type condition
+  # that produces them, which is equally position-determined.)
+  def pick_name(key, taken)
+    name = camelize(key)
 
-    taken << candidate
-    candidate
+    if name == taken.first
+      # would shadow the struct it nests in — the parent's own `returns(Name)`
+      # resolves lexically and would find the child
+      suffix = 2
+      suffix += 1 while taken.include?("#{name}#{suffix}")
+      name = "#{name}#{suffix}"
+    elsif taken.include?(name)
+      raise GraphWeaver::Error,
+        "result keys on #{taken.first} both generate the class #{name} — alias one to a distinct name"
+    end
+
+    taken << name
+    name
+  end
+
+  # Fields whose union selections are structurally identical share one Ruby
+  # type; name it for the alphabetically first of their keys, so which field
+  # the walk happened to reach first doesn't decide.
+  def rename_union(union, key, taken)
+    taken.delete(union.class_name)
+    union.class_name = pick_name(key, taken)
   end
 
 end

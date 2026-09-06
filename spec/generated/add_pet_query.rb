@@ -27,7 +27,7 @@ module AddPetQuery
     extend T::Sig
     include GraphWeaver::Hints
 
-    class Pet < T::Struct
+    class AddPet < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
 
@@ -35,7 +35,7 @@ module AddPetQuery
       const :name, String
       const :species, Species
 
-      sig { params(data: T::Hash[String, T.untyped]).returns(Pet) }
+      sig { params(data: T::Hash[String, T.untyped]).returns(AddPet) }
       def self.from_h(data)
         new(
           id: data.fetch("id"),
@@ -49,12 +49,12 @@ module AddPetQuery
       end
     end
 
-    const :add_pet, Pet
+    const :add_pet, AddPet
 
     sig { params(data: T::Hash[String, T.untyped]).returns(Result) }
     def self.from_h(data)
       new(
-        add_pet: Pet.from_h(data.fetch("addPet")),
+        add_pet: AddPet.from_h(data.fetch("addPet")),
       )
     rescue GraphWeaver::Error
       raise # already branded by a nested struct — keep the innermost context

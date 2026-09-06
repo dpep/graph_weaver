@@ -13,7 +13,7 @@ describe GraphWeaver::Testing do
       person = PersonQuery.execute!(fake, id: "1").person
 
       expect(person&.name).to be_a String
-      expect(person&.pets).to all(be_a(PersonQuery::Result::Person::Pet))
+      expect(person&.pets).to all(be_a(PersonQuery::Result::Person::Pets))
       expect(person&.birthday).to be_a(Date).or be_nil
     end
 

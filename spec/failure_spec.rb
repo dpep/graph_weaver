@@ -99,15 +99,15 @@ describe "failure simulation" do
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
 
-      # list elements get non-Hash values; the sig on Pet.from_h rejects
+      # list elements get non-Hash values; the sig on Pets.from_h rejects
       # them at the call site, so Person owns the failure and the cause
-      # names Pet
+      # names Pets
       pets_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.pets")
       expect {
         PersonQuery.execute(pets_corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
-        expect(e.cause&.message).to include("Pet.from_h")
+        expect(e.cause&.message).to include("Pets.from_h")
       end
     end
 

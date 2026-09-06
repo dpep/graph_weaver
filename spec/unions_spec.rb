@@ -115,8 +115,8 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
 
     expect(File.exist?("#{@base}/generated/unions.rb")).to be(false)
     src = File.read("#{@base}/generated/home_query.rb")
-    # emitted locally as a union named for its type, not hoisted
-    expect(src).to include("module FeedItem", "Type = T.type_alias")
+    # emitted locally as a union named for its field, not hoisted
+    expect(src).to include("module Feed", "Type = T.type_alias")
     expect(src).not_to include("GraphQLUnions")
   end
 

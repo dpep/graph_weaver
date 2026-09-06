@@ -32,13 +32,13 @@ module PersonQuery
       extend T::Sig
       include GraphWeaver::Hints
 
-      class Pet < T::Struct
+      class Pets < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
 
         const :name, String
 
-        sig { params(data: T::Hash[String, T.untyped]).returns(Pet) }
+        sig { params(data: T::Hash[String, T.untyped]).returns(Pets) }
         def self.from_h(data)
           new(
             name: data.fetch("name"),
@@ -53,7 +53,7 @@ module PersonQuery
       const :id, String
       const :name, String
       const :birthday, T.nilable(Date)
-      const :pets, T::Array[Pet]
+      const :pets, T::Array[Pets]
 
       sig { params(data: T::Hash[String, T.untyped]).returns(Person) }
       def self.from_h(data)
@@ -61,7 +61,7 @@ module PersonQuery
           id: data.fetch("id"),
           name: data.fetch("name"),
           birthday: data["birthday"]&.then { |v1| Date.iso8601(v1) },
-          pets: data.fetch("pets").map { |v1| Pet.from_h(v1) },
+          pets: data.fetch("pets").map { |v1| Pets.from_h(v1) },
         )
       rescue GraphWeaver::Error
         raise # already branded by a nested struct — keep the innermost context
