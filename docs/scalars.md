@@ -101,10 +101,10 @@ otherwise exact result type, so generation names the holes at `info` (see
 
 ## Enums: map onto your own T::Enum
 
-By default each generated module grows its own `T::Enum` per GraphQL
-enum — `AddPetMutation::Species`, `SearchQuery::Result::...::Species`, one
-per module that touches it. That's fine until your app has its own
-domain enum, and then the boundary shuffle starts:
+By default a schema enum generates one `T::Enum` per schema, shared by every
+query module that touches it (`GraphQLEnums::Species`, aliased as
+`AddPetMutation::Species`). That's fine until your app has its own domain
+enum, and then the boundary shuffle starts:
 
 ```ruby
 # your domain already speaks PetKind — it's in your models, your
@@ -118,11 +118,9 @@ kind = PetKind.deserialize(pet.species.serialize.downcase)      # response -> do
 AddPetMutation.execute!(species: kind.serialize.upcase)            # domain -> wire
 ```
 
-Two enums for one concept, glue at every crossing, and each generated
-module has its *own* incompatible `Species`, so a pet from `SearchQuery`
-and a pet from `AddPetMutation` don't even compare. Register the mapping
-once and the seam disappears — generated code speaks your enum
-everywhere, casting wire values in and serializing members out:
+Two enums for one concept and glue at every crossing. Register the mapping
+once and the seam disappears — generated code speaks your enum everywhere,
+casting wire values in and serializing members out:
 
 ```ruby
 GraphWeaver.register_enum("Species", PetKind)
@@ -133,9 +131,9 @@ AddPetMutation.execute!(species: PetKind::Cat)   # or "CAT" — members and wire
 ```
 
 **When to reach for it**: the enum has a life outside the API — it's
-persisted, matched in business logic, or shared across queries. **When
-not to bother**: display-only values you read and forget; the per-module
-generated enums are self-contained and need zero setup.
+persisted or matched in business logic. **When not to bother**: values you
+only read back out of responses; the generated enum is already one type
+across every query and needs zero setup.
 
 The mapping is inferred by name (`"CAT"` ↔ `PetKind::Cat`,
 case/underscore-insensitive against each member's serialized value), so

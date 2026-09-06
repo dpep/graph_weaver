@@ -203,7 +203,9 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     it "qualifies a deep object/enum leaf with its container path (not a bare constant)" do
       src = gen2({ s: "meta.sub", r: "meta.rank" }, "query W { widget { meta { sub { code } rank } } }")
       expect(src).to include("sig { returns(T.nilable(Meta::Sub)) }", "def s = meta&.sub")
-      expect(src).to include("sig { returns(T.nilable(Meta::Rank)) }", "def r = meta&.rank")
+      # an enum lives at module level (one Ruby type per schema enum), so it
+      # takes no container prefix
+      expect(src).to include("sig { returns(T.nilable(Rank)) }", "def r = meta&.rank")
     end
 
     it "rejects an alias name or path segment that isn't a plain identifier" do

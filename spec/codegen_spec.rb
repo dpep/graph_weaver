@@ -298,14 +298,27 @@ describe GraphWeaver::Codegen do
       expect(person.name).to eq "Daniel" # selected via `... on Named`
       expect(person.birthday).to eq Date.new(1990, 6, 15)
       expect(pet.name).to eq "Shelby"
-      expect(pet.species).to eq SearchQuery::Result::Search::Pet::Species::Dog
+      expect(pet.species).to eq SearchQuery::Species::Dog
     end
 
     it "deserializes enums into generated T::Enums" do
-      species = SearchQuery::Result::Search::Pet::Species
+      species = SearchQuery::Species
 
       expect(species.values).to eq [species::Cat, species::Dog]
       expect(species::Dog.serialize).to eq "DOG"
+
+      # one GraphQL enum, one Ruby type — the same class every module aliases
+      expect(species).to equal AddPetMutation::Species
+    end
+
+    it "round-trips an enum read in one module into another module's variable" do
+      # SearchQuery only reads Species; AddPetMutation only sends it. Two
+      # separately-generated modules used to mean two incompatible classes, so
+      # this raised a TypeError from the receiving sig.
+      pet = results.last
+
+      expect(AddPetMutation.execute!(name: "Rex", species: pet.species).add_pet.species)
+        .to equal pet.species
     end
 
     it "requires __typename when the selection varies by concrete type" do
@@ -404,7 +417,7 @@ describe GraphWeaver::Codegen do
 
       expect(pet).to be_a NamedQuery::Result::Named::Pet
       expect(pet.name).to eq "Shelby" # interface field, gathered into every member
-      expect(pet.species).to eq NamedQuery::Result::Named::Pet::Species::Dog
+      expect(pet.species).to eq NamedQuery::Species::Dog
       # the query names no Person fields, so Person shares the catch-all with
       # every other Named implementation — the interface-level fields still cast
       expect(person).to be_a NamedQuery::Result::Named::Other

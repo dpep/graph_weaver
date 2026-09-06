@@ -5,6 +5,7 @@
 
 require "date"
 
+require_relative "enums"
 require_relative "inputs"
 
 module AdoptMutation
@@ -23,8 +24,9 @@ module AdoptMutation
   # sent as the request's operationName — what an APM keys traces on
   OPERATION_NAME = T.let(nil, T.nilable(String))
 
+  Species = GraphQLEnums::Species
+
   AdoptionInput = GraphQLInputs::AdoptionInput
-  Species = GraphQLInputs::Species
 
   class Result < T::Struct
     extend T::Sig

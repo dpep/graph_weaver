@@ -22,8 +22,10 @@ app/graphql/
   schema.json        # introspection dump (or schema.graphql SDL)
   queries/           # *.graphql — hand-written, reviewed
   generated/
+    enums.rb         # one Ruby type per schema enum
     inputs.rb        # manifest: requires + forward declarations
-    inputs/          # one file per shared type (input structs, enums)
+    inputs/          # one file per input struct
+    unions.rb        # unions hoisted from shared fragments (if any)
     *_query.rb       # one module per query — generated, checked in, never edited
     *_mutation.rb    # ...and per mutation
 ```
@@ -222,8 +224,8 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 - required vs optional falls out of nullability and defaults: nullable or
   defaulted variables become optional kwargs (nil is omitted from the wire,
   so server-side defaults apply)
-- enum variables generate module-level `T::Enum`s and accept the enum or
-  its wire value (`species: Species::Dog` or `species: "DOG"`)
+- enum variables accept the enum or its wire value (`species: Species::Dog`
+  or `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
 
 **Input objects**: when an operation's only variable is a required input
@@ -250,14 +252,13 @@ hint rather than silently dropping):
 AdoptMutation.execute!(input: { name: "Rex", species: "DOG" }, detail: true)
 ```
 
-In the generate! workflow, input types (and the enums they use) are
-emitted **once per schema** — one file per type under
-`generated/inputs/`, with `inputs.rb` as the manifest. The module is
-named from the output path: the conventional layout gets
-`GraphQLInputs`, while a multi-schema layout names each schema's module
-after its directory (`app/graphql/github/generated` → `GithubInputs`).
-Override the module name globally with `GraphWeaver.inputs_module=` or per run
-with `generate!(inputs_module:)`. Per-type files keep schema drift
+In the generate! workflow, input types are emitted **once per schema** — one
+file per type under `generated/inputs/`, with `inputs.rb` as the manifest, in
+the module `GraphQLInputs`. That name is a constant, not a function of where
+you put the files: set it with `GraphWeaver.inputs_module=` (or per run with
+`generate!(inputs_module:)`) when one app generates against two schemas —
+in the same initializer that already gives each its own paths. Per-type files
+keep schema drift
 reviewable: a migration diffs exactly the types it touched, and types
 the schema drops are pruned on regeneration (`verify` flags strays).
 Query modules alias what they touch,
@@ -266,6 +267,28 @@ identity across modules — three filtered Hasura queries cost one ~11k-line
 inputs file plus ~90 lines each, instead of ~35k lines of duplicates.
 Deeply nested types live unaliased in the shared module
 (`GraphQLInputs::PetFilter`). Dynamic `parse` stays self-contained.
+
+## Enums: one GraphQL enum, one Ruby type
+
+Every schema enum a query touches — as a variable, in a result, or both —
+becomes exactly one Ruby type in `enums.rb`, named for the enum
+(`GraphQLEnums::Species`), and every query module aliases it:
+
+```ruby
+species = SearchQuery.execute!(term: "Shelby").search.first.species
+AddPetMutation.execute!(name: "Rex", species:)     # same class, no conversion
+```
+
+So a value read out of one query hands straight back into another's variable,
+`case`/`T.absurd` is exhaustive across your app, and the class a field gets
+doesn't depend on what else the query happened to reference. The module name
+is `GraphQLEnums` unless `GraphWeaver.enums_module=` (or
+`generate!(enums_module:)`) says otherwise.
+
+`register_enum` replaces the generated `T::Enum` with your own app enum — see
+[scalars.md](scalars.md#enums-map-onto-your-own-tenum). Dynamic `parse` emits
+the enums into the query module itself; there's no cross-query set to share
+against, but one enum is still one class within that module.
 
 The structs themselves are module-level (`AdoptMutation::AdoptionInput`):
 typed consts plus a compact per-field `FIELDS` table that the

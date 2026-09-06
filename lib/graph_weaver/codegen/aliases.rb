@@ -137,9 +137,9 @@ class GraphWeaver::Codegen
         end
         "T::Array[#{element}]"
       when ObjectNode, NarrowedNode then "#{prefix}#{node.class_name}"
-      # a reused variable enum is emitted at module level (see Emit#module_level?),
-      # so it takes no container prefix
-      when EnumNode then "#{@variable_enums.value?(node) ? "" : prefix}#{node.class_name}"
+      # enums are emitted at module level (see Emit#module_level?), or aliased
+      # there from the shared enums module — either way, no container prefix
+      when EnumNode then node.class_name
       when UnionNode then "#{prefix}#{node.bare_type}"
       else node.bare_type # Scalar, MappedEnum, UnionRefNode — already top-level
       end

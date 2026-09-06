@@ -154,35 +154,17 @@ module GraphWeaver
 
     def schema_path = @schema_path || "app/graphql/schema.json"
 
-    # The shared-inputs / shared-unions module names: set them globally, pass
-    # inputs_module:/unions_module: per generate!, or let them derive from the
-    # output path — the directory above generated/ names the schema in
-    # multi-schema layouts (app/graphql/github/generated => GithubInputs /
-    # GithubUnions); the conventional layout (and anything unrecognizable)
-    # stays GraphQLInputs / GraphQLUnions.
-    attr_writer :inputs_module, :unions_module
+    # The names of the three shared modules — the types that live once per
+    # schema and are aliased into every query module that touches them.
+    # Constant, not derived from where you put the files: set them globally, or
+    # pass inputs_module:/unions_module:/enums_module: per generate!. A
+    # multi-schema layout names them in the same initializer that sets its
+    # paths.
+    attr_writer :inputs_module, :unions_module, :enums_module
 
-    def inputs_module(output = generated_path)
-      @inputs_module || derive_module("Inputs", output)
-    end
-
-    def unions_module(output = generated_path)
-      @unions_module || derive_module("Unions", output)
-    end
-
-    # Name a shared module from the output path: <Schema><suffix> in a
-    # multi-schema layout, else GraphQL<suffix>.
-    def derive_module(suffix, output)
-      segments = File.expand_path(output.to_s).split(File::SEPARATOR)
-      segments.pop if segments.last == "generated"
-      parent = segments.last.to_s
-      if parent.match?(/\A[a-zA-Z]\w*\z/) && !%w[graphql app lib spec support test].include?(parent)
-        "#{Inflect.camelize(parent)}#{suffix}"
-      else
-        "GraphQL#{suffix}"
-      end
-    end
-    private :derive_module
+    def inputs_module = @inputs_module || "GraphQLInputs"
+    def unions_module = @unions_module || "GraphQLUnions"
+    def enums_module = @enums_module || "GraphQLEnums"
 
     # Generate every .graphql query in a directory into checked-in Ruby
     # files. Paths default to the conventions above; schema: defaults to
@@ -196,12 +178,10 @@ module GraphWeaver
     # (see #orphaned), so renaming or dropping a .graphql leaves nothing
     # behind. Pair with a freshness spec (docs/generated_modules.md).
     def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil,
-      inputs_module: nil, unions_module: nil)
+      inputs_module: nil, unions_module: nil, enums_module: nil)
       schema = schema ? schema_for(schema) : locate_schema!
-      inputs_module ||= self.inputs_module(output)
-      unions_module ||= self.unions_module(output)
 
-      plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:)
+      plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:, enums_module:)
       written = plan.map do |filename, source|
         target = File.join(output, filename)
         FileUtils.mkdir_p(File.dirname(target))
@@ -249,11 +229,9 @@ module GraphWeaver
     #        GraphWeaver.verify_generated!
     #      end
     def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil,
-      inputs_module: nil, unions_module: nil)
+      inputs_module: nil, unions_module: nil, enums_module: nil)
       schema = schema ? schema_for(schema) : locate_schema!
-      inputs_module ||= self.inputs_module(output)
-      unions_module ||= self.unions_module(output)
-      plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:)
+      plan = generation_plan(queries:, schema:, client:, inputs_module:, unions_module:, enums_module:)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
         # git's autocrlf rewrites line endings on checkout — a Windows working
@@ -357,17 +335,27 @@ module GraphWeaver
     end
     private :locate_schema!
 
-    # (filename, source) per artifact. Every variable type is emitted once into
-    # inputs.rb, and each named shared fragment spread as a whole-union field
-    # once into unions.rb, with query modules aliasing what they use — the
-    # difference between hundreds of duplicated bool_exp structs (or the same
-    # union re-typed per query) and one copy per schema. (Single-query parse
-    # inlines both — there's no cross-query set to share against.)
+    # (filename, source) per artifact. Types a schema shares across queries are
+    # emitted once — input types into inputs.rb, schema enums into enums.rb,
+    # and each named shared fragment spread as a whole-union field into
+    # unions.rb — with query modules aliasing what they use. That's the
+    # difference between hundreds of duplicated bool_exp structs (or one Ruby
+    # class per query for the same schema enum) and one copy per schema.
+    # (Single-query parse inlines everything — there's no cross-query set to
+    # share against.)
+    #
+    # Unions are built before the enums module because a hoisted fragment's
+    # own selections are the one place a query walk doesn't reach.
     def generation_plan(queries:, schema:, client:, inputs_module: self.inputs_module,
-      unions_module: self.unions_module, fragments: fragments_paths)
+      unions_module: self.unions_module, enums_module: self.enums_module,
+      fragments: fragments_paths)
+      inputs_module ||= self.inputs_module
+      unions_module ||= self.unions_module
+      enums_module ||= self.enums_module
       used = { inputs: [], enums: [], mapped: [] }
       used_unions = []
       shared = Codegen.load_fragments(fragments)
+      collect = ->(codegen) { codegen.variable_type_names.each { |kind, names| used[kind] |= names } }
 
       plan = Dir[File.join(queries, "*.graphql")].sort.map do |path|
         base = File.basename(path, ".graphql")
@@ -380,28 +368,32 @@ module GraphWeaver
           client:,
           inputs_namespace: inputs_module,
           unions_namespace: unions_module,
+          enums_namespace: enums_module,
           hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
           path:,
         )
         out = codegen.generate
-        codegen.variable_type_names.each { |kind, names| used[kind] |= names }
+        collect.call(codegen)
         used_unions |= codegen.used_union_names
         ["#{base}_#{suffix.downcase}.rb", out]
       end
 
-      if inputs_module && used.values.any?(&:any?)
-        inputs = Codegen.generate_inputs(
-          schema:, module_name: inputs_module,
-          input_types: used[:inputs], enum_types: used[:enums] + used[:mapped],
-        )
-        plan = inputs.to_a + plan
+      if unions_module && used_unions.any?
+        codegen = Codegen.new(schema:, query: "", module_name: unions_module, enums_namespace: enums_module)
+        plan = codegen.generate_unions(shared, used_unions).to_a + plan
+        collect.call(codegen)
       end
 
-      if unions_module && used_unions.any?
-        unions = Codegen.generate_unions(
-          schema:, module_name: unions_module, fragments: shared, names: used_unions,
-        )
-        plan = unions.to_a + plan
+      if inputs_module && used[:inputs].any?
+        codegen = Codegen.new(schema:, query: "", module_name: inputs_module, enums_namespace: enums_module)
+        plan = codegen.generate_inputs(used[:inputs]).to_a + plan
+        collect.call(codegen)
+      end
+
+      if enums_module && (used[:enums] + used[:mapped]).any?
+        plan = Codegen.generate_enums(
+          schema:, module_name: enums_module, enum_types: used[:enums] + used[:mapped],
+        ).to_a + plan
       end
 
       plan
