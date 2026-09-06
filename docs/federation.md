@@ -1,24 +1,8 @@
 # Federation
 
-GraphWeaver generates a client for the **whole** graph, so with Apollo
-Federation you normally point it at the *composed* schema — the supergraph or
-the API schema. A single subgraph's SDL loads too, for the cases where that's
-what you have or what you mean.
-
-## The schema you feed it
-
-Three artifacts, easy to mix up:
-
-| Artifact | What it is | Feed to weaver? |
-|----------|------------|-----------------|
-| **Subgraph SDL** | one service's `.graphql`, with `@key`/`@shareable`/`extend schema @link` | Yes, but it's one service's slice of the graph (see below) |
-| **Supergraph** | the composed graph, annotated with `@join__*`/`@link` machinery | Yes — self-contained (see below) |
-| **API schema** | the supergraph with federation internals stripped — exactly what the router serves and what an introspection query returns | Yes — the exact client contract |
-
-`SchemaLoader.load` (and `Client.new(path_or_sdl)`) take any of them as an SDL
-file or introspection dump; or point weaver at the router URL to introspect
-the API schema live. For a client of the whole graph, use the composed
-artifact — the supergraph or the API schema.
+Feed weaver any federation artifact: a supergraph, an API schema, a subgraph
+SDL, or the live router. It recognizes which it got — `SchemaLoader.load` (and
+`Client.new(path_or_sdl)`) take each as an SDL file or an introspection dump.
 
 ## Pointing weaver at a supergraph
 
@@ -92,6 +76,12 @@ field and ignores the directive: `@requiresScopes` / `@policy` / `@authenticated
 enforce access at runtime; `@tag` / `@requires` / `@provides` / `@external` are
 metadata.
 
+The derivation is diffed against Apollo's own `composeServices` +
+`toAPISchema()` in
+[`spec/integration/api_schema_spec.rb`](../spec/integration/api_schema_spec.rb),
+over composed supergraphs carrying `@interfaceObject`, `@join__unionMember`,
+`@join__enumValue` and an aliased `@inaccessible` — identical in each.
+
 ## Pointing weaver at a subgraph
 
 A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the
@@ -162,20 +152,3 @@ And a `@key(..., resolvable: false)` declares a key this subgraph does *not*
 answer for, so it builds nothing. Key fields typed as scalars get their
 registered Ruby type; anything else (a nested selection) is an open `Hash` the
 runtime narrows.
-
-## Which schema to feed
-
-Any of these — they all produce the same generated code:
-
-- **The supergraph SDL** — weaver strips the `@join__*`/`@link` machinery and
-  derives the API schema (removing `@inaccessible`). The common case. Federation
-  v1 supergraphs (`@core`/`@join__owner`) work the same way.
-- **The API schema SDL** — already subtracted (e.g. emitted in your CI); loads
-  as an ordinary schema.
-- **The live router** — introspect it; it already serves the API schema.
-
-A large real supergraph carries more constructs than a toy one (interface
-objects via `@join__type(isInterfaceObject:)`, `@join__unionMember`, enum join
-directives). The stripping holds across them, but the honest check is to run
-codegen against your actual composed schema plus a couple of representative
-queries before relying on it.

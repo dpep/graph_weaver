@@ -229,9 +229,8 @@ query { feed { ...FeedItemFields } }   # feed : T::Array[FeedItemFields::Type]
 Hoisting is what the shared fragment buys you — there's no flag. It triggers
 only when the union field's selection is exactly that one spread (mix in other
 fields, or shadow the fragment with a query-local one of the same name, and the
-union stays inlined in that query). Named like the inputs module from the output
-path (`GraphQLUnions`, or `GithubUnions` in a multi-schema layout); override
-with `GraphWeaver.unions_module=`.
+union stays inlined in that query). The module is always `GraphQLUnions`;
+override with `GraphWeaver.unions_module=`.
 
 ## 4. Test against fakes
 

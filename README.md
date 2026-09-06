@@ -112,9 +112,10 @@ PersonQuery.execute(other_client, id: "1")          # or per call
 Module names derive from the **file** name plus the operation it defines —
 `person.graphql` → `PersonQuery`, `adopt.graphql` (a `mutation`) →
 `AdoptMutation` — for `parse(path)`, `load_queries!` and the rake task alike.
-The operation name written inside the file names nothing; it goes on the wire
-as `operationName`. Parsing a raw query string uses the operation
-name instead (`query GetPerson` → `GetPerson`). Pass `module_name:`/`name:`
+The operation name written inside the file names no module; it goes on the wire
+as `operationName`. Leave it off and the module's own name is written into the
+document instead, so every request is attributable. Parsing a raw query string
+uses the operation name instead (`query GetPerson` → `GetPerson`). Pass `module_name:`/`name:`
 to override. Pass `client:` (a constant) to
 bake a default client into the generated module. Prefer Faraday? Ask for
 it — `GraphWeaver.new(url, transport: :faraday)`; middleware blocks and
