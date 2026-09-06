@@ -55,8 +55,16 @@ RSpec.shared_context "graphql http server" do
       response.body = "Too Many Requests"
     end
 
+    # Surface a boot failure here rather than as every request in this
+    # file failing at once — a swallowed exception in the server thread
+    # reads as a burst of unrelated flakes that won't reproduce.
+    ready = Queue.new
+    @server.config[:StartCallback] = -> { ready << :up }
     @thread = Thread.new { @server.start }
+    @thread.abort_on_exception = true
     @port = @server.listeners.first.addr[1]
+
+    raise "test HTTP server did not start within 5s" if ready.pop(timeout: 5).nil?
   end
 
   after(:all) do
