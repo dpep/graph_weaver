@@ -1,4 +1,14 @@
 ## Unreleased
+**A variable named `$client` no longer generates a file that won't parse.**
+`query($client: ID!)` emitted `def self.execute(client = nil, client:)` — a
+`SyntaxError` raised at app boot from `load_generated!`, arbitrarily far from
+the query that caused it, while `verify_generated!` reported the tree as
+current. Generation now refuses `$client`, `$variables` and `$transport` — the
+three locals the generated `execute` body owns — naming the fix. **Rename such
+a variable in the query (`query($clientId: ID!)`) before regenerating.** A
+single input-object variable whose *field* is one of those names (which you
+can't rename) simply keeps its wrapping kwarg instead of being flattened.
+
 **Generated struct names now come from the query's own field names.** A struct
 is named for the response key that selects it — `stargazers` becomes
 `Stargazers`, `edges` becomes `Edges` — so its name is a function of its own

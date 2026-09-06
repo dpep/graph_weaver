@@ -220,6 +220,12 @@ class GraphWeaver::Codegen
     BEGIN END __FILE__ __LINE__ __ENCODING__
   ].to_set.freeze
   GENERATED_METHODS = %w[serialize to_h].to_set.freeze
+  # Locals the generated `execute` body owns: the per-call client override and
+  # the two it builds. A kwarg by any of these names redeclares or overwrites
+  # one — `def self.execute(client = nil, client:)` doesn't even parse. No
+  # legal Ruby local is unreachable by a GraphQL variable name, so this is a
+  # guard rather than a rename.
+  RESERVED_KWARGS = %w[client variables transport].to_set.freeze
   # ...plus every method a struct instance already answers: T::Props refuses to
   # redefine those (`class`, `hash`, `send`, `to_s`), so the generated file
   # would raise ArgumentError at require time. Derived rather than listed, so
@@ -286,6 +292,11 @@ class GraphWeaver::Codegen
         raise GraphWeaver::Error,
           "variable $#{var.name} would become the kwarg '#{kwarg}:', which generated code can't declare " \
           "(a Ruby keyword) — rename the variable"
+      end
+      if RESERVED_KWARGS.include?(kwarg)
+        raise GraphWeaver::Error,
+          "variable $#{var.name} would become the kwarg '#{kwarg}:', which generated execute already " \
+          "uses — rename the variable (query($#{var.name}Id: ...))"
       end
       VarDef.new(kwarg, var.name, node, required)
     end

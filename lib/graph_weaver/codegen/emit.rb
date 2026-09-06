@@ -22,7 +22,12 @@ class GraphWeaver::Codegen
       return unless var.required && var.node.is_a?(NonNull)
 
       input = var.node.of
-      input if input.is_a?(InputNode)
+      return unless input.is_a?(InputNode)
+      # a field whose prop is one of execute's own locals can't be a kwarg, and
+      # unlike a variable name the user can't rename it — keep the wrapping level
+      return if input.fields.any? { |field| RESERVED_KWARGS.include?(field.prop) }
+
+      input
     end
 
     def input_references(node)
@@ -467,7 +472,7 @@ class GraphWeaver::Codegen
       # the kwarg surface: the input's fields when flattened, else one
       # kwarg per declared variable — typed identically either way. The
       # per-call client override rides as an optional POSITIONAL arg, so
-      # variables keep the entire kwarg namespace (nothing is reserved).
+      # only this body's own locals (RESERVED_KWARGS) are off limits.
       params = flatten ? flatten.fields.partition(&:required).flatten : variables
 
       sig_params = ["client: T.untyped"]

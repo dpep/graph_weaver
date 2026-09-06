@@ -118,7 +118,7 @@ describe GraphWeaver::Codegen do
       }.to raise_error(GraphWeaver::Error, /\$end.*Ruby keyword/)
     end
 
-    it "nothing is reserved: a variable named $client or $executor is fine" do
+    it "leaves the rest of the kwarg namespace alone" do
       mod = GraphWeaver.parse(
         schema: Demo::Schema,
         client: Demo::Schema,
@@ -126,6 +126,25 @@ describe GraphWeaver::Codegen do
       )
 
       expect(mod.execute!(executor: "1").person&.name).to eq "Daniel"
+    end
+
+    it "refuses variables whose kwarg is one of execute's own locals" do
+      %w[client variables transport].each do |name|
+        expect {
+          GraphWeaver.parse(schema: Demo::Schema, query: "query($#{name}: ID!) { person(id: $#{name}) { id } }")
+        }.to raise_error(GraphWeaver::Error, /\$#{name}.*generated execute already uses.*rename/m)
+      end
+    end
+
+    it "keeps the wrapping variable when a flattened input field would collide" do
+      # the user can't rename a schema field, so decline to flatten instead
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        input Wrap { client: ID! }
+        type Query { thing(wrap: Wrap!): String }
+      GRAPHQL
+      source = described_class.generate(schema:, query: "query Q($wrap: Wrap!) { thing(wrap: $wrap) }", module_name: "W")
+
+      expect(source).to include("def self.execute(client = nil, wrap:)")
     end
   end
 
