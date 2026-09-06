@@ -170,7 +170,6 @@ Codegen bug fixes from the library review (all with regression coverage):
   **`Representations` joins `Result`/`QUERY` as a reserved module-level name**
   — a shared fragment hoisting to it is now refused.
 
-<<<<<<< HEAD
 Transport improvements from the same review:
 - **`Transport::HTTP` pools its connections** (`pool_size:`, default 5) instead
   of serializing every request behind one socket and one mutex. The mutex was
