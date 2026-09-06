@@ -2,4 +2,7 @@
 .
 --ignore=tmp/
 --ignore=vendor/
+# agent worktrees check out inside the repo; each carries a full sorbet/rbi/gems,
+# which srb tc reads as duplicate definitions of every gem type
+--ignore=.claude/worktrees/
 --parser=prism
