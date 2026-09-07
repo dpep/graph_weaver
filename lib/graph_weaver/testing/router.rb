@@ -35,6 +35,11 @@ module GraphWeaver
             "__typename, so it has to know which concrete types the subgraph can answer with — " \
             "and this supergraph doesn't say. Run this one against a real router.",
         ],
+        chained_requires: [
+          "a @requires whose field set names another @requires field",
+          "the router satisfies a @requires with one fetch, so it can't first satisfy that " \
+            "field's own requirement. Run this one against a real router.",
+        ],
         nested_field_set: [
           "a nested @key or @requires field set",
           "the local router builds representations from flat field sets only. Run this one against " \
@@ -438,9 +443,17 @@ module GraphWeaver
       # line number pointing into a document that doesn't exist.
       def rewrite(error, nodes = nil)
         path = error["path"]
-        return error.except("locations") unless nodes && path.is_a?(Array) && path.first == "_entities"
+        return error.except("locations") unless path.is_a?(Array)
 
-        error.except("locations").merge("path" => (nodes.dig(path[1], 1) || []) + path[2..])
+        stitched = nodes && path.first == "_entities"
+        prefix = stitched ? (nodes.dig(path[1], 1) || []) : []
+        error.except("locations").merge("path" => prefix + unalias(stitched ? path[2..] : path))
+      end
+
+      # The @key/@requires fields we inject are ours; an error path naming one
+      # points the caller at a field no schema has.
+      def unalias(path)
+        Array(path).map { |segment| segment.is_a?(String) ? segment.delete_prefix(PREFIX) : segment }
       end
 
       def fetch_step(step, operation, variables)
@@ -963,11 +976,25 @@ module GraphWeaver
         # ahead of the fetch that needs them. Only one hop: the key for each
         # has to come from `subgraph` itself, so a chain can't grow a chain.
         def prefetch(step, type_name, node, subgraph, paths)
+          paths.each { |path| check_chain!(type_name, node, path) }
+
           paths.group_by { |path| requires_holder(type_name, node, path) }.each do |holder, held|
             key = usable_key(type_name, node, subgraph, holder)
             key.each { |path| inject(step, path) }
             step.prefetches << Prefetch.new(subgraph: holder, key:, paths: held)
           end
+        end
+
+        # A prefetch sends the entity's own @key and nothing else, so a required
+        # field that is itself @requires-ed gets computed from a representation
+        # missing its input — silently, and the same field then holds two
+        # different values in one response.
+        def check_chain!(type_name, node, path)
+          inner = @table.field(type_name, path)&.requires or return
+
+          refuse :chained_requires,
+            "#{type_name}.#{node.name} @requires #{path.inspect}, and #{type_name}.#{path} " \
+              "itself @requires #{inner.inspect}"
         end
 
         def requires_holder(type_name, node, path)

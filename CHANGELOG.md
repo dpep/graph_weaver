@@ -1,4 +1,13 @@
 ## Unreleased
+- **The local router refuses a `@requires` whose field set names another
+  `@requires` field** (`chained_requires`). It used to answer: a prefetch sends
+  the entity's own `@key` and nothing else, so the inner requirement never
+  arrived and the field was computed from a representation missing its input —
+  the same field then holding two different values in one response. The
+  one-hop limit was documented but not enforced.
+- **An error path no longer names an injected `@key`/`@requires` alias.** A
+  stitched error came back as `["thing", "_gw_w"]`, a field no schema contains;
+  it is `["thing", "w"]` now, as a real router reports it.
 - **`@skip`/`@include` driven by a variable's declared default was ignored on a
   boundary-crossing field**, so `query($show: Boolean = true) { … @include(if: $show) }`
   called with no variables silently dropped the field. graphql-ruby applies an
