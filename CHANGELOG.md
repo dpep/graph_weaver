@@ -70,6 +70,11 @@
   shared with `Testing::Subgraphs`. Measured over the fixture supergraph, the
   task loads 15 files instead of 323 (253 of them faker's).
   `Testing::Subgraphs.loaded` moved with it: call `GraphWeaver::Schemas.loaded`.
+- Internal: `codegen/enum_type.rb` held `extend_type`, the type-helper and alias
+  registries and `GraphWeaver::TypeHelpers` — none of them enums, so a search
+  for `extend_type` landed in a file named for something else. Those moved to
+  `codegen/type_helpers.rb`; `enum_type.rb` now holds `EnumType` and the enum
+  registry, mirroring `scalar_type.rb`. No API change.
 
 ### One shared module, not three (**breaking** — regenerate)
 

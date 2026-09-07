@@ -64,10 +64,11 @@ where it pays off in developer experience; leave the rest at `# typed: true`.
   the product.
 - **`# typed: true` (loose) — dynamic / boundary internals.** The codegen
   (`codegen.rb`, `codegen/nodes.rb`, `codegen/emit.rb`, `codegen/scalar_type.rb`,
-  `codegen/enum_type.rb`) walks graphql-ruby's approximately-typed AST and builds
-  modules/strings dynamically; `client.rb` wraps a graphql-ruby schema and a
-  duck-typed transport. Strict here is ~all `T.untyped` — paperwork that documents
-  shape without catching anything. **Don't promote these to strict.**
+  `codegen/enum_type.rb`, `codegen/type_helpers.rb`) walks graphql-ruby's
+  approximately-typed AST and builds modules/strings dynamically; `client.rb`
+  wraps a graphql-ruby schema and a duck-typed transport. Strict here is ~all
+  `T.untyped` — paperwork that documents shape without catching anything.
+  **Don't promote these to strict.**
 - Rule of thumb: if a sig would be mostly `T.untyped`, it isn't worth writing.
   Concrete types = value; `T.untyped` sigs = paperwork.
 - `railtie.rb` / `tasks.rb` are `# typed: ignore` (Rails/Rake DSL).
