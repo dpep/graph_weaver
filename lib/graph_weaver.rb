@@ -282,6 +282,8 @@ module GraphWeaver
     # committed Ruby matches the committed schema. `rake
     # graph_weaver:queries:check` prints this and exits non-zero.
     def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
+      # subgraph branding comes from the local supergraph dump, so a caller
+      # supplying its own schema opts out of it
       table = schema ? nil : checked_routing_table
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
