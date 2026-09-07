@@ -32,7 +32,9 @@ github = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN
 
 `GraphWeaver.new` builds a [`Client`](real_world.md): a transport with
 auth applied (exposed as `client.transport`), the schema introspected
-lazily, and `parse`/`execute` bound to both.
+lazily, and `parse`/`run` bound to both. A `Client` answers the client
+contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
+`subgraphs:`, a cassette recorder.
 
 - `auth:` — a token; "Bearer" is assumed unless the string carries its own
   scheme (`"Basic dXNlcjpwYXNz..."`)
@@ -153,8 +155,8 @@ reconnects.
 The canonical order — how a generated module finds its client (each slot
 takes a `Client` or any bare transport/fake):
 
-1. per call: `execute(some_client, ...)` — the optional first positional
-   argument, so variables keep the entire kwarg namespace
+1. per call: `execute(client: some_client, ...)` — a kwarg like the
+   variables, and a name no GraphQL variable is allowed to take
 2. per module: `MyQuery.client = something`
 3. baked constant: `Codegen.generate(..., client: MyApi::CLIENT)`
 4. the app default: `GraphWeaver.client=`

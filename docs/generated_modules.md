@@ -8,7 +8,7 @@ This is the production path — checked in, reviewed, statically checked
 (assembled step by step in the [getting started](getting_started.md), including
 [what Sorbet does and doesn't require](getting_started.md#sorbet-with-or-without)).
 For consoles and dev there's [dynamic mode](#dynamic-mode); for one-off
-scripts, `client.execute!` skips modules entirely.
+scripts, `client.run!` skips modules entirely.
 
 ## Generating
 
@@ -168,8 +168,8 @@ module PersonQuery
   end
 
   extend GraphWeaver::QueryModule # client / client= (see below)
-  def self.execute(client: client = nil, id:)   # -> GraphWeaver::Response[Result]
-  def self.execute!(client: client = nil, id:)  # -> Result, or raises QueryError
+  def self.execute(id:, client: nil)    # -> GraphWeaver::Response[Result]
+  def self.execute!(id:, client: nil)   # -> Result, or raises QueryError
 
   def self.from_response(response)      # deserialize a raw hash -> Response[Result]
   def self.from_response!(response)     # -> Result, or raises QueryError
@@ -210,7 +210,7 @@ person   = response.data!.person            # typed, no network
 person   = PersonQuery.from_response!(raw).person
 ```
 
-`execute` *is* `from_response(transport.execute(client: ...))`, so the envelope is
+`execute` *is* `from_response(client.execute(...))`, so the envelope is
 identical: errors and extensions preserved, `#data!` / `from_response!` raising
 `QueryError` on top-level errors.
 
@@ -239,10 +239,10 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 - custom scalars serialize through the [scalar registry](scalars.md)
 
 One kwarg per declared variable, always — so adding a variable to a query
-adds a kwarg and leaves every existing call site alone. Three names are refused
-at generation, `$client`, `$variables` and `$transport`: they are the locals the
-generated `execute` body already owns, and `def self.execute(client: client = nil,
-client:)` doesn't even parse. Rename the variable in the query.
+adds a kwarg and leaves every existing call site alone. Two names are refused at
+generation, `$client` and `$variables`: the generated `execute` body already
+owns them, and `def self.execute(client:, client: nil)` doesn't even parse.
+Rename the variable in the query.
 
 **Input objects** take the generated `T::Struct` or a plain hash — `.coerce`
 normalizes underscored Symbol/String keys, enums accept wire values, nested
@@ -526,9 +526,10 @@ Every form above, and every error it raises, is a named example in
 ## Clients
 
 A client is anything with `execute(query, variables:, operation_name:)` whose result `to_h`s
-into `{"data" => ..., "errors" => ...}`. Resolution: per call → per module →
-baked constant → `GraphWeaver.client` — the
-canonical list lives in [transports](transports.md#client-resolution).
+into `{"data" => ..., "errors" => ...}` — a `GraphWeaver::Client`, a transport,
+a `Retry`, a live schema class, a fake. Resolution: per call (`client:`) → per
+module → baked constant → `GraphWeaver.client` — the canonical list lives in
+[transports](transports.md#client-resolution).
 
 Generate *without* a baked constant when you want modules to follow the
 app default (`GraphWeaver.client =` in an initializer) — that's also what
@@ -544,8 +545,9 @@ its client.
 `GraphWeaver.parse` generates + evals in one step (no build artifact, evaled
 into an anonymous container — no global constants leak). Same runtime
 semantics; invisible to `srb tc`, so prefer the build step where static
-checking matters. `GraphWeaver.run(schema:, query:, variables: {})` is
-the one-shot form.
+checking matters. `GraphWeaver.run(source, query, **variables)` — or
+`client.run` — is the one-shot form: parse and execute in one call, no module
+kept.
 
 Generated source is eval'd, so inputs are validated: module names must be
 constant names, and query heredocs can't be terminated early. Still: queries

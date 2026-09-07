@@ -68,11 +68,20 @@ What it wrote:
   at all:
 
   ```ruby
-  # config.autoload_lib(ignore: %w[assets tasks graph_weaver])
   require Rails.root.join("lib/graph_weaver/pet_kind")
   GraphWeaver.register_enum("Species", PetKind, requires: "graph_weaver/pet_kind")
 
   GraphWeaver.extend_type("Pet") { def adopted? = !adopted_at.nil? }
+  ```
+
+  **Tell Zeitwerk to skip that directory.** Rails 8 autoloads `lib/`, and a
+  file there defining a top-level `PetKind` doesn't match the constant path
+  Zeitwerk expects (`GraphWeaver::PetKind`), so `rails zeitwerk:check` — and
+  a production boot — fails with `uninitialized constant
+  GraphWeaver::PetKind`. One line in `config/application.rb`:
+
+  ```ruby
+  config.autoload_lib(ignore: %w[assets tasks graph_weaver])
   ```
 
 - **`app/graphql/schema.json`.** The schema dump codegen reads

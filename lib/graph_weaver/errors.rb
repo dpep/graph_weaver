@@ -372,7 +372,7 @@ module GraphWeaver
   end
 
   # Raised when a GraphQL response carried top-level errors and the caller
-  # demanded data (Response#data!, or the one-shot GraphWeaver.execute).
+  # demanded data (Response#data!, or the one-shot GraphWeaver.run!).
   # Carries the structured errors, any partial data, and top-level
   # extensions (cost/throttle metadata).
   class QueryError < Error

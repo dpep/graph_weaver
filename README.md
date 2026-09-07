@@ -65,7 +65,7 @@ graph in-process (the one that needs no network).
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
 - **Schema lifecycle as rake tasks**: `schema:refresh`, `schema:diff`, `queries:check`, `verify` — above
 - **Rails install generator**: `rails g graph_weaver:install <url|schema class|dump>` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
-- **Any transport**: in-process schema execution, the zero-dependency HTTP transport, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call by passing a client to `execute`
+- **Any transport**: in-process schema execution, the zero-dependency HTTP transport, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `execute(client: ...)`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: fakes, failure simulation, cassettes, rspec integration — above
 - **Type helpers**: mix your own methods onto a generated struct (`extend_type`), or project a nested field onto a typed flat accessor (`alias:`)
@@ -79,7 +79,7 @@ Three ways to run a query — pick by context:
 |---------|-----|
 | Production | checked-in codegen (`rake graph_weaver:generate`) — reviewed, `srb tc`-checked |
 | Development, consoles | `client.parse` / `client.load_queries!` — no build step |
-| Scripts, one-offs | `client.execute!` — no module at all |
+| Scripts, one-offs | `client.run!` — no module at all |
 
 The production path assembled is the [getting started](docs/getting_started.md);
 the pieces:
@@ -100,7 +100,7 @@ GraphWeaver.generate!   # what `rake graph_weaver:generate` calls
 
 # at runtime
 PersonQuery.execute(id: "1")                        # via GraphWeaver.client
-PersonQuery.execute(client: other_client, id: "1")          # or per call
+PersonQuery.execute(client: other, id: "1")         # or per call
 ```
 
 Module names derive from the **file** name plus the operation it defines —
@@ -109,8 +109,8 @@ Module names derive from the **file** name plus the operation it defines —
 Full rules, plus `client:` to bake a default client into a module, in
 [generated modules](docs/generated_modules.md#generating).
 
-In development, skip the build step entirely — modules from `client.parse`
-carry the client's transport, no global wiring needed:
+In development, skip the build step entirely — a module from `client.parse`
+runs on the client that parsed it, no global wiring needed:
 
 ```ruby
 # parse a query into a typed module on the fly — a .graphql path or a raw string

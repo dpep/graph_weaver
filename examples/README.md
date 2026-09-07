@@ -5,7 +5,7 @@ its idea; run them straight from a checkout.
 
 | | shows | needs |
 |---|---|---|
-| [`countries.rb`](countries.rb) | the whole loop in 30 lines: a client, `parse`, a typed result, a one-shot `execute!` | network |
+| [`countries.rb`](countries.rb) | the whole loop in 30 lines: a client, `parse`, a typed result, a one-shot `run!` | network |
 | [`rick_and_morty.rb`](rick_and_morty.rb) | filtering, pagination, an aliased field, a block-built type helper | network |
 | [`federation.rb`](federation.rb) | a federated graph planned and stitched in-process, with the fetch trace and a refusal | nothing |
 | [`github/`](github) | the production path: auth, a custom scalar, checked-in generated modules | a token |

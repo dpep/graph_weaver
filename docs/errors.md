@@ -85,8 +85,8 @@ Business/validation failures returned *as data* (Shopify-style `userErrors { fie
 message code }`) aren't errors here — they're just fields you selected, so they
 deserialize onto `response.data` like anything else and you inspect them there.
 
-The one-shot `GraphWeaver.execute` / `execute!` mirror this: `execute` returns
-the envelope, `execute!` the result-or-raise.
+The one-shot `GraphWeaver.run` / `run!` mirror this: `run` returns
+the envelope, `run!` the result-or-raise.
 
 ## Extending TransportError
 
