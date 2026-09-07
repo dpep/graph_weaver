@@ -269,9 +269,9 @@ without recomposing the supergraph you committed. It needs no network
 either, so it belongs in the same PR run; see
 [federation](federation.md#has-the-supergraph-been-recomposed).
 
-`graph_weaver:verify` checks that the committed generated files match what
-the current schema + queries + registrations would produce — run it in
-every CI build. No network.
+`graph_weaver:verify` compares the committed generated files against what the
+current schema + queries + registrations would produce. No network — run it in
+every CI build.
 
 `graph_weaver:schema:diff` asks whether the *server* has moved since the
 dump was taken. It needs network, a dump with a recorded source url
@@ -304,12 +304,18 @@ GraphWeaver.check_queries
 #         "line" => 4, "column" => 5 }] }
 ```
 
-Empty means everything validates. Pass `schema:` to check against a
-schema you already have and nothing touches the network — handy for
-checking a *proposed* schema (a subgraph about to ship) before it's live.
-When the dump is a composed supergraph, each error also names the
-subgraphs behind the type it points at — see
-[federation](federation.md#the-routing-table).
+Empty means everything validates. Pass `schema:` a loaded schema and nothing
+touches the network — handy for checking a *proposed* schema (a subgraph about
+to ship) before it's live:
+
+```ruby
+GraphWeaver.check_queries(schema: GraphWeaver::SchemaLoader.load("proposed.graphql"))
+```
+
+It wants the loaded schema, not the path. Left off, it re-introspects the url
+the dump records — and when that dump is a composed supergraph, each error also
+names the subgraphs behind the type it points at
+([federation](federation.md#the-routing-table)).
 
 ## Sorbet, with or without
 
