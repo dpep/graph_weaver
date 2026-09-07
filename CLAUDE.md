@@ -34,6 +34,13 @@ What this means when choosing between designs:
   selection the walk happened to reach earlier.
 - **Match the ecosystem's conventions** where one exists — a familiar shape costs
   the user zero learning, which is the cheapest simplicity available.
+- **Don't answer a varying question with a global setting.** If the honest answer
+  differs per query, per example, or per subgraph, a suite-wide knob can't
+  express it — it will look like config and behave like a guess. `config.schema`
+  briefly grew a `live_schema` twin so a federated app could run one subgraph
+  in-process, which was both a second knob and still wrong: a suite tests
+  several subgraphs. `graphql_in_process(Catalog::Schema)` says it where it
+  varies, and the twin went away.
 - **Errors are part of the interface.** A good message names what went wrong,
   where, and what to do about it. `optional: true` in the message beats the same
   advice buried in docs. The best bug fix often makes an error impossible; the
