@@ -224,6 +224,12 @@ module GraphWeaver
         end
       end
 
+      # one error in the shape a GraphQL response carries them — a class
+      # method because the Planner refuses documents before a Router exists
+      def self.graphql_error(message, code)
+        { "message" => message, "extensions" => { "code" => code } }
+      end
+
       # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
       # any of its entries) and the rest are derived from what each loaded
       # schema defines — see {Subgraphs}, which also checks the ones you name.
@@ -269,7 +275,7 @@ module GraphWeaver
         document = begin
           GraphQL.parse(query)
         rescue GraphQL::ParseError => e
-          return { "data" => nil, "errors" => [graphql_error(e.message, "GRAPHQL_PARSE_FAILED")] }
+          return { "data" => nil, "errors" => [Router.graphql_error(e.message, "GRAPHQL_PARSE_FAILED")] }
         end
 
         # validate the way a router does, so a stale query fails as it fails
@@ -609,10 +615,6 @@ module GraphWeaver
         end
       end
 
-      def graphql_error(message, code)
-        { "message" => message, "extensions" => { "code" => code } }
-      end
-
       # ---- null propagation ---------------------------------------------
 
       # a position whose type forbids null but whose value is null: the
@@ -782,9 +784,8 @@ module GraphWeaver
 
         # the operation's validation errors, GraphQL-wire shaped
         def validate(document)
-          @schema.validate(document).map do |error|
-            { "message" => error.message, "extensions" => { "code" => "GRAPHQL_VALIDATION_FAILED" } }
-          end
+          @schema.validate(document)
+            .map { |error| Router.graphql_error(error.message, "GRAPHQL_VALIDATION_FAILED") }
         end
 
         def plan(document, operation_name: nil)
@@ -1206,13 +1207,7 @@ module GraphWeaver
         # Dotted paths back to the selection set they were parsed from — the
         # inverse of RoutingTable.parse_field_set, so a refusal spells the
         # field set the way the schema does and is greppable against it.
-        def field_set(paths)
-          tree = {}
-          paths.each do |path|
-            path.split(".").reduce(tree) { |node, segment| node[segment] ||= {} }
-          end
-          render_field_set(tree)
-        end
+        def field_set(paths) = render_field_set(Router.field_tree(paths))
 
         def render_field_set(tree)
           tree.map { |name, children|
