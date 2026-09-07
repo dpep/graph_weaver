@@ -1,4 +1,14 @@
 ## Unreleased
+- `examples/federation.rb` — a runnable federated-testing example, and the first
+  one that needs no network: three real subgraphs, a boundary-crossing query
+  through a generated module, `router.trace`, and a plan-time refusal. Guarded
+  by `spec/examples_spec.rb`, which runs it.
+- Docs: the local router moved from `docs/testing.md` to `docs/federation.md`.
+  `testing.md` now covers which client an example runs against; `federation.md`
+  covers what a federated graph does. No behaviour change — update any bookmark
+  to `docs/testing.md#the-in-process-router--graphql-router`, now
+  `docs/federation.md#the-local-router`.
+
 ### Has anyone changed a subgraph without recomposing?
 
     rake graph_weaver:federation:diff SUPERGRAPH=supergraph.graphql

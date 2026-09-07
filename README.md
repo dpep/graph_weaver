@@ -58,7 +58,8 @@ production setup end to end — codegen, fakes, CI. Or run the
 API, no auth, all dynamic), `examples/rick_and_morty.rb` (filtering,
 pagination, a block-built type helper), and `examples/github/run.rb`
 (auth + checked-in generated modules; it stars this repo ⭐ and introduces
-you to your fellow stargazers).
+you to your fellow stargazers). `examples/federation.rb` runs a whole
+federated graph in-process — the only one that needs no network.
 
 #### Features
 
@@ -145,7 +146,8 @@ api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 - **[Against a real API](docs/real_world.md)** — the exploratory tour:
   introspect a live endpoint (GitHub end to end), dynamic mode, schema caching
 - **[Federation](docs/federation.md)** — Apollo Federation: supergraph vs API
-  schema, feeding weaver a composed graph, the `@inaccessible` caveat
+  schema, feeding weaver a composed graph, the `@inaccessible` caveat, and the
+  local in-process router your specs run against
 - **[Transports](docs/transports.md)** — clients, the execute contract,
   Faraday, retries and backoff
 - **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
