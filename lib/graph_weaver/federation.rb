@@ -93,6 +93,12 @@ module GraphWeaver
       # whether the supergraph and the code here disagree — what CI gates on
       def drift? = @stale.any? || @uncomposed.any?
 
+      # Nothing was compared, so "no drift" is vacuous: the gate would pass
+      # whatever the subgraphs said. Categorically different from "checked 3
+      # of 4" — that one checked something, and a partly-local supergraph is
+      # a supported setup.
+      def vacuous? = @checked.empty?
+
       # JSON-ready: the drift, keyed by coordinate, and what wasn't compared.
       # Empty stale + uncomposed means every subgraph reached was accurate;
       # `skipped` and `faked` say which weren't reached, and why.
@@ -229,7 +235,13 @@ module GraphWeaver
           ("#{@stale.size} stale" if @stale.any?),
           ("#{@uncomposed.size} not composed in" if @uncomposed.any?),
         ].compact
-        verdict = counts.empty? ? "matches the schemas here" : counts.join(", ")
+        # "matches the schemas here" over nothing compared is the one verdict
+        # that reads as a pass and isn't one
+        verdict =
+          if counts.any? then counts.join(", ")
+          elsif vacuous? then "compared against nothing here"
+          else "matches the schemas here"
+          end
         "#{@source}: #{verdict} " \
           "(checked #{@checked.size} of #{@table.subgraphs.size} subgraphs)"
       end

@@ -107,9 +107,18 @@ namespace :graph_weaver do
   end
 
   namespace :federation do
+    # Every task here answers "which loaded schema serves which subgraph",
+    # and Rails leaves config.rake_eager_load false in every environment —
+    # so without this each of them reports on zero subgraphs, and :diff
+    # exits 0 having compared nothing. Asked when the task runs, not when
+    # this file loads: :environment doesn't exist yet at load time.
+    task loaded: :environment do
+      Rails.application.eager_load! if defined?(Rails) && Rails.respond_to?(:application) && Rails.application
+    end
+
     # needs no network, so it gates a PR the way verify does
     desc "Fail when a subgraph here changed and the supergraph wasn't recomposed (SUPERGRAPH=)"
-    task diff: :environment do
+    task diff: :loaded do
       require "graph_weaver/federation"
 
       supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
@@ -121,17 +130,24 @@ namespace :graph_weaver do
       drift = GraphWeaver::Federation::Drift.new(supergraph:)
       puts drift.report
 
-      # only drift fails: a supergraph is routinely only partly local, so a
-      # subgraph this process doesn't serve is a supported setup, not a
-      # failure — the report says which, and the headline counts them
+      # A partly-local supergraph is a supported setup, so a subgraph this
+      # process doesn't serve isn't a failure — but comparing against NONE
+      # of them is: the gate passes whatever the subgraphs say, which is
+      # worse than failing.
       $stdout.flush
       abort "the supergraph is out of date — recompose it and commit the result" if drift.drift?
+      if drift.vacuous?
+        abort "this checked nothing, so it proved nothing. No schema in this process defines what " \
+          "the supergraph says any of its subgraphs resolves — load them (in Rails, that is " \
+          "config.eager_load / config.rake_eager_load), or, if they all run elsewhere, drop this " \
+          "task from CI: there is nothing here for it to gate."
+      end
     rescue GraphWeaver::Error => e
       abort e.message
     end
 
     desc "Show which loaded schema serves each subgraph, as a paste-ready map (SUPERGRAPH=)"
-    task subgraphs: :environment do
+    task subgraphs: :loaded do
       require "graph_weaver/testing"
 
       supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
@@ -170,7 +186,7 @@ namespace :graph_weaver do
     end
 
     desc "Report how many queries the local test router can plan (SUPERGRAPH=, QUERIES=)"
-    task coverage: :environment do
+    task coverage: :loaded do
       require "graph_weaver/testing"
 
       supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path

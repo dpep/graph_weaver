@@ -170,6 +170,12 @@ subgraph of three would be actively misleading, so the headline counts them and
 the sections name them. Only drift fails the task; absence is a supported
 setup, not a failure.
 
+Checking **none** of them is a failure, though — "checked 0 of 4" attached to
+exit 0 is a gate that passes whatever the subgraphs say, so the task exits
+non-zero and says so. Under Rails it won't come up: the `federation:*` tasks
+eager-load the app, because `config.rake_eager_load` defaults to false and
+detection only sees loaded classes.
+
 Detection is what drift breaks — a schema is recognized by what it defines,
 and a subgraph whose *types* are gone stops being recognizable — so the same
 `subgraphs:` map [`Testing::Router`](#the-local-router)
@@ -240,7 +246,9 @@ accounts resolves them. Did two entries get swapped?
 
 Detection only sees what's **loaded**, and in Rails an autoloaded schema isn't
 until something references it — which is why an unmatched subgraph reads as
-absent. To see what detection sees, and get a map to paste:
+absent. The `federation:*` rake tasks eager-load the app for you; a spec suite
+is your own `config.eager_load`, which Rails leaves off outside CI. To see what
+detection sees, and get a map to paste:
 
 ```
 $ rake graph_weaver:federation:subgraphs SUPERGRAPH=supergraph.graphql
@@ -279,7 +287,9 @@ subgraphs: { "shipping" => :fake }   # any other absent subgraph still refuses
 ```
 
 If the subgraph *is* here and detection just couldn't see it — a Rails schema
-class nothing has referenced yet — naming it is the fix. `=> :fake` is the
+class nothing has referenced yet — loading it is the fix, and in a spec suite
+that means `config.eager_load = true` (naming it in
+`Testing.config.router = { subgraphs: … }` works too). `=> :fake` is the
 other one: mid-migration, letting an absent subgraph answer with
 schema-correct fabricated data exercises the rest of the query. It speaks the
 whole subgraph contract, `_entities(representations:)` included, so it works

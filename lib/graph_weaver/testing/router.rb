@@ -66,8 +66,7 @@ module GraphWeaver
         absent_subgraph: [
           "a subgraph nothing here serves",
           "a query that never reaches an absent subgraph's fields still runs, so nothing else has " \
-            "to change. (Detection only sees loaded schemas — an autoloaded one isn't loaded " \
-            "until something references it.)",
+            "to change.",
         ],
         mixed_introspection: [
           "introspection mixed with data",
@@ -745,7 +744,9 @@ module GraphWeaver
                 "#{owners.map { |name, graphs| "#{root}.#{name} (#{graphs.join(" or ")})" }.join(", ")}"
             end
 
-            return [plan_step(root, selections, available!(shared, root).first, fragments, [], 0)]
+            # one root field: shared IS its owners, so an absence names it
+            subject = owners.one? ? "#{root}.#{owners.keys.first}" : root
+            return [plan_step(root, selections, available!(shared, subject).first, fragments, [], 0)]
           end
 
           groups = {}
@@ -1089,9 +1090,17 @@ module GraphWeaver
           return here if here.any?
 
           absent = owners.map(&:inspect)
+          # The usual cause isn't a missing entry, it's a class Rails hasn't
+          # autoloaded yet — so lead with that, and name the config surface
+          # the rspec tag reaches through (there is no Router.new in sight
+          # from an example).
           refuse :absent_subgraph, "#{coordinate} resolves in #{absent.join(" or ")}, which no " \
-            "schema here serves — name it with subgraphs: { #{absent.first} => YourSchema }, or " \
-            "fake it with subgraphs: { #{absent.first} => :fake }"
+            "schema here serves — nothing loaded defines what the supergraph says " \
+            "#{absent.first} resolves. Rails autoloads, so the class is probably just not loaded " \
+            "yet: eager-load it (config.eager_load, or config.rake_eager_load under rake). " \
+            "Otherwise name it — GraphWeaver::Testing.config.router = { subgraphs: " \
+            "{ #{absent.first} => YourSchema } } under the rspec tag, subgraphs: on Router.new — " \
+            "or #{Subgraphs::FAKE.inspect} in place of the class for fabricated answers"
         end
 
         def child_type_name(type_name, field_name)

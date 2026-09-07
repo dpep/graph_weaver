@@ -1,4 +1,20 @@
 ## Unreleased
+- **Every `rake graph_weaver:federation:*` task was a silent no-op in a stock
+  Rails app.** Rails defaults `config.rake_eager_load` to false, and subgraph
+  detection only sees *loaded* schema classes — so `federation:subgraphs`
+  reported `nil` for every subgraph and `federation:diff` printed "checked 0 of
+  4 subgraphs" and exited **0**, a CI gate permanently green while checking
+  nothing. The tasks now eager-load the app first, and detection resolves.
+- **`federation:diff` fails when it compared against nothing** (exit 1, naming
+  what to do). Comparing against *some* subgraphs is still a pass — a
+  partly-local supergraph is a supported setup — but a comparison against none
+  of them proved nothing. If your subgraphs all run elsewhere, drop the task
+  from CI; it has nothing there to gate.
+- **The absent-subgraph refusal names the cause.** It advised `subgraphs: { … }`
+  on a `Router.new` an rspec `graphql: :router` example never calls. It now
+  leads with the usual cause — the schema class isn't loaded yet, so
+  eager-load it — and names `GraphWeaver::Testing.config.router = { subgraphs:
+  … }` as the way to name one under the tag.
 - **Subgraph-mapping refusals are `GraphWeaver::ConfigurationError` (was
   `ArgumentError`)** — `rescue GraphWeaver::Error` around `Testing::Router.new`
   now catches them, as `docs/errors.md` said it would. Rescue `ArgumentError`

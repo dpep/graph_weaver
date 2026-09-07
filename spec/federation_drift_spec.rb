@@ -88,6 +88,8 @@ describe GraphWeaver::Federation::Drift do
     expect(result.to_h["skipped"]).to eq("depots" => ["Depot"])
     expect(result.checked).to eq ["widgets"]
     expect(result.drift?).to be false
+    # it checked something, so the clean verdict means something
+    expect(result.vacuous?).to be false
     expect(result.report).to include "(checked 1 of 2 subgraphs)"
     expect(result.report).to include "  depots (Depot)"
   end
@@ -158,11 +160,13 @@ describe GraphWeaver::Federation::Drift do
         .and output(/the supergraph is out of date/).to_stderr
     end
 
-    # absence is a supported setup, not a failure — the report names it and
-    # the task still exits clean
-    it "passes, saying what it couldn't see, when a subgraph runs elsewhere" do
-      expect(run_task(SUPERGRAPH: UNREACHABLE))
-        .to include("checked 0 of 1 subgraphs").and include("  ledger (LedgerEntry)")
+    # "checked 0 of N" attached to exit 0 is a gate that passes whatever the
+    # subgraphs say. Absence of *some* subgraphs is a supported setup; a
+    # comparison against none of them proved nothing.
+    it "fails when it compared against nothing, rather than passing a check it never made" do
+      expect { run_task(SUPERGRAPH: UNREACHABLE) }
+        .to raise_error(SystemExit)
+        .and output(/this checked nothing, so it proved nothing/).to_stderr
     end
 
     # a graph whose only subgraph runs somewhere else: nothing to check,

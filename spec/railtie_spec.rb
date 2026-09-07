@@ -50,6 +50,31 @@ describe "GraphWeaver::Railtie" do
     Rake.application = original
   end
 
+  # Rails leaves config.rake_eager_load false in every environment, and
+  # subgraph detection only sees LOADED schema classes — so a stock app got
+  # "checked 0 of 4 subgraphs" and exit 0 from a task sold as a CI gate.
+  it "eager-loads the app before every federation task" do
+    original = Rake.application
+    Rake.application = Rake::Application.new
+    load "graph_weaver/tasks.rb"
+
+    %w[diff subgraphs coverage].each do |name|
+      expect(Rake::Task["graph_weaver:federation:#{name}"].prerequisites).to eq(%w[loaded]), name
+    end
+
+    eager = false
+    application = Object.new
+    application.define_singleton_method(:eager_load!) { eager = true }
+    rails = Module.new
+    rails.define_singleton_method(:application) { application }
+    stub_const("Rails", rails)
+    Rake::Task["graph_weaver:federation:loaded"].invoke
+
+    expect(eager).to be true
+  ensure
+    Rake.application = original
+  end
+
   # generated/person_query.rb defines ::PersonQuery, not the
   # Generated::PersonQuery Zeitwerk infers from the path — and the default
   # the generated directory is inside an autoload root, so eager loading (production)

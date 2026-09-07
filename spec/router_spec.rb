@@ -457,11 +457,16 @@ describe GraphWeaver::Testing::Router do
       error = refusal_from(partial, "{ shipments { carrier } }")
 
       expect(error.category).to eq :absent_subgraph
+      # the cause first (the class isn't loaded), then the surface an rspec
+      # example can actually reach — there's no Router.new in one
       expect(error.message).to eq 'Query.shipments resolves in "shipping", which no schema here ' \
-        'serves — name it with subgraphs: { "shipping" => YourSchema }, or fake it with ' \
-        'subgraphs: { "shipping" => :fake } — a query that never reaches an absent subgraph\'s ' \
-        "fields still runs, so nothing else has to change. (Detection only sees loaded schemas " \
-        "— an autoloaded one isn't loaded until something references it.)"
+        'serves — nothing loaded defines what the supergraph says "shipping" resolves. Rails ' \
+        "autoloads, so the class is probably just not loaded yet: eager-load it " \
+        "(config.eager_load, or config.rake_eager_load under rake). Otherwise name it — " \
+        'GraphWeaver::Testing.config.router = { subgraphs: { "shipping" => YourSchema } } under ' \
+        "the rspec tag, subgraphs: on Router.new — or :fake in place of the class for fabricated " \
+        "answers — a query that never reaches an absent subgraph's fields still runs, so nothing " \
+        "else has to change."
       expect(partial.trace).to be_empty
     end
 
