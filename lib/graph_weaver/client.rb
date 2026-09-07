@@ -36,12 +36,16 @@ class GraphWeaver::Client
 
   URL = %r{\Ahttps?://}i
 
+  # refused from two branches — a url source, and a schema source with
+  # nothing to hand a context to — so the two can't word it differently
+  CONTEXT_IN_PROCESS = "context: applies to a schema class executing in-process"
+
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
     open_timeout: nil, read_timeout: nil, context: nil, &middleware)
     check_source!(source)
 
     if source.is_a?(String) && source.match?(URL)
-      raise ArgumentError, "context: applies to a schema class executing in-process" if context
+      raise ArgumentError, CONTEXT_IN_PROCESS if context
 
       built = build_transport(source, auth:, headers:, kind: transport, open_timeout:, read_timeout:, &middleware)
       @transport = wrap_retries(built, retries)
@@ -65,7 +69,7 @@ class GraphWeaver::Client
       if context && !(source.is_a?(Module) && transport.nil?)
         # nothing would ever read it — a dump has no resolvers, and an
         # explicit transport carries its own
-        raise ArgumentError, "context: applies to a schema class executing in-process"
+        raise ArgumentError, CONTEXT_IN_PROCESS
       end
 
       # InProcess adds context:, logging and branded errors to the bare

@@ -50,8 +50,11 @@ module GraphWeaver
     CLIENT_MODES = %i[fake in_process router].freeze
 
     class Config
-      attr_accessor :schema, :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
+      attr_accessor :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
         :record, :anonymize
+      # #schema is written plainly and read with a fallback (below), the way
+      # #mode, #router and #default_mode are read plainly and written with a check
+      attr_writer :schema
       attr_reader :mode, :router, :default_mode
 
       def initialize

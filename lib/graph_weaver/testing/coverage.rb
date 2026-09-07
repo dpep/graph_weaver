@@ -144,8 +144,10 @@ module GraphWeaver
       # the directory every query came from, so the report's file column is
       # filenames rather than the same path repeated
       def shared_dir
-        dirs = @results.map { |result| File.dirname(result.path) }.uniq
-        dirs.one? ? "#{dirs.first}/" : ""
+        @shared_dir ||= begin
+          dirs = @results.map { |result| File.dirname(result.path) }.uniq
+          dirs.one? ? "#{dirs.first}/" : ""
+        end
       end
 
       def measure(path)
