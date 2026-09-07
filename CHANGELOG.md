@@ -1192,6 +1192,16 @@ next to what a generated struct looks like. **Update any bookmark to
   The rspec `graphql: :router` tag resets it per example. **An example that
   asserts on the trace after more than one `execute` now sees both**, and
   wants a `reset_trace` in between if it meant only the last one.
+- **The absent-subgraph refusal leads with the half that applies.** It opened
+  with "Rails autoloads, so the class is probably just not loaded yet" — right
+  often enough to lead with, except when eager loading is already on, and then
+  the library can *ask* rather than send you to a setting you already have. It
+  now checks `config.eager_load` / `config.rake_eager_load` and, when either is
+  on, says the subgraph runs elsewhere and puts `=> :fake` first instead of at
+  the end of a 60-word sentence.
+- **A refusal spells a nested `@key`/`@requires` field set the way your schema
+  does** — `"origin { lat lon }"`, not `"origin.lat", "origin.lon"`. The dotted
+  form is this library's parse of it and matches nothing you can grep for.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

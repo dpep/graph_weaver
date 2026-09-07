@@ -402,6 +402,58 @@ describe GraphWeaver::Testing::Router do
         .to refuse_to_plan(:no_key).with_detail("Doc.note resolves in b, and Doc has no resolvable @key there")
     end
 
+    # A field set is a selection set, and the refusal spells it the way the
+    # schema does — dotted paths are this library's parse of it, and nothing
+    # a reader can grep their own SDL for.
+    describe "a nested field set" do
+      subject(:nested) do
+        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake, "b" => :fake })
+          schema @link(url: "https://specs.apollo.dev/link/v1.0")
+            @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+          { query: Query }
+          directive @join__field(graph: join__Graph, requires: join__FieldSet) repeatable on FIELD_DEFINITION
+          directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+          directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+          scalar join__FieldSet
+          enum join__Graph {
+            A @join__graph(name: "a", url: "http://a")
+            B @join__graph(name: "b", url: "http://b")
+          }
+          type Query @join__type(graph: A) @join__type(graph: B) {
+            shipments: [Shipment!]! @join__field(graph: A)
+            listings: [Listing!]! @join__field(graph: A)
+          }
+          type Shipment @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+            id: ID!
+            origin: Place! @join__field(graph: A)
+            originZone: String! @join__field(graph: B, requires: "origin { lat lon }")
+          }
+          type Listing @join__type(graph: A, key: "id organization { id }")
+            @join__type(graph: B, key: "id organization { id }") {
+            id: ID!
+            organization: Org! @join__field(graph: A)
+            note: String @join__field(graph: B)
+          }
+          type Place @join__type(graph: A) @join__type(graph: B) { lat: Float! lon: Float! }
+          type Org @join__type(graph: A) @join__type(graph: B) { id: ID! }
+        SDL
+      end
+
+      it "echoes a @requires field set the way the schema spells it" do
+        expect { nested.execute("{ shipments { originZone } }") }
+          .to refuse_to_plan(:nested_field_set).with_detail(
+            'Shipment.originZone @requires a nested field set ("origin { lat lon }")',
+          )
+      end
+
+      it "echoes a @key field set the same way" do
+        expect { nested.execute("{ listings { note } }") }
+          .to refuse_to_plan(:nested_field_set).with_detail(
+            'Listing is keyed in b on a nested field set ("id organization { id }")',
+          )
+      end
+    end
+
     # a @requires the supergraph places nowhere is a graph nothing can serve,
     # so there is no fetch to chain
     it "names a @requires field no subgraph holds" do
@@ -571,12 +623,27 @@ describe GraphWeaver::Testing::Router do
           'Query.shipments resolves in "shipping", which no schema here serves — nothing loaded ' \
             'defines what the supergraph says "shipping" resolves. Rails autoloads, so the class ' \
             "is probably just not loaded yet: eager-load it (config.eager_load, or " \
-            "config.rake_eager_load under rake). Otherwise name it — " \
-            'GraphWeaver::Testing.config.router = { subgraphs: { "shipping" => YourSchema } } ' \
-            "under the rspec tag, subgraphs: on Router.new — or :fake in place of the class for " \
-            "fabricated answers",
+            "config.rake_eager_load under rake). If it runs elsewhere, fabricate its answers " \
+            'instead — subgraphs: { "shipping" => :fake } (GraphWeaver::Testing.config.router = ' \
+            "{ subgraphs: … } under the rspec tag, or subgraphs: on Router.new) — or a schema " \
+            "class in place of :fake.",
         )
       expect(partial).not_to have_fetched
+    end
+
+    # Eager loading on means the autoload guess is wrong, and the library can
+    # ask rather than lead with it — the subgraph genuinely runs elsewhere.
+    it "drops the autoload guess when eager loading is already on" do
+      config = Struct.new(:eager_load, :rake_eager_load).new(true, false)
+      stub_const("Rails", Module.new.tap { |mod|
+        mod.define_singleton_method(:application) { Struct.new(:config).new(config) }
+      })
+
+      expect { partial.execute("{ shipments { carrier } }") }
+        .to refuse_to_plan(:absent_subgraph).with_detail(
+          a_string_including("Eager loading is on, so it isn't a class waiting to be autoloaded " \
+            "— it runs elsewhere. Fabricate its answers: subgraphs: { \"shipping\" => :fake }"),
+        )
     end
 
     it "names the field that reached across the boundary into it" do

@@ -1057,7 +1057,7 @@ module GraphWeaver
 
           if flat.empty?
             refuse :nested_field_set, "#{type_name} is keyed in #{to} on a nested field set " \
-              "(#{nested.map { |paths| paths.join(" ").inspect }.join(", ")})"
+              "(#{nested.map { |paths| field_set(paths).inspect }.join(", ")})"
           end
 
           refuse :no_key, "#{type_name}.#{node.name} needs a fetch into #{to}, and #{from} can't " \
@@ -1073,7 +1073,24 @@ module GraphWeaver
           return paths if nested.empty?
 
           refuse :nested_field_set, "#{type_name}.#{node.name} @requires a nested field set " \
-            "(#{nested.map(&:inspect).join(", ")})"
+            "(#{field_set(nested).inspect})"
+        end
+
+        # Dotted paths back to the selection set they were parsed from — the
+        # inverse of RoutingTable.parse_field_set, so a refusal spells the
+        # field set the way the schema does and is greppable against it.
+        def field_set(paths)
+          tree = {}
+          paths.each do |path|
+            path.split(".").reduce(tree) { |node, segment| node[segment] ||= {} }
+          end
+          render_field_set(tree)
+        end
+
+        def render_field_set(tree)
+          tree.map { |name, children|
+            children.empty? ? name : "#{name} { #{render_field_set(children)} }"
+          }.join(" ")
         end
 
         # A @requires field set is supplied by the ROUTER: it fetches those
@@ -1194,17 +1211,45 @@ module GraphWeaver
           return here if here.any?
 
           absent = owners.map(&:inspect)
-          # The usual cause isn't a missing entry, it's a class Rails hasn't
-          # autoloaded yet — so lead with that, and name the config surface
-          # the rspec tag reaches through (there is no Router.new in sight
-          # from an example).
           refuse :absent_subgraph, "#{coordinate} resolves in #{absent.join(" or ")}, which no " \
             "schema here serves — nothing loaded defines what the supergraph says " \
-            "#{absent.first} resolves. Rails autoloads, so the class is probably just not loaded " \
-            "yet: eager-load it (config.eager_load, or config.rake_eager_load under rake). " \
-            "Otherwise name it — GraphWeaver::Testing.config.router = { subgraphs: " \
-            "{ #{absent.first} => YourSchema } } under the rspec tag, subgraphs: on Router.new — " \
-            "or #{Subgraphs::FAKE.inspect} in place of the class for fabricated answers"
+            "#{absent.first} resolves. #{advice(absent.first)}"
+        end
+
+        # Two causes, and only one of them applies at a time. A class Rails
+        # hasn't autoloaded yet is the usual one — but not when eager loading
+        # is already on, and *that* the library can just ask, rather than
+        # leading with a guess it can see is wrong. The other cause is a
+        # subgraph that genuinely runs in another service, and its fix has to
+        # come first for the reader it applies to. Either way the surface
+        # named is the one an rspec example can reach: there is no Router.new
+        # in sight from inside one.
+        def advice(name)
+          fake = "subgraphs: { #{name} => #{Subgraphs::FAKE.inspect} } " \
+            "(GraphWeaver::Testing.config.router = { subgraphs: … } under the rspec tag, or " \
+            "subgraphs: on Router.new) — or a schema class in place of #{Subgraphs::FAKE.inspect}"
+          unless eager_loaded?
+            return "Rails autoloads, so the class is probably just not loaded yet: eager-load it " \
+              "(config.eager_load, or config.rake_eager_load under rake). If it runs elsewhere, " \
+              "fabricate its answers instead — #{fake}."
+          end
+
+          "Eager loading is on, so it isn't a class waiting to be autoloaded — it runs elsewhere. " \
+            "Fabricate its answers: #{fake}."
+        end
+
+        # Whether the "not autoloaded yet" half of the advice is already ruled
+        # out. Outside Rails there is no autoloading to blame either.
+        # const_get rather than a bare Rails: sorbet can't resolve a constant
+        # the gem doesn't depend on.
+        def eager_loaded?
+          return false unless Object.const_defined?(:Rails)
+
+          config = Object.const_get(:Rails).application&.config or return false
+          !!(config.eager_load ||
+            (Object.const_defined?(:Rake) && config.respond_to?(:rake_eager_load) && config.rake_eager_load))
+        rescue NoMethodError
+          false # something else named Rails
         end
 
         def child_type_name(type_name, field_name)
