@@ -75,6 +75,14 @@
   for `extend_type` landed in a file named for something else. Those moved to
   `codegen/type_helpers.rb`; `enum_type.rb` now holds `EnumType` and the enum
   registry, mirroring `scalar_type.rb`. No API change.
+- **`register_enum` and `extend_type` say where to register** when handed a
+  constant's *name* instead of the constant. Passing a String is the natural
+  workaround for "`uninitialized constant PetKind` in my initializer", and the
+  answer is Rails' own: autoloading is set up after `config/initializers` run,
+  so register from a `Rails.application.config.to_prepare` block — which
+  `rake graph_weaver:generate` also runs before generating. Both registries
+  still take the constant itself; a name would be a second spelling that
+  couldn't reach `fallback:` or `map:` anyway, since those name enum *members*.
 
 ### One shared module, not three (**breaking** — regenerate)
 

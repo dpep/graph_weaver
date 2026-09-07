@@ -22,6 +22,15 @@ class GraphWeaver::Codegen
 
     def initialize(graphql_name, type, map: nil, fallback: nil, requires: nil)
       @graphql_name = graphql_name.to_s
+      # A name, not the class, is what you write when the constant won't
+      # resolve yet — which in Rails means a config/initializers file, since
+      # autoloading is set up after those run. Say where it does resolve.
+      if type.is_a?(String)
+        raise ArgumentError, "type: is the T::Enum itself, not its name — " \
+          "register_enum(#{@graphql_name.inspect}, #{type}). An autoloaded constant isn't " \
+          "resolvable while config/initializers run; register from a " \
+          "Rails.application.config.to_prepare block, which generation also runs first."
+      end
       unless type.is_a?(Class) && type < T::Enum
         raise ArgumentError, "type: must be a T::Enum subclass, got #{type.inspect}"
       end

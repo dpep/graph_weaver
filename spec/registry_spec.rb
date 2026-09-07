@@ -81,6 +81,13 @@ describe "the registration registry" do
       expect { GraphWeaver::Codegen.register_enum("Species", PetKind, { "cat" => PetKind::Cat }) }
         .to raise_error(GraphWeaver::Error, message)
     end
+
+    # a name is the natural workaround when the constant won't resolve, which
+    # in Rails means an initializer — so say where it does resolve
+    it "says where to register when handed a constant's name" do
+      expect { GraphWeaver.register_enum("Species", "PetKind") }
+        .to raise_error(ArgumentError, /register_enum\("Species", PetKind\).*to_prepare/m)
+    end
   end
 
   describe "type helpers" do
@@ -115,6 +122,11 @@ describe "the registration registry" do
       expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
 
       expect { GraphWeaver.extend_type("Pet") }.to raise_error(ArgumentError, /helper modules, a block, or alias/)
+    end
+
+    it "says where to register when handed a module's name" do
+      expect { GraphWeaver.extend_type("Pet", "PetShouting") }
+        .to raise_error(ArgumentError, /extend_type\("Pet", PetShouting\).*to_prepare/m)
     end
   end
 
