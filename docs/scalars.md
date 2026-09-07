@@ -33,10 +33,9 @@ probing the deserialize side and pairing its serializer:
 | `.parse`          | `Type.parse(v)` | `v.to_s`     |
 | `.load`           | `Type.load(v)`  | `Type.dump(v)` |
 
-so the common case needs nothing more. Only the *deserialize* side is probed —
-every object has `#to_s`, so a type defining neither `.parse` nor `.load` stays
-pass-through rather than getting wrapped (which is how the built-ins name their
-real classes). Override explicitly when you need to:
+so the common case needs nothing more. A type defining neither `.parse` nor
+`.load` stays pass-through rather than getting wrapped. Override explicitly when
+you need to:
 
 - a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
   `serialize: :to_json` → `expr.to_json`
@@ -72,12 +71,11 @@ default:
 GraphWeaver.auto_coerce = true
 ```
 
-Resolved lazily at generation time (set it any time before you generate), it
-gives convertible built-ins their conversion and any scalar with a full
-cast/serialize pair (`Date`, your `Money`) parse-style coercion; an explicit
-`coerce:` on a registration always wins. `Boolean`, `String` and `ID` stay
-strict — `#to_s` is a cast that can't fail, so widening them would erase static
-typing on most real variables to buy nothing;
+Set it any time before you generate. It gives convertible built-ins their
+conversion and any scalar with a full cast/serialize pair (`Date`, your `Money`)
+parse-style coercion; an explicit `coerce:` on a registration always wins.
+`Boolean`, `String` and `ID` stay strict — `#to_s` never fails, so widening them
+would erase static typing on most real variables to buy nothing;
 `register_scalar("ID", String, coerce: :to_s)` opts in deliberately.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the

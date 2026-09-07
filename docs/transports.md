@@ -47,8 +47,8 @@ lazily, and `parse`/`execute` bound to both.
   introspects, so passing them raises
 - a block customizes the Faraday connection (Faraday only — raises without it)
 
-Nothing is sniffed for — what you pass is what you get, and the client
-logs which transport it built at `info`.
+What you pass is what you get; the client logs which transport it built at
+`info`.
 
 To wire generated modules that don't bake a client, make it the app's
 default: `GraphWeaver.client = github`. Anything satisfying the execute

@@ -240,10 +240,10 @@ autoloaded schema isn't loaded until something references it.
 
 ## A federated graph — `graphql: :router`
 
-Same thing across a federated graph: `Testing::Router` takes the composed
-supergraph and the Ruby schema classes serving its subgraphs, plans the query,
-and runs it against those **real resolvers** — no gateway, no node, no
-sockets. It is not a mock: your resolvers run, which is the whole point.
+Same thing across a federated graph: the tag builds a
+[`Testing::Router`](federation.md#the-local-router), which plans the query
+across your subgraphs and runs it against those **real resolvers** — no
+gateway, no node, no sockets.
 
 ```ruby
 describe "the dashboard", graphql: :router do
