@@ -22,6 +22,15 @@ class GraphWeaver::Codegen
 
     def initialize(graphql_name, type, map: nil, fallback: nil, requires: nil)
       @graphql_name = graphql_name.to_s
+      # A name, not the class, is what you write when the constant won't
+      # resolve yet — which in Rails means a config/initializers file, since
+      # autoloading is set up after those run. Say where it does resolve.
+      if type.is_a?(String)
+        raise ArgumentError, "type: is the T::Enum itself, not its name — " \
+          "register_enum(#{@graphql_name.inspect}, #{type}). An autoloaded constant isn't " \
+          "resolvable while config/initializers run; register from a " \
+          "Rails.application.config.to_prepare block, which generation also runs first."
+      end
       unless type.is_a?(Class) && type < T::Enum
         raise ArgumentError, "type: must be a T::Enum subclass, got #{type.inspect}"
       end
@@ -97,130 +106,5 @@ class GraphWeaver::Codegen
       enum_registry.clear
       self
     end
-
-    # Attach app-owned helper modules to every struct generated from a
-    # GraphQL type — the logic stays in your code, generation wires it in:
-    #
-    #      GraphWeaver.extend_type("Pet", PetHelpers)
-    #
-    # Or build the mixin inline — the block is module_eval'd into a fresh
-    # module auto-named GraphWeaver::TypeHelpers::<Type>. Handy for quick
-    # decoration; srb tc can't see into block-defined methods, so prefer
-    # a named module where static checking matters:
-    #
-    #      GraphWeaver.extend_type("Pet") do
-    #        def display_name = "#{name} the pet"
-    #      end
-    #
-    # Additive: repeated registrations (and client-scoped ones) stack.
-    #
-    # alias: projects a (possibly nested) selected field onto a flat, typed
-    # accessor on the struct — the one derivation codegen can type itself, so
-    # it's emitted into the struct body where the field is in scope:
-    #
-    #      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
-    #      GraphWeaver.extend_type("Widget", alias: "meta.tag")        # accessor named `tag`
-    #      GraphWeaver.extend_type("Widget", alias: ["meta.tag", "meta.color"])
-    #
-    # A path segment is a field, or `first`/`last` to pick one element out of a
-    # list hop (always nilable): `alias: { entity: "_entities.first" }`.
-    #
-    # optional: true makes the aliases lenient — a query whose selection doesn't
-    # fit the path just omits the accessor instead of failing generation. Use it
-    # for a root-type accessor (a Query alias every query would otherwise have to
-    # satisfy) or one that only fits some selections.
-    def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
-      aliases = take_aliases(kw)
-      entry = type_registry[graphql_name.to_s] ||= { mixins: [], requires: [], aliases: {} }
-      add_type_helpers(entry, graphql_name, mixins, requires, block, aliases)
-    end
-
-    # Pull alias:/optional: out of the keyword rest and normalize; any other
-    # keyword is a typo worth flagging rather than silently dropping.
-    def take_aliases(kw)
-      aliases = normalize_aliases(kw.delete(:alias), optional: !!kw.delete(:optional))
-      raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
-      aliases
-    end
-
-    # accessor names and path segments are interpolated verbatim into generated
-    # source, so — like module_name — they must be plain identifiers, never
-    # arbitrary text that could inject code
-    ALIAS_NAME = /\A[a-zA-Z_]\w*[?!]?\z/
-    ALIAS_SEGMENT = /\A[a-zA-Z_]\w*\z/
-
-    # { accessor => { segments:, optional: } } from a path string (accessor
-    # named after the last segment), an array of such, or an { accessor => path }
-    # hash. `optional:` marks every alias in this registration as lenient.
-    def normalize_aliases(input, optional:)
-      pairs = case input
-      when nil then []
-      when String then [[input.split(".").last, input.split(".")]]
-      when Array then input.map { |path| [path.split(".").last, path.split(".")] }
-      when Hash then input.map { |name, path| [name.to_s, path.to_s.split(".")] }
-      else raise ArgumentError, "alias: expects a String, Array, or Hash, got #{input.class}"
-      end
-      pairs.to_h do |name, segments|
-        unless name.to_s.match?(ALIAS_NAME)
-          raise ArgumentError, "alias name #{name.inspect} is not a valid method name"
-        end
-        raise ArgumentError, "alias #{name.inspect} has an empty path" if segments.empty?
-
-        bad = segments.reject { |seg| seg.match?(ALIAS_SEGMENT) }
-        raise ArgumentError, "alias #{name.inspect} has an invalid path segment: #{bad.first.inspect}" if bad.any?
-
-        [name, { segments:, optional: }]
-      end
-    end
-
-    def type_registry
-      @type_registry ||= {}
-    end
-
-    # Drop every extend_type registration (mixins, requires, alias: paths).
-    # The block-built mixin constants under GraphWeaver::TypeHelpers stay —
-    # generated files may still name them.
-    def reset_type_helpers!
-      type_registry.clear
-      self
-    end
-
-    # shared with Client#extend_type: build/validate the mixins and
-    # append them to a registry entry
-    def add_type_helpers(entry, graphql_name, mixins, requires, block, aliases = {})
-      mixins = mixins.dup
-      mixins << helper_module(graphql_name, block) if block
-
-      if mixins.empty? && aliases.empty?
-        raise ArgumentError, "pass one or more helper modules, a block, or alias:"
-      end
-      mixins.each do |mixin|
-        unless mixin.is_a?(Module) && mixin.name
-          raise ArgumentError, "type helpers must be named modules, got #{mixin.inspect}"
-        end
-      end
-
-      entry[:mixins].concat(mixins)
-      entry[:requires].concat(GraphWeaver::Codegen.normalize_requires!(requires, load: true))
-      (entry[:aliases] ||= {}).merge!(aliases)
-      entry
-    end
-
-    # a block-built mixin needs a name generated files can reference:
-    # GraphWeaver::TypeHelpers::Pet (suffixed on re-registration)
-    def helper_module(graphql_name, block)
-      base = GraphWeaver::Inflect.camelize(graphql_name.to_s)
-      name = base
-      count = 1
-      name = "#{base}V#{count += 1}" while GraphWeaver::TypeHelpers.const_defined?(name, false)
-      GraphWeaver::TypeHelpers.const_set(name, Module.new(&block))
-    end
-    private :helper_module
   end
-end
-
-module GraphWeaver
-  # Home of block-built type helpers (extend_type with a block), which
-  # need constant names so generated files can reference them.
-  module TypeHelpers; end
 end

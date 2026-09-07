@@ -106,6 +106,43 @@ used to disagree with that, and each disagreement was a bug waiting.
   covers what a federated graph does. No behaviour change — update any bookmark
   to `docs/testing.md#the-in-process-router--graphql-router`, now
   `docs/federation.md#the-local-router`.
+- **`graphql: :in_process` no longer hunts for the live schema class.** It runs
+  against `GraphWeaver::Testing.config.schema`, or the schema class your client
+  already runs in-process — one sentence, no heuristic. The third fallback
+  (`Testing::LiveSchema`, which searched every loaded `GraphQL::Schema` for one
+  defining everything the reference schema declares) is **deleted**. It only
+  ever applied to an app whose client points at a *different* API, and under
+  Zeitwerk it failed on the first `:in_process` example anyway, since an
+  autoloaded schema isn't loaded until something names it. Such an app now sets
+  `config.schema = MySchema`; when neither source is there, the error says so.
+- **One positive predicate on `Response`, not two.** `#ok?` is gone; `#success?`
+  is the survivor, so the pair is `errors?` / `success?`. `success?` is what
+  `Process::Status` and `Faraday::Response` call it, and `ok?` reads as HTTP
+  200 — which a GraphQL response carrying errors also is. Semantics unchanged:
+  partial data alongside top-level errors is **not** a success.
+- **`Testing::Config#auto_fake` is gone** — it was the pre-tag spelling of
+  `config.default_mode = :fake`. Use that.
+- **`rake graph_weaver:federation:diff` no longer loads the test harness.**
+  `Federation::Drift` needed one thing from it — the list of loaded schema
+  classes — and did `require "graph_weaver/testing"` from inside itself to get
+  it, pulling faker into a task that fabricates nothing. That question, and
+  "does this schema define this coordinate", now live in `GraphWeaver::Schemas`,
+  shared with `Testing::Subgraphs`. Measured over the fixture supergraph, the
+  task loads 15 files instead of 323 (253 of them faker's).
+  `Testing::Subgraphs.loaded` moved with it: call `GraphWeaver::Schemas.loaded`.
+- Internal: `codegen/enum_type.rb` held `extend_type`, the type-helper and alias
+  registries and `GraphWeaver::TypeHelpers` — none of them enums, so a search
+  for `extend_type` landed in a file named for something else. Those moved to
+  `codegen/type_helpers.rb`; `enum_type.rb` now holds `EnumType` and the enum
+  registry, mirroring `scalar_type.rb`. No API change.
+- **`register_enum` and `extend_type` say where to register** when handed a
+  constant's *name* instead of the constant. Passing a String is the natural
+  workaround for "`uninitialized constant PetKind` in my initializer", and the
+  answer is Rails' own: autoloading is set up after `config/initializers` run,
+  so register from a `Rails.application.config.to_prepare` block — which
+  `rake graph_weaver:generate` also runs before generating. Both registries
+  still take the constant itself; a name would be a second spelling that
+  couldn't reach `fallback:` or `map:` anyway, since those name enum *members*.
 
 ### Scalar coercion is one switch (**breaking**)
 

@@ -9,6 +9,10 @@
 # Mixed into Codegen — methods run with the generator instance state. The
 # subsystem hangs off one seam: object_node's
 # `node.aliases = resolve_aliases(node)`.
+
+# the other half: extend_type, which populates the registry read here
+require_relative "type_helpers"
+
 class GraphWeaver::Codegen
   module Aliases
     include Kernel # for sorbet: hosts are Objects

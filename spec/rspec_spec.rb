@@ -4,8 +4,7 @@
 require "graph_weaver/rspec"
 
 # A live schema whose resolver reads the context — the whole reason
-# :in_process exists. Its Draft type is defined by no other loaded schema,
-# so detection has exactly one candidate.
+# :in_process exists.
 module DraftsDemo
   DRAFTS = [
     { id: "d1", owner: "alice" },
@@ -58,7 +57,7 @@ describe "graph_weaver/rspec" do
   end
 
   # the shape of a real app: production talks to a server, and the schema
-  # is a dump — the live class has to be found from what it defines
+  # it knows is a dump
   def app_client!(schema)
     GraphWeaver.client = GraphWeaver.new(schema.to_definition)
   end
@@ -83,11 +82,14 @@ describe "graph_weaver/rspec" do
   describe "graphql: :in_process" do
     around do |example|
       app_client!(DraftsDemo::Schema)
-      GraphWeaver::Testing.configure { |config| config.context = { current_user: "bob" } }
+      GraphWeaver::Testing.configure do |config|
+        config.schema = DraftsDemo::Schema
+        config.context = { current_user: "bob" }
+      end
       example.run
     end
 
-    it "finds the live schema class and runs its resolvers", graphql: :in_process do
+    it "runs the configured schema class's resolvers", graphql: :in_process do
       expect(GraphWeaver.client).to be_a GraphWeaver::InProcess
       expect(GraphWeaver.client.schema).to be DraftsDemo::Schema
       expect(DraftsDemo::QUERY.execute!.drafts.map(&:id)).to eq %w[d3]
@@ -214,11 +216,12 @@ describe "graph_weaver/rspec" do
         .to raise_error(GraphWeaver::Error, /GraphWeaver\.client isn't set.*config\.schema is unset/m)
     end
 
-    it "names the candidates when no loaded schema defines the graph" do
-      app_client!(GraphQL::Schema.from_definition("type Query { nothingDefinesThis: String }"))
+    # the client talks to a server, so there's no live class behind it
+    it "says to name the schema when :in_process has no live class" do
+      app_client!(DraftsDemo::Schema)
 
       expect { GraphWeaver::Testing::RSpecIntegration.client_for(:in_process, config) }
-        .to raise_error(GraphWeaver::Error, /no loaded GraphQL::Schema defines.*graphql: :router/m)
+        .to raise_error(GraphWeaver::Error, /config\.schema = MySchema.*graphql: :router/m)
     end
 
     it "refuses a router context that the per-example reset would overwrite" do

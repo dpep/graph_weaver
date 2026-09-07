@@ -30,9 +30,9 @@ require_relative "testing"
 #   - the schema is GraphWeaver::Testing.config.schema if you set one, else
 #     the committed dump at GraphWeaver.schema_path, else the schema of
 #     GraphWeaver.client.
-#   - :in_process finds the live schema *class* — the one the client
-#     already runs in-process, else the loaded class defining everything
-#     that schema declares (Testing::LiveSchema).
+#   - :in_process runs against config.schema, or the schema class your
+#     client already uses. Only a live class has resolvers, so when
+#     neither is there it says so rather than hunting for one.
 #   - :router plans against the composed supergraph: the dump, when that's
 #     what it is, else config.router = { supergraph: … }. Subgraphs are
 #     derived from what each loaded schema defines (Testing::Subgraphs);

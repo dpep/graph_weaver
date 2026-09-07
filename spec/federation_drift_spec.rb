@@ -1,6 +1,7 @@
 # typed: ignore — the fixture schemas are built from SDL, invisible to srb
 # frozen_string_literal: true
 
+require "open3"
 require "rake"
 
 require "graph_weaver/federation"
@@ -152,5 +153,20 @@ describe GraphWeaver::Federation::Drift do
       type Query @join__type(graph: LEDGER) { entries: [LedgerEntry!]! @join__field(graph: LEDGER) }
       type LedgerEntry @join__type(graph: LEDGER) { amount: Int! @join__field(graph: LEDGER) }
     SDL
+  end
+
+  # Drift asks which schema classes are loaded — the same question
+  # Testing::Subgraphs asks, and used to own, so it reached for the harness
+  # to get it. That dragged faker into `rake graph_weaver:federation:diff`.
+  it "loads none of the test harness" do
+    script = <<~RUBY
+      require "graph_weaver/federation"
+      puts defined?(Faker) ? "faker" : "no faker"
+      puts $LOADED_FEATURES.grep(%r{graph_weaver/testing}).empty? ? "no harness" : "harness"
+    RUBY
+    out, status = Open3.capture2e(RbConfig.ruby, "-Ilib", "-e", script)
+
+    expect(status).to be_success, out
+    expect(out.lines.map(&:chomp)).to eq ["no faker", "no harness"]
   end
 end

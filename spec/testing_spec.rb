@@ -200,13 +200,6 @@ describe GraphWeaver::Testing do
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
-    it "accepts auto_fake, the pre-tag spelling" do
-      GraphWeaver::Testing.configure { |config| config.auto_fake = true }
-
-      expect(GraphWeaver::Testing.config.default_mode).to eq :fake
-      expect(GraphWeaver::Testing.config.auto_fake).to be true
-    end
-
     # spec/support/federation_router_graph.rb composes it; naming the path
     # rather than its constant keeps this file type-checked
     let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
@@ -252,6 +245,34 @@ describe GraphWeaver::Testing do
       ensure
         GraphWeaver.schema_path = nil
       end
+    end
+  end
+
+  describe "#live_schema" do
+    around do |example|
+      prior = GraphWeaver.client
+      example.run
+    ensure
+      GraphWeaver.client = prior
+    end
+
+    it "takes the configured schema" do
+      described_class.configure { |config| config.schema = Demo::Schema }
+
+      expect(described_class.config.live_schema).to be Demo::Schema
+    end
+
+    it "borrows the class the client already runs in-process" do
+      GraphWeaver.client = GraphWeaver::InProcess.new(Demo::Schema)
+
+      expect(described_class.config.live_schema).to be Demo::Schema
+    end
+
+    it "names the fix when there's no live class to run against" do
+      GraphWeaver.client = nil
+
+      expect { described_class.config.live_schema }
+        .to raise_error(GraphWeaver::Error, /config\.schema = MySchema/)
     end
   end
 
