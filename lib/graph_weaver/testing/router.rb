@@ -471,13 +471,15 @@ module GraphWeaver
           .merge("__typename" => type_name)
       end
 
+      # a null object contributes a null rather than dropping the field, which
+      # is the representation a real gateway sends for one too
       def prune(value, tree)
         return value if tree.empty?
 
         case value
         when Array then value.map { |item| prune(item, tree) }
         when Hash then tree.to_h { |name, children| [name, prune(value[name], children)] }
-        end # a null object contributes a null, exactly as the gateway sends it
+        end
       end
 
       # Every object the plan's next level applies to, with the response path
@@ -1004,10 +1006,10 @@ module GraphWeaver
             end
           end
 
+          check_one_source!(type_name, here, subgraph)
           # every crossing this fetch feeds, asked for once and together: a
           # field set shared by two deferrals is one selection, and a nested
           # one is nested rather than a dotted alias no schema has
-          check_one_source!(type_name, here, subgraph)
           here.selections.concat(Router.injected_selections(here.keys))
           here.injected = (here.keys + here.prefetches.flat_map(&:paths))
             .map { |path| Router::PREFIX + path.split(".").first }.uniq

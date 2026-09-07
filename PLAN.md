@@ -77,12 +77,14 @@ cost of moving each boundary, if a real query mix ever demands it:
   `@join__unionMember`/`@join__implements`, and the type in more than one
   subgraph. Closing it means reading a join version that predates those
   directives; a modern composition always carries them.
-- **A nested `@requires` no one subgraph holds** — a nested field set now
-  crosses as the object it is, to any depth. What is left is the set whose
-  fields are split across subgraphs (`origin` in one, `origin.lat` in
-  another): a representation comes from one fetch, so answering it would need
-  an entity fetch on the *inner* type — the same dependency DAG the
-  `@requires` chain above wants.
+- **A nested field set no one fetch can build** — a nested field set now
+  crosses as the object it is, to any depth. What is left is the one whose
+  fields are split across subgraphs (`origin` in one and `origin.lat` in
+  another, or a `@key`'s object a `@requires` would half-fill from
+  elsewhere): a representation comes from one fetch, so the object would
+  arrive in pieces. Closing it means merging the pieces, which
+  `DECISIONS.md` argues against — the shapes that produce a split are the
+  ones where a real gateway stops being an oracle.
 - **Mutation root fields spanning subgraphs** — root mutation fields run in
   series, so grouping them would run them in plan order.
 - **An alias shadowing an injected `@key`** — Apollo resolves the collision in
