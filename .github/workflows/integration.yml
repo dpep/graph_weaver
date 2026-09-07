@@ -1,0 +1,33 @@
+name: Integration
+
+# The :integration specs load on every run but never execute (spec_helper
+# filters them out without INTEGRATION), so they rot silently — the gem has
+# shipped a broken integration suite twice while CI stayed green. This runs
+# the two that need nothing but network; the federation ones need node and
+# the GitHub one needs a token, so they stay manual (`make integration`).
+#
+# Scheduled only: a public endpoint being down must never block a PR. It is
+# deliberately NOT continue-on-error — a red nightly is the whole signal.
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  public-apis:
+    runs-on: ubuntu-latest
+
+    name: countries + pokeapi
+
+    steps:
+      - name: clone ${{ github.repository }}
+        uses: actions/checkout@v7
+      - name: setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: run network integration specs
+        env:
+          INTEGRATION: "1"
+        run: bundle exec rspec spec/integration/countries_spec.rb spec/integration/pokeapi_spec.rb
