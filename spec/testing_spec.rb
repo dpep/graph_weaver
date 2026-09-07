@@ -323,14 +323,37 @@ describe GraphWeaver::Testing do
     # :in_process runs — and only a federated app makes them want different
     # objects. Setting a subgraph so :in_process had a live class silently
     # repointed :fake at a fraction of the graph.
-    it "refuses a federation subgraph, and names the tag that runs one" do
+    # Testing one subgraph's own resolvers in-process and testing the stitched
+    # graph are different questions, and both are worth asking.
+    it "runs a federation subgraph's own resolvers when that's the live class" do
       require_relative "support/federation_router_graph"
       # const_get, not the constant: schema classes are invisible to srb, and
       # this file stays type-checked
       subgraph = Object.const_get("RouterGraph::Reviews::Schema")
+      described_class.config.live_schema = subgraph
 
-      expect { described_class.config.schema = subgraph }
-        .to raise_error(GraphWeaver::ConfigurationError, /one federation subgraph.*graphql: :router/m)
+      expect(described_class.config.live_schema).to eq subgraph
+    end
+
+    it "actually executes against that subgraph's resolvers" do
+      require_relative "support/federation_router_graph"
+      subgraph = Object.const_get("RouterGraph::Reviews::Schema")
+      described_class.config.live_schema = subgraph
+
+      result = GraphWeaver::InProcess.new(described_class.config.live_schema)
+        .execute("{ reviews { body } }", variables: {})
+
+      expect(result.dig("data", "reviews").map { |review| review["body"] })
+        .to include "Love it"
+    end
+
+    it "keeps live_schema separate from the schema fakes derive from" do
+      require_relative "support/federation_router_graph"
+      described_class.config.schema = Demo::Schema
+      described_class.config.live_schema = Object.const_get("RouterGraph::Reviews::Schema")
+
+      expect(described_class.config.schema).to eq Demo::Schema
+      expect(described_class.config.live_schema).not_to eq Demo::Schema
     end
 
     it "takes an ordinary schema class" do
@@ -385,7 +408,7 @@ describe GraphWeaver::Testing do
       GraphWeaver.client = nil
 
       expect { described_class.config.live_schema }
-        .to raise_error(GraphWeaver::Error, /config\.schema = MySchema/)
+        .to raise_error(GraphWeaver::Error, /config\.live_schema = MySchema/)
     end
   end
 

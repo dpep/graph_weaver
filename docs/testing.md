@@ -91,6 +91,8 @@ So configure only to override a derivation, or to tune fabricated values:
 ```ruby
 GraphWeaver::Testing.configure do |config|
   # config.schema = MySchema         # the live class, rather than the dump
+  # config.live_schema = MySchema    # only when :in_process should run a
+                                     # different schema than fakes derive from
   # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
   # config.router = { subgraphs: { "reviews" => :fake } }   # either key alone
   # config.context = { tenant: }     # baseline context every example starts from

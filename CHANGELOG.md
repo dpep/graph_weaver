@@ -1,4 +1,10 @@
 ## Unreleased
+- **`Testing.config.live_schema`** names the schema class `graphql: :in_process`
+  runs, when that isn't the one fakes derive from. They are the same object in
+  an app that serves the API it calls, and different in a federated one — where
+  you may want a *subgraph's* own resolvers under `:in_process` while fakes
+  still answer for the whole graph. Nothing to change if you set only
+  `config.schema`; it still serves both.
 - **`Testing.config.router` takes `subgraphs:` without `supergraph:`.** It
   raised — "must be the arguments to build one, e.g. `{ supergraph: … }`" —
   even where the committed dump already is the supergraph, which is the case

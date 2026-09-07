@@ -50,7 +50,14 @@ module GraphWeaver
     CLIENT_MODES = %i[fake in_process router].freeze
 
     class Config
-      attr_accessor :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
+      # `schema` is what a response is shaped like — fakes fabricate against
+      # it, cassettes replay through it. `live_schema` is the class whose
+      # resolvers :in_process runs. They are the same object in an app that
+      # serves the API it calls, and different ones in a federated app, where
+      # you may want a subgraph's own resolvers under :in_process while fakes
+      # still answer for the whole graph.
+      attr_writer :live_schema
+      attr_accessor :schema, :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
         :record, :anonymize
       attr_reader :mode, :router, :default_mode
 
@@ -80,26 +87,6 @@ module GraphWeaver
         @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
         # anonymize responses as they're recorded (needs config.schema)
         @anonymize = false
-      end
-
-      # One schema serves two masters — fakes are fabricated against it and
-      # :in_process runs it — which is fine right up until they want
-      # different objects, and only a federated app makes them. There, a
-      # subgraph class is neither: setting one so :in_process had a live
-      # class silently repointed :fake at a fraction of the graph. So this
-      # refuses the one input that pulls them apart, and :router — which
-      # already says a federated graph has no one schema class — stays the
-      # whole story.
-      def schema=(schema)
-        if subgraph?(schema)
-          raise GraphWeaver::ConfigurationError, "config.schema is the schema everything derives " \
-            "from — fakes are fabricated against it, :in_process runs it — and " \
-            "#{schema.name || schema.inspect} is one federation subgraph, which is neither. A " \
-            "federated graph has no one schema class: tag those examples graphql: :router, which " \
-            "runs every subgraph's real resolvers, stitched."
-        end
-
-        @schema = schema
       end
 
       # the explicitly configured schema, else the conventional dump
@@ -189,11 +176,12 @@ module GraphWeaver
       # has resolvers, so there's nothing to fall back to — a dump is type
       # information.
       def live_schema
-        @live_schema ||= @schema || GraphWeaver.live_schema ||
+        @live_schema ||= runnable(@schema) || GraphWeaver.live_schema ||
           raise(GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
             "GraphQL::Schema class — and GraphWeaver.client isn't running one in-process to " \
-            "borrow. Set GraphWeaver::Testing.config.schema = MySchema. (A federated graph has " \
-            "no one schema class — tag those examples graphql: :router.)")
+            "borrow. Set GraphWeaver::Testing.config.live_schema = MySchema — a subgraph's own " \
+            "class is fine, if that's the one whose resolvers you mean to run. (To run a whole " \
+            "federated graph stitched instead, tag those examples graphql: :router.)")
       end
 
       # The schema everything else derives from: the one you set, else the
@@ -209,11 +197,10 @@ module GraphWeaver
 
       private
 
-      # A federation subgraph, by the `_service` field the federation spec
-      # makes every one of them serve. A composed supergraph carries no such
-      # field, so the conventional dump is unaffected.
-      def subgraph?(schema)
-        schema.respond_to?(:query) && !!schema.query&.fields&.key?("_service")
+      # config.schema doubles as the :in_process class when it is one — but a
+      # dump has no resolvers, so it can only ever be type information.
+      def runnable(schema)
+        schema if schema.is_a?(Class) && schema <= GraphQL::Schema
       end
 
       def supergraph?(source)

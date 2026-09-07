@@ -263,7 +263,7 @@ describe "graph_weaver/rspec" do
       app_client!(DraftsDemo::Schema)
 
       expect { GraphWeaver::Testing::RSpecIntegration.client_for(:in_process, config) }
-        .to raise_error(GraphWeaver::Error, /config\.schema = MySchema.*graphql: :router/m)
+        .to raise_error(GraphWeaver::Error, /config\.live_schema = MySchema.*graphql: :router/m)
     end
 
     it "refuses a router context that the per-example reset would overwrite" do
