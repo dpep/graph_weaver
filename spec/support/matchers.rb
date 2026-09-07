@@ -50,8 +50,10 @@ module GraphWeaverMatchers
   # swallowing it into "didn't refuse" costs an afternoon.
   def refuse_to_plan(category) = RefuseToPlan.new(category)
 
-  # One of the response's top-level GraphQL errors matched. Takes a
-  # {GraphWeaver::Response}, a {GraphWeaver::QueryError}, or any array of
+  # One of the response's top-level GraphQL errors matched. Takes whatever
+  # a GraphQL call handed back — a {GraphWeaver::Response}, a
+  # {GraphWeaver::QueryError}, the raw `{"data" => …, "errors" => …}` a
+  # transport or the router returns, or any array of
   # {GraphWeaver::GraphQLError} — so a path comes from `errors_at`, which
   # already knows how to read one:
   #
@@ -233,9 +235,11 @@ module GraphWeaverMatchers
     def errors_in(subject)
       return subject if subject.is_a?(Array)
       return subject.errors if subject.is_a?(GraphWeaver::ErrorFiltering)
+      # the wire shape, which is what a transport and the router hand back
+      return (subject["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) } if subject.is_a?(Hash)
 
-      raise ArgumentError, "have_graphql_error reads a GraphWeaver::Response, a QueryError, or an " \
-        "array of GraphQLError — got #{subject.class}"
+      raise ArgumentError, "have_graphql_error reads a GraphWeaver::Response, a QueryError, a raw " \
+        "response Hash, or an array of GraphQLError — got #{subject.class}"
     end
   end
 end

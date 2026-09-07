@@ -467,13 +467,12 @@ describe GraphWeaver::Testing::Router do
       response = router.execute("{ me { nosuch } }")
 
       expect(response["data"]).to be_nil
-      expect(response.dig("errors", 0, "extensions", "code")).to eq "GRAPHQL_VALIDATION_FAILED"
+      expect(response).to have_graphql_error(code: "GRAPHQL_VALIDATION_FAILED")
       expect(router).not_to have_fetched
     end
 
     it "reports an unparseable query" do
-      expect(router.execute("{ me {").dig("errors", 0, "extensions", "code"))
-        .to eq "GRAPHQL_PARSE_FAILED"
+      expect(router.execute("{ me {")).to have_graphql_error(code: "GRAPHQL_PARSE_FAILED")
     end
   end
 

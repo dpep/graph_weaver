@@ -162,6 +162,15 @@ describe GraphWeaverMatchers do
       expect(GraphWeaver::QueryError.new(response.errors)).to have_graphql_error(code: "THROTTLED")
     end
 
+    # the wire shape, so a transport's or the router's raw answer needs no
+    # dig("errors", 0, "extensions", "code")
+    it "reads the raw response a transport hands back" do
+      raw = { "data" => nil, "errors" => [{ "message" => "nope", "extensions" => { "code" => "OOPS" } }] }
+
+      expect(raw).to have_graphql_error(code: "OOPS")
+      expect({ "data" => {} }).not_to have_graphql_error(code: "OOPS")
+    end
+
     it "prints the errors that were there" do
       expect(failing(have_graphql_error(code: "PRIVATE"), response))
         .to eq "expected a GraphQL error with code \"PRIVATE\", but the errors were:\n" \
@@ -184,7 +193,7 @@ describe GraphWeaverMatchers do
         .to raise_error(ArgumentError, /doesn't take :path — :code, :message \(for a path, match on response\.errors_at/)
       expect { have_graphql_error }.to raise_error(ArgumentError, /needs :code or :message to match on/)
       expect { expect("nope").to have_graphql_error(code: "X") }
-        .to raise_error(ArgumentError, /reads a GraphWeaver::Response, a QueryError, or an array/)
+        .to raise_error(ArgumentError, /reads a GraphWeaver::Response, a QueryError, a raw response Hash/)
     end
   end
 end

@@ -267,7 +267,7 @@ describe GraphWeaver::Codegen do
 
       response = PersonQuery.execute(client: failing.new, id: "1")
       expect(response.errors?).to be true
-      expect(response.errors.first.code).to eq "OOPS"
+      expect(response).to have_graphql_error(code: "OOPS")
       expect { response.data! }.to raise_error(GraphWeaver::QueryError, /boom/)
     end
 

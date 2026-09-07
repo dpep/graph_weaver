@@ -32,7 +32,7 @@ describe "failure simulation" do
 
       response = PersonQuery.execute(client: executor, id: "1")
       expect(response.errors?).to be true
-      expect(response.errors_at("person").first&.code).to eq "BOOM"
+      expect(response.errors_at("person")).to have_graphql_error(code: "BOOM")
       expect { response.data! }.to raise_error(GraphWeaver::QueryError) do |e|
         expect(e.codes).to eq ["BOOM"]
       end
@@ -40,7 +40,7 @@ describe "failure simulation" do
 
     it "simulates throttling and schema staleness" do
       throttled = PersonQuery.execute(client: failure.throttled, id: "1")
-      expect(throttled.errors.first&.code).to eq "THROTTLED"
+      expect(throttled).to have_graphql_error(code: "THROTTLED")
       expect(throttled.schema_stale?).to be false
 
       stale = PersonQuery.execute(client: failure.stale_schema, id: "1")
@@ -50,11 +50,11 @@ describe "failure simulation" do
 
     it "stale_schema names a specific field, or samples a real one from the schema" do
       named = PersonQuery.execute(client: failure.stale_schema(type: "Person", field: "name"), id: "1")
-      expect(named.errors.first&.message).to eq "Field 'name' doesn't exist on type 'Person'"
+      expect(named).to have_graphql_error(message: "Field 'name' doesn't exist on type 'Person'")
 
       sampled = PersonQuery.execute(client: failure.stale_schema(schema: Demo::Schema, seed: 3), id: "1")
-      message = sampled.errors.first&.message
-      expect(message).to match(/Field '\w+' doesn't exist on type '(Person|Pet|Query|Mutation)'/)
+      expect(sampled)
+        .to have_graphql_error(message: /Field '\w+' doesn't exist on type '(Person|Pet|Query|Mutation)'/)
       expect(sampled.schema_stale?).to be true
     end
   end
@@ -130,7 +130,7 @@ describe "failure simulation" do
 
       response = PersonQuery.execute(client: executor, id: "1")
       expect(response.data&.person).not_to be_nil # data AND errors
-      expect(response.errors.first&.code).to eq "EXPENSIVE"
+      expect(response).to have_graphql_error(code: "EXPENSIVE")
     end
 
     it "fail_at nulls a nullable field and records its error" do
@@ -145,7 +145,7 @@ describe "failure simulation" do
 
       expect(person&.birthday).to be_nil
       expect(person&.name).not_to be_nil # the rest of the response survives
-      expect(response.errors_at("person.birthday").first&.code).to eq "PRIVATE"
+      expect(response.errors_at("person.birthday")).to have_graphql_error(code: "PRIVATE")
     end
 
     it "fail_at bubbles past non-null positions to the nearest nullable ancestor" do
