@@ -4,7 +4,7 @@ Gem::Specification.new do |s|
   s.authors     = ["Daniel Pepper"]
   # the README tagline, verbatim — the two pitches drifted apart once already,
   # so spec/gemspec_spec.rb pins them together
-  s.description = "A typed GraphQL client for Ruby: per-query Sorbet types, schema-correct fakes for your specs, and rake tasks for the whole schema lifecycle. Federation included."
+  s.description = "Your .graphql files, compiled into Sorbet types — and the fakes to test them."
   # ".yardopts" explicitly: `git ls-files *` skips dotfiles, and
   # rubydoc.info needs it shipped to render docstrings as markdown
   s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' ':!:examples'`.split("\n") + [".yardopts"]

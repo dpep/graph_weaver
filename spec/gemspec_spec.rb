@@ -7,7 +7,9 @@ describe "graph_weaver.gemspec" do
   let(:root) { File.expand_path("..", __dir__) }
 
   it "describes the gem in the README's own words" do
-    tagline = File.read(File.join(root, "README.md"))[/^A typed GraphQL client.*$/]
+    # the bold line under the badges, wherever it lands — pinning the opening
+    # phrase instead is what broke last time the pitch was rewritten
+    tagline = File.read(File.join(root, "README.md"))[/^\*\*(.+)\*\*$/, 1].delete("`")
     spec = Gem::Specification.load(File.join(root, "graph_weaver.gemspec"))
 
     expect(spec.description).to eq tagline
