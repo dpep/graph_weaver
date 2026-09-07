@@ -108,10 +108,14 @@ module GraphWeaver
       # its own, so the generator and the client can't disagree about what
       # counts as one.
       def form
-        @form ||= if source.match?(GraphWeaver::Client::URL) then :url
-        elsif source.match?(CONSTANT) then :schema_class
-        else :path
-        end
+        @form ||=
+          if source.match?(GraphWeaver::Client::URL)
+            :url
+          elsif source.match?(CONSTANT)
+            :schema_class
+          else
+            :path
+          end
       end
 
       # The named schema class, resolved now: `rails g` boots the app, so a

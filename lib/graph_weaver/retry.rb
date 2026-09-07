@@ -104,7 +104,7 @@ class GraphWeaver::Retry
     codes.intersect?(@retry_codes)
   end
 
-  def delay(attempt, failure = nil)
+  def delay(attempt, failure)
     # A Retry-After wins over our backoff: the server is the only party
     # that knows when its window reopens, and it isn't guessing. Still
     # clamped to max:, so "come back in an hour" can't park a thread for

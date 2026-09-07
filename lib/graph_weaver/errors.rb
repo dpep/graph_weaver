@@ -421,13 +421,21 @@ module GraphWeaver
       )
     end
 
+    # what a validation-shaped rejection means, and the way out of it
+    DRIFT_HINT = T.let(
+      "the server rejected the query shape: the schema may have changed since generation; " \
+        "refresh the schema dump and regenerate " \
+        "(rake graph_weaver:schema:refresh && rake graph_weaver:generate)",
+      String,
+    )
+
     private
 
     sig { returns(String) }
     def summary
       first = errors.first
-      more = errors.size > 1 ? " (and #{errors.size - 1} more)" : ""
-      drift = schema_stale? ? " — the server rejected the query shape: the schema may have changed since generation; refresh the schema dump and regenerate (rake graph_weaver:schema:refresh && rake graph_weaver:generate)" : ""
+      more = " (and #{errors.size - 1} more)" if errors.size > 1
+      drift = " — #{DRIFT_HINT}" if schema_stale?
       "GraphQL query failed: #{first}#{more}#{drift}"
     end
   end

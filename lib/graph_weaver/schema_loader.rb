@@ -19,6 +19,11 @@ module GraphWeaver::SchemaLoader
   def self.load(source)
     return build_introspection(source) if source.is_a?(Hash)
 
+    # Rails.root.join(...) hands you a Pathname, and to_path is the
+    # ecosystem's "I am a path" (File.open honors it). Without this the
+    # sniffing below fails as `undefined method 'lstrip'`.
+    source = source.to_path if source.respond_to?(:to_path)
+
     if source.lstrip.start_with?("{") # introspection JSON content
       build_introspection(JSON.parse(source))
     elsif sdl_content?(source) # SDL content, one line or many
@@ -348,7 +353,7 @@ module GraphWeaver::SchemaLoader
 
       defn.directives
         .select { |d| LINK_DIRECTIVES.include?(d.name) }
-        .map { |d| d.arguments.to_h { |arg| [ arg.name, arg.value ] } }
+        .map { |d| d.arguments.to_h { |arg| [arg.name, arg.value] } }
     end
   end
   private_class_method :link_declarations
@@ -358,11 +363,11 @@ module GraphWeaver::SchemaLoader
   def self.imports(value)
     Array(value).filter_map do |entry|
       case entry
-      when String then [ entry, entry ]
+      when String then [entry, entry]
       when GraphQL::Language::Nodes::InputObject
         fields = entry.to_h
         name = fields["name"]
-        [ name, fields["as"].is_a?(String) ? fields["as"] : name ] if name.is_a?(String)
+        [name, fields["as"].is_a?(String) ? fields["as"] : name] if name.is_a?(String)
       end
     end
   end

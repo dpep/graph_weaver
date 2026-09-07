@@ -1,4 +1,7 @@
 ## Unreleased
+- **A `Pathname` works anywhere a schema path does** — `GraphWeaver.new`,
+  `generate!(schema:)`, `SchemaLoader.load`. `Rails.root.join("schema.graphql")`
+  previously failed as `undefined method 'lstrip' for an instance of Pathname`.
 - **`Transport::HTTP`'s `pool_size:` defaults to `RAILS_MAX_THREADS`** (else 5,
   as before) — the variable Rails already sizes its own connection pool from,
   because it is the same question. A threaded app that raised its thread count

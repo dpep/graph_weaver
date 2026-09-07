@@ -159,7 +159,7 @@ class GraphWeaver::Codegen
   # place a query walk never reaches, so the enums they touch are only known
   # once the fragments are built.
   def generate_types(inputs:, enums:, unions:, fragments:)
-    validate_module_name!("types")
+    validate_module_name!("types module name")
     reset_walk_state!
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
@@ -229,10 +229,12 @@ class GraphWeaver::Codegen
   private :reset_walk_state!
 
   # generated source is eval'd by parse — never let a name inject code
-  def validate_module_name!(kind)
-    return if @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
+  CONSTANT_NAME = /\A[A-Z]\w*(::[A-Z]\w*)*\z/
 
-    raise ArgumentError, "#{kind} module name must be a constant name, got #{@module_name.inspect}"
+  def validate_module_name!(subject)
+    return if @module_name&.match?(CONSTANT_NAME)
+
+    raise ArgumentError, "#{subject} must be a constant name, got #{@module_name.inspect}"
   end
   private :validate_module_name!
 
@@ -283,10 +285,7 @@ class GraphWeaver::Codegen
       raise ArgumentError, "module_name: required for anonymous operations"
     end
 
-    # generated source is eval'd by parse — never let a name inject code
-    unless @module_name.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
-      raise ArgumentError, "module_name: must be a constant name, got #{@module_name.inspect}"
-    end
+    validate_module_name!("module_name:")
 
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
@@ -377,7 +376,7 @@ class GraphWeaver::Codegen
       definition = @schema.get_field(root_type.graphql_name, fields.first.name)
       next [] unless definition && representation_field?(definition)
 
-      core = unwrap(definition.type)
+      core = definition.type.unwrap
       next [] unless %w[UNION INTERFACE].include?(core.kind.name)
 
       selected_members(core, fields.flat_map(&:selections))
@@ -389,7 +388,7 @@ class GraphWeaver::Codegen
   REPRESENTATION_SCALAR = "_Any"
 
   def representation_field?(definition)
-    definition.arguments.each_value.any? { |argument| unwrap(argument.type).graphql_name == REPRESENTATION_SCALAR }
+    definition.arguments.each_value.any? { |argument| argument.type.unwrap.graphql_name == REPRESENTATION_SCALAR }
   end
 
   # A `@key` this subgraph resolves. Matched by local name, since a fed-2
@@ -460,7 +459,7 @@ class GraphWeaver::Codegen
           "which generated code can't declare (a Ruby keyword)"
       end
 
-      core = unwrap(field.type)
+      core = field.type.unwrap
       if core.kind.name == "SCALAR"
         node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
         type = required ? node.bare_type : node.prop_type
@@ -623,7 +622,6 @@ class GraphWeaver::Codegen
     end
   end
 
-
   def object_node(type, selections, class_name)
     node = ObjectNode.new(class_name)
     node.graphql_type = type.graphql_name
@@ -647,7 +645,7 @@ class GraphWeaver::Codegen
         field_type = @schema.get_field(type.graphql_name, field_name).type
         sub_selections = field_nodes.flat_map(&:selections)
 
-        case (core = unwrap(field_type)).kind.name
+        case (core = field_type.unwrap).kind.name
         when "OBJECT"
           name = pick_name(key, taken)
           type_ref(field_type) { object_node(core, sub_selections, name) }
@@ -954,16 +952,12 @@ class GraphWeaver::Codegen
           "which collides with a method every struct defines"
       end
 
-      child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
+      child = type_ref(argument.type) { variable_core(argument.type.unwrap) }
       required = child.non_null? && !argument.default_value?
       node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
     end
     node
   end
-
-  # The InputNodes a struct's fields reference, through NON_NULL/LIST
-  # wrappers — the edges of the input dependency graph.
-
 
   # The module-level T::Enum for a schema enum, named for the enum itself —
   # it is shared by every field and variable of that type.
@@ -1055,11 +1049,6 @@ class GraphWeaver::Codegen
     end
   end
 
-  def unwrap(type)
-    type = type.of_type while type.kind.name == "NON_NULL" || type.kind.name == "LIST"
-    type
-  end
-
   # A generated type is named for the response key that selects it, camelized
   # (`stargazers` => Stargazers) — a function of the field's own position and
   # nothing else, so adding, removing, or reordering an unrelated selection can
@@ -1101,5 +1090,4 @@ class GraphWeaver::Codegen
     taken.delete(union.class_name)
     union.class_name = pick_name(key, taken)
   end
-
 end

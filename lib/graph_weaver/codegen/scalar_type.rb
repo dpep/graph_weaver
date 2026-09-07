@@ -4,7 +4,6 @@
 require "date"
 
 class GraphWeaver::Codegen
-
   # How one GraphQL scalar maps to Ruby: the Sorbet prop type, the
   # (optional) code emitted to deserialize a wire value into a rich Ruby
   # object and serialize it back, and any requires the generated file

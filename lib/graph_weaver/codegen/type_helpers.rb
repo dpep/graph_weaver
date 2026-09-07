@@ -77,6 +77,7 @@ class GraphWeaver::Codegen
       raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
       aliases
     end
+    private :take_aliases
 
     # accessor names and path segments are interpolated verbatim into generated
     # source, so — like module_name — they must be plain identifiers, never
@@ -107,6 +108,7 @@ class GraphWeaver::Codegen
         [name, { segments:, optional: }]
       end
     end
+    private :normalize_aliases
 
     def type_registry
       @type_registry ||= {}
