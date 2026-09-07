@@ -232,6 +232,67 @@ describe GraphWeaver::Testing::Router do
           .to eq [{ "message" => "carrier unavailable", "path" => ["topProducts", 3, "shippingEstimate"] }]
       end
     end
+
+    # A field set is a selection set, so a nested one crosses as an object
+    # rather than as one field per dotted path. What has to be right is the
+    # representation's SHAPE: spec/integration/router_parity_spec.rb diffs
+    # every one of these against a real gateway.
+    describe "a nested field set" do
+      # Listing is keyed "upc store { id }" in both subgraphs
+      it "sends a @key that is part flat and part nested" do
+        response = router.execute("{ listings { name shelfCode } }")
+
+        expect(response.dig("data", "listings").map { |l| l["shelfCode"] })
+          .to eq %w[p1/s1 p2/s2 p3/online]
+        expect(router.trace.last[:variables].fetch("representations")).to eq [
+          { "upc" => "p1", "store" => { "id" => "s1" }, "__typename" => "Listing" },
+          { "upc" => "p2", "store" => { "id" => "s2" }, "__typename" => "Listing" },
+          # l3 has no store: the inner object is null, which is a
+          # representation a real router sends too
+          { "upc" => "p3", "store" => nil, "__typename" => "Listing" },
+        ]
+      end
+
+      # Product.crateSize @requires "weight dimensions { length width unit
+      # { code } }" — flat, nested, and nested again, in one field set
+      it "carries a @requires nested two levels deep in one representation" do
+        response = router.execute("{ topProducts(first: 1) { crateSize } }")
+
+        expect(response.dig("data", "topProducts", 0, "crateSize")).to eq "60x30cm@100"
+        expect(router.trace.last[:variables].fetch("representations")).to eq [{
+          "upc" => "p1", "weight" => 100,
+          "dimensions" => { "length" => 60, "width" => 30, "unit" => { "code" => "cm" } },
+          "__typename" => "Product",
+        }]
+      end
+
+      # the subgraph in hand holds none of the field set, so it is fetched
+      # from the one that does and handed back in the representation
+      it "prefetches a nested @requires from the subgraph that holds it" do
+        response = router.execute("{ reviews { product { crateSize } } }")
+
+        expect(response.dig("data", "reviews").map { |r| r.dig("product", "crateSize") })
+          .to eq ["60x30cm@100", "84x36cm@900", "20x20cm@50"]
+        expect(router).to have_fetched_subgraphs "reviews", "products", "reviews"
+      end
+
+      it "leaves no injected object in the answer" do
+        response = router.execute("{ listings { name store { name } shelfCode } }")
+
+        expect(response.dig("data", "listings", 0))
+          .to eq({ "name" => "Table, Downtown", "store" => { "name" => "Downtown" }, "shelfCode" => "p1/s1" })
+      end
+
+      # Apollo injects a field set under its own names, so an alias over the
+      # object a nested key arrives in is the same collision a flat one has
+      it "refuses an alias shadowing the object an injected key arrives in" do
+        expect { router.execute("{ listings { store: name shelfCode } }") }
+          .to refuse_to_plan(:shadowed_key).with_detail(
+            'Listing.shelfCode is fetched on Listing\'s "upc", "store", and this selection ' \
+            'aliases name as "store" over it',
+          )
+      end
+    end
   end
 
   # A representation names ONE concrete __typename, and which one an object

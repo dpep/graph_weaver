@@ -18,12 +18,18 @@ describe GraphWeaver::Testing::Subgraphs do
   end
 
   it "judges a schema on the types and fields the supergraph says it resolves" do
-    expect(described_class.expected(table, "products"))
-      .to eq ["Bundle", "Product", "Product.name", "Product.price", "Product.weight", "Purchasable",
-        "Query", "Query.product", "Query.purchasables", "Query.topProducts"]
+    products = [
+      "Bundle", "Dimensions", "Dimensions.length", "Dimensions.unit", "Dimensions.width",
+      "Listing", "Listing.name", "Listing.sku", "Product", "Product.dimensions", "Product.name",
+      "Product.price", "Product.weight", "Purchasable", "Query", "Query.listings", "Query.product",
+      "Query.purchasables", "Query.topProducts", "Region", "Store", "Store.name", "Store.region",
+      "Unit", "Unit.code",
+    ]
+
+    expect(described_class.expected(table, "products")).to eq products
+    # accounts defines Query and nothing else products resolves
     expect(described_class.missing(table, "products", RouterGraph::Accounts::Schema))
-      .to eq ["Bundle", "Product", "Product.name", "Product.price", "Product.weight", "Purchasable",
-        "Query.product", "Query.purchasables", "Query.topProducts"]
+      .to eq products - ["Query"]
   end
 
   it "refuses when two schemas fit, naming both" do
@@ -114,8 +120,8 @@ describe GraphWeaver::Testing::Subgraphs do
       expect(run_task(RouterGraph::SUPERGRAPH)).to eq <<~MAP
         subgraphs: {
           "accounts" => RouterGraph::Accounts::Schema,  # matched: defines Query.directory, Query.me, Query.user
-          "products" => RouterGraph::Products::Schema,  # matched: defines Product.name, Product.price, Product.weight
-          "reviews" => RouterGraph::Reviews::Schema,    # matched: defines Product.reviews, Product.shippingEstimate, Query.feed
+          "products" => RouterGraph::Products::Schema,  # matched: defines Dimensions.length, Dimensions.unit, Dimensions.width
+          "reviews" => RouterGraph::Reviews::Schema,    # matched: defines Listing.shelfCode, Product.crateSize, Product.reviews
         }
       MAP
     end

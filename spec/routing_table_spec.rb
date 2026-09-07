@@ -67,16 +67,16 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
   # owners answers "who resolves this"; declares? answers "is it here at
   # all" — and a field with no @join__field is still a field
   it "lists every field a type declares, routed or not" do
-    expect(table.fields("Product")).to eq %w[name price weight reviews shippingEstimate]
+    expect(table.fields("Product")).to eq %w[dimensions name price weight crateSize reviews shippingEstimate]
     expect(table.declared_fields("Product"))
-      .to eq %w[name price upc weight reviews shippingEstimate]
+      .to eq %w[dimensions name price upc weight crateSize reviews shippingEstimate]
     expect(table.declared_fields("Nope")).to be_empty
   end
 
   it "says whether the supergraph carries a coordinate at all" do
     expect(table.declares?("Product")).to be true
     expect(table.declares?("Product", "upc")).to be true
-    expect(table.declares?("Product", "dimensions")).to be false
+    expect(table.declares?("Product", "colour")).to be false
     expect(table.declares?("Nope")).to be false
   end
 
@@ -84,7 +84,7 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(table.responsible("Product", "shippingEstimate")).to eq ["reviews"]
     # a field the supergraph doesn't carry — the case an error message is
     # usually asking about: whoever declares the type is still who to talk to
-    expect(table.responsible("Product", "dimensions")).to eq %w[products reviews]
+    expect(table.responsible("Product", "colour")).to eq %w[products reviews]
     expect(table.responsible("Nope", "nope")).to be_empty
   end
 

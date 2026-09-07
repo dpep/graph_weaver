@@ -57,6 +57,19 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "@provides copy beside a field only the owner has" => ["{ reviews { author { username email } } }", {}],
     "an entity reached from two directions at once" => ["{ topProducts(first: 1) { name shippingEstimate reviews { body } } }", {}],
     "@requires fetched from a third subgraph first" => ["{ reviews { product { shippingEstimate } } }", {}],
+
+    # A nested @key or @requires: the field set crosses as an object, so what
+    # has to agree with the gateway is the representation's *shape* — and l3
+    # has no store, which is that object null at runtime.
+    "a nested @key, mixed with a flat field" => ["{ listings { name shelfCode } }", {}],
+    "a nested @key whose inner object is null" => ['{ listings { sku shelfCode } }', {}],
+    "a nested @key crossed from the other side" => ["{ reviews { body listing { name } } }", {}],
+    "a nested field set beside the same fields selected" => ["{ listings { name store { name region { code } } shelfCode } }", {}],
+    "a @requires field set part flat, part nested" => ["{ topProducts(first: 3) { name crateSize } }", {}],
+    "a nested @requires beside a flat one" => ["{ topProducts(first: 3) { crateSize shippingEstimate } }", {}],
+    "a nested @requires prefetched from a third subgraph" => ["{ reviews { product { crateSize } } }", {}],
+    "a nested @requires over an entity list" => ["{ users { reviews { product { crateSize } listing { name shelfCode } } } }", {}],
+    "an alias colliding with an injected nested key" => ["{ listings { store: name shelfCode } }", {}],
     "a @requires chain beside a plain join" => ["{ reviews { id product { name shippingEstimate } } }", {}],
     "a @requires chain over an entity list" => ["{ users { reviews { product { name shippingEstimate reviews { body } } } } }", {}],
     "root fields split three ways" => ["{ me { username } topProducts(first: 1) { name } reviews { body } }", {}],
@@ -220,6 +233,9 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     # printed either way: the refusal list is the measurement, not noise
     warn "\nrouter parity: #{tally[:match]} identical, #{tally[:refused]} refused, #{tally[:wrong]} wrong"
     refusals.each { |line| warn "  refused: #{line}" }
+    # rspec truncates a failure message, and a diff you can't read is a diff
+    # you can't fix — this is the one line that says what went wrong
+    wrong.each { |line| warn "  WRONG: #{line}" }
 
     expect(wrong).to be_empty
     expect(tally[:match]).to be > 0
