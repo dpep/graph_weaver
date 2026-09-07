@@ -100,7 +100,7 @@ describe GraphWeaver::Testing::Subgraphs do
     it "prints a paste-ready map, with the evidence for each match" do
       expect(run_task(RouterGraph::SUPERGRAPH)).to eq <<~MAP
         subgraphs: {
-          "accounts" => RouterGraph::Accounts::Schema,  # matched: defines Query.me, Query.user, Query.users
+          "accounts" => RouterGraph::Accounts::Schema,  # matched: defines Query.directory, Query.me, Query.user
           "products" => RouterGraph::Products::Schema,  # matched: defines Product.name, Product.price, Product.weight
           "reviews" => RouterGraph::Reviews::Schema,    # matched: defines Product.reviews, Product.shippingEstimate, Query.feed
         }

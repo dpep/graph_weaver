@@ -55,14 +55,14 @@ describe GraphWeaver::Testing::Coverage do
     report = coverage_of(
       "shadowed.graphql" => "{ me { id: username reviews { body } } }",
       "aliased.graphql" => "{ me { id: username reviews { id } } }",
-      "polymorphic.graphql" => "{ feed { ... on Review { body author { email } } } }",
+      "mixed.graphql" => "{ __schema { queryType { name } } me { id } }",
     )
 
-    expect(report.refused.map(&:category).tally).to eq({ shadowed_key: 2, abstract_boundary: 1 })
+    expect(report.refused.map(&:category).tally).to eq({ shadowed_key: 2, mixed_introspection: 1 })
     expect(report.report).to include "  an alias shadowing an injected @key (2)"
     expect(report.report).to include "    shadowed.graphql", "aliases username"
     expect(report.report.index("an alias shadowing an injected @key"))
-      .to be < report.report.index("an abstract type at a subgraph boundary")
+      .to be < report.report.index("introspection mixed with data")
   end
 
   it "plans without any subgraph being loadable" do

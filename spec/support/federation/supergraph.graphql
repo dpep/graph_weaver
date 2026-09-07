@@ -94,6 +94,7 @@ type Query
   @join__type(graph: PRODUCTS)
   @join__type(graph: REVIEWS)
 {
+  directory: [SearchHit!]! @join__field(graph: ACCOUNTS)
   me: User @join__field(graph: ACCOUNTS)
   user(id: ID!): User @join__field(graph: ACCOUNTS)
   users: [User!]! @join__field(graph: ACCOUNTS)
@@ -118,12 +119,14 @@ type Review
 }
 
 union SearchHit
+  @join__type(graph: ACCOUNTS)
   @join__type(graph: REVIEWS)
+  @join__unionMember(graph: ACCOUNTS, member: "User")
+  @join__unionMember(graph: REVIEWS, member: "User")
   @join__unionMember(graph: REVIEWS, member: "Announcement")
   @join__unionMember(graph: REVIEWS, member: "Product")
   @join__unionMember(graph: REVIEWS, member: "Review")
-  @join__unionMember(graph: REVIEWS, member: "User")
- = Announcement | Product | Review | User
+ = User | Announcement | Product | Review
 
 type User
   @join__type(graph: ACCOUNTS, key: "id")

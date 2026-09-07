@@ -51,8 +51,10 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
   # a fetch may only name an `... on T` the subgraph's own schema places in
   # the abstract type, so this is what bounds one
   it "reads the concrete types each subgraph answers an abstract type with" do
-    expect(table.possible_types("SearchHit", "reviews")).to eq %w[Announcement Product Review User]
-    expect(table.possible_types("SearchHit", "accounts")).to be_empty
+    expect(table.possible_types("SearchHit", "reviews")).to match_array %w[Announcement Product Review User]
+    # accounts declares the same union with only User in it
+    expect(table.possible_types("SearchHit", "accounts")).to eq %w[User]
+    expect(table.possible_types("SearchHit", "products")).to be_empty
     expect(table.possible_types("Purchasable", "products")).to eq %w[Bundle Product]
     expect(table.possible_types("Review", "reviews")).to be_nil
   end

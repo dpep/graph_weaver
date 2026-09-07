@@ -72,6 +72,16 @@ module RouterGraph
       end
     end
 
+    # The other half of reviews' SearchHit: accounts declares the same union
+    # with only User in it, so a fragment on a member accounts can't produce
+    # never matches. Composition records the split with @join__unionMember.
+    class SearchHit < GraphQL::Schema::Union
+      graphql_name "SearchHit"
+      possible_types User
+
+      def self.resolve_type(_object, _context) = User
+    end
+
     class Query < RouterGraph::BaseObject
       graphql_name "Query"
 
@@ -80,11 +90,13 @@ module RouterGraph
         argument :id, ID, required: true
       end
       field :users, [User], null: false
+      field :directory, [SearchHit], null: false
 
       # context is the whole reason a test router takes one
       def me = USERS[(context[:current_user_id] || "1").to_s]
       def user(id:) = USERS[id.to_s]
       def users = USERS.values
+      def directory = USERS.values
     end
 
     class Schema < GraphQL::Schema

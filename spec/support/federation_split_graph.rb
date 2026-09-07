@@ -3,9 +3,9 @@
 
 # A two-subgraph graph carrying the shapes RouterGraph doesn't have: a union
 # whose members live in different subgraphs, a mutation whose root fields do,
-# and a subscription root. Hand-written rather than composed — Apollo won't
-# compose a union split this way, which is the point: it's the boundary the
-# local router has to refuse, not a graph anyone runs.
+# and a subscription root. Hand-written rather than composed, so the pieces
+# can be arranged the way a refusal needs them rather than the way a real
+# graph would.
 module SplitGraph
   SUPERGRAPH = <<~SDL
     schema @link(url: "https://specs.apollo.dev/link/v1.0")

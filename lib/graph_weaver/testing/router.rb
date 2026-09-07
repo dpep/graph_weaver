@@ -24,20 +24,16 @@ module GraphWeaver
       # every way the local router refuses: the label a report groups by, and
       # the next action the message ends with
       CATEGORIES = {
-        crosses_subgraph: [
-          "crosses a subgraph boundary",
-          "the local router crosses a boundary by refetching an entity from its @key, and this " \
-            "isn't a shape it can do that to. Run this one against a real router.",
-        ],
         no_key: [
           "no @key to cross the boundary on",
           "an entity fetch sends a representation built from a @key; with none there's nothing to " \
             "send. Run this one against a real router.",
         ],
         abstract_boundary: [
-          "an abstract type at a subgraph boundary",
-          "a representation names one concrete __typename, and the local router doesn't resolve a " \
-            "type per object to build one. Run this one against a real router.",
+          "an abstract type the supergraph doesn't break down",
+          "the local router crosses an abstract boundary by bucketing objects on their " \
+            "__typename, so it has to know which concrete types the subgraph can answer with — " \
+            "and this supergraph doesn't say. Run this one against a real router.",
         ],
         nested_field_set: [
           "a nested @key or @requires field set",
@@ -175,6 +171,11 @@ module GraphWeaver
       # stripped before the caller sees the tree
       PREFIX = "_gw_"
 
+      # Where the injected __typename lands. Which concrete type an abstract
+      # position holds is a fact only the data carries, so every abstract
+      # fetch asks for it — under this key whether or not the caller did.
+      TYPENAME = "#{PREFIX}__typename"
+
       # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
       # any of its entries) and the rest are derived from what each loaded
       # schema defines — see {Subgraphs}, which also checks the ones you name.
@@ -300,6 +301,19 @@ module GraphWeaver
 
       def stitch(step, nodes, operation, variables, errors)
         return if nodes.empty?
+
+        # An abstract position: the plan holds one branch per concrete type
+        # the subgraph can answer with, and only the data says which applies.
+        # So bucket on the __typename that came back — each bucket then
+        # crosses on its own type's @key, which is what a representation
+        # needs and what the planner could not have known.
+        if step.is_a?(Planner::Branches)
+          step.steps.each do |type_name, branch|
+            stitch(branch, nodes.select { |(node, _)| node[TYPENAME] == type_name },
+              operation, variables, errors)
+          end
+          return
+        end
 
         blocked = prefetch(step, nodes, operation, variables, errors)
 
@@ -522,9 +536,14 @@ module GraphWeaver
           items = value.map { |item| propagate(item, type.of_type, selections, fragments) }
           items.any? { |item| item.equal?(BUBBLE) } ? nil : items
         elsif type.kind.abstract?
-          # an abstract subtree only ever goes to ONE subgraph, which applied
-          # its own propagation before answering — there is nothing to redo
-          value
+          # which selections apply here is a fact about the data: the same
+          # __typename the fetch bucketed by says what this object is. Without
+          # one the subtree ran whole in one subgraph, which already applied
+          # its own propagation — there is nothing to redo.
+          concrete = value.is_a?(Hash) ? @schema.types[value[TYPENAME] || value["__typename"]] : nil
+          return value unless concrete&.kind&.fields?
+
+          propagate_object(value, concrete, @planner.narrow(concrete.graphql_name, selections, fragments), fragments)
         elsif type.kind.fields?
           propagate_object(value, type, selections, fragments)
         else
@@ -543,7 +562,8 @@ module GraphWeaver
           key = node.alias || node.name
           ordered[key] = value[key] if value.key?(key)
         end
-        value.each { |key, held| ordered[key] = held unless ordered.key?(key) }
+        # an injected key is the router's own bookkeeping, never the caller's
+        value.each { |key, held| ordered[key] = held unless ordered.key?(key) || key.start_with?(PREFIX) }
 
         selections.each do |node|
           next if node.name.start_with?("__")
@@ -553,7 +573,13 @@ module GraphWeaver
 
           field = type.fields[node.name] or next
           child = field.type.unwrap
-          sub = node.selections.any? ? inline(node.selections, fragments, child.graphql_name) : []
+          # an abstract position picks its selections per object, from the
+          # __typename in the data — nothing can inline them for a type yet
+          sub =
+            if node.selections.empty? then []
+            elsif child.kind.abstract? then node.selections
+            else @planner.narrow(child.graphql_name, node.selections, fragments)
+            end
           result = propagate(ordered[key], field.type, sub, fragments)
           return if result.equal?(BUBBLE)
 
@@ -561,25 +587,6 @@ module GraphWeaver
         end
         ordered
       end
-
-      # Fragments folded in for the propagation walk. Unlike the planner's
-      # expand this just skips a fragment on another type: those subtrees ran
-      # whole in one subgraph and need no rework.
-      def inline(selections, fragments, type_name)
-        selections.flat_map do |node|
-          case node
-          when GraphQL::Language::Nodes::Field then [node]
-          when GraphQL::Language::Nodes::InlineFragment
-            matches?(node.type&.name, type_name) ? inline(node.selections, fragments, type_name) : []
-          when GraphQL::Language::Nodes::FragmentSpread
-            fragment = fragments[node.name]
-            (fragment && matches?(fragment.type.name, type_name)) ? inline(fragment.selections, fragments, type_name) : []
-          else []
-          end
-        end
-      end
-
-      def matches?(condition, type_name) = condition.nil? || condition == type_name
 
       # Decides which subgraph answers what — and, where an operation crosses
       # a boundary, the tree of fetches that answers it. Separate from the
@@ -599,6 +606,33 @@ module GraphWeaver
           def subgraphs
             [subgraph] + prefetches.map(&:subgraph) +
               children.flat_map { |_key, child| child.subgraphs } + deferrals.flat_map(&:subgraphs)
+          end
+        end
+
+        # the __typename every abstract fetch asks for, under the router's own
+        # response key so the caller's answer never gains one it didn't ask for
+        TYPENAME_FIELD = GraphQL::Language::Nodes::Field.new(
+          name: "__typename", field_alias: Router::TYPENAME,
+        )
+
+        # What a field returning an abstract type defers to: one plan per
+        # concrete type the subgraph can answer with. Which of them applies is
+        # a fact about the data, and the planner runs before any fetch — so it
+        # plans them all and {Router#stitch} picks by __typename.
+        Branches = Struct.new(:steps, keyword_init: true) do
+          def subgraphs = steps.each_value.flat_map(&:subgraphs)
+
+          # what the parent's fetch asks for: each branch under its own type
+          # condition, and the __typename that says which one answered
+          def selections
+            [TYPENAME_FIELD] + steps.filter_map do |type_name, step|
+              next if step.selections.empty?
+
+              GraphQL::Language::Nodes::InlineFragment.new(
+                type: GraphQL::Language::Nodes::TypeName.new(name: type_name),
+                selections: step.selections,
+              )
+            end
           end
         end
 
@@ -664,7 +698,7 @@ module GraphWeaver
           fragments = document.definitions
             .grep(GraphQL::Language::Nodes::FragmentDefinition).to_h { |f| [f.name, f] }
           root = root_type(operation)
-          selections = flatten(root.graphql_name, operation.selections, fragments)
+          selections = narrow(root.graphql_name, operation.selections, fragments)
           plan = Plan.new(operation:, selections:, fragments:, root_type: root, steps: [])
 
           introspection, data = selections.partition { |node| INTROSPECTION.include?(node.name) }
@@ -690,7 +724,46 @@ module GraphWeaver
           plan
         end
 
+        # The selections that apply to ONE concrete type, as plain fields a
+        # step can route one at a time: fields written at this position, plus
+        # every fragment whose condition that type satisfies, folded in. A
+        # fragment it can't be never matches, so it is dropped rather than
+        # travelling as written — every position a step plans is concrete, so
+        # a condition either holds for all of its objects or for none.
+        #
+        # Public because {Router#propagate} asks the same question of the
+        # merged tree: which selections describe the object in hand.
+        def narrow(concrete, selections, fragments, depth = 0)
+          return [] if depth > MAX_DEPTH
+
+          selections.flat_map do |node|
+            case node
+            when GraphQL::Language::Nodes::Field then [node]
+            when GraphQL::Language::Nodes::InlineFragment
+              next [] unless applies?(node.type&.name, concrete)
+
+              carry(node, narrow(concrete, node.selections, fragments, depth + 1))
+            when GraphQL::Language::Nodes::FragmentSpread
+              fragment = fragments[node.name] or
+                refuse(:undefined_fragment, "the document spreads ...#{node.name}, which it never defines")
+              next [] unless applies?(fragment.type.name, concrete)
+
+              carry(node, narrow(concrete, fragment.selections, fragments, depth + 1))
+            else []
+            end
+          end
+        end
+
         private
+
+        # Whether a fragment's condition holds for every object of `concrete`
+        # — the type itself, or an abstract type it satisfies.
+        def applies?(condition, concrete)
+          return true if condition.nil? || condition == concrete
+
+          type = @schema.types[condition]
+          !!type&.kind&.abstract? && @schema.possible_types(type).any? { |t| t.graphql_name == concrete }
+        end
 
         def step(subgraph, type_name)
           Step.new(subgraph:, type_name:, selections: [], injected: [], prefetches: [],
@@ -811,11 +884,34 @@ module GraphWeaver
         # The plan for what this field returns, run in `subgraph`.
         def plan_child(type_name, node, subgraph, field, fragments, depth)
           child_type = child_type_name(type_name, node.name)
-          # expand first: it refuses a fragment by naming the type that
-          # crosses, which reads better than "this field returns a union"
-          selections = expand(child_type, node.selections, subgraph, fragments)
-          check_concrete!(type_name, node.name, child_type)
-          plan_step(child_type, selections, subgraph, fragments, provides(field), depth + 1)
+          return plan_branches(type_name, node, child_type, subgraph, field, fragments, depth) if
+            @schema.types[child_type]&.kind&.abstract?
+
+          plan_step(child_type, narrow(child_type, node.selections, fragments), subgraph, fragments,
+            provides(field), depth + 1)
+        end
+
+        # One plan per concrete type `subgraph` can answer this abstract type
+        # with — the supergraph says which those are, and a fetch may only name
+        # those: a subgraph rejects an `... on T` its own schema doesn't place
+        # in the abstract type.
+        def plan_branches(type_name, node, abstract_name, subgraph, field, fragments, depth)
+          possible = @table.possible_types(abstract_name, subgraph)
+          if possible.nil?
+            refuse :abstract_boundary, "#{type_name}.#{node.name} returns #{abstract_name}, and " \
+              "the supergraph doesn't record which concrete types #{subgraph} answers it with " \
+              "(no @join__unionMember or @join__implements, and #{abstract_name} is in more than " \
+              "one subgraph)"
+          end
+          if possible.empty?
+            refuse :abstract_boundary, "#{type_name}.#{node.name} returns #{abstract_name}, and " \
+              "the supergraph places none of its concrete types in #{subgraph}"
+          end
+
+          Branches.new(steps: possible.sort.to_h do |concrete|
+            [concrete, plan_step(concrete, narrow(concrete, node.selections, fragments), subgraph,
+              fragments, provides(field), depth + 1)]
+          end)
         end
 
         # Refetch this object from its @key in the subgraph that resolves the
@@ -976,37 +1072,6 @@ module GraphWeaver
           local?(child, node.selections, subgraph, fragments, provides(field), depth + 1)
         end
 
-        # Inline fragments and named spreads folded in, so a step's selections
-        # are plain fields it can route one at a time. A fragment on another
-        # type applies to only some objects, and a fetch can't be split
-        # conditionally — so that one has to run whole in one subgraph, and
-        # travels as written.
-        def expand(type_name, selections, subgraph, fragments, depth = 0)
-          return [] if depth > MAX_DEPTH
-
-          selections.flat_map do |node|
-            case node
-            when GraphQL::Language::Nodes::Field then [node]
-            when GraphQL::Language::Nodes::InlineFragment
-              condition = node.type&.name
-              next carry(node, expand(type_name, node.selections, subgraph, fragments, depth + 1)) if
-                condition.nil? || condition == type_name
-
-              check_condition!(type_name, condition, node.selections, subgraph, fragments)
-              [node]
-            when GraphQL::Language::Nodes::FragmentSpread
-              fragment = fragments[node.name] or
-                refuse(:undefined_fragment, "the document spreads ...#{node.name}, which it never defines")
-              next carry(node, expand(type_name, fragment.selections, subgraph, fragments, depth + 1)) if
-                fragment.type.name == type_name
-
-              check_condition!(type_name, fragment.type.name, fragment.selections, subgraph, fragments)
-              [node]
-            else []
-            end
-          end
-        end
-
         # Folding a same-type fragment into its parent drops the fragment node,
         # so whatever @skip/@include it carried has to move onto the selections
         # it guarded — otherwise a stitched plan answers a selection the
@@ -1025,21 +1090,6 @@ module GraphWeaver
 
             field.merge(directives: node.directives + field.directives)
           end
-        end
-
-        def check_condition!(type_name, condition, selections, subgraph, fragments)
-          unless declared_in?(condition, subgraph)
-            # absence is the more actionable reason when it's the reason
-            available!(@table.declared_in(condition), condition)
-            refuse :crosses_subgraph,
-              "#{condition} lives in #{@table.declared_in(condition).join(" and ")}, and this " \
-              "operation runs in #{subgraph}"
-          end
-          return if local?(condition, selections, subgraph, fragments, [])
-
-          refuse :abstract_boundary,
-            "this operation selects ...on #{condition} inside #{type_name} and part of it resolves " \
-            "outside #{subgraph}"
         end
 
         # A fragment's type condition has to exist in the subgraph running
@@ -1108,43 +1158,12 @@ module GraphWeaver
             refuse(:no_owner, "#{type_name}.#{field_name} is not a field of the composed schema")
         end
 
-        # We only ask past a field whose subtree crosses a boundary, and a
-        # representation names one concrete __typename — so an abstract type
-        # is as far as the plan goes.
-        def check_concrete!(type_name, field_name, child_type)
-          kind = @schema.types[child_type]&.kind
-          return unless kind&.abstract?
-
-          refuse :abstract_boundary,
-            "#{type_name}.#{field_name} returns #{child_type}, " \
-            "#{(kind.name == "UNION") ? "a union" : "an interface"}, and part of its selection " \
-            "resolves in another subgraph"
-        end
-
         def raw_child_type(type_name, field_name)
           type = @schema.types[type_name]
           return unless type.respond_to?(:fields)
 
           field = type.fields[field_name] or return
           field.type.unwrap.graphql_name
-        end
-
-        # The root fields as plain Field nodes, with fragments on the root
-        # type folded in.
-        def flatten(type_name, selections, fragments, depth = 0)
-          return [] if depth > MAX_DEPTH
-
-          selections.flat_map do |node|
-            case node
-            when GraphQL::Language::Nodes::Field then [node]
-            when GraphQL::Language::Nodes::InlineFragment
-              carry(node, flatten(type_name, node.selections, fragments, depth + 1))
-            when GraphQL::Language::Nodes::FragmentSpread
-              fragment = fragments[node.name]
-              fragment ? carry(node, flatten(type_name, fragment.selections, fragments, depth + 1)) : []
-            else []
-            end
-          end
         end
 
         def refuse(category, message)

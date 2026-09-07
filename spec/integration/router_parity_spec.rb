@@ -63,6 +63,28 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     # serial execution governs the ROOTS; what stitches below one is an
     # ordinary read, and the gateway is the proof of that
     "a mutation stitching below its root" => ['mutation { addReview(upc: "p1", body: "Sturdy") { body product { name } author { email } } }', {}],
+
+    # An abstract type at a boundary. Which subgraph answers an object is
+    # decided by its concrete __typename, which no plan can know — so these
+    # are the ones where planning ahead and executing on data have to agree.
+    "a union whose members cross to three subgraphs" => ['{ search(term: "all") { __typename ... on User { username reviews { body } } ... on Product { name } ... on Review { body author { email } } ... on Announcement { headline } } }', {}],
+    "a union with __typename only injected" => ['{ search(term: "all") { ... on User { username } ... on Product { name } } }', {}],
+    "a union where every object is the same type" => ['{ search(term: "users") { __typename ... on User { username } } }', {}],
+    "an empty abstract result" => ['{ search(term: "none") { __typename ... on User { username } } }', {}],
+    "a union member with no selection of its own" => ['{ search(term: "all") { ... on Review { body author { email } } } }', {}],
+    "a keyless union member beside one that crosses" => ['{ search(term: "all") { ... on Announcement { headline } ... on Product { name } } }', {}],
+    "a union under an already-stitched subtree" => ['{ me { username reviews { body subject { __typename ... on Product { name } } } } }', {}],
+    "a named fragment on the abstract type" => ['query { search(term: "all") { ...hit } } fragment hit on SearchHit { __typename ... on User { username reviews { body } } }', {}],
+    "a fragment on a member the answering subgraph can't produce" => ['{ directory { __typename ... on User { username reviews { body } } ... on Review { body } } }', {}],
+    "an interface whose implementations split" => ['{ purchasables { __typename upc name ... on Product { reviews { body } } ... on Bundle { items { name } } } }', {}],
+    "a fragment on the interface itself beside per-member ones" => ['{ purchasables { ... on Purchasable { upc } ... on Product { name reviews { body } } } }', {}],
+    "an interface selection that stays put" => ["{ purchasables { upc name } }", {}],
+    "an abstract type inside an abstract branch" => ['{ search(term: "all") { ... on Review { subject { __typename ... on Product { name } } } } }', {}],
+    "__typename aliased over an abstract branch" => ['{ search(term: "all") { kind: __typename ... on Product { __typename n: name } } }', {}],
+    "two fragments on one member, merged" => ['{ search(term: "all") { ... on Product { name } ... on Product { reviews { body } } } }', {}],
+    "@skip on a fragment over an abstract type" => ['query($hide: Boolean!) { search(term: "all") { ... on Product @skip(if: $hide) { name } ... on Review { body } } }', { "hide" => true }],
+    "an interface fragment inside the concrete type it covers" => ["{ topProducts(first: 1) { ... on Purchasable { name } reviews { body } } }", {}],
+    "@skip inside an abstract branch" => ['query($hide: Boolean!) { search(term: "all") { ... on User { username reviews @skip(if: $hide) { body } } } }', { "hide" => true }],
   }.freeze
 
   # Probes where a subgraph *fails*. A stitched fetch can leave a null where
@@ -76,6 +98,8 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "entity fetch nulls a non-null field" => ["{ orphanReviews { body product { name price } } }", {}],
     "the null a whole response propagates to" => ["{ orphanReviews { product { name } } }", {}],
     "a @requires chain whose first fetch finds nothing" => ["{ orphanReviews { product { shippingEstimate } } }", {}],
+    "one abstract branch's entity fetch nulls a non-null field" => ['{ search(term: "gone") { __typename ... on Product { name } } }', {}],
+    "a resolver error inside one abstract branch" => ["{ purchasables { name ... on Product { shippingEstimate } } }", {}],
   }.freeze
 
   before(:all) do

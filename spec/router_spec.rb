@@ -231,6 +231,74 @@ describe GraphWeaver::Testing::Router do
     end
   end
 
+  # A representation names ONE concrete __typename, and which one an object
+  # has isn't in the query — so the plan carries a branch per possible type
+  # and execution picks by the __typename that came back.
+  describe "an abstract type at a subgraph boundary" do
+    def subgraphs = router.trace.map { |fetch| fetch[:subgraph] }
+
+    it "buckets the objects by __typename and fetches each bucket's own entity" do
+      response = router.execute(<<~GQL)
+        { search(term: "all") { __typename ... on User { username } ... on Product { name } } }
+      GQL
+
+      expect(response.fetch("data").fetch("search")).to eq [
+        { "__typename" => "User", "username" => "dpep" },
+        { "__typename" => "Product", "name" => "Table" },
+        { "__typename" => "Review" },
+        { "__typename" => "Announcement" },
+      ]
+      expect(subgraphs).to eq %w[reviews products accounts]
+      expect(router.trace[1][:variables])
+        .to eq({ "representations" => [{ "upc" => "p1", "__typename" => "Product" }] })
+    end
+
+    # the __typename rides under the router's own response key, so the answer
+    # gains one only when the caller asked for it
+    it "asks for the __typename it buckets on, and doesn't hand it back" do
+      response = router.execute('{ search(term: "all") { ... on Product { name } } }')
+
+      expect(router.trace.first[:query]).to include "_gw___typename: __typename"
+      expect(response.fetch("data").fetch("search"))
+        .to eq [{}, { "name" => "Table" }, {}, {}]
+    end
+
+    it "crosses from inside a subtree that already crossed" do
+      response = router.execute("{ me { reviews { subject { ... on Product { name } } } } }")
+
+      expect(response.dig("data", "me", "reviews", 0, "subject")).to eq({ "name" => "Table" })
+      expect(subgraphs).to eq %w[accounts reviews products]
+    end
+
+    # an interface's own fields resolve for every implementation; only the
+    # per-implementation ones decide where a branch goes
+    it "splits an interface's implementations and leaves the local one alone" do
+      response = router.execute(<<~GQL)
+        { purchasables { upc ... on Product { reviews { body } } ... on Bundle { items { name } } } }
+      GQL
+
+      expect(response.fetch("data").fetch("purchasables")).to eq [
+        { "upc" => "p1", "reviews" => [{ "body" => "Love it" }] },
+        { "upc" => "p4", "reviews" => [] },
+        { "upc" => "b1", "items" => [{ "name" => "Table" }, { "name" => "Chair" }] },
+      ]
+      expect(subgraphs).to eq %w[products reviews]
+    end
+
+    it "sends no entity fetch for a bucket nothing lands in" do
+      expect(router.execute('{ search(term: "users") { ... on Product { name } } }'))
+        .to eq({ "data" => { "search" => [{}, {}] } })
+      expect(subgraphs).to eq ["reviews"]
+    end
+
+    # one branch's entity fetch comes back null where the composed schema
+    # says String!, and the null has to bubble the way it would in production
+    it "propagates a null out of one branch's entity fetch" do
+      expect(router.execute('{ search(term: "gone") { ... on Product { name } } }'))
+        .to eq({ "data" => nil })
+    end
+  end
+
   # Serial execution is about the ROOTS: sharing a subgraph, they go over as
   # one document and it runs them in order. Stitching below a root is an
   # ordinary read afterwards and has no ordering to preserve.
@@ -282,12 +350,53 @@ describe GraphWeaver::Testing::Router do
       expect(error.message).to end_with "Rename the alias."
     end
 
-    it "names the abstract type it can't build a representation for" do
-      error = refusal("{ feed { ... on Review { body author { email } } } }")
+    # Bucketing an abstract type needs the list of concrete types the subgraph
+    # can answer with, and only @join__unionMember/@join__implements record it.
+    # Without them the router would have to guess what a fetch may name.
+    it "names an abstract type the supergraph doesn't break down" do
+      sdl = File.read(RouterGraph::SUPERGRAPH)
+        .gsub(/^  @join__unionMember\(graph: \w+, member: "\w+"\)\n/, "")
+      opaque = described_class.new(supergraph: sdl, subgraphs: RouterGraph::SUBGRAPHS)
+      error = refusal_from(opaque, '{ search(term: "all") { ... on Product { name } } }')
 
       expect(error.category).to eq :abstract_boundary
-      expect(error.detail).to eq "this operation selects ...on Review inside FeedItem and part of " \
-        "it resolves outside reviews"
+      expect(error.detail).to eq "Query.search returns SearchHit, and the supergraph doesn't " \
+        "record which concrete types reviews answers it with (no @join__unionMember or " \
+        "@join__implements, and SearchHit is in more than one subgraph)"
+      expect(error.message).to end_with "Run this one against a real router."
+    end
+
+    # a keyless member is only unanswerable if something on it resolves
+    # elsewhere, which composition can't produce — but a hand-built supergraph
+    # can, and the refusal has to name the type rather than the abstract one
+    it "names the union member it can't build a representation for" do
+      keyless = described_class.new(supergraph: <<~SDL, subgraphs: { "a" => SplitGraph::A::Schema, "b" => :fake })
+        schema @link(url: "https://specs.apollo.dev/link/v1.0")
+          @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+        { query: Query }
+        directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
+        directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+        directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT | UNION
+        directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
+        scalar join__FieldSet
+        enum join__Graph {
+          A @join__graph(name: "a", url: "http://a")
+          B @join__graph(name: "b", url: "http://b")
+        }
+        type Query @join__type(graph: A) @join__type(graph: B) {
+          search: [Result!]! @join__field(graph: A)
+        }
+        union Result @join__type(graph: A) @join__unionMember(graph: A, member: "Doc") = Doc
+        type Doc @join__type(graph: A) @join__type(graph: B) {
+          id: ID! @join__field(graph: A)
+          note: String @join__field(graph: B)
+        }
+      SDL
+
+      error = refusal_from(keyless, "{ search { ... on Doc { note } } }")
+
+      expect(error.category).to eq :no_key
+      expect(error.detail).to eq "Doc.note resolves in b, and Doc has no resolvable @key there"
     end
 
     # a @requires the supergraph places nowhere is a graph nothing can serve,
@@ -308,9 +417,12 @@ describe GraphWeaver::Testing::Router do
       described_class.new(supergraph: SplitGraph::SUPERGRAPH, subgraphs: SplitGraph::SUBGRAPHS)
     end
 
-    it "refuses a fragment on a type the running subgraph doesn't declare" do
-      expect { split.execute("{ search { ... on Note { id } } }") }
-        .to raise_error(Unplannable, /\ANote lives in b, and this operation runs in a —/)
+    # a's Result holds only Doc, so nothing search returns can be a Note and
+    # the fragment never matches — which is what a real router answers too
+    it "drops a fragment on a member the answering subgraph can't produce" do
+      expect(split.execute("{ search { ... on Note { id } } }"))
+        .to eq({ "data" => { "search" => [{}] } })
+      expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
 
       split.execute("{ search { ... on Doc { id } } }") # the same shape, one subgraph
       expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
