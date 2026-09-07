@@ -45,219 +45,166 @@ class GraphWeaver::Codegen
       [ordered, cyclic]
     end
 
-      # Mapped-enum tables, generated enums, and input structs
-      # (dependency-ordered, forward-declared when cyclic) — inline in the
-      # module that needs them, unless a shared module already holds them (then
-      # the module aliases them instead; see emit_shared_aliases).
-      def emit_variable_types(out)
-          emit_enum_types(out) unless @enums_namespace
-          return if @inputs_namespace
+    # Mapped-enum tables, generated enums, and input structs
+    # (dependency-ordered, forward-declared when cyclic) — inline in the
+    # module that needs them, unless the shared module already holds them
+    # (then the module aliases them instead; see emit_shared_aliases).
+    def emit_variable_types(out)
+      return if @types_namespace
 
-          inputs, cyclic = ordered_inputs
-          if cyclic
-            # Recursive input types (Hasura bool_exp et al) reference each other,
-            # so no definition order satisfies the runtime — forward-declare every
-            # class empty, then let the full definitions below reopen with props.
-            # eval'd so srb sees only the full bodies (reopening a T::Struct to
-            # add props is a static error; adding them at runtime is fine).
-            out << "  # runtime-only forward declarations: these input types reference"
-            out << "  # each other, so the full definitions below need the constants"
-            out << "  eval(<<~RUBY, binding, __FILE__, __LINE__ + 1)"
-            inputs.each { |input| out << "    class #{input.class_name} < T::Struct; end" }
-            out << "  RUBY"
-            out << ""
-          end
-          inputs.each do |input|
-            emit_input(input, out, 1)
-            out << ""
-          end
-        end
-
-      # Every schema enum this walk touched, at module level: wire tables for
-      # the ones mapped onto an app enum, a T::Enum for the rest.
-      def emit_enum_types(out, indent = 1)
-        @mapped_enums.each_value do |mapped|
-          emit_mapped_enum(mapped, out, indent)
-          out << ""
-        end
-        @enums.each_value do |enum|
-          emit_enum(enum, out, indent)
-          out << ""
-        end
-      end
-
-      # In the shared workflow the types live once in their shared module and
-      # each query module aliases what it uses, so AdoptMutation::AdoptionInput
-      # stays a real constant — and a shared type keeps ONE identity across
-      # every module that touches it.
-      #
-      # Enums: every one this walk reached, since a result field and a variable
-      # both reference it by that name.
-      def shared_enum_names
-        @mapped_enums.each_value.flat_map { |m| ["#{m.const_prefix}_FROM_WIRE", "#{m.const_prefix}_TO_WIRE"] } +
-          @enums.each_value.map(&:class_name)
-      end
-
-      # Inputs: only the variable root types — the names this module's own
-      # source spells. Nested input types stay un-aliased; they live in the
-      # inputs module.
-      def shared_input_names(variables)
-        variables.map(&:node).filter_map { |wrapped|
-          node = T.let(wrapped, T.untyped)
-          node = node.of while node.is_a?(NonNull) || node.is_a?(List)
-          node.class_name if node.is_a?(InputNode)
-        }.uniq
-      end
-
-      def emit_shared_aliases(out, names, namespace)
-        return if names.empty?
-
-        names.each { |name| out << "  #{name} = #{namespace}::#{name}" }
+      emit_enum_types(out)
+      inputs, cyclic = ordered_inputs
+      if cyclic
+        # Recursive input types (Hasura bool_exp et al) reference each other,
+        # so no definition order satisfies the runtime — forward-declare every
+        # class empty, then let the full definitions below reopen with props.
+        # eval'd so srb sees only the full bodies (reopening a T::Struct to
+        # add props is a static error; adding them at runtime is fine).
+        out << "  # runtime-only forward declarations: these input types reference"
+        out << "  # each other, so the full definitions below need the constants"
+        out << "  eval(<<~RUBY, binding, __FILE__, __LINE__ + 1)"
+        inputs.each { |input| out << "    class #{input.class_name} < T::Struct; end" }
+        out << "  RUBY"
         out << ""
       end
-
-      # The shared inputs artifact as files: inputs.rb (the manifest —
-      # requires, forward declarations for every struct so definition
-      # order never matters, then one require per type file) plus
-      # inputs/<type>.rb per enum/mapped-table/input struct.
-      def emit_inputs_files
-        files = {}
-        struct_files = []
-        inputs, = ordered_inputs
-        inputs.each do |input|
-          struct_files << inputs_file(files, input.class_name) { |out| emit_input(input, out, 1) }
-        end
-
-        manifest = []
-        manifest << "# typed: strict"
-        manifest << "# frozen_string_literal: true"
-        manifest << ""
-        manifest << "# Generated by GraphWeaver — do not edit. Shared variable types for"
-        manifest << "# this schema, one file per type; query modules alias what they use."
-        manifest << ""
-        requires = @requires.uniq.sort
-        if requires.any?
-          requires.each { |req| manifest << "require #{req.inspect}" }
-          manifest << ""
-        end
-        manifest << "module #{@module_name}; end"
-        manifest << ""
-        # input fields typed as enums spell them bare, so alias the shared ones
-        # into this module before any struct body loads
-        enums = shared_enum_names
-        if enums.any?
-          manifest << "require_relative \"enums\""
-          manifest << ""
-          manifest << "module #{@module_name}"
-          enums.each { |name| manifest << "  #{name} = #{@enums_namespace}::#{name}" }
-          manifest << "end"
-        end
-        if inputs.any?
-          manifest << ""
-          manifest << "# runtime-only forward declarations: input types reference each"
-          manifest << "# other across files, so every constant must exist before any"
-          manifest << "# definition loads (srb sees only the full bodies)"
-          manifest << "module #{@module_name}"
-          manifest << "  eval(<<~RUBY, binding, __FILE__, __LINE__ + 1)"
-          inputs.each { |input| manifest << "    class #{input.class_name} < T::Struct; end" }
-          manifest << "  RUBY"
-          manifest << "end"
-          manifest << ""
-          struct_files.sort.each { |file| manifest << "require_relative #{file.delete_suffix(".rb").inspect}" }
-        end
-
-        files["inputs.rb"] = manifest.join("\n") + "\n"
-        files
+      inputs.each do |input|
+        emit_input(input, out, 1)
+        out << ""
       end
+    end
 
-      # The shared enums artifact as a single file: one Ruby type per schema
-      # enum, so every query module aliases the same constant.
-      def emit_enums_file
-        out = []
-        out << "# typed: strict"
-        out << "# frozen_string_literal: true"
+    # Every schema enum this walk touched, at module level: wire tables for
+    # the ones mapped onto an app enum, a T::Enum for the rest.
+    def emit_enum_types(out, indent = 1)
+      @mapped_enums.each_value do |mapped|
+        emit_mapped_enum(mapped, out, indent)
         out << ""
-        out << "# Generated by GraphWeaver — do not edit. Shared enum types for this"
-        out << "# schema; query modules alias what they use."
+      end
+      @enums.each_value do |enum|
+        emit_enum(enum, out, indent)
         out << ""
-        requires = @requires.uniq.sort
-        if requires.any?
-          requires.each { |req| out << "require #{req.inspect}" }
-          out << ""
-        end
+      end
+    end
+
+    # In the shared workflow the types live once in the shared module and each
+    # query module aliases what it uses, so AdoptMutation::AdoptionInput stays a
+    # real constant — and a shared type keeps ONE identity across every module
+    # that touches it.
+    #
+    # Enums: every one this walk reached, since a result field and a variable
+    # both reference it by that name.
+    def shared_enum_names
+      @mapped_enums.each_value.flat_map { |m| ["#{m.const_prefix}_FROM_WIRE", "#{m.const_prefix}_TO_WIRE"] } +
+        @enums.each_value.map(&:class_name)
+    end
+
+    # Inputs: only the variable root types — the names this module's own
+    # source spells. Nested input types stay un-aliased; they live in the
+    # shared module.
+    def shared_input_names(variables)
+      variables.map(&:node).filter_map { |wrapped|
+        node = T.let(wrapped, T.untyped)
+        node = node.of while node.is_a?(NonNull) || node.is_a?(List)
+        node.class_name if node.is_a?(InputNode)
+      }.uniq
+    end
+
+    def emit_shared_aliases(out, names, namespace)
+      return if names.empty?
+
+      names.each { |name| out << "  #{name} = #{namespace}::#{name}" }
+      out << ""
+    end
+
+    # The shared types artifact as files: one file per type under types/, plus
+    # types.rb — the manifest that requires them in the order the runtime needs
+    # (see below). One rule for all three kinds, so a schema migration diffs
+    # exactly the types it touched whether they're inputs, enums or unions.
+    def emit_types_files(unions)
+      files = {}
+      # a mapped enum's constants are its wire tables, but the file is still
+      # named for the GraphQL enum — one type, one file, whichever it is
+      enums = @mapped_enums.map { |name, mapped|
+        type_file(files, camelize(name)) { |out| emit_mapped_enum(mapped, out, 1) }
+      } + @enums.each_value.map { |enum|
+        type_file(files, enum.class_name) { |out| emit_enum(enum, out, 1) }
+      }
+      inputs, = ordered_inputs
+      structs = inputs.map { |input| type_file(files, input.class_name) { |out| emit_input(input, out, 1) } }
+      hoisted = unions.map { |union| type_file(files, union.class_name) { |out| emit_union(union, out, 1) } }
+
+      out = []
+      out << "# typed: strict"
+      out << "# frozen_string_literal: true"
+      out << ""
+      out << "# Generated by GraphWeaver — do not edit. Shared types for this schema —"
+      out << "# input types, enums, and unions hoisted from shared fragments — one file"
+      out << "# per type; query modules alias what they use."
+      out << ""
+      requires = @requires.uniq.sort
+      if requires.any?
+        requires.each { |req| out << "require #{req.inspect}" }
+        out << ""
+      end
+      out << "module #{@module_name}; end"
+      out << ""
+      if inputs.any?
+        out << "# runtime-only forward declarations: input types reference each other"
+        out << "# across files, so every constant must exist before any definition loads"
+        out << "# (srb sees only the full bodies)"
         out << "module #{@module_name}"
-        emit_enum_types(out)
-        out.pop if out.last == ""
+        out << "  eval(<<~RUBY, binding, __FILE__, __LINE__ + 1)"
+        inputs.each { |input| out << "    class #{input.class_name} < T::Struct; end" }
+        out << "  RUBY"
         out << "end"
-
-        { "enums.rb" => out.join("\n") + "\n" }
+        out << ""
+      end
+      # enums first: an input struct's props and a union member's selections
+      # both spell them bare, and a T::Enum can't be forward-declared the way
+      # an input struct can
+      if enums.any? && (structs.any? || hoisted.any?)
+        out << "# enums first — input structs and union members spell them bare"
+      end
+      (enums.sort + structs.sort + hoisted.sort).each do |file|
+        out << "require_relative #{file.delete_suffix(".rb").inspect}"
       end
 
-      # The shared unions artifact as a single file: every hoisted union as a
-      # <module_name>::<Name> module. Unions don't cross-reference (each is a
-      # self-contained fragment), so there's no need for per-type files or the
-      # forward declarations recursive input types require.
-      def emit_unions_file(unions)
-        out = []
-        out << "# typed: strict"
-        out << "# frozen_string_literal: true"
-        out << ""
-        out << "# Generated by GraphWeaver — do not edit. Shared union types for this"
-        out << "# schema (named fragments on union fields); query modules alias what they use."
-        out << ""
-        requires = @requires.uniq.sort
-        if requires.any?
-          requires.each { |req| out << "require #{req.inspect}" }
-          out << ""
-        end
-        out << "require_relative \"enums\"" << "" if @enums_namespace && shared_enum_names.any?
-        out << "module #{@module_name}"
-        out << "  extend T::Sig" << "" if GraphWeaver.extend_t_sig?
-        # a member selecting an enum spells it bare — alias the shared ones, or
-        # (with no shared module) emit them here, the same way a query module does
-        if @enums_namespace
-          emit_shared_aliases(out, shared_enum_names, @enums_namespace)
-        else
-          emit_enum_types(out)
-        end
-        unions.each do |union|
-          emit_union(union, out, 1)
-          out << ""
-        end
-        out.pop if out.last == ""
-        out << "end"
+      files["types.rb"] = out.join("\n") + "\n"
+      files
+    end
 
-        { "unions.rb" => out.join("\n") + "\n" }
-      end
+    # one type per file, wrapped in the shared module so bare sibling
+    # references resolve lexically
+    def type_file(files, name)
+      out = []
+      out << "# typed: strict"
+      out << "# frozen_string_literal: true"
+      out << ""
+      out << "# Generated by GraphWeaver — do not edit."
+      out << ""
+      out << "module #{@module_name}"
+      yield(out)
+      out << "end"
 
-      # one type per file, wrapped in the namespace so bare sibling
-      # references resolve lexically
-      def inputs_file(files, name)
-        out = []
-        out << "# typed: strict"
-        out << "# frozen_string_literal: true"
-        out << ""
-        out << "# Generated by GraphWeaver — do not edit."
-        out << ""
-        out << "module #{@module_name}"
-        yield(out)
-        out << "end"
-
-        file = "inputs/#{GraphWeaver::Inflect.underscore(name)}.rb"
-        files[file] = out.join("\n") + "\n"
-        file
-      end
+      file = "types/#{GraphWeaver::Inflect.underscore(name)}.rb"
+      files[file] = out.join("\n") + "\n"
+      file
+    end
 
     # The whole generated file: header, requires, the QUERY heredoc and
     # its OPERATION_NAME, enum tables, input structs (dependency-ordered,
     # forward-declared when cyclic), the Result tree, and execute —
     # assembled from the generator's walked state.
     def emit_module(root, variables, representations = [], operation_name = nil)
-      input_aliases = @inputs_namespace ? shared_input_names(variables) : []
-      enum_aliases = @enums_namespace ? shared_enum_names : []
-      # hoisted unions the result tree references, aliased so <Name>::Type and
-      # <Name>.from_h resolve to the shared module
-      union_aliases = @used_unions.map { |name| camelize(name) }.uniq.sort
+      # Every shared type this module names: its variable root inputs, the
+      # enums it reached, and the unions it hoisted (aliased so <Name>::Type
+      # and <Name>.from_h resolve to the shared module).
+      aliases = if @types_namespace
+        (shared_input_names(variables) + shared_enum_names +
+          @used_unions.map { |name| camelize(name) }).uniq.sort
+      else
+        []
+      end
 
       out = []
       out << "# typed: strict"
@@ -270,12 +217,10 @@ class GraphWeaver::Codegen
         requires.each { |req| out << "require #{req.inspect}" }
         out << ""
       end
-      # the aliases below need their shared modules loaded (same directory by
-      # the generate! convention)
-      shared = { "enums" => enum_aliases, "inputs" => input_aliases, "unions" => union_aliases }
-        .select { |_, names| names.any? }
-      if shared.any?
-        shared.each_key { |file| out << "require_relative #{file.inspect}" }
+      # the aliases below need the shared module loaded (same directory by the
+      # generate! convention)
+      if aliases.any?
+        out << "require_relative \"types\""
         out << ""
       end
       out << "module #{@module_name}"
@@ -292,10 +237,7 @@ class GraphWeaver::Codegen
       out << "  # sent as the request's operationName — what an APM keys traces on"
       out << "  OPERATION_NAME = T.let(#{operation_name.inspect}, T.nilable(String))"
       out << ""
-      # aliases first: an inline input struct's props spell enum names bare
-      emit_shared_aliases(out, enum_aliases, @enums_namespace)
-      emit_shared_aliases(out, input_aliases, @inputs_namespace)
-      emit_shared_aliases(out, union_aliases, @unions_namespace)
+      emit_shared_aliases(out, aliases, @types_namespace)
       emit_variable_types(out)
       emit_representations(out, representations)
       emit_nested(root, out, 1)

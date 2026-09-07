@@ -53,30 +53,22 @@ class GraphWeaver::Codegen
   # defaults to the operation's
   # name; default_module_name: is parse's container-scoped fallback (file
   # generation stays strict — a checked-in file deserves a deliberate
-  # name). inputs_namespace: is the
-  # shared-inputs workflow (see GraphWeaver.generate!): variable types
-  # live once in that module and the query module aliases what it uses.
-  # shared-inputs workflow; enums_namespace: the same for schema enums, which
-  # live once per schema whether a query uses them as a variable, in a result,
-  # or both. unions_namespace:/hoistable_unions: are the parallel shared-unions
-  # workflow — a whole-union field spread as a named shared fragment resolves
-  # to one canonical type in that module (see used_union_names). path: is the
-  # file the query was read from, named alongside line and column in
-  # validation errors.
+  # name). types_namespace: is the shared-types workflow (see
+  # GraphWeaver.generate!): input types, schema enums, and unions hoisted from
+  # shared fragments live once in that module and the query module aliases what
+  # it uses. hoistable_unions: is the set of shared fragment names this query
+  # may hoist (spreads it inlined, minus any it shadows locally) — a
+  # whole-union field spread as one of them resolves to a canonical type in the
+  # shared module (see used_union_names). path: is the file the query was read
+  # from, named alongside line and column in validation errors.
   def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
-    inputs_namespace: nil, unions_namespace: nil, enums_namespace: nil,
-    hoistable_unions: nil, path: nil)
+    types_namespace: nil, hoistable_unions: nil, path: nil)
     @schema = schema
     @query = query.strip
     @path = path
     @module_name = module_name
     @default_module_name = default_module_name
-    @inputs_namespace = inputs_namespace
-    @enums_namespace = enums_namespace
-    # the shared-unions workflow: unions_namespace names the module hoisted
-    # unions live in; hoistable_unions is the set of shared fragment names this
-    # query may hoist (spreads it inlined, minus any it shadows locally)
-    @unions_namespace = unions_namespace
+    @types_namespace = types_namespace
     @hoistable_unions = hoistable_unions || []
     @used_unions = []
     # scalars this generation had no registration for (see report_untyped_scalars)
@@ -136,76 +128,93 @@ class GraphWeaver::Codegen
   end
 
   # The schema-level types this walk touched, by GraphQL name — the generate!
-  # workflow unions these across queries to decide what the shared inputs and
-  # enums modules must contain.
+  # workflow unions these across queries to decide what the shared types module
+  # must contain.
   def variable_type_names
     { inputs: @variable_inputs.keys, enums: @enums.keys, mapped: @mapped_enums.keys }
   end
 
   # The shared union fragments this query hoisted, by name — the generate!
-  # workflow unions these across queries to decide what the shared unions
-  # module must contain.
+  # workflow unions these across queries to decide what the shared types module
+  # must contain.
   def used_union_names = @used_unions.dup
 
-  # The shared inputs artifact: the named input types — plus everything they
-  # transitively reference — emitted once per schema as a manifest (inputs.rb)
-  # plus one file per type under inputs/, so a schema migration diffs only the
-  # types it touched. Returns { relative_filename => source }.
-  def generate_inputs(input_types)
-    validate_module_name!("inputs")
-    reset_walk_state!
-
-    input_types.sort.each { |name| input_node(@schema.get_type(name)) }
-
-    emit_inputs_files.tap { report_untyped_scalars }
-  end
-
-  # The shared enums artifact: one module-level Ruby type per schema enum a
-  # query touched — a generated T::Enum, or the wire tables for one mapped
-  # onto an app enum (register_enum). One GraphQL enum is one Ruby type, so a
-  # value read out of one query's result hands straight back into another's
-  # variable. Returns { "enums.rb" => source }.
-  def generate_enums(enum_types)
-    validate_module_name!("enums")
-    reset_walk_state!
-
-    enum_types.uniq.sort.each { |name| variable_core(@schema.get_type(name)) }
-
-    emit_enums_file.tap { report_untyped_scalars }
-  end
-
-  # The shared unions artifact: each named shared fragment a query hoisted,
-  # built once against the schema as <module_name>::<Name>, so the same union
-  # across queries resolves to one Ruby type family. `fragments` is the loaded
-  # shared-fragment table (nested spreads resolve through it); `names` the
-  # fragments to build. Returns { "unions.rb" => source }.
-  def generate_unions(fragments, names)
-    validate_module_name!("unions")
+  # The shared types artifact: every type a schema shares across query modules,
+  # emitted once as a manifest (types.rb) plus one file per type under types/,
+  # so a schema migration diffs only the types it touched. Returns
+  # { relative_filename => source }. Three kinds live here:
+  #
+  # - inputs: the named input types, plus everything they transitively
+  #   reference (nested types stay unaliased — the query module names only the
+  #   variable roots);
+  # - enums: one Ruby type per schema enum a query touched — a generated
+  #   T::Enum, or the wire tables for one mapped onto an app enum
+  #   (register_enum) — so a value read out of one query's result hands
+  #   straight back into another's variable;
+  # - unions: each named shared fragment a query spread as a whole union field,
+  #   so the same union across queries is one Ruby type family. `fragments` is
+  #   the loaded shared-fragment table (nested spreads resolve through it).
+  #
+  # Unions are built first: a hoisted fragment's own selections are the one
+  # place a query walk never reaches, so the enums they touch are only known
+  # once the fragments are built.
+  def generate_types(inputs:, enums:, unions:, fragments:)
+    validate_module_name!("types")
     reset_walk_state!
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
 
-    unions = names.uniq.sort.map do |name|
-      class_name = camelize(name)
-      # the query module aliases <class_name> = <unions module>::<class_name>;
-      # a name that camelizes to a generated module-level constant (the Result
-      # struct, the QUERY heredoc) would collide with that alias at load
-      if MODULE_RESERVED.include?(class_name)
-        raise GraphWeaver::Error,
-          "shared fragment #{name.inspect} hoists to #{class_name}, which collides with a generated constant — rename the fragment"
-      end
-      fragment = fragments.fetch(name)
-      type = @schema.get_type(fragment.type.name)
-      members = union_members(type, fragment.selections)
-      UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
-    end
+    union_nodes = unions.uniq.sort.map { |name| hoisted_union(fragments, name) }
+    inputs.sort.each { |name| input_node(@schema.get_type(name)) }
+    enums.uniq.sort.each { |name| variable_core(@schema.get_type(name)) }
+    check_shared_collisions!(unions)
 
-    emit_unions_file(unions).tap { report_untyped_scalars }
+    emit_types_files(union_nodes).tap { report_untyped_scalars }
   end
 
   # module-level constants every generated query module defines — a shared
   # type aliased to one of these would clash at load
   MODULE_RESERVED = %w[Result QUERY Representations].to_set.freeze
+
+  # One hoisted shared fragment, built against the schema and named for the
+  # fragment rather than the field that spread it.
+  def hoisted_union(fragments, name)
+    class_name = camelize(name)
+    # the query module aliases <class_name> = <shared module>::<class_name>; a
+    # name that camelizes to a generated module-level constant (the Result
+    # struct, the QUERY heredoc) would collide with that alias at load
+    if MODULE_RESERVED.include?(class_name)
+      raise GraphWeaver::Error,
+        "shared fragment #{name.inspect} hoists to #{class_name}, which collides with a generated constant — rename the fragment"
+    end
+
+    fragment = fragments.fetch(name)
+    type = @schema.get_type(fragment.type.name)
+    members = union_members(type, fragment.selections)
+    UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
+  end
+  private :hoisted_union
+
+  # Schema type names are unique, so an input and an enum can never land on the
+  # same name — but a hoisted union is named for its FRAGMENT, which the schema
+  # knows nothing about. One shared module means one namespace, so a fragment
+  # named after a type it doesn't describe has to refuse rather than overwrite.
+  def check_shared_collisions!(names)
+    taken = {}
+    @enums.each { |graphql_name, node| taken[node.class_name] = "the schema enum #{graphql_name}" }
+    @mapped_enums.each_key { |graphql_name| taken[camelize(graphql_name)] = "the schema enum #{graphql_name}" }
+    @variable_inputs.each { |graphql_name, node| taken[node.class_name] = "the input type #{graphql_name}" }
+
+    names.each do |name|
+      class_name = camelize(name)
+      claim = taken[class_name] or next
+
+      raise GraphWeaver::Error,
+        "shared fragment #{name.inspect} hoists to #{@module_name}::#{class_name}, " \
+        "where #{claim} already generates — rename the fragment"
+    end
+  end
+  private :check_shared_collisions!
 
   # per-run walk state, cleared so one Codegen can generate more than once
   def reset_walk_state!
@@ -671,10 +680,10 @@ class GraphWeaver::Codegen
 
             name = pick_name(key, taken)
             nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name), typename: tag) }
-          elsif @unions_namespace && (frag = lone_shared_spread(sub_selections)) &&
+          elsif @types_namespace && (frag = lone_shared_spread(sub_selections)) &&
               @hoistable_unions.include?(frag)
             # a whole-union field spread as a named shared fragment: hoist to
-            # the shared unions module so the same union across queries is one
+            # the shared types module so the same union across queries is one
             # Ruby type family (one exhaustive `case ... T.absurd`).
             @used_unions << frag unless @used_unions.include?(frag)
             ref = UnionRefNode.new(camelize(frag))
@@ -696,7 +705,7 @@ class GraphWeaver::Codegen
         when "ENUM"
           # one schema enum is one Ruby type: module-level, named for the enum,
           # shared by every result field and variable that reaches it (and, on
-          # the generate! path, by every query module — see enums_namespace)
+          # the generate! path, by every query module — see types_namespace)
           type_ref(field_type) { variable_core(core) }
         when "SCALAR"
           coordinate = "#{type.graphql_name}.#{field_name}"

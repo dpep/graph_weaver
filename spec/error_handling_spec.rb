@@ -403,8 +403,8 @@ describe "error handling" do
     end
 
     it "raises InputError when an input struct is coerced from a non-Hash" do
-      require_relative "generated/inputs"
-      expect { GraphQLInputs::AdoptionInput.coerce("nope") }
+      require_relative "generated/types"
+      expect { GraphQLTypes::AdoptionInput.coerce("nope") }
         .to raise_error(GraphWeaver::InputError, /expected a Hash/)
     end
   end

@@ -5,7 +5,7 @@
 
 require "date"
 
-require_relative "enums"
+require_relative "types"
 
 module SearchQuery
   extend T::Sig
@@ -34,7 +34,7 @@ module SearchQuery
   # sent as the request's operationName — what an APM keys traces on
   OPERATION_NAME = T.let("Search", T.nilable(String))
 
-  Species = GraphQLEnums::Species
+  Species = GraphQLTypes::Species
 
   class Result < T::Struct
     extend T::Sig
