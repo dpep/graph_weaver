@@ -1,4 +1,9 @@
 ## Unreleased
+- `generate!`, `verify_generated!` and `check_queries` accept a **path or SDL
+  string** for `schema:`, like every other schema slot in the library. A String
+  used to reach `schema.validate` as itself and die with `undefined method
+  'validate' for an instance of String`.
+
 - **`#parse` on anything that holds a schema**, not just `Client`:
   `GraphWeaver::InProcess`, `Testing::FakeClient` and `Testing::Router` gain it
   (and `#load_queries!`) from the new `GraphWeaver::Parsing` mixin. Replace

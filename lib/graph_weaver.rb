@@ -402,7 +402,16 @@ module GraphWeaver
 
     # Anywhere GraphWeaver takes schema:, a Client stands for its schema — so
     # the console object and the rake task point at the same thing.
-    def schema_for(source) = source.is_a?(Client) ? source.schema : source
+    # a Client carries one; a path or SDL string loads like it does everywhere
+    # else in the library (a String reached `schema.validate` as itself before,
+    # and failed as `undefined method 'validate' for an instance of String`)
+    def schema_for(source)
+      case source
+      when Client then source.schema
+      when String then SchemaLoader.load(source)
+      else source
+      end
+    end
     private :schema_for
 
     # the conventional schema dump, required

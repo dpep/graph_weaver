@@ -178,3 +178,19 @@ describe "rake graph_weaver:queries:check" do
     expect(run_task).to eq ["every query validates against the schema\n", "", 0]
   end
 end
+
+RSpec.describe "#{GraphWeaver}.check_queries schema sources" do
+  # every other schema slot in the library takes a path or SDL string; this one
+  # used to pass a String through to schema.validate and die on NoMethodError
+  it "accepts a path the way the rest of the library does" do
+    Dir.mktmpdir do |dir|
+      File.write("#{dir}/schema.graphql", "type Query { person: Person }\ntype Person { name: String! }\n")
+      FileUtils.mkdir_p("#{dir}/queries")
+      File.write("#{dir}/queries/ok.graphql", "query { person { name } }")
+
+      expect(
+        GraphWeaver.check_queries(schema: "#{dir}/schema.graphql", queries: "#{dir}/queries"),
+      ).to be_empty
+    end
+  end
+end
