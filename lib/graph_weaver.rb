@@ -131,11 +131,6 @@ module GraphWeaver
     # read. A second schema is a second generate! (schema: names it).
     attr_writer :schema_path
 
-    # Set by every graph_weaver rake task: those tasks WRITE the generated
-    # files, so loading them first lets a stale one block its own repair.
-    # None of them needs the modules loaded.
-    attr_accessor :skip_generated_load
-
     def queries_paths = @queries_paths ||= ["app/graphql/queries"]
     def generated_paths = @generated_paths ||= ["app/graphql/generated", "app/graphql/*/generated"]
 
@@ -158,6 +153,11 @@ module GraphWeaver
     end
 
     def schema_path = @schema_path || "app/graphql/schema.json"
+
+    # Set by every graph_weaver rake task: those tasks WRITE the generated
+    # files, so loading them first lets a stale one block its own repair.
+    # None of them needs the modules loaded.
+    attr_accessor :skip_generated_load
 
     # Every query document under these directories, sorted — the files
     # generate!, verify_generated!, check_queries and load_queries! all read.
@@ -607,12 +607,11 @@ module GraphWeaver
     #
     # schema: is a graphql-ruby schema or a Client (its schema, and its
     # transport as the module's default). query is a .graphql/.gql path (module
-    # name derived from the file name
-    # and the operation — see #module_name) or a raw query string (name
-    # derived from the operation name,
-    # falling back to "Query" for anonymous operations — collisions are
-    # impossible since each parse gets its own container). Pass name: to
-    # override, client: to bake the module's default client/transport.
+    # name derived from the file name and the operation — see #module_name) or
+    # a raw query string (name derived from the operation name, falling back to
+    # "Query" for anonymous operations — collisions are impossible since each
+    # parse gets its own container). Pass name: to override, client: to bake
+    # the module's default client/transport.
     def parse(schema:, query:, name: nil, client: nil, fragments: fragments_paths)
       client ||= schema if schema.is_a?(Client)
       schema = schema_for(schema)
