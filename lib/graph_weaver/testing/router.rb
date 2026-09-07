@@ -529,7 +529,7 @@ module GraphWeaver
           next unless ordered.key?(key)
 
           field = type.fields[node.name] or next
-          child = unwrap(field.type)
+          child = field.type.unwrap
           sub = node.selections.any? ? inline(node.selections, fragments, child.graphql_name) : []
           result = propagate(ordered[key], field.type, sub, fragments)
           return if result.equal?(BUBBLE)
@@ -557,11 +557,6 @@ module GraphWeaver
       end
 
       def matches?(condition, type_name) = condition.nil? || condition == type_name
-
-      def unwrap(type)
-        type = type.of_type while type.respond_to?(:of_type) && type.of_type
-        type
-      end
 
       # Decides which subgraph answers what — and, where an operation crosses
       # a boundary, the tree of fetches that answers it. Separate from the
@@ -1070,9 +1065,7 @@ module GraphWeaver
           return unless type.respond_to?(:fields)
 
           field = type.fields[field_name] or return
-          unwrapped = field.type
-          unwrapped = unwrapped.of_type while unwrapped.respond_to?(:of_type) && unwrapped.of_type
-          unwrapped.graphql_name
+          field.type.unwrap.graphql_name
         end
 
         # The root fields as plain Field nodes, with fragments on the root

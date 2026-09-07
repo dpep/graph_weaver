@@ -376,7 +376,7 @@ class GraphWeaver::Codegen
       definition = @schema.get_field(root_type.graphql_name, fields.first.name)
       next [] unless definition && representation_field?(definition)
 
-      core = unwrap(definition.type)
+      core = definition.type.unwrap
       next [] unless %w[UNION INTERFACE].include?(core.kind.name)
 
       selected_members(core, fields.flat_map(&:selections))
@@ -388,7 +388,7 @@ class GraphWeaver::Codegen
   REPRESENTATION_SCALAR = "_Any"
 
   def representation_field?(definition)
-    definition.arguments.each_value.any? { |argument| unwrap(argument.type).graphql_name == REPRESENTATION_SCALAR }
+    definition.arguments.each_value.any? { |argument| argument.type.unwrap.graphql_name == REPRESENTATION_SCALAR }
   end
 
   # A `@key` this subgraph resolves. Matched by local name, since a fed-2
@@ -459,7 +459,7 @@ class GraphWeaver::Codegen
           "which generated code can't declare (a Ruby keyword)"
       end
 
-      core = unwrap(field.type)
+      core = field.type.unwrap
       if core.kind.name == "SCALAR"
         node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
         type = required ? node.bare_type : node.prop_type
@@ -645,7 +645,7 @@ class GraphWeaver::Codegen
         field_type = @schema.get_field(type.graphql_name, field_name).type
         sub_selections = field_nodes.flat_map(&:selections)
 
-        case (core = unwrap(field_type)).kind.name
+        case (core = field_type.unwrap).kind.name
         when "OBJECT"
           name = pick_name(key, taken)
           type_ref(field_type) { object_node(core, sub_selections, name) }
@@ -952,7 +952,7 @@ class GraphWeaver::Codegen
           "which collides with a method every struct defines"
       end
 
-      child = type_ref(argument.type) { variable_core(unwrap(argument.type)) }
+      child = type_ref(argument.type) { variable_core(argument.type.unwrap) }
       required = child.non_null? && !argument.default_value?
       node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
     end
@@ -1047,11 +1047,6 @@ class GraphWeaver::Codegen
     else
       core.call
     end
-  end
-
-  def unwrap(type)
-    type = type.of_type while type.kind.name == "NON_NULL" || type.kind.name == "LIST"
-    type
   end
 
   # A generated type is named for the response key that selects it, camelized
