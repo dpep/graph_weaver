@@ -623,7 +623,6 @@ class GraphWeaver::Codegen
     end
   end
 
-
   def object_node(type, selections, class_name)
     node = ObjectNode.new(class_name)
     node.graphql_type = type.graphql_name
@@ -961,10 +960,6 @@ class GraphWeaver::Codegen
     node
   end
 
-  # The InputNodes a struct's fields reference, through NON_NULL/LIST
-  # wrappers — the edges of the input dependency graph.
-
-
   # The module-level T::Enum for a schema enum, named for the enum itself —
   # it is shared by every field and variable of that type.
   def enum_node(core)
@@ -1101,5 +1096,4 @@ class GraphWeaver::Codegen
     taken.delete(union.class_name)
     union.class_name = pick_name(key, taken)
   end
-
 end
