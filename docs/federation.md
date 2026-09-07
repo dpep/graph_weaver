@@ -110,7 +110,7 @@ rather than being skipped — a table that silently ignores half a spec version
 answers confidently and wrongly. Callers refuse on a non-empty list; that is
 what bounds the maintenance tail across federation spec versions.
 
-The table is what [`Testing::Router`](testing.md#a-local-federation-router)
+The table is what [`Testing::Router`](testing.md#the-in-process-router--graphql-router)
 plans against, and it's a reasonable read on its own — "which subgraph owns
 this field" is the sentence a good error message wants.
 
@@ -146,7 +146,7 @@ It reads the routing table and the subgraph schemas loaded in this process —
 drift so CI can gate on it:
 
 ```
-supergraph.graphql vs 2 of 3 subgraphs: 1 stale, 1 not composed in
+supergraph.graphql: 1 stale, 1 not composed in (checked 2 of 4 subgraphs)
 
 stale — the supergraph carries these, no schema here defines them (recompose):
   Product.weight (products)
@@ -154,9 +154,12 @@ stale — the supergraph carries these, no schema here defines them (recompose):
 not composed in — a schema here defines these, the supergraph doesn't carry them:
   Product.dimensions (Products::Schema)
 
-skipped — nothing loaded here defines what the supergraph says these declare
+not checked — nothing here defines what the supergraph says these declare
 (running elsewhere, or the type is gone):
   inventory (Warehouse)
+
+not checked — answered with fabricated data:
+  reviews
 ```
 
 Both directions, because they mean opposite things: **stale** is "recompose",
@@ -174,15 +177,28 @@ declares — the uncomposed side reports only a field the supergraph's type
 doesn't carry **at all** (not one it merely attributes elsewhere), and
 underscore-prefixed fields never count.
 
-**A subgraph that isn't in this process is skipped and listed.** You can't
-check what isn't here, and saying nothing is right — but a green report that
-quietly checked half the graph is worse than no report, so it says which. In a
-monorepo every subgraph *is* here, and one that isn't means the check stopped
-checking: `STRICT=1` makes that a failure too.
+**A supergraph is routinely only partly local**, so the report names three
+states rather than two: checked, not here (running elsewhere — or the type is
+gone), and [faked](testing.md#the-in-process-router--graphql-router). You can't compare
+against what isn't here, and saying nothing about it is right — but a clean
+report that quietly checked two of four subgraphs would be actively
+misleading, so the headline counts them and the sections name them. Only drift
+fails the task; absence is a supported setup, not a failure.
 
-Programmatically it's `GraphWeaver::Federation::Drift` — `#report` prints the
-above, `#to_h` is the JSON-ready `{"stale" => …, "uncomposed" => …, "skipped"
-=> …}`, and `#drift?` is what the task exits on.
+Detection is what drift breaks — a schema is recognized by what it defines,
+and a subgraph whose *types* are gone stops being recognizable — so the same
+`subgraphs:` map [`Testing::Router`](testing.md#the-in-process-router--graphql-router)
+takes is accepted here, and a named schema skips detection:
+
+```ruby
+GraphWeaver::Federation::Drift.new(
+  supergraph: "supergraph.graphql",
+  subgraphs: { "products" => Products::Schema, "inventory" => :fake },
+).report
+```
+
+`#to_h` is the JSON-ready `{"stale" => …, "uncomposed" => …, "skipped" => …,
+"faked" => …}`, and `#drift?` is what the task exits on.
 
 ## Pointing weaver at a subgraph
 

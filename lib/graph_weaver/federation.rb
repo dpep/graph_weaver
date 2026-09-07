@@ -37,9 +37,12 @@ module GraphWeaver
     # it merely attributes elsewhere — and underscore-prefixed fields never
     # count.
     #
-    # Subgraphs whose schemas aren't in this process can't be checked, so
-    # they're skipped and listed: a clean report that quietly checked half
-    # the graph is worse than no report.
+    # A supergraph is routinely only **partly local** — the rest served by
+    # another process, or answered with fabricated data ({Testing::Subgraphs}
+    # `=> :fake`). Neither can be compared against anything, so the report
+    # names three states rather than two: checked, not here, and faked. A
+    # clean result that didn't say what it couldn't see would be actively
+    # misleading on the graphs this is for.
     class Drift
       # Composition names the root types conventionally, and every subgraph
       # declares one — so a root can't tell subgraphs apart, and a schema
@@ -58,21 +61,30 @@ module GraphWeaver
       # identify it, which nothing here defines
       attr_reader :skipped
 
+      # subgraphs answered with fabricated data, so there's no real schema
+      # behind them to compare against
+      attr_reader :faked
+
       # every subgraph that was actually compared
       attr_reader :checked
 
       # supergraph: the composed SDL (a path or the content); defaults to
-      # the conventional dump. schemas: overrides which loaded schemas
-      # count — by default every named GraphQL::Schema in the process.
-      def initialize(supergraph: nil, schemas: nil)
+      # the conventional dump. subgraphs: the same map {Testing::Router}
+      # takes — a named schema skips detection, `:fake` (like anything else
+      # that isn't a schema class) says there's nothing real to compare.
+      # schemas: overrides which loaded schemas detection searches — by
+      # default every named GraphQL::Schema in the process.
+      def initialize(supergraph: nil, subgraphs: nil, schemas: nil)
         source = (supergraph || GraphWeaver::SchemaLoader.locate_path).to_s
         @table = GraphWeaver::SchemaLoader.routing_table(source)
         # SDL passed as content has no name to print
         @source = source.include?("\n") ? "the supergraph" : source
+        @given = named(subgraphs)
         @schemas = schemas || loaded_schemas
         @stale = {}
         @uncomposed = {}
         @skipped = {}
+        @faked = []
         @checked = []
         compare
       end
@@ -80,24 +92,29 @@ module GraphWeaver
       # whether the supergraph and the code here disagree — what CI gates on
       def drift? = @stale.any? || @uncomposed.any?
 
-      # JSON-ready: the three lists, keyed by coordinate (subgraph, for
-      # skipped). Empty stale + uncomposed means every subgraph reached was
-      # accurate; `skipped` says which weren't reached.
+      # JSON-ready: the drift, keyed by coordinate, and what wasn't compared.
+      # Empty stale + uncomposed means every subgraph reached was accurate;
+      # `skipped` and `faked` say which weren't reached, and why.
       def to_h
-        { "stale" => @stale, "uncomposed" => @uncomposed, "skipped" => @skipped }
+        {
+          "stale" => @stale,
+          "uncomposed" => @uncomposed,
+          "skipped" => @skipped,
+          "faked" => @faked,
+        }
       end
 
       def report
         return "#{@source} names no subgraphs" if @table.subgraphs.empty?
 
-        [headline, *section(STALE, @stale), *section(UNCOMPOSED, @uncomposed), *skipped_section]
-          .join("\n")
+        [headline, *section(STALE, @stale), *section(UNCOMPOSED, @uncomposed),
+          *skipped_section, *faked_section].join("\n")
       end
       alias to_s report
 
       def inspect
         "#<#{self.class.name} #{@stale.size} stale, #{@uncomposed.size} uncomposed, " \
-          "#{@skipped.size} skipped>"
+          "#{@checked.size}/#{@table.subgraphs.size} checked>"
       end
 
       private
@@ -105,19 +122,51 @@ module GraphWeaver
       STALE = "stale — the supergraph carries these, no schema here defines them (recompose):"
       UNCOMPOSED = "not composed in — a schema here defines these, the supergraph doesn't carry them:"
 
+      # `subgraphs:` with string keys, refusing a name this supergraph
+      # doesn't have — the same check Testing::Subgraphs makes, and for the
+      # same reason: a typo'd key would silently check nothing
+      def named(given)
+        map = (given || {}).to_h { |name, schema| [name.to_s, schema] }
+        unknown = map.keys - @table.subgraphs
+        if unknown.any?
+          raise ArgumentError, "subgraphs: names #{unknown.join(", ")}, which this supergraph " \
+            "doesn't have (its subgraphs are #{@table.subgraphs.join(", ")})"
+        end
+
+        map
+      end
+
       def compare
         @table.subgraphs.each do |name|
-          anchors = identifying_types(name)
-          fitting = anchors.empty? ? [] : @schemas.select { |s| anchors.all? { |t| s.get_type(t) } }
-          if fitting.empty?
-            @skipped[name] = anchors
-            next
-          end
+          next unless (fitting = comparable(name))
 
           @checked << name
           record_stale(name, fitting)
           record_uncomposed(name, fitting)
         end
+      end
+
+      # The schemas to compare this subgraph against, or nil when there are
+      # none — recording why. A named schema is taken as given; otherwise
+      # the schemas defining every type the supergraph says it declares are
+      # the ones that could be it.
+      def comparable(name)
+        if @given.key?(name)
+          schema = @given[name]
+          # :fake, and anything else that isn't a schema class, has nothing
+          # real behind it
+          return [schema] if schema.is_a?(Class)
+
+          @faked << name
+          return
+        end
+
+        anchors = identifying_types(name)
+        fitting = anchors.empty? ? [] : @schemas.select { |s| anchors.all? { |t| s.get_type(t) } }
+        return fitting if fitting.any?
+
+        @skipped[name] = anchors
+        nil
       end
 
       def declared_types(name)
@@ -181,8 +230,9 @@ module GraphWeaver
           ("#{@stale.size} stale" if @stale.any?),
           ("#{@uncomposed.size} not composed in" if @uncomposed.any?),
         ].compact
-        verdict = counts.empty? ? "matches the schemas loaded here" : counts.join(", ")
-        "#{@source} vs #{@checked.size} of #{@table.subgraphs.size} subgraphs: #{verdict}"
+        verdict = counts.empty? ? "matches the schemas here" : counts.join(", ")
+        "#{@source}: #{verdict} " \
+          "(checked #{@checked.size} of #{@table.subgraphs.size} subgraphs)"
       end
 
       def section(title, entries)
@@ -191,15 +241,20 @@ module GraphWeaver
         ["", title, *entries.sort.map { |coordinate, who| "  #{coordinate} (#{who.join(", ")})" }]
       end
 
+      # Not an error — a supergraph is routinely only partly local — but a
+      # clean report has to say what it didn't look at.
       def skipped_section
         return [] if @skipped.empty?
 
-        # not necessarily an error — a service composed into the graph can
-        # run somewhere else entirely — but a clean report has to say what
-        # it didn't look at
-        ["", "skipped — nothing loaded here defines what the supergraph says these declare " \
+        ["", "not checked — nothing here defines what the supergraph says these declare " \
           "(running elsewhere, or the type is gone):",
           *@skipped.sort.map { |name, types| "  #{name} (#{types.empty? ? "root types only" : types.join(", ")})" }]
+      end
+
+      def faked_section
+        return [] if @faked.empty?
+
+        ["", "not checked — answered with fabricated data:", *@faked.sort.map { |name| "  #{name}" }]
       end
     end
   end

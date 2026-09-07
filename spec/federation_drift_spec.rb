@@ -4,6 +4,7 @@
 require "rake"
 
 require "graph_weaver/federation"
+require "graph_weaver/testing"
 
 # The supergraph you committed, read against the subgraph schemas running
 # here — the question no other check asks: has someone changed a subgraph
@@ -11,17 +12,19 @@ require "graph_weaver/federation"
 describe GraphWeaver::Federation::Drift do
   let(:supergraph) { DriftGraph::SUPERGRAPH }
 
-  def drift(*schemas, source: supergraph)
-    described_class.new(supergraph: source, schemas:)
+  def drift(*schemas, source: supergraph, subgraphs: nil)
+    described_class.new(supergraph: source, subgraphs:, schemas:)
   end
+
+  CLEAN = { "stale" => {}, "uncomposed" => {}, "skipped" => {}, "faked" => [] }.freeze
 
   it "reports clean when every local schema matches the supergraph" do
     result = drift(DriftGraph::Widgets, DriftGraph::Depots)
 
-    expect(result.to_h).to eq("stale" => {}, "uncomposed" => {}, "skipped" => {})
+    expect(result.to_h).to eq CLEAN
     expect(result.drift?).to be false
     expect(result.checked).to eq %w[widgets depots]
-    expect(result.report).to include "vs 2 of 2 subgraphs: matches the schemas loaded here"
+    expect(result.report).to include "matches the schemas here (checked 2 of 2 subgraphs)"
   end
 
   # the supergraph still promises a field the subgraph dropped
@@ -42,16 +45,40 @@ describe GraphWeaver::Federation::Drift do
     expect(result.report).to include "  Widget.dimensions (DriftGraph::WidgetsAhead)"
   end
 
-  # a service composed into the graph can run somewhere else entirely —
-  # saying nothing about it is right, saying nothing *about saying nothing*
-  # would let a green report pass for a complete one
+  # a supergraph is routinely only partly local — saying nothing about the
+  # rest is right, saying nothing *about saying nothing* would let a green
+  # report pass for a complete one
   it "skips a subgraph that isn't in this process, and lists it" do
     result = drift(DriftGraph::Widgets)
 
     expect(result.to_h["skipped"]).to eq("depots" => ["Depot"])
     expect(result.checked).to eq ["widgets"]
     expect(result.drift?).to be false
+    expect(result.report).to include "(checked 1 of 2 subgraphs)"
     expect(result.report).to include "  depots (Depot)"
+  end
+
+  # a faked subgraph is absent by choice rather than by accident, and the
+  # report says so — there is still no real schema to compare against
+  it "distinguishes a subgraph answered with fabricated data" do
+    result = drift(DriftGraph::Widgets, subgraphs: { "depots" => GraphWeaver::Testing::Subgraphs::FAKE })
+
+    expect(result.to_h).to eq CLEAN.merge("faked" => ["depots"])
+    expect(result.report).to include "not checked — answered with fabricated data:\n  depots"
+  end
+
+  # a named schema is taken as given: detection is what drift breaks, so
+  # the map is how you keep checking through it
+  it "compares against a schema the caller names" do
+    result = drift(subgraphs: { "widgets" => DriftGraph::WidgetsStale, "depots" => DriftGraph::Depots })
+
+    expect(result.to_h["stale"]).to eq("Widget.weight" => ["widgets"])
+    expect(result.checked).to eq %w[widgets depots]
+  end
+
+  it "refuses a subgraph name the supergraph doesn't have" do
+    expect { drift(subgraphs: { "ledger" => DriftGraph::Depots }) }
+      .to raise_error(ArgumentError, /names ledger, which this supergraph doesn't have/)
   end
 
   # federation plumbing (_entities/_service), @external copies and a field
@@ -63,7 +90,7 @@ describe GraphWeaver::Federation::Drift do
       source: RouterGraph::SUPERGRAPH,
     )
 
-    expect(result.to_h).to eq("stale" => {}, "uncomposed" => {}, "skipped" => {})
+    expect(result.to_h).to eq CLEAN
   end
 
   it "refuses a schema that carries no routing table" do
@@ -97,17 +124,15 @@ describe GraphWeaver::Federation::Drift do
         .and output(/the supergraph is out of date/).to_stderr
     end
 
-    # in a monorepo every subgraph is here, so one that isn't means the
-    # check quietly stopped checking
-    it "fails an unchecked subgraph only under STRICT" do
-      expect(run_task(SUPERGRAPH: UNREACHABLE)).to include "  ledger (LedgerEntry)"
-      expect { run_task(SUPERGRAPH: UNREACHABLE, STRICT: "1") }
-        .to raise_error(SystemExit)
-        .and output(/1 unchecked subgraph/).to_stderr
+    # absence is a supported setup, not a failure — the report names it and
+    # the task still exits clean
+    it "passes, saying what it couldn't see, when a subgraph runs elsewhere" do
+      expect(run_task(SUPERGRAPH: UNREACHABLE))
+        .to include("checked 0 of 1 subgraphs").and include("  ledger (LedgerEntry)")
     end
 
     # a graph whose only subgraph runs somewhere else: nothing to check,
-    # nothing to report, and it still exits clean without STRICT
+    # and nothing that should fail a build
     UNREACHABLE = <<~SDL
       schema @link(url: "https://specs.apollo.dev/link/v1.0")
         @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
