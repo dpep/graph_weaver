@@ -318,6 +318,49 @@ describe GraphWeaver::Testing do
     end
   end
 
+  describe "#schema=" do
+    # it serves two masters — the fakes' reference schema and the class
+    # :in_process runs — and only a federated app makes them want different
+    # objects. Setting a subgraph so :in_process had a live class silently
+    # repointed :fake at a fraction of the graph.
+    it "refuses a federation subgraph, and names the tag that runs one" do
+      require_relative "support/federation_router_graph"
+      # const_get, not the constant: schema classes are invisible to srb, and
+      # this file stays type-checked
+      subgraph = Object.const_get("RouterGraph::Reviews::Schema")
+
+      expect { described_class.config.schema = subgraph }
+        .to raise_error(GraphWeaver::ConfigurationError, /one federation subgraph.*graphql: :router/m)
+    end
+
+    it "takes an ordinary schema class" do
+      described_class.config.schema = Demo::Schema
+
+      expect(described_class.config.explicit_schema).to be Demo::Schema
+    end
+  end
+
+  describe "#router=" do
+    let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
+
+    # marking a remote subgraph :fake is the commonest federated config there
+    # is, and it used to refuse unless you also restated where the supergraph
+    # was — the case the docs call "no config at all"
+    it "takes subgraphs alone, deriving the supergraph from the dump" do
+      GraphWeaver.schema_path = supergraph
+      described_class.configure { |config| config.router = { subgraphs: { "reviews" => :fake } } }
+
+      expect(described_class.config.built_router.faked).to eq %w[reviews]
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+
+    it "says what it takes when it isn't the arguments to build one" do
+      expect { described_class.config.router = supergraph }
+        .to raise_error(ArgumentError, /supergraph: .*subgraphs: /m)
+    end
+  end
+
   describe "#live_schema" do
     around do |example|
       prior = GraphWeaver.client

@@ -1,4 +1,16 @@
 ## Unreleased
+- **`Testing.config.router` takes `subgraphs:` without `supergraph:`.** It
+  raised — "must be the arguments to build one, e.g. `{ supergraph: … }`" —
+  even where the committed dump already is the supergraph, which is the case
+  the docs call "no config at all" and the single most likely config a
+  federated app writes (marking a remote subgraph `:fake`). Either key alone
+  is enough now; a missing `supergraph:` derives exactly as it does with no
+  `config.router` at all.
+- **`Testing.config.schema` refuses a federation subgraph class**, naming
+  `graphql: :router`. It is both the schema fakes are built from and the live
+  class `:in_process` runs, so setting a subgraph to make `:in_process` work
+  silently repointed `:fake` at a fraction of the graph. A federated graph has
+  no one schema class, which is what `:router` already said.
 - **`graphql_fake(**options)`** builds the example's fake where the example
   can say what it needs — `graphql_fake(overrides: { "Reader.orders" => [{}, {}] })`
   — and returns it, so `#requests` is in reach. `graphql: :fake` is this call

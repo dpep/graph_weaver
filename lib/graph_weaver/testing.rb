@@ -18,7 +18,8 @@ end
 #
 #      GraphWeaver::Testing.configure do |config|
 #        config.schema = MySchema                  # overrides the derived schema
-#        config.router = { supergraph: "supergraph.graphql" }  # when it isn't the dump
+#        config.router = { subgraphs: { "reviews" => :fake } }  # and/or supergraph:,
+#                                                    # when it isn't the dump
 #        config.context = { current_user: }        # baseline GraphQL context
 #        config.default_mode = :fake               # untagged examples (graph_weaver/rspec)
 #        config.seed = 42                          # reproducible fakes
@@ -51,7 +52,6 @@ module GraphWeaver
     class Config
       attr_accessor :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
         :record, :anonymize
-      attr_writer :schema
       attr_reader :mode, :router, :default_mode
 
       def initialize
@@ -80,6 +80,26 @@ module GraphWeaver
         @record = !ENV["GRAPHWEAVER_RECORD"].to_s.empty?
         # anonymize responses as they're recorded (needs config.schema)
         @anonymize = false
+      end
+
+      # One schema serves two masters — fakes are fabricated against it and
+      # :in_process runs it — which is fine right up until they want
+      # different objects, and only a federated app makes them. There, a
+      # subgraph class is neither: setting one so :in_process had a live
+      # class silently repointed :fake at a fraction of the graph. So this
+      # refuses the one input that pulls them apart, and :router — which
+      # already says a federated graph has no one schema class — stays the
+      # whole story.
+      def schema=(schema)
+        if subgraph?(schema)
+          raise GraphWeaver::ConfigurationError, "config.schema is the schema everything derives " \
+            "from — fakes are fabricated against it, :in_process runs it — and " \
+            "#{schema.name || schema.inspect} is one federation subgraph, which is neither. A " \
+            "federated graph has no one schema class: tag those examples graphql: :router, which " \
+            "runs every subgraph's real resolvers, stitched."
+        end
+
+        @schema = schema
       end
 
       # the explicitly configured schema, else the conventional dump
@@ -115,15 +135,18 @@ module GraphWeaver
         @default_mode = mode
       end
 
-      # Router arguments, for a supergraph derivation can't find: `{
-      # supergraph: "supergraph.graphql" }` is enough — subgraphs are
-      # derived from what each loaded schema defines. Naming one is for
-      # what derivation can't settle, or for `"reviews" => :fake`, which
-      # fabricates a subgraph this process doesn't serve.
+      # Router arguments — both keys optional, and each answers a different
+      # question. `supergraph:` is for one derivation can't find; without it
+      # the conventional dump is used, when that dump is itself a supergraph.
+      # `subgraphs:` is for what derivation can't settle, or for `"reviews"
+      # => :fake`, which fabricates a subgraph this process doesn't serve —
+      # the commonest reason to configure a router at all, and no reason to
+      # have to restate where the supergraph is.
       def router=(arguments)
-        unless arguments.nil? || (arguments.is_a?(Hash) && arguments[:supergraph])
-          raise ArgumentError,
-            "router: must be the arguments to build one, e.g. { supergraph: \"supergraph.graphql\" }"
+        unless arguments.nil? || arguments.is_a?(Hash)
+          raise ArgumentError, "router: must be the arguments to build one, e.g. " \
+            "{ supergraph: \"supergraph.graphql\" } or { subgraphs: { \"reviews\" => :fake } }, " \
+            "got #{arguments.inspect}"
         end
         if arguments&.key?(:context)
           # the rspec hook resets the router's context from config.context
@@ -150,7 +173,7 @@ module GraphWeaver
       # one: its schema is the API schema a router serves, with the
       # @join__* routing table stripped out.
       def supergraph!
-        return @router[:supergraph] if @router
+        return @router[:supergraph] if @router&.key?(:supergraph)
 
         path = GraphWeaver::SchemaLoader.locate_path
         return path if path && supergraph?(path)
@@ -185,6 +208,13 @@ module GraphWeaver
       end
 
       private
+
+      # A federation subgraph, by the `_service` field the federation spec
+      # makes every one of them serve. A composed supergraph carries no such
+      # field, so the conventional dump is unaffected.
+      def subgraph?(schema)
+        schema.respond_to?(:query) && !!schema.query&.fields&.key?("_service")
+      end
 
       def supergraph?(source)
         GraphWeaver::SchemaLoader.routing_table(source)

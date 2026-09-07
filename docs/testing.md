@@ -72,6 +72,9 @@ looked for — rather than guessing**:
 
 - **the schema** is `config.schema` if you set one, else the committed dump
   at `GraphWeaver.schema_path`, else the schema `GraphWeaver.client` talks to.
+  (`config.schema` refuses a federation *subgraph* class: fakes are fabricated
+  against it too, so one subgraph would be a fraction of the graph. A
+  federated graph has no one schema class — that's what `:router` is.)
 - **`:in_process`** needs the live schema *class*, since only that has
   resolvers: the one your client already runs in-process, else the loaded
   class that defines everything the schema declares — the same
@@ -89,6 +92,7 @@ So configure only to override a derivation, or to tune fabricated values:
 GraphWeaver::Testing.configure do |config|
   # config.schema = MySchema         # the live class, rather than the dump
   # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
+  # config.router = { subgraphs: { "reviews" => :fake } }   # either key alone
   # config.context = { tenant: }     # baseline context every example starts from
   # config.default_mode = :fake      # what an UNtagged example runs against
   #                                  # (graphql: false opts one back out)
