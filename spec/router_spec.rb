@@ -402,12 +402,15 @@ describe GraphWeaver::Testing::Router do
         .to refuse_to_plan(:no_key).with_detail("Doc.note resolves in b, and Doc has no resolvable @key there")
     end
 
-    # A field set is a selection set, and the refusal spells it the way the
-    # schema does — dotted paths are this library's parse of it, and nothing
-    # a reader can grep their own SDL for.
+    # A field set is a selection set, so a nested one crosses as one: the
+    # fetch asks for the object, and the representation carries it back in
+    # the shape the SDL spells. What is left to refuse is a set no single
+    # subgraph can answer — and a refusal spells it the way the schema does,
+    # since dotted paths are this library's parse of it and nothing a reader
+    # can grep their own SDL for.
     describe "a nested field set" do
       subject(:nested) do
-        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake, "b" => :fake })
+        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake, "b" => :fake, "c" => :fake })
           schema @link(url: "https://specs.apollo.dev/link/v1.0")
             @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
           { query: Query }
@@ -418,10 +421,12 @@ describe GraphWeaver::Testing::Router do
           enum join__Graph {
             A @join__graph(name: "a", url: "http://a")
             B @join__graph(name: "b", url: "http://b")
+            C @join__graph(name: "c", url: "http://c")
           }
-          type Query @join__type(graph: A) @join__type(graph: B) {
+          type Query @join__type(graph: A) @join__type(graph: B) @join__type(graph: C) {
             shipments: [Shipment!]! @join__field(graph: A)
             listings: [Listing!]! @join__field(graph: A)
+            parcels: [Parcel!]! @join__field(graph: A)
           }
           type Shipment @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
             id: ID!
@@ -434,22 +439,54 @@ describe GraphWeaver::Testing::Router do
             organization: Org! @join__field(graph: A)
             note: String @join__field(graph: B)
           }
+          type Parcel @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+            id: ID!
+            box: Box! @join__field(graph: A)
+            boxLabel: String! @join__field(graph: B, requires: "box { width depth }")
+          }
+          type Box @join__type(graph: A) @join__type(graph: C) {
+            width: Int! @join__field(graph: A)
+            depth: Int! @join__field(graph: C)
+          }
           type Place @join__type(graph: A) @join__type(graph: B) { lat: Float! lon: Float! }
           type Org @join__type(graph: A) @join__type(graph: B) { id: ID! }
         SDL
       end
 
-      it "echoes a @requires field set the way the schema spells it" do
-        expect { nested.execute("{ shipments { originZone } }") }
-          .to refuse_to_plan(:nested_field_set).with_detail(
-            'Shipment.originZone @requires a nested field set ("origin { lat lon }")',
-          )
+      # the injected selection is nested, not a dotted alias no schema has
+      it "asks for a nested @requires as one object and hands it back nested" do
+        nested.execute("{ shipments { originZone } }")
+
+        expect(nested.trace.first[:query]).to match(/_gw_origin: origin \{\s+lat\s+lon\s+\}/)
+        expect(nested.trace.last[:variables]["representations"].first).to match(
+          "__typename" => "Shipment", "id" => anything,
+          "origin" => { "lat" => anything, "lon" => anything },
+        )
       end
 
-      it "echoes a @key field set the same way" do
-        expect { nested.execute("{ listings { note } }") }
+      it "crosses a boundary on a @key that is part flat and part nested" do
+        nested.execute("{ listings { note } }")
+
+        expect(nested.trace.last[:variables]["representations"].first)
+          .to match("__typename" => "Listing", "id" => anything, "organization" => { "id" => anything })
+      end
+
+      # the injected keys are the router's own bookkeeping, nested or not
+      it "leaves no injected selection in the answer" do
+        response = nested.execute("{ listings { note } shipments { originZone } }")
+
+        expect(response.dig("data", "listings").flat_map(&:keys).uniq).to eq %w[note]
+        expect(response.dig("data", "shipments").flat_map(&:keys).uniq).to eq %w[originZone]
+      end
+
+      # a representation is built from ONE fetch, so a nested set answered a
+      # level at a time is answered by nobody — and that is a different
+      # refusal from a @requires naming another @requires field
+      it "refuses a nested field set no one subgraph holds whole" do
+        expect { nested.execute("{ parcels { boxLabel } }") }
           .to refuse_to_plan(:nested_field_set).with_detail(
-            'Listing is keyed in b on a nested field set ("id organization { id }")',
+            'Parcel.boxLabel @requires a nested field set ("box { depth }") no one subgraph ' \
+            "holds whole (Parcel.box in a, Box.depth in c)",
           )
       end
     end
