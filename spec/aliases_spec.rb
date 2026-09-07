@@ -223,6 +223,18 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
         .to raise_error(GraphWeaver::Error, /collides/)
     end
 
+    it "qualifies a keyword-named first hop with self. (bare `next` is the keyword)" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { widget: Widget }
+        type Widget { next: Meta }
+        type Meta { tag: String! }
+      GRAPHQL
+      GraphWeaver.extend_type("Widget", alias: { cursor: "next", tag: "next.tag" })
+      src = GraphWeaver::Codegen.generate(schema:, query: "query W { widget { next { tag } } }", module_name: "W")
+
+      expect(src).to include("def cursor = self.next", "def tag = self.next&.tag")
+    end
+
     it "reads a schema field named `first` as a field, not a list selector" do
       expect(gen2({ t: "first.id" }, "query W { widget { first { id } } }")).to include("def t = first&.id")
     end

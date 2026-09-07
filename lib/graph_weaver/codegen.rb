@@ -219,9 +219,9 @@ class GraphWeaver::Codegen
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
 
-  # Names that cannot appear bare in generated Ruby: keywords aren't
-  # valid identifiers, and the struct's own generated methods would be
-  # silently replaced by a same-named prop reader.
+  # Names generated Ruby can't spell bare — as a kwarg, a local, or a method
+  # name. As a prop they're fine (`const :next`), since a prop is only ever
+  # read off a receiver.
   RUBY_KEYWORDS = %w[
     alias and begin break case class def defined? do else elsif end
     ensure false for if in module next nil not or redo rescue retry
@@ -240,10 +240,6 @@ class GraphWeaver::Codegen
   # ArgumentError at require time. Derived rather than listed, so it tracks
   # whatever the Ruby and sorbet-runtime in play actually define.
   STRUCT_METHODS = (GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
-  # Output structs also reserve keywords: an alias delegator's path starts with
-  # a bare prop, and a result key — unlike an input field — can be renamed in
-  # the query, so there's always a way out.
-  RESERVED_PROPS = (RUBY_KEYWORDS + STRUCT_METHODS).freeze
 
   def generate
     begin
@@ -720,7 +716,10 @@ class GraphWeaver::Codegen
   # Either emits a file that raises ArgumentError at require time, so refuse
   # here; an alias in the query fixes both. `props` accumulates prop => key.
   def check_output_prop!(type, key, prop, props)
-    if RESERVED_PROPS.include?(prop)
+    # Keywords are fine: `const :next` and `next: data["next"]` are legal, and
+    # the one place a prop is read bare (an alias delegator) qualifies it.
+    # `pageInfo { next }` and `filter { in }` are ordinary API shapes.
+    if STRUCT_METHODS.include?(prop)
       raise GraphWeaver::Error,
         "#{type.graphql_name}.#{key} would become prop '#{prop}', which every generated struct " \
         "already defines — alias it in the query (`#{prop}Value: #{key}`)"

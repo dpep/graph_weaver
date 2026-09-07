@@ -74,7 +74,13 @@ class GraphWeaver::Codegen
       expr = +""
 
       segments.each do |seg|
-        connector = expr.empty? ? "" : (cur_nilable ? "&." : ".")
+        # the first hop reads off the struct itself — spelled `self.` when the
+        # prop is a Ruby keyword (`self.next`), which bare would be the keyword
+        connector = if !expr.empty?
+          cur_nilable ? "&." : "."
+        else
+          RUBY_KEYWORDS.include?(seg) ? "self." : ""
+        end
 
         # `first`/`last` select an element only when the current hop is actually a
         # list; otherwise they're an ordinary field (a schema field named `first`)

@@ -125,6 +125,32 @@ describe GraphWeaver::Codegen do
       end
     end
 
+    def schema_with_page(fields)
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { page: Page }
+        type Page { #{fields} }
+      GRAPHQL
+    end
+
+    it "accepts result keys named after Ruby keywords" do
+      # `next`/`end`/`in` are ordinary pagination and filter field names, and a
+      # prop is only ever read off a receiver — so this has to generate
+      mod = GraphWeaver.parse(schema: schema_with_page("next: String end: String in: String"),
+        query: "query P { page { next end in } }", name: "KeywordProps")
+
+      page = mod.from_response!("data" => { "page" => { "next" => "n", "end" => "e", "in" => "i" } }).page
+      expect([page.next, page.end, page.in]).to eq %w[n e i]
+    end
+
+    it "refuses result keys that collide with a method every struct defines" do
+      expect {
+        GraphWeaver.parse(schema: schema_with_page("serialize: String"),
+          query: "query P { page { serialize } }", name: "CollidingProp")
+      }.to raise_error(GraphWeaver::Error,
+        "Page.serialize would become prop 'serialize', which every generated struct already " \
+        "defines — alias it in the query (`serializeValue: serialize`)")
+    end
+
     it "refuses variables whose kwarg would be a Ruby keyword" do
       expect {
         GraphWeaver.parse(schema: Demo::Schema, query: "query($end: ID!) { person(id: $end) { id } }")
