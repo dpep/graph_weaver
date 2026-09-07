@@ -1,3 +1,12 @@
+###  Unreleased
+- **An `extend_type(alias:)` name a struct instance already answers to now
+  refuses** instead of silently overriding it. `alias: { hash: "…" }` emitted
+  `def hash`, which breaks every `Hash` and `Set` holding that struct;
+  `inspect`, `to_s`, `method` and `class` were the same story. A *wire field*
+  by any of those names was already refused, so this is the same rule reaching
+  the same case from the other side. **If generation now refuses an alias you
+  had**, rename it — the accessor it generated was overriding a Ruby method.
+
 ###  v0.5.0  (2026-09-07)
 - **`graphql_in_process(SomeSchema)`** runs one example against that schema
   class's real resolvers — the sibling of `graphql_fake`, and how a federated
