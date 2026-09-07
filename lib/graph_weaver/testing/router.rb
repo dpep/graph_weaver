@@ -57,6 +57,12 @@ module GraphWeaver
           "the routing table names no subgraph",
           "nothing can route a field the supergraph doesn't place. Run this one against a real router.",
         ],
+        absent_subgraph: [
+          "a subgraph nothing here serves",
+          "a query that never reaches an absent subgraph's fields still runs, so nothing else has " \
+            "to change. (Detection only sees loaded schemas — an autoloaded one isn't loaded " \
+            "until something references it.)",
+        ],
         mixed_introspection: [
           "introspection mixed with data",
           "the local router answers introspection from the composed API schema and data from the " \
@@ -111,6 +117,13 @@ module GraphWeaver
     #
     # (`subgraphs:` is optional — see {Subgraphs}.)
     #
+    # A supergraph only **partly** local — the rest of it served by other
+    # processes — needs nothing extra: the subgraphs nobody here defines are
+    # absent, the router builds and runs, and only a query that reaches an
+    # absent subgraph's fields is refused, at plan time, naming it. Ask for
+    # fabricated data instead with `subgraphs: { "reviews" => :fake }`; every
+    # fetch that came from one is marked `faked: true` in #trace.
+    #
     # It plans the shapes a router spends its life on: an operation that
     # resolves in one subgraph, handed over verbatim; one that crosses a
     # boundary — split at the crossing, refetched from the owning subgraph
@@ -140,6 +153,13 @@ module GraphWeaver
       # the fetches the last execute made
       attr_reader :trace
 
+      # subgraphs no schema here serves: a query reaching their fields is
+      # refused at plan time, everything else runs
+      attr_reader :absent
+
+      # subgraphs answered with fabricated data instead of that refusal
+      attr_reader :faked
+
       # the context handed to every subgraph — settable, so one example can
       # run as a different user without rebuilding the router
       attr_accessor :context
@@ -151,6 +171,8 @@ module GraphWeaver
       # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
       # any of its entries) and the rest are derived from what each loaded
       # schema defines — see {Subgraphs}, which also checks the ones you name.
+      # A subgraph nothing serves is absent (refused per query, not here);
+      # `"reviews" => :fake` fabricates its answers instead.
       def initialize(supergraph:, subgraphs: nil, context: {})
         source = supergraph.to_s # a path, or the SDL itself — Pathname included
         @schema = GraphWeaver::SchemaLoader.load(source)
@@ -170,8 +192,13 @@ module GraphWeaver
           )
         end
 
-        @subgraphs = Subgraphs.resolve(@table, subgraphs)
-        @planner = Planner.new(table: @table, schema: @schema)
+        served = Subgraphs.resolve(@table, subgraphs)
+        @faked = served.select { |_name, schema| schema == Subgraphs::FAKE }.keys.freeze
+        @absent = (@table.subgraphs - served.keys).freeze
+        @subgraphs = served.to_h do |name, schema|
+          [name, (schema == Subgraphs::FAKE) ? FakeSubgraph.new(name, @schema) : schema]
+        end
+        @planner = Planner.new(table: @table, schema: @schema, absent: @absent)
       end
 
       def execute(query, variables: {}, operation_name: nil)
@@ -197,7 +224,12 @@ module GraphWeaver
       end
 
       # never leak the context (tokens, current_user) through logs or errors
-      def inspect = "#<#{self.class.name} subgraphs=#{@subgraphs.keys.inspect}>"
+      def inspect
+        parts = ["subgraphs=#{(@subgraphs.keys - @faked).inspect}"]
+        parts << "faked=#{@faked.inspect}" if @faked.any?
+        parts << "absent=#{@absent.inspect}" if @absent.any?
+        "#<#{self.class.name} #{parts.join(" ")}>"
+      end
       alias to_s inspect
 
       private
@@ -421,8 +453,17 @@ module GraphWeaver
       end
 
       def fetch(name, query, variables, operation_name)
-        @trace << { subgraph: name, query:, variables: variables.to_h }
+        faked = @faked.include?(name)
+        entry = { subgraph: name, query:, variables: variables.to_h }
+        entry[:faked] = true if faked
+        @trace << entry
         tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
+
+        # a fabricated answer that passes silently is worse than a failing
+        # one, so it says so every fetch rather than once at construction
+        if faked
+          GraphWeaver.log(:warn) { "router -> #{name} #{tag} FAKED: fabricated data, not #{name}'s" }
+        end
 
         GraphWeaver.log(:debug) do
           "router -> #{name} #{tag} variables=#{JSON.generate(variables)}\n" \
@@ -578,9 +619,13 @@ module GraphWeaver
         # only ever reached by a document validation didn't see
         MAX_DEPTH = 32
 
-        def initialize(table:, schema:)
+        # absent: subgraphs no schema serves here. Planning is otherwise
+        # unchanged — coverage plans with none of them loaded, which is why
+        # absence is a fact about this process rather than about the graph.
+        def initialize(table:, schema:, absent: [])
           @table = table
           @schema = schema
+          @absent = absent
         end
 
         # the operation's validation errors, GraphQL-wire shaped
@@ -655,7 +700,9 @@ module GraphWeaver
         def single_subgraph(root, selections, fragments)
           fields = selections.reject { |node| node.name.start_with?("__") }
           shared = fields.map { |node| owners!(root, node.name) }.reduce(:&) || @table.subgraphs
-          shared.find { |subgraph| local?(root, selections, subgraph, fragments, []) }
+          # no refusal here: an absent candidate just isn't one, and the
+          # per-field walk below names it if that's what stops the query
+          (shared - @absent).find { |subgraph| local?(root, selections, subgraph, fragments, []) }
         end
 
         # Root fields resolve independently, so each picks its own subgraph
@@ -679,10 +726,10 @@ module GraphWeaver
               next
             end
 
-            graphs = owners!(root, node.name)
+            graphs = available!(owners!(root, node.name), "#{root}.#{node.name}")
             (groups[(graphs & groups.keys).first || graphs.first] ||= []) << node
           end
-          groups[@table.subgraphs.first] ||= [] if groups.empty?
+          groups[available!(@table.subgraphs, root).first] ||= [] if groups.empty?
           # __typename doesn't route; any subgraph answers it
           groups[groups.keys.first].concat(loose)
 
@@ -714,8 +761,8 @@ module GraphWeaver
               # a field whose @requires this subgraph can't supply is refetched
               # even when it resolves here — the fields have to arrive in a
               # representation, and only an entity fetch carries one
-              defer(here, type_name, node, subgraph, resolves_here ? subgraph : owners.first,
-                field, fragments, selections, depth)
+              target = resolves_here ? subgraph : available!(owners, "#{type_name}.#{node.name}").first
+              defer(here, type_name, node, subgraph, target, field, fragments, selections, depth)
             end
           end
 
@@ -781,9 +828,11 @@ module GraphWeaver
         end
 
         def requires_holder(type_name, node, path)
-          @table.owners(type_name, path).first ||
-            refuse(:no_owner, "#{type_name}.#{node.name} @requires #{path.inspect}, and the " \
-              "supergraph places #{type_name}.#{path} in no subgraph")
+          owners = @table.owners(type_name, path)
+          refuse(:no_owner, "#{type_name}.#{node.name} @requires #{path.inspect}, and the " \
+            "supergraph places #{type_name}.#{path} in no subgraph") if owners.empty?
+
+          available!(owners, "#{type_name}.#{path}").first
         end
 
         def inject(step, path)
@@ -929,6 +978,8 @@ module GraphWeaver
 
         def check_condition!(type_name, condition, selections, subgraph, fragments)
           unless declared_in?(condition, subgraph)
+            # absence is the more actionable reason when it's the reason
+            available!(@table.declared_in(condition), condition)
             refuse :crosses_subgraph,
               "#{condition} lives in #{@table.declared_in(condition).join(" and ")}, and this " \
               "operation runs in #{subgraph}"
@@ -976,6 +1027,21 @@ module GraphWeaver
           return owners if owners.any?
 
           refuse :no_owner, "the supergraph places #{type_name}.#{field_name} in no subgraph"
+        end
+
+        # The subgraphs among `owners` this process actually serves. A
+        # supergraph is routinely only partly local, so absence is refused
+        # here — where the field that reached for it is still in hand —
+        # rather than at construction, which would refuse the whole suite
+        # over fields it may never touch.
+        def available!(owners, coordinate)
+          here = owners - @absent
+          return here if here.any?
+
+          absent = owners.map(&:inspect)
+          refuse :absent_subgraph, "#{coordinate} resolves in #{absent.join(" or ")}, which no " \
+            "schema here serves — name it with subgraphs: { #{absent.first} => YourSchema }, or " \
+            "fake it with subgraphs: { #{absent.first} => :fake }"
         end
 
         def child_type_name(type_name, field_name)

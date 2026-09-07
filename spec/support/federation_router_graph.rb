@@ -235,4 +235,57 @@ module RouterGraph
     "products" => Products::Schema,
     "reviews" => Reviews::Schema,
   }.freeze
+
+  # The same accounts and reviews subgraphs composed with two — SHIPPING and
+  # BILLING — that no Ruby schema in this process serves: the shape of a
+  # migration, where part of the supergraph is already routed to another
+  # service. Query and Review both reach into SHIPPING, so a query can avoid
+  # it entirely, need it at a root field, or cross a boundary into it; BILLING
+  # is the second one, so faking one and refusing the other is testable.
+  #
+  # Hand-written rather than composed: there is no subgraph to compose from,
+  # which is the whole point. Only what Accounts::Schema and Reviews::Schema
+  # really define is attributed to them, so detection still matches both.
+  PARTIAL_SUPERGRAPH = <<~SDL
+    schema @link(url: "https://specs.apollo.dev/link/v1.0")
+      @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+    { query: Query }
+    directive @join__field(graph: join__Graph, requires: join__FieldSet,
+      provides: join__FieldSet, external: Boolean) repeatable on FIELD_DEFINITION
+    directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+    directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+    scalar join__FieldSet
+    enum join__Graph {
+      ACCOUNTS @join__graph(name: "accounts", url: "http://accounts")
+      REVIEWS @join__graph(name: "reviews", url: "http://reviews")
+      SHIPPING @join__graph(name: "shipping", url: "http://shipping")
+      BILLING @join__graph(name: "billing", url: "http://billing")
+    }
+    type Query @join__type(graph: ACCOUNTS) @join__type(graph: REVIEWS)
+      @join__type(graph: SHIPPING) @join__type(graph: BILLING) {
+      me: User @join__field(graph: ACCOUNTS)
+      reviews: [Review!]! @join__field(graph: REVIEWS)
+      shipments: [Shipment!]! @join__field(graph: SHIPPING)
+      invoices: [Invoice!]! @join__field(graph: BILLING)
+    }
+    type User @join__type(graph: ACCOUNTS, key: "id") @join__type(graph: REVIEWS, key: "id") {
+      id: ID! @join__field(graph: ACCOUNTS) @join__field(graph: REVIEWS, external: true)
+      username: String! @join__field(graph: ACCOUNTS)
+      email: String! @join__field(graph: ACCOUNTS)
+      reviews: [Review!]! @join__field(graph: REVIEWS)
+    }
+    type Review @join__type(graph: REVIEWS, key: "id") @join__type(graph: SHIPPING, key: "id") {
+      id: ID! @join__field(graph: REVIEWS) @join__field(graph: SHIPPING, external: true)
+      body: String! @join__field(graph: REVIEWS)
+      shipment: Shipment @join__field(graph: SHIPPING)
+    }
+    type Shipment @join__type(graph: SHIPPING) {
+      id: ID! @join__field(graph: SHIPPING)
+      carrier: String! @join__field(graph: SHIPPING)
+    }
+    type Invoice @join__type(graph: BILLING) {
+      id: ID! @join__field(graph: BILLING)
+      total: Int! @join__field(graph: BILLING)
+    }
+  SDL
 end

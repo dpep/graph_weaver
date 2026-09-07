@@ -33,21 +33,21 @@ describe GraphWeaver::Testing::Subgraphs do
     )
   end
 
-  # detection can only see what's loaded, and under Zeitwerk a subgraph
-  # schema often isn't yet — a refusal that doesn't say so reads as a bug
-  it "refuses when none fits, naming what it looked for and why it may be missing" do
-    error = nil
-    begin
-      described_class.resolve(table, schemas: [RouterGraph::Accounts::Schema])
-    rescue ArgumentError => e
-      error = e
-    end
+  # a subgraph nothing here defines is served elsewhere — routine in a
+  # migration, and not a reason to refuse a suite that never touches it
+  it "leaves out a subgraph nothing defines rather than refusing" do
+    expect(described_class.resolve(table, schemas: [RouterGraph::Accounts::Schema]))
+      .to eq("accounts" => RouterGraph::Accounts::Schema)
+  end
 
-    expect(error.message).to start_with 'no loaded GraphQL::Schema defines everything the ' \
-      'supergraph says "products" resolves (Product, Product.name, Product.price, ' \
-      'Product.weight, Query and 2 more)'
-    expect(error.message).to include "An autoloaded schema isn't loaded until something " \
-      "references it"
+  it "takes :fake for a subgraph to answer with fabricated data" do
+    expect(described_class.resolve(table, { "reviews" => :fake }))
+      .to eq RouterGraph::SUBGRAPHS.merge("reviews" => :fake)
+  end
+
+  it "names the one symbol an entry takes" do
+    expect { described_class.resolve(table, { "reviews" => :faked }) }
+      .to raise_error(ArgumentError, /is :faked — the only symbol an entry takes is :fake/)
   end
 
   it "names an entry the caller got wrong rather than letting it run" do

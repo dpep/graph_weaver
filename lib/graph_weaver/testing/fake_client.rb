@@ -96,6 +96,21 @@ class GraphWeaver::Testing::FakeClient
     response
   end
 
+  # One fabricated object of `type_name` for these selections — the seam
+  # {FakeSubgraph} answers a federation `_entities` fetch through, where the
+  # representation names the type and the document only ever reached it
+  # through an inline fragment.
+  def object(type_name, selections, fragments: {})
+    type = @schema.get_type(type_name) or
+      raise GraphWeaver::Error, "#{type_name} is not a type of this schema"
+
+    @fragments = fragments
+    @path = []
+    @failures = []
+    value = object_value(type, selections)
+    value.equal?(NULL_BUBBLE) ? nil : value
+  end
+
   private
 
   def rng = @values.rng

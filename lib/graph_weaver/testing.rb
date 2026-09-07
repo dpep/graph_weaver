@@ -120,7 +120,9 @@ module GraphWeaver
 
       # Router arguments, for a supergraph derivation can't find: `{
       # supergraph: "supergraph.graphql" }` is enough — subgraphs are
-      # derived from what each loaded schema defines.
+      # derived from what each loaded schema defines. Naming one is for
+      # what derivation can't settle, or for `"reviews" => :fake`, which
+      # fabricates a subgraph this process doesn't serve.
       def router=(arguments)
         unless arguments.nil? || (arguments.is_a?(Hash) && arguments[:supergraph])
           raise ArgumentError,
@@ -263,6 +265,7 @@ end
 
 require_relative "testing/values"
 require_relative "testing/fake_client"
+require_relative "testing/fake_subgraph"
 require_relative "testing/failure"
 require_relative "testing/cassette"
 require_relative "testing/router"

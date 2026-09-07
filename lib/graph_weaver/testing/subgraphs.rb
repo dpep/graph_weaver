@@ -7,29 +7,42 @@ require_relative "../schema_loader"
 
 module GraphWeaver
   module Testing
-    # Which Ruby schema serves which subgraph.
+    # Which Ruby schema serves which subgraph — for the subgraphs this
+    # process serves at all.
     #
-    # {Router} needs one schema per subgraph in the supergraph. You can name
-    # them yourself, but the map is boilerplate you then have to keep right —
-    # so by default they're **derived from what each schema defines**. A
-    # schema serves subgraph `s` when it defines every type and field the
-    # routing table says `s` resolves. That's evidence, not a guess: matching
-    # on class names would be one (`Accounts::Schema`, `AccountsSchema`,
-    # `Subgraphs::Accounts`), and a wrong guess points a suite at the wrong
-    # resolvers and still passes.
+    # You can name them yourself, but the map is boilerplate you then have to
+    # keep right — so by default they're **derived from what each schema
+    # defines**. A schema serves subgraph `s` when it defines every type and
+    # field the routing table says `s` resolves. That's evidence, not a
+    # guess: matching on class names would be one (`Accounts::Schema`,
+    # `AccountsSchema`, `Subgraphs::Accounts`), and a wrong guess points a
+    # suite at the wrong resolvers and still passes.
     #
-    # So exactly one match is used, and anything else refuses: two matches
-    # name both, none names what it looked for. The same check runs over a
-    # map you pass explicitly, which is how a swapped pair fails at
-    # construction rather than as a mystery three fetches later.
+    # Two matches refuse, naming both — both fit the evidence, so picking
+    # either would be the guess this module exists to avoid. **No match is
+    # not a refusal**: a supergraph is routinely only partly local, the rest
+    # served by another process, so a subgraph nothing here defines is left
+    # out of the map. Only a query that reaches its fields fails, at plan
+    # time — see {Router}.
+    #
+    # `"reviews" => :fake` asks for schema-correct fabricated data instead of
+    # that refusal (see {FakeSubgraph}).
+    #
+    # The same check runs over a map you pass explicitly, which is how a
+    # swapped pair fails at construction rather than as a mystery three
+    # fetches later.
     module Subgraphs
       # how many coordinates a message names before it says "and N more"
       SAMPLE = 5
 
+      # answer this subgraph with fabricated data rather than refusing
+      FAKE = :fake
+
       class << self
-        # { "accounts" => Accounts::Schema, … } for every subgraph in the
-        # table. Names in `given` skip detection; the rest are derived, and
-        # both go through the same check.
+        # { "accounts" => Accounts::Schema, … } for the subgraphs this
+        # process serves — one nothing defines is absent, and left out.
+        # Names in `given` skip detection (:fake included); the rest are
+        # derived, and both go through the same check.
         def resolve(table, given = nil, schemas: nil)
           named = (given || {}).to_h { |name, schema| [name.to_s, schema] }
           unknown = named.keys - table.subgraphs
@@ -39,9 +52,10 @@ module GraphWeaver
           end
 
           searched = schemas || loaded
-          table.subgraphs.to_h do |name|
-            [name, named.key?(name) ? verify!(table, name, named[name]) : detect(table, name, searched)]
-          end
+          table.subgraphs.filter_map do |name|
+            served = named.key?(name) ? check!(table, name, named[name]) : detect(table, name, searched)
+            [name, served] if served
+          end.to_h
         end
 
         # every loaded schema that defines what the table says `name` resolves
@@ -75,24 +89,28 @@ module GraphWeaver
 
         private
 
+        # The schema serving `name`, or nil when nothing here does — the
+        # subgraph is somebody else's, which is not an error until a query
+        # asks for it.
         def detect(table, name, schemas)
           found = candidates(table, name, schemas)
           return found.first if found.one?
+          return if found.empty?
 
-          if found.any?
-            raise ArgumentError, "#{found.size} loaded schemas define everything the supergraph says " \
-              "#{name.inspect} resolves (#{found.map(&:name).sort.join(", ")}) — pass subgraphs: naming " \
-              "the one you mean"
+          raise ArgumentError, "#{found.size} loaded schemas define everything the supergraph says " \
+            "#{name.inspect} resolves (#{found.map(&:name).sort.join(", ")}) — pass subgraphs: naming " \
+            "the one you mean"
+        end
+
+        def check!(table, name, schema)
+          return FAKE if schema == FAKE
+
+          if schema.is_a?(Symbol)
+            raise ArgumentError, "subgraphs[#{name.inspect}] is #{schema.inspect} — the only symbol " \
+              "an entry takes is #{FAKE.inspect}, which answers it with fabricated data"
           end
 
-          # the Zeitwerk case: detection can only see what's loaded, and a
-          # schema nothing has referenced yet isn't. Saying so here is the
-          # difference between a puzzle and a one-line fix.
-          raise ArgumentError, "no loaded GraphQL::Schema defines everything the supergraph says " \
-            "#{name.inspect} resolves (#{sample(expected(table, name))}) — pass " \
-            "subgraphs: { #{name.inspect} => YourSchema }. An autoloaded schema isn't loaded until " \
-            "something references it, so in Rails either name it or eager-load first " \
-            "(rake graph_weaver:federation:subgraphs shows what detection can see)."
+          verify!(table, name, schema)
         end
 
         def verify!(table, name, schema)

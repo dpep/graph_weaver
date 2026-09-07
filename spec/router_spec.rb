@@ -12,12 +12,14 @@ describe GraphWeaver::Testing::Router do
     described_class.new(supergraph: RouterGraph::SUPERGRAPH, subgraphs: RouterGraph::SUBGRAPHS)
   end
 
-  def refusal(query, variables: {})
-    router.execute(query, variables:)
+  def refusal_from(client, query, variables: {})
+    client.execute(query, variables:)
     raise "expected #{query.inspect} to be refused"
   rescue Unplannable => e
     e
   end
+
+  def refusal(query, variables: {}) = refusal_from(router, query, variables:)
 
   describe "a query that stays inside one subgraph" do
     it "answers exactly what that subgraph answers, and says which it asked" do
@@ -351,6 +353,99 @@ describe GraphWeaver::Testing::Router do
 
       expect { described_class.new(supergraph: sdl, subgraphs: RouterGraph::SUBGRAPHS) }
         .to raise_error(Unplannable, /Announcement applies @join__directive/)
+    end
+  end
+
+  # The migration shape: a supergraph composed from several services, only
+  # some of which run in this process. The rest is served elsewhere, so it
+  # can't be a construction error — the suite still has a graph to test
+  # against, minus the fields nobody here can answer.
+  describe "a supergraph only partly served here" do
+    subject(:partial) { described_class.new(supergraph: RouterGraph::PARTIAL_SUPERGRAPH) }
+
+    it "constructs, and says which subgraphs nothing serves" do
+      expect(partial.absent).to eq ["shipping", "billing"]
+      expect(partial.inspect).to eq '#<GraphWeaver::Testing::Router ' \
+        'subgraphs=["accounts", "reviews"] absent=["shipping", "billing"]>'
+    end
+
+    it "answers a query that never reaches the absent subgraph" do
+      response = partial.execute("{ me { username reviews { body } } }")
+
+      expect(response.fetch("data")).to eq({
+        "me" => { "username" => "dpep", "reviews" => [{ "body" => "Love it" }, { "body" => "Too expensive" }] },
+      })
+      expect(partial.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts", "reviews"]
+    end
+
+    it "refuses a root field the absent subgraph owns, before fetching anything" do
+      error = refusal_from(partial, "{ shipments { carrier } }")
+
+      expect(error.category).to eq :absent_subgraph
+      expect(error.message).to eq 'Query.shipments resolves in "shipping", which no schema here ' \
+        'serves — name it with subgraphs: { "shipping" => YourSchema }, or fake it with ' \
+        'subgraphs: { "shipping" => :fake } — a query that never reaches an absent subgraph\'s ' \
+        "fields still runs, so nothing else has to change. (Detection only sees loaded schemas " \
+        "— an autoloaded one isn't loaded until something references it.)"
+      expect(partial.trace).to be_empty
+    end
+
+    it "names the field that reached across the boundary into it" do
+      error = refusal_from(partial, "{ reviews { body shipment { carrier } } }")
+
+      expect(error.detail).to start_with 'Review.shipment resolves in "shipping"'
+      expect(partial.trace).to be_empty
+    end
+
+    describe "with the fake opt-in" do
+      subject(:partial) do
+        described_class.new(supergraph: RouterGraph::PARTIAL_SUPERGRAPH, subgraphs: { "shipping" => :fake })
+      end
+
+      it "answers the absent subgraph's root field, and says the answer was fabricated" do
+        response = partial.execute("{ shipments { carrier } }")
+
+        expect(response.dig("data", "shipments")).to all(include("carrier" => a_kind_of(String)))
+        expect(partial.trace).to contain_exactly(include(subgraph: "shipping", faked: true))
+      end
+
+      # an _entities fetch answers as the type its representation names — a
+      # fake that picked a random union member would match nothing
+      it "answers a stitched fetch into it, alongside the real subgraph's data" do
+        response = partial.execute("{ reviews { body shipment { carrier } } }")
+
+        expect(response.dig("data", "reviews", 0, "body")).to eq "Love it"
+        expect(response.dig("data", "reviews", 0, "shipment", "carrier")).to be_a String
+        expect(partial.trace.map { |fetch| [fetch[:subgraph], fetch[:faked]] })
+          .to eq [["reviews", nil], ["shipping", true]]
+      end
+
+      it "warns on every faked fetch, since invented data passing quietly is the risk" do
+        log = StringIO.new
+        GraphWeaver.logger = Logger.new(log, level: Logger::WARN)
+        partial.execute("{ shipments { carrier } }")
+
+        expect(log.string).to include "router -> shipping"
+        expect(log.string).to include "FAKED: fabricated data, not shipping's"
+      ensure
+        GraphWeaver.logger = nil
+      end
+
+      # per-subgraph is one vocabulary for both answers: this service is
+      # faked, that one still isn't here
+      it "still refuses the absent subgraph it wasn't asked to fake" do
+        expect(partial.faked).to eq ["shipping"]
+        expect(partial.absent).to eq ["billing"]
+        expect(refusal_from(partial, "{ invoices { total } }").detail)
+          .to start_with 'Query.invoices resolves in "billing"'
+      end
+    end
+
+    # two candidates is a genuine mistake, and picking either would be a coin
+    # flip — absence tolerance must not soften that
+    it "still refuses a subgraph two loaded schemas fit" do
+      expect { described_class.new(supergraph: SplitGraph::SUPERGRAPH) }
+        .to raise_error(ArgumentError, /2 loaded schemas define everything the supergraph says "b" resolves/)
     end
   end
 
