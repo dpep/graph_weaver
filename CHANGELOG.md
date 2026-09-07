@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.5.0  (2026-09-07)
 - **`graphql_in_process(SomeSchema)`** runs one example against that schema
   class's real resolvers — the sibling of `graphql_fake`, and how a federated
   app tests a single subgraph directly rather than through the stitched graph.
@@ -172,7 +172,7 @@
   nothing sets `RAILS_MAX_THREADS` there, so the default capped it at 5 with no
   signal. See `docs/transports.md`.
 
-### One `execute`, one way to pass a client (**breaking**)
+#### One `execute`, one way to pass a client (**breaking**)
 
 Every client answers the same call — `execute(query, variables:,
 operation_name:)`, returning the raw response hash. Three objects a user holds
@@ -201,7 +201,7 @@ used to disagree with that, and each disagreement was a bug waiting.
 - `$transport` is a usable GraphQL variable name again — the generated body has
   no such local.
 
-### One reset, one plurality rule (**breaking**)
+#### One reset, one plurality rule (**breaking**)
 
 - **`GraphWeaver.reset_scalars!`, `clear_scalars!`, `reset_enums!` and
   `reset_type_helpers!` are gone.** `GraphWeaver.reset_registrations!` is the
@@ -316,7 +316,7 @@ used to disagree with that, and each disagreement was a bug waiting.
   still take the constant itself; a name would be a second spelling that
   couldn't reach `fallback:` or `map:` anyway, since those name enum *members*.
 
-### Scalar coercion is one switch (**breaking**)
+#### Scalar coercion is one switch (**breaking**)
 
 `coerce:` takes `true`/`false` only — the Symbol form is gone. It was a third
 way to ask one question (*may a variable of this scalar accept loose input?*)
@@ -337,7 +337,7 @@ and a pass-through scalar can't.
 `GraphWeaver.auto_coerce` is unaffected, and `coerce: true` is now exactly what
 it turns on for one scalar instead of all of them.
 
-### One shared module, not three (**breaking** — regenerate)
+#### One shared module, not three (**breaking** — regenerate)
 
 `GraphQLInputs`, `GraphQLUnions` and `GraphQLEnums` are now one `GraphQLTypes`.
 They were three constants, three config knobs and three file shapes for one
@@ -368,7 +368,7 @@ refused at generation, naming both — a fragment is named by you, a type by the
 schema, and one module is one namespace. Previously they lived apart and could
 never meet.
 
-### Has anyone changed a subgraph without recomposing?
+#### Has anyone changed a subgraph without recomposing?
 
     rake graph_weaver:federation:diff SUPERGRAPH=supergraph.graphql
 
@@ -391,7 +391,7 @@ checked, not here, and answered with fabricated data — and the headline counts
 them. Only drift fails; absence is a supported setup.
 `GraphWeaver::Federation::Drift` is the same thing as data (`#to_h`, `#drift?`).
 
-### Validation errors name the subgraph behind the type
+#### Validation errors name the subgraph behind the type
 
 When the schema dump is a composed supergraph, `rake graph_weaver:queries:check`
 brands each error with who resolves the type it points at:
@@ -404,7 +404,7 @@ look at. A plain schema has no routing table and is unaffected.
 
 - New: `SchemaLoader::RoutingTable#declared_fields`, `#declares?`, `#responsible`.
 
-### A partly-local supergraph now works
+#### A partly-local supergraph now works
 
 The testing router serves a supergraph composed from several services when only
 some of them run in this process. A subgraph no loaded schema defines is
@@ -424,7 +424,7 @@ make `execute!` raise, defeating the point.
   serves instead of raising when one has no candidate. Two candidates still
   refuse, naming both.
 
-### One tag picks what a test runs against
+#### One tag picks what a test runs against
 
 `auto_fake` and `config.router` each installed a client for **every** example
 and refused to coexist, so a suite had to choose fakes or real resolvers once,
@@ -466,7 +466,7 @@ federated suite whose checked-in dump is the supergraph needs no config at all.
   crash with `undefined method 'lstrip'`. The message names both ways to say
   what you meant.
 
-### Ruby-keyword field names now generate
+#### Ruby-keyword field names now generate
 
 A result key that underscores to a Ruby keyword — `pageInfo { next }`,
 `filter { in }` — no longer refuses to generate. A prop is only ever read off
@@ -489,7 +489,7 @@ drop the alias and regenerate. `GraphWeaver::Codegen::RESERVED_PROPS` is gone
 - An alias error no longer names the same type twice when a query module and
   its root type share a name.
 
-### Testing::Router now plans a real query, not just a single-subgraph one
+#### Testing::Router now plans a real query, not just a single-subgraph one
 
 `GraphWeaver::Testing::Router` used to hand one operation to one subgraph
 verbatim and refuse anything that crossed a boundary. It now splits at the
