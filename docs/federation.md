@@ -363,7 +363,7 @@ What it refuses, and why:
 | an abstract type at a boundary | a representation names one concrete `__typename`, and the router doesn't resolve a type per object to build one |
 | a nested `@key`/`@requires` field set | representations are built from flat field sets only |
 | no usable `@key` | nothing to build a representation from |
-| a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them would run them in whatever order the plan happened to (query roots are independent, so those are fine) |
+| a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them across subgraphs would run them in whatever order the plan happened to. Sharing one subgraph they're fine, stitching below them and all — that's an ordinary read afterwards. Query roots are independent, so those are always fine |
 | a subgraph nothing here serves | it's served by another process, so there is nothing here to ask — unless you fake it (above) |
 
 It also refuses at construction, before a single query, a supergraph carrying

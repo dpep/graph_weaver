@@ -121,6 +121,26 @@ table is a derivation with evidence, not a guess — and the ambiguous cases
 the same check run in two directions, so there is no second code path to
 disagree.
 
+## Only some `ArgumentError`s were branded
+
+**Considered:** two uniform answers. Brand all ~50 `raise ArgumentError` sites
+under `GraphWeaver::Error`, so "everything descends from `Error`" is literally
+true; or leave subgraph detection's refusals as `ArgumentError` and qualify the
+sentence in `docs/errors.md`.
+
+**Rejected because** the first throws away the one thing `ArgumentError`
+communicates — you passed something wrong at this call site, like any Ruby
+method — and `pool_size: must be >= 1` is exactly that. The second leaves the
+refusals a `Testing::Router` user actually meets outside the umbrella the docs
+point them at, which is where a spec helper rescues.
+
+What survives is a line that can be stated: **what the library concludes,
+having read your schema, is a `GraphWeaver::Error`; an argument wrong on its
+face is an `ArgumentError`.** Subgraph mapping (`ConfigurationError`) and a
+query file whose name can't spell a constant are verdicts; `cast:` not being a
+Symbol is not. A rule with a stated boundary beats a uniform one that lies
+about half its cases.
+
 ## The in-process router refuses rather than approximates
 
 **Considered:** planning every query shape, falling back to a best-effort answer
@@ -136,6 +156,23 @@ A corollary: a `--strict` mode for the drift differ was built and then deleted,
 because once a partly-local supergraph became a supported setup, failing on any
 skipped subgraph was wrong for every graph except a fully-local one — and that
 one's report already says "checked 3 of 3".
+
+## `federation:diff` fails when it checked *nothing*
+
+**Considered:** leaving zero-checked as a pass, on the `--strict` reasoning
+directly above — absence is supported, and the headline already says "checked 0
+of 4".
+
+**Rejected because** zero is not a small number of subgraphs, it is a different
+kind of answer: the gate would pass whatever the subgraphs said, so a green run
+carries no information at all. "Checked 3 of 4" did real work. And the failure
+that produced it was silent — Rails leaves `rake_eager_load` false, so a stock
+app's CI gated on nothing while printing honest prose. There is no setup where
+you'd deliberately run this task against a supergraph none of whose subgraphs
+are here; the abort says to drop it from CI if that's really you.
+
+The rule stays statable in one sentence: it fails when it found drift, and when
+it had nothing to look at.
 
 ## Output structs allow Ruby-keyword prop names
 
