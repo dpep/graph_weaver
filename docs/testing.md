@@ -22,7 +22,7 @@ it "authorizes drafts",       graphql: :in_process do … end
 |---|---|---|
 | `graphql: :fake` | most unit tests — you need *a* well-shaped response | no resolver code runs |
 | `graphql: :in_process` | the point of the test is that your resolver logic works | slower; needs a live schema class |
-| `graphql: :router` | the same, across a federated graph | needs a composed supergraph; [refuses](#what-it-refuses) shapes it can't plan faithfully |
+| `graphql: :router` | the same, across a federated graph | needs a composed supergraph; [refuses](federation.md#what-it-refuses) shapes it can't plan faithfully |
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
 The tag installs its client as `GraphWeaver.client` for that example and
@@ -39,6 +39,10 @@ the router, failures, and cassettes all slot in wherever a real transport
 would, so they work outside rspec too (`require "graph_weaver/testing"` —
 never from production code).
 
+All three modes, tagged and running end to end, are
+[`spec/rspec_spec.rb`](../spec/rspec_spec.rb) — the reference for anything
+this page leaves out.
+
 ## Nothing to configure
 
 Each mode works out what to run against, and **refuses — naming what it
@@ -49,19 +53,13 @@ looked for — rather than guessing**:
 - **`:in_process`** needs the live schema *class*, since only that has
   resolvers: the one your client already runs in-process, else the loaded
   class that defines everything the schema declares — the same
-  derive-verify-refuse rule that [maps subgraphs](#which-schema-serves-which-subgraph).
-- **`:router`** plans against the composed supergraph. If your committed
-  dump *is* one (it carries `@join__*` markers), that's it — no config at
-  all. Subgraphs are derived either way.
-
-A client can't supply a supergraph, and the refusal says why:
-
-```
-:router needs the composed supergraph SDL — a client's schema is the API schema
-the router serves, with the @join__* routing table stripped out, so the
-supergraph has to be named. app/graphql/schema.json carries no @join__*
-markers. Set GraphWeaver::Testing.config.router = { supergraph: "supergraph.graphql" }.
-```
+  derive-verify-refuse rule that
+  [maps subgraphs](federation.md#which-schema-serves-which-subgraph).
+- **`:router`** plans against the composed supergraph. If your committed dump
+  *is* one (it carries `@join__*` markers), that's it — no config at all. A
+  client can't stand in for it: a client's schema is the API schema the router
+  serves, with the `@join__*` routing table stripped out, so the supergraph has
+  to be named. Subgraphs are derived either way.
 
 So configure only to override a derivation, or to tune fabricated values:
 
@@ -77,9 +75,6 @@ GraphWeaver::Testing.configure do |config|
   # config.null_chance = 0.1         # nullable fields go nil sometimes
 end
 ```
-
-All three modes, tagged and running end to end, are in
-[`spec/rspec_spec.rb`](../spec/rspec_spec.rb).
 
 ## The context your resolvers see
 
@@ -196,7 +191,6 @@ Re-record with `GRAPHWEAVER_RECORD=1`, and set `config.anonymize = true` so
 real data never lands in a committed file — the full workflow guide is
 **[cassettes](cassettes.md)**.
 
-
 ## Real resolvers, one schema — `graphql: :in_process`
 
 Your actual resolvers, your actual `context`, in the same process — no
@@ -214,12 +208,11 @@ so it won't do). If two loaded classes match, or none does, it says so and
 asks for `config.schema = MySchema` — and in Rails, remember that an
 autoloaded schema isn't loaded until something references it.
 
-## The in-process router — `graphql: :router`
+## A federated graph — `graphql: :router`
 
-If your app is a client of a **federated** graph, its subgraphs are Ruby
-schema classes you can run in-process. `Testing::Router` takes the composed
-supergraph and those classes and satisfies the client contract, so every
-generated module runs against the real resolvers — no gateway, no node, no
+Same thing across a federated graph: `Testing::Router` takes the composed
+supergraph and the Ruby schema classes serving its subgraphs, plans the query,
+and runs it against those **real resolvers** — no gateway, no node, no
 sockets. It is not a mock: your resolvers run, which is the whole point.
 
 ```ruby
@@ -234,260 +227,8 @@ end
 The router is built once for the suite (parsing a supergraph per example
 would be real time) and installed as `GraphWeaver.client` for each; its
 context is reset from `config.context` every time, so an example that runs
-as someone else can't leak into the next. Outside rspec, build one yourself:
+as someone else can't leak into the next.
 
-```ruby
-GraphWeaver.client = GraphWeaver::Testing::Router.new(
-  supergraph: Rails.root.join("supergraph.graphql"),
-  context: { current_user: user },
-)
-```
-
-### Which schema serves which subgraph
-
-`subgraphs:` is optional. Left out, each one is **derived from what the loaded
-schemas define**: a schema serves subgraph `s` when it defines every type and
-field the routing table says `s` resolves. That's evidence rather than a guess
-— matching on class names would be one (`Accounts::Schema`, `AccountsSchema`,
-`Subgraphs::Accounts`), and a wrong guess points a suite at the wrong resolvers
-and still passes. So exactly one match is used, and **two** matches refuse,
-naming both — both fit the evidence, so picking either would be a coin flip.
-**No** match isn't a refusal: that subgraph is simply served somewhere else
-(next section).
-
-Name them yourself when you'd rather have the wiring committed, or when
-detection can't settle it — including partially, with the rest derived:
-
-```ruby
-subgraphs: { "accounts" => Accounts::Schema }   # products, reviews derived
-```
-
-Either way the map is **checked**: a schema that doesn't define what the
-supergraph says its subgraph resolves fails at construction, naming what's
-missing, rather than surfacing as a mystery three fetches later.
-
-```
-subgraphs["accounts"] is Products::Schema, which doesn't define User,
-User.email, User.username, Query.me, Query.user and 1 more — the supergraph
-says accounts resolves them. Did two entries get swapped?
-```
-
-Detection only sees what's **loaded**, and in Rails an autoloaded schema isn't
-until something references it — which is why an unmatched subgraph reads as
-absent. To see what detection sees (and get a map to paste):
-
-```
-$ rake graph_weaver:federation:subgraphs SUPERGRAPH=supergraph.graphql
-subgraphs: {
-  "accounts" => Accounts::Schema,  # matched: defines Query.me, Query.user, Query.users
-  "products" => Products::Schema,  # matched: defines Product.name, Product.price, Product.weight
-  "reviews" => nil,                # no loaded schema defines Query.feed, Review.author, Query — fill this in
-}
-```
-
-Fakes fabricate plausible data; this runs your actual resolvers, with your
-actual `context`, against the schema the router serves. `router.trace` records
-the fetches one `execute` made, in order (subgraph, query, variables) — the same
-lines go to `GraphWeaver.logger` at `:debug`.
-
-### A supergraph only partly local
-
-The usual migration shape: the supergraph is composed from several services and
-only **some** of them run in your process. The rest are routed over the network,
-so there is no Ruby schema here to serve them — and requiring one would refuse
-the whole suite over fields most of your queries never touch.
-
-So a subgraph nothing here defines is **absent**, and the router builds and runs
-anyway. Absence costs you exactly the queries that reach into it:
-
-```ruby
-router = GraphWeaver::Testing::Router.new(supergraph: "supergraph.graphql")
-router.absent                                    # => ["shipping"]
-
-router.execute("{ me { username reviews { body } } }")   # real data, as always
-router.execute("{ shipments { carrier } }")              # GraphWeaver::Testing::Unplannable
-```
-
-The refusal is a plan-time one like every other, so nothing has executed when it
-raises, and it names the subgraph, the field that reached for it, and both ways
-out:
-
-```
-Query.shipments resolves in "shipping", which no schema here serves — name it
-with subgraphs: { "shipping" => YourSchema }, or fake it with subgraphs: {
-"shipping" => :fake } — a query that never reaches an absent subgraph's fields
-still runs, so nothing else has to change. (Detection only sees loaded schemas —
-an autoloaded one isn't loaded until something references it.)
-```
-
-That second sentence is the other half of the story. If the subgraph *is* here
-and detection just couldn't see it — a Rails schema class nothing has referenced
-yet — name it and the refusal goes away.
-
-#### Faking one — `=> :fake`
-
-Mid-migration it's often useful to let an absent subgraph answer with
-schema-correct fabricated data instead of refusing, so the rest of a query still
-gets exercised. That's opt-in, per subgraph, in the map you're already passing:
-
-```ruby
-GraphWeaver::Testing::Router.new(
-  supergraph: "supergraph.graphql",
-  subgraphs: { "shipping" => :fake },   # billing, being absent, still refuses
-)
-```
-
-Erroring stays the default, and the opt-in is per subgraph on purpose: silently
-substituting invented data is the failure mode this library keeps designing
-against, and one vocabulary covers both answers — *this* service is faked, *that*
-one still isn't here.
-
-A fake speaks the whole subgraph contract, `_entities(representations:)`
-included, so it works under a stitched fetch as well as at a root field — each
-representation names its own `__typename`, and the entity comes back as that
-type.
-
-Because a green test against invented data is worse than a red one, faking is
-**loud**: every faked fetch is marked in the trace, and logged at `:warn`.
-
-```ruby
-router.execute("{ reviews { body shipment { carrier } } }")
-router.trace
-# => [{ subgraph: "reviews",  query: "…", variables: {} },
-#     { subgraph: "shipping", query: "…", variables: {…}, faked: true }]
-```
-
-```
-WARN -- : router -> shipping FAKED: fabricated data, not shipping's
-```
-
-`router.faked` lists them, and `router.inspect` shows what's served, faked, and
-absent. Values come from the same engine as `graphql: :fake`, so
-`config.seed`, `config.overrides` and the rest apply.
-
-### What it plans
-
-An operation that resolves in **one subgraph** goes over verbatim. One that
-**crosses a boundary** is split at the crossing: the plan injects the entity's
-`@key` under a reserved alias, refetches it from the owning subgraph through
-`_entities(representations:)`, and stitches the answer back.
-
-```ruby
-router.execute("{ me { username reviews { id body } } }")
-router.trace.map { _1[:subgraph] }   # => ["accounts", "reviews"]
-```
-
-Every node at one level goes in **one** `_entities` call, so a list of users
-and all their reviews' products is three fetches, not one per row. Root fields
-that resolve in different subgraphs get one fetch each. A `@provides` copy is
-read in place — the router does that too, so nothing leaves the subgraph for a
-field the copy already holds.
-
-A **`@requires` field set** is supplied by the router rather than by the
-subgraph that declares the field, so it's a fetch before the fetch:
-
-```ruby
-router.execute("{ reviews { product { shippingEstimate } } }")
-router.trace.map { _1[:subgraph] }   # => ["reviews", "products", "reviews"]
-```
-
-`shippingEstimate` resolves in `reviews` and `@requires "price weight"`, which
-`products` owns — so the plan fetches those into hidden keys, hands them back
-in the representation, and only then asks for the estimate. One hop: the key
-for the first fetch has to come from the subgraph already in hand, so a chain
-can't grow a chain. When that first fetch finds no entity the required fields
-don't exist, so the field that needs them is null and propagation takes it from
-there.
-
-Three things it does that a naive merge doesn't, and that being wrong about
-would be worse than refusing:
-
-- **Null propagation over the merged tree.** A stitched fetch can put a null
-  where the composed schema says non-null, and no subgraph is in a position to
-  notice. The router re-applies GraphQL's propagation rules to the merged
-  result, so a subtree the real router would have nulled comes back null here.
-- **Error re-pathing.** A subgraph reports `_entities.2.shippingEstimate`; you
-  get `topProducts.2.shippingEstimate`. `locations` are dropped rather than
-  pointing into a query you never wrote.
-- **`@skip`/`@include` on a stitched field.** A skipped field comes back
-  *absent*, not null.
-
-### What it refuses
-
-Everything it can't plan **faithfully** raises
-`GraphWeaver::Testing::Unplannable` (a `GraphWeaver::Error`), at plan time,
-before any subgraph runs — so a refusal is never a half-executed query.
-Apollo's planner is ~20k lines; a double that approximated the rest of it would
-let a test pass on an answer production disagrees with, which is the most
-expensive thing this library can produce.
-
-```
-User.reviews is fetched on User's "id", and this selection aliases username as
-"id" over it — Apollo's router resolves that collision in favour of its own
-injected key and a spec-conformant server doesn't, so there is no one answer to
-agree with. Rename the alias.
-```
-
-What's left, and why:
-
-| Refusal | Why |
-|---|---|
-| an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
-| an abstract type at a boundary | a representation names one concrete `__typename`, and the router doesn't resolve a type per object to build one |
-| a nested `@key`/`@requires` field set | representations are built from flat field sets only |
-| no usable `@key` | nothing to build a representation from |
-| a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them would run them in whatever order the plan happened to (query roots are independent, so those are fine) |
-| a subgraph nothing here serves | it's served by another process, so there is nothing here to ask — unless you fake it (above) |
-
-It also refuses at construction, before a single query, a supergraph carrying
-a `@join__*` construct the routing table hasn't been taught — an incomplete
-table makes every answer a guess — and a subgraph two loaded schemas both fit
-(above).
-
-Introspection is answered from the composed API schema, never from a subgraph,
-which would reply with its own slice — the one split a real router also makes.
-
-### Is it worth wiring up? Measure.
-
-The router's value is one number — the fraction of *your* queries it can plan —
-and that depends on the shape of your graph and of your queries, so measure it
-rather than guess:
-
-```
-$ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
-17/17 queries plannable locally (100%)
-  accounts 4, reviews 4, products+reviews 3, accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1
-
-refused (0)
-```
-
-`QUERIES=` picks the directory (default `GraphWeaver.queries_path`). Planning
-needs the supergraph and nothing else, so this runs in CI with the SDL alone —
-no subgraph has to be loadable. The second line says which subgraphs each query
-touches, so a graph whose queries all sit in one is visibly a different
-situation from one that stitches everywhere; the reasons group by category, so
-one glance says whether the gap is one construct or many. The run above is
-against the demo graph in `spec/support/federation`, not a real app's mix.
-
-### How the refusals are kept honest
-
-A double that quietly answered *differently* from the router would be worse
-than no double at all, so
-[`spec/integration/router_parity_spec.rb`](../spec/integration/router_parity_spec.rb)
-serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
-supergraph, and runs every corpus query through both. Three outcomes, one of
-them a defect: match, refuse, or answer differently. On 43 queries — the corpus,
-twenty boundary probes, and five where a subgraph deliberately fails — the local
-router is byte-identical to the gateway on 42, refuses 1, and is wrong on none.
-A second example checks the gateway answers every refusal cleanly, so each is a
-capability gap rather than a broken query, and a third pins the ten queries the
-pass-through router used to answer: still one fetch each, still identical.
-`make integration` runs it (node required).
-
-The five deliberate failures are the ones that matter most. A resolver that
-errors under a stitched fetch, an entity nothing can resolve, and a `@requires`
-fetch that comes back empty all put a null where the composed schema says
-non-null — and a merge that doesn't re-propagate hands back a populated tree
-where the real router answers `data: null`. That is the failure mode this whole
-design exists to make impossible, so it's tested against the real thing rather
-than against an expectation someone wrote down.
+What it plans, what it **refuses** and why, how subgraphs are matched to your
+schema classes, and what to do about a supergraph only partly local:
+**[federation → the local router](federation.md#the-local-router)**.
