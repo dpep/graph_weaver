@@ -121,7 +121,7 @@ module GraphWeaver
         when :fake
           FakeClient.new(schema: config.reference_schema!)
         when :in_process
-          GraphWeaver::InProcess.new(config.live_schema, context: config.context)
+          GraphWeaver::InProcess.new(config.schema_class!, context: config.context)
         when :router
           router = config.built_router
           router.context = config.context
@@ -156,6 +156,29 @@ module GraphWeaver
           options[:schema] ||= GraphWeaver::Testing.config.reference_schema!
           @__graph_weaver_mode = :fake
           GraphWeaver.client = GraphWeaver::Testing::FakeClient.new(**options)
+        end
+
+        # Run this example against one schema class's real resolvers.
+        # `graphql: :in_process` is exactly this call with no argument, which
+        # runs config.schema when that is a live class.
+        #
+        # Naming one is how a federated app tests a single subgraph directly,
+        # which is a different question from `graphql: :router` — that plans
+        # across the whole graph and stitches. Both are worth asking, and a
+        # suite testing several subgraphs needs to say which per example:
+        #
+        #      it "hides a draft review", graphql: :in_process do
+        #        graphql_in_process(Reviews::Schema)
+        #        …
+        #      end
+        #
+        # Returns the client, and is restored after the example like a tagged
+        # one — so the tag is optional here.
+        def graphql_in_process(schema = nil, **options)
+          schema ||= GraphWeaver::Testing.config.schema_class!
+          options[:context] ||= GraphWeaver::Testing.config.context
+          @__graph_weaver_mode = :in_process
+          GraphWeaver.client = GraphWeaver::InProcess.new(schema, **options)
         end
 
         # The GraphQL context this example's resolvers see — merged onto

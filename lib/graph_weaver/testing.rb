@@ -50,13 +50,6 @@ module GraphWeaver
     CLIENT_MODES = %i[fake in_process router].freeze
 
     class Config
-      # `schema` is what a response is shaped like — fakes fabricate against
-      # it, cassettes replay through it. `live_schema` is the class whose
-      # resolvers :in_process runs. They are the same object in an app that
-      # serves the API it calls, and different ones in a federated app, where
-      # you may want a subgraph's own resolvers under :in_process while fakes
-      # still answer for the whole graph.
-      attr_writer :live_schema
       attr_accessor :schema, :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
         :record, :anonymize
       attr_reader :mode, :router, :default_mode
@@ -171,17 +164,17 @@ module GraphWeaver
           "Set GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }."
       end
 
-      # The live schema class :in_process runs against: the one you named,
-      # else the one the client already runs in-process. Only a live class
-      # has resolvers, so there's nothing to fall back to — a dump is type
-      # information.
-      def live_schema
-        @live_schema ||= runnable(@schema) || GraphWeaver.live_schema ||
+      # The live schema class :in_process runs when the example didn't name
+      # one — config.schema if that is a class, else whatever the app's own
+      # client already runs in-process. Only a live class has resolvers, so
+      # there is nothing else to fall back to: a dump is type information.
+      def schema_class!
+        runnable(schema) || GraphWeaver.live_schema ||
           raise(GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
             "GraphQL::Schema class — and GraphWeaver.client isn't running one in-process to " \
-            "borrow. Set GraphWeaver::Testing.config.live_schema = MySchema — a subgraph's own " \
-            "class is fine, if that's the one whose resolvers you mean to run. (To run a whole " \
-            "federated graph stitched instead, tag those examples graphql: :router.)")
+            "borrow. Name it in the example — graphql_in_process(MySchema) — or set " \
+            "GraphWeaver::Testing.config.schema = MySchema for the whole suite. A federated app " \
+            "names the subgraph it means, per example; graphql: :router runs the graph stitched.")
       end
 
       # The schema everything else derives from: the one you set, else the

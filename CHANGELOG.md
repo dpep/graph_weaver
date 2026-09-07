@@ -1,10 +1,11 @@
 ## Unreleased
-- **`Testing.config.live_schema`** names the schema class `graphql: :in_process`
-  runs, when that isn't the one fakes derive from. They are the same object in
-  an app that serves the API it calls, and different in a federated one — where
-  you may want a *subgraph's* own resolvers under `:in_process` while fakes
-  still answer for the whole graph. Nothing to change if you set only
-  `config.schema`; it still serves both.
+- **`graphql_in_process(SomeSchema)`** runs one example against that schema
+  class's real resolvers — the sibling of `graphql_fake`, and how a federated
+  app tests a single subgraph directly rather than through the stitched graph.
+  `graphql: :in_process` is that call with no argument, which runs
+  `config.schema` when it is a live class, so a non-federated app needs
+  nothing. A suite testing several subgraphs names one per example, which no
+  suite-wide setting could express.
 - **`Testing.config.router` takes `subgraphs:` without `supergraph:`.** It
   raised — "must be the arguments to build one, e.g. `{ supergraph: … }`" —
   even where the committed dump already is the supergraph, which is the case

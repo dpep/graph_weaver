@@ -128,6 +128,26 @@ describe "graph_weaver/rspec" do
       expect(DraftsDemo::QUERY.execute!.drafts.map(&:id)).to eq %w[d3]
     end
 
+    # a federated app has no one live class, so which subgraph's resolvers
+    # this example runs is the example's to say
+    it "runs a schema the example names instead", graphql: :in_process do
+      require_relative "support/federation_router_graph"
+      subgraph = Object.const_get("RouterGraph::Reviews::Schema")
+
+      graphql_in_process(subgraph)
+
+      expect(GraphWeaver.client.schema).to be subgraph
+      expect(GraphWeaver.client.execute("{ reviews { body } }", variables: {})
+        .dig("data", "reviews").map { |review| review["body"] }).to include "Love it"
+    end
+
+    it "needs no tag, and is restored after the example" do
+      require_relative "support/federation_router_graph"
+      graphql_in_process(Object.const_get("RouterGraph::Reviews::Schema"))
+
+      expect(GraphWeaver.client).to be_a GraphWeaver::InProcess
+    end
+
     # each asserts the baseline BEFORE setting its own, so whichever runs
     # second proves the context didn't leak
     %w[alice bob].each do |user|
@@ -263,7 +283,7 @@ describe "graph_weaver/rspec" do
       app_client!(DraftsDemo::Schema)
 
       expect { GraphWeaver::Testing::RSpecIntegration.client_for(:in_process, config) }
-        .to raise_error(GraphWeaver::Error, /config\.live_schema = MySchema.*graphql: :router/m)
+        .to raise_error(GraphWeaver::Error, /graphql_in_process\(MySchema\).*graphql: :router/m)
     end
 
     it "refuses a router context that the per-example reset would overwrite" do
