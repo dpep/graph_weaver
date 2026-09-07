@@ -33,10 +33,19 @@ class GraphWeaver::Codegen
           # type, so name the one that failed and the way out
           next nil if spec[:optional]
 
-          raise e.class, "#{[@module_name, e.message].compact.join(": ")} " \
+          raise e.class, "#{qualify(node, e.message)} " \
             "— pass optional: true to skip selections that don't fit"
         end
       end
+    end
+
+    # Name the failing query module — unless the message already names it,
+    # since a module and the type it queries can share a name (module Query
+    # on type Query would otherwise stutter).
+    def qualify(node, message)
+      return message if @module_name.nil? || @module_name == node.graphql_type
+
+      "#{@module_name}: #{message}"
     end
 
     def check_alias_name!(node, name)

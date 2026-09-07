@@ -113,6 +113,12 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
       expect { generate("query W { widget { id } }") }
         .to raise_error(GraphWeaver::Error, /\AW: alias .* — pass optional: true to skip selections that don't fit\z/)
     end
+
+    it "doesn't stutter when the module and the type share a name" do
+      GraphWeaver.extend_type("Query", alias: { w: "widget.name" })
+      expect { GraphWeaver::Codegen.generate(schema:, query: "{ widget { id } }", module_name: "Query") }
+        .to raise_error(GraphWeaver::Error, /\Aalias "w" on Query: 'name' is not a selected field/)
+    end
   end
 
   it "rejects an accessor name that collides with a selected field" do
