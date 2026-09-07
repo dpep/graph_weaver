@@ -1,4 +1,61 @@
 ## Unreleased
+
+### One `execute`, one way to pass a client (**breaking**)
+
+Every client answers the same call — `execute(query, variables:,
+operation_name:)`, returning the raw response hash. Three objects a user holds
+used to disagree with that, and each disagreement was a bug waiting.
+
+- **`Client#execute` is that contract now**, so `GraphWeaver::Retry.new(client)`,
+  `Testing::Sequence.new(client, fake)` and a cassette recorder over a client
+  all work. Its one-shot parse-and-run sugar moved to **`Client#run` /
+  `#run!`** (and `GraphWeaver.run` / `.run!` for the throwaway-client form):
+  **rename `client.execute!(query, **vars)` to `client.run!(query, **vars)`.**
+- **A generated module takes the per-call client as a kwarg**: rename
+  `PersonQuery.execute(some_client, id: "1")` to
+  `PersonQuery.execute(client: some_client, id: "1")`. Variables are
+  unaffected — `$client` was already refused at generation. It is also what
+  makes a mistyped variable name itself: `PersonQuery.execute(id: "1")` on a
+  query that declares no variables now raises `unknown keyword: :id` instead of
+  blaming the client. **Regenerate** (`rake graph_weaver:generate`);
+  `rake graph_weaver:verify` fails until you do.
+- **`GraphWeaver.resolve_transport` is gone.** Nothing needs unwrapping any
+  more. A client that can't execute is still refused, by the module it was
+  passed to — whose name is now in the message.
+- A module parsed from a `Client` bakes that client rather than its transport.
+  For a client built from a schema *dump* (no transport), `execute` now says
+  `this client has no transport (built from a schema dump)` instead of quietly
+  running on `GraphWeaver.client`.
+- `$transport` is a usable GraphQL variable name again — the generated body has
+  no such local.
+
+### One reset, one plurality rule (**breaking**)
+
+- **`GraphWeaver.reset_scalars!`, `clear_scalars!`, `reset_enums!` and
+  `reset_type_helpers!` are gone.** `GraphWeaver.reset_registrations!` is the
+  clean slate between tests; to reset one registry, call the same name on
+  `GraphWeaver::Codegen`.
+- **Every directory setting is a list — `queries_paths`, `generated_paths`,
+  `fragments_paths`** — and *every entry is read*, by `generate!`,
+  `verify_generated!`, `check_queries` and `load_queries!` alike. (0.4.x
+  dropped a plural `queries_paths` because only `load_queries!` walked it;
+  that divergence is what the singular was protecting against, and it is gone.)
+  **Rename any `queries_path` / `generated_path` / `fragments_path` you set or
+  read** — assigning a String still works (`GraphWeaver.queries_paths =
+  "app/graphql/queries"`), and `generated_paths.first` is the one directory
+  `generate!` writes into. `schema_path` stays singular: a run reads one
+  schema, so a second entry would name a dump nothing opens.
+
+- `rake graph_weaver:queries:check` prints an unparseable query's position once
+  rather than twice, and `GraphWeaver.check_queries` returns the documented
+  `"message"` / `"line"` / `"column"` shape for parse errors too — the position
+  is no longer folded into the message.
+- Docs: a spec-local `generated_paths` entry needs an explicit
+  `GraphWeaver.load_generated!` (in Rails the Railtie has already run by then),
+  and belongs outside `spec/support/`, whose files rspec-rails requires itself
+  in sorted order. A registration naming one of your own constants goes in a
+  `to_prepare` block — the same rule the in-process client already follows —
+  rather than the `require Rails.root.join(...)` dance.
 - **Removing an `extend_type` registration no longer bricks the app.**
   Generated files carry `include GraphWeaver::TypeHelpers::Foo`, so dropping
   the registration made boot fail — and because `rake graph_weaver:generate`

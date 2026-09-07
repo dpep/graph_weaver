@@ -60,28 +60,18 @@ What it wrote:
   GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
   ```
 
-  Initializers run before autoloading is set up, so a constant a
-  registration *names* — a `T::Enum` for `register_enum`, a mixin module for
-  `extend_type` — can't be autoloaded from `app/` here (you get
-  `uninitialized constant PetKind`). Keep it out of the autoload paths and
-  require it, or build a mixin inline with a block, which needs no constant
-  at all:
+  A registration that names one of your own constants — a `T::Enum` for
+  `register_enum`, a mixin for `extend_type` — goes in a `to_prepare` block,
+  the same place the in-process client goes and for the same reason:
+  autoloading is set up after `config/initializers` run. Generation depends on
+  `:environment`, which runs `to_prepare` too, so the registration is in place
+  before it emits.
 
   ```ruby
-  require Rails.root.join("lib/graph_weaver/pet_kind")
-  GraphWeaver.register_enum("Species", PetKind, requires: "graph_weaver/pet_kind")
-
-  GraphWeaver.extend_type("Pet") { def adopted? = !adopted_at.nil? }
-  ```
-
-  **Tell Zeitwerk to skip that directory.** Rails 8 autoloads `lib/`, and a
-  file there defining a top-level `PetKind` doesn't match the constant path
-  Zeitwerk expects (`GraphWeaver::PetKind`), so `rails zeitwerk:check` — and
-  a production boot — fails with `uninitialized constant
-  GraphWeaver::PetKind`. One line in `config/application.rb`:
-
-  ```ruby
-  config.autoload_lib(ignore: %w[assets tasks graph_weaver])
+  Rails.application.config.to_prepare do
+    GraphWeaver.register_enum("Species", PetKind, fallback: PetKind::Unknown)
+    GraphWeaver.extend_type("Pet", PetHelpers)
+  end
   ```
 
 - **`app/graphql/schema.json`.** The schema dump codegen reads
