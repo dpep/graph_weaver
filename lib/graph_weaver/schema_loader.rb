@@ -19,6 +19,11 @@ module GraphWeaver::SchemaLoader
   def self.load(source)
     return build_introspection(source) if source.is_a?(Hash)
 
+    # Rails.root.join(...) hands you a Pathname, and to_path is the
+    # ecosystem's "I am a path" (File.open honors it). Without this the
+    # sniffing below fails as `undefined method 'lstrip'`.
+    source = source.to_path if source.respond_to?(:to_path)
+
     if source.lstrip.start_with?("{") # introspection JSON content
       build_introspection(JSON.parse(source))
     elsif sdl_content?(source) # SDL content, one line or many

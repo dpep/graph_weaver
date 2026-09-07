@@ -24,6 +24,20 @@ describe "GraphWeaver.generate!" do
       .to eq File.read(File.join(root, "spec/generated/person_query.rb"))
   end
 
+  # Rails.root.join(...) is how a Rails app spells a path
+  it "takes a Pathname where it takes a schema path" do
+    Dir.mktmpdir do |dir|
+      schema = File.join(dir, "schema.graphql")
+      File.write(schema, Demo::Schema.to_definition)
+      queries = File.join(dir, "queries")
+      FileUtils.mkdir_p(queries)
+      File.write(File.join(queries, "pet.graphql"), "query { person(id: 1) { name } }\n")
+      out = File.join(dir, "generated")
+
+      expect(GraphWeaver.generate!(schema: Pathname.new(schema), queries:, output: out).size).to eq 1
+    end
+  end
+
   it "brands an unparseable query file and names it" do
     queries = File.join(@dir, "queries")
     FileUtils.mkdir_p(queries)

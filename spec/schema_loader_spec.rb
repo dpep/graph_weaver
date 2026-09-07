@@ -76,6 +76,15 @@ describe GraphWeaver::SchemaLoader do
     Dir.chdir(@dir) { codegen_parity(described_class.load("types/schema.graphql")) }
   end
 
+  # Rails.root.join(...) is how a Rails app spells a path
+  it "loads a Pathname" do
+    path = File.join(@dir, "schema.graphql")
+    File.write(path, Demo::Schema.to_definition)
+
+    codegen_parity(described_class.load(Pathname.new(path)))
+    codegen_parity(GraphWeaver.new(Pathname.new(path)).schema)
+  end
+
   describe ".locate" do
     it "loads the conventional dump in whatever format exists" do
       expect(described_class.locate(File.join(@dir, "schema.json"))).to be_nil
