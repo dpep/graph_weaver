@@ -60,7 +60,7 @@ describe "GitHub API", :integration do
     expect(repo&.stargazer_count).to be >= 0
     expect(repo&.primary_language&.name).to eq "Ruby"
   ensure
-    GraphWeaver.reset_scalars!
+    GraphWeaver::Codegen.reset_scalars!
   end
 
   it "dispatches union search results via __typename" do

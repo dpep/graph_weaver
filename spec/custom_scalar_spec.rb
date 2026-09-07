@@ -77,7 +77,7 @@ end
 describe "custom scalar deserialization" do
   # register_scalar mutates a process-wide registry; restore the built-in
   # defaults after each example so these don't leak into the rest of the suite.
-  after { GraphWeaver.reset_scalars! }
+  after { GraphWeaver::Codegen.reset_scalars! }
 
   let(:query) do
     <<~GRAPHQL
@@ -204,10 +204,10 @@ describe "custom scalar deserialization" do
   end
 
   it "clears and resets the registry" do
-    GraphWeaver.clear_scalars!
+    GraphWeaver::Codegen.clear_scalars!
     expect(GraphWeaver::Codegen.scalar("Date").cast?).to be false # built-in gone
 
-    GraphWeaver.reset_scalars!
+    GraphWeaver::Codegen.reset_scalars!
     expect(GraphWeaver::Codegen.scalar("Date").cast("s")).to eq "Date.iso8601(s)"
   end
 

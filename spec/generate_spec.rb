@@ -321,7 +321,7 @@ end
 describe "GraphWeaver.auto_coerce" do
   after do
     GraphWeaver.auto_coerce = nil
-    GraphWeaver.reset_scalars!
+    GraphWeaver::Codegen.reset_scalars!
   end
 
   let(:query) { "query Cast($id: ID!, $term: String!) { search(term: $term) { __typename ... on Named { name } } }" }

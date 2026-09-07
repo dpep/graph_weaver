@@ -565,34 +565,11 @@ module GraphWeaver
       Codegen.extend_type(graphql_name, *mixins, requires:, **kw, &block)
     end
 
-    # Restore the built-in scalars, dropping every custom registration —
-    # the clean slate to reach for between tests or to undo overrides.
-    # (Loose input for the built-ins is auto_coerce's job, not a reset flavor.)
-    def reset_scalars!
-      Codegen.reset_scalars!
-    end
-
-    # Empty the scalar registry entirely, built-ins included (see
-    # reset_scalars! to restore the defaults).
-    def clear_scalars!
-      Codegen.clear_scalars!
-    end
-
-    # Drop every register_enum mapping. (No clear_ twin: unlike scalars,
-    # there are no built-in enums to restore.)
-    def reset_enums!
-      Codegen.reset_enums!
-    end
-
-    # Drop every extend_type registration — mixins, requires, alias: paths.
-    # The block-built modules under GraphWeaver::TypeHelpers stay, since
-    # generated files may still name them.
-    def reset_type_helpers!
-      Codegen.reset_type_helpers!
-    end
-
     # Every registry back to its starting state: built-in scalars restored,
-    # enum mappings and type helpers dropped — the clean slate between tests.
+    # enum mappings and type helpers dropped — the clean slate between
+    # tests. (One registry at a time is a Codegen call:
+    # GraphWeaver::Codegen.reset_enums!, .reset_scalars!, .clear_scalars!,
+    # .reset_type_helpers!)
     def reset_registrations!
       Codegen.reset_registrations!
     end

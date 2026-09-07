@@ -29,7 +29,7 @@ describe "built-in scalar coercion" do
   # restore strict built-ins and the lazy default after each example
   after do
     GraphWeaver.auto_coerce = nil
-    GraphWeaver.reset_scalars!
+    GraphWeaver::Codegen.reset_scalars!
   end
 
   let(:query) do

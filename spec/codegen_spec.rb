@@ -1018,7 +1018,7 @@ describe GraphWeaver::Codegen do
       GRAPHQL
     end
 
-    after { GraphWeaver.reset_scalars! }
+    after { GraphWeaver::Codegen.reset_scalars! }
 
     it "maps the same scalar to different Ruby types across fields in one query" do
       GraphWeaver.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")

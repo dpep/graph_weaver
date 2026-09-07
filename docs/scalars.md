@@ -71,13 +71,13 @@ on one raises rather than emitting a no-op.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
-`register_scalar` overrides them; `GraphWeaver.reset_scalars!` restores the
-defaults and `clear_scalars!` empties the registry.
+`register_scalar` overrides them.
 
-The other registries reset the same way: `reset_enums!` drops every
-`register_enum` mapping, `reset_type_helpers!` every `extend_type` registration,
-and `reset_registrations!` does all of it at once — built-in scalars restored,
-enums and type helpers dropped, the clean slate between tests.
+`GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
+scalars restored, enum mappings and type helpers dropped. To reset one registry
+rather than all of them, `GraphWeaver::Codegen` has the pieces —
+`reset_scalars!` (restore the built-ins), `clear_scalars!` (empty the registry
+entirely), `reset_enums!`, `reset_type_helpers!`.
 
 A scalar you never register is not an error — it generates as `T.untyped` and
 the wire value passes through untouched. It is, though, the one hole in an
