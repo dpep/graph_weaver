@@ -22,6 +22,7 @@ require "sorbet-runtime"
 # this file holds the public API and the query walk.
 require_relative "hints"
 require_relative "input_struct"
+require_relative "schema_loader"
 require_relative "representation"
 require_relative "inflect"
 require_relative "selection"
@@ -437,20 +438,13 @@ class GraphWeaver::Codegen
   end
 
   # A @key field set is a GraphQL selection set — "upc sku", or a nested
-  # "id organization { id }" — so parse it and flatten to the leaf paths the
-  # wire hash needs. Dotted, since a GraphQL name can't contain a dot.
+  # "id organization { id }" — flattened to the dotted leaf paths the wire
+  # hash needs. The same reading the routing table does of the same syntax,
+  # so a supergraph and a subgraph SDL can't disagree about one key.
   def key_paths(entity, fields)
-    selections = GraphQL.parse("{ #{fields} }").definitions.first.selections
-    leaf_paths(selections)
+    GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(fields)
   rescue GraphQL::ParseError => e
     raise GraphWeaver::Error, "#{entity.graphql_name} @key(fields: #{fields.inspect}) isn't a selection set: #{e.message}"
-  end
-
-  def leaf_paths(selections, prefix = [])
-    selections.flat_map do |node|
-      path = prefix + [node.name]
-      node.selections.empty? ? [path.join(".")] : leaf_paths(node.selections, path)
-    end
   end
 
   # The kwargs a builder takes: every key set's top-level field, once. Typed
