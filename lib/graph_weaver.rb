@@ -312,13 +312,13 @@ module GraphWeaver
     # The graphql-ruby schema class the app default executes against, when it
     # runs in-process — a Client wrapping one, or the class in the slot bare.
     # nil for every network client. Not memoized: in dev the class object is
-    # replaced on reload.
+    # replaced on reload. (Public because testing's :in_process mode asks:
+    # a client already running in-process names its own schema class.)
     def live_schema
       target = client.is_a?(Client) ? client.transport : client
       target = target.schema if target.is_a?(InProcess)
       target if target.is_a?(Class) && target <= GraphQL::Schema
     end
-    private :live_schema
 
     # One query's schema-validation errors as JSON-ready hashes, with the
     # source position graphql-ruby reports. Unparseable counts as an error

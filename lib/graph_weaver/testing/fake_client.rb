@@ -66,7 +66,7 @@ class GraphWeaver::Testing::FakeClient
       "no schema to fake against — set GraphWeaver::Testing.config.schema, pass schema:, " \
       "or commit a schema dump at #{GraphWeaver.schema_path}")
     @overrides = config.overrides.merge(overrides)
-    GraphWeaver::Testing.validate_overrides!(schema, @overrides)
+    GraphWeaver::Testing.validate_overrides!(@schema, @overrides)
     @values = GraphWeaver::Testing::Values.new(seed:, mode:)
     @list_size = list_size || config.list_size
     @null_chance = null_chance || config.null_chance
