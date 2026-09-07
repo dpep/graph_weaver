@@ -88,6 +88,26 @@ describe "GraphWeaver::Railtie" do
     end
   end
 
+  # the rake tasks write these files, so requiring them first would let a
+  # stale one block its own repair
+  it "skips loading generated modules when a graph_weaver task is booting" do
+    initializers = {}
+    load_railtie([], initializers)
+
+    Dir.mktmpdir do |dir|
+      GraphWeaver.generated_path = dir
+      File.write(File.join(dir, "skipped_query.rb"), "module RailtieSkipProbe; end")
+      GraphWeaver.skip_generated_load = true
+
+      initializers["graph_weaver.load_generated"].call
+
+      expect(defined?(RailtieSkipProbe)).to be_nil
+    ensure
+      GraphWeaver.skip_generated_load = false
+      GraphWeaver.generated_path = nil
+    end
+  end
+
   it "boots quietly when there is nothing generated" do
     initializers = {}
     load_railtie([], initializers)

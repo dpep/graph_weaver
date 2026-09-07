@@ -1,4 +1,13 @@
 ## Unreleased
+- **Removing an `extend_type` registration no longer bricks the app.**
+  Generated files carry `include GraphWeaver::TypeHelpers::Foo`, so dropping
+  the registration made boot fail — and because `rake graph_weaver:generate`
+  depends on `:environment`, the regeneration that would repair it failed the
+  same way. The graph_weaver tasks now skip loading generated modules (none of
+  them reads one), so `rake graph_weaver:generate` repairs the tree. Outside a
+  task, the dangling include now raises a `GraphWeaver::Error` naming the
+  registration that went missing and how to recover, instead of a bare
+  `NameError` pointing into generated code.
 - **A cancelled request no longer leaks its socket.** `Transport::HTTP`
   closed a connection of unknown state with a bare `rescue`, which catches
   only `StandardError`. A fiber scheduler cancels with `Async::Stop`, which

@@ -147,6 +147,11 @@ module GraphWeaver
     attr_writer :generated_paths, :schema_path, :fragments_paths
     attr_accessor :queries_path
 
+    # Set by every graph_weaver rake task: those tasks WRITE the generated
+    # files, so loading them first lets a stale one block its own repair.
+    # None of them needs the modules loaded.
+    attr_accessor :skip_generated_load
+
     def queries_path = @queries_path ||= "app/graphql/queries"
     def generated_paths = @generated_paths ||= ["app/graphql/generated", "app/graphql/*/generated"]
 
@@ -397,7 +402,16 @@ module GraphWeaver
     def load_generated!(path = nil)
       paths = path ? [path] : generated_paths
       files = paths.flat_map { |dir| Dir[File.join(dir, "**/*.rb")].sort }.uniq
-      files.each { |file| require File.expand_path(file) }
+      files.each do |file|
+        require File.expand_path(file)
+      rescue NameError => e
+        # a dropped extend_type leaves this include dangling; say so here,
+        # because the raw NameError points at generated code and names no fix
+        helper = e.message[/GraphWeaver::TypeHelpers::(\w+)/, 1] or raise
+        raise Error, "#{file} includes GraphWeaver::TypeHelpers::#{helper}, but nothing registers it — " \
+          "the extend_type(#{helper.inspect}) it was generated from is gone. Re-add that registration, " \
+          "or regenerate without it: rake graph_weaver:generate"
+      end
       log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
       files
     end

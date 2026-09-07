@@ -40,6 +40,12 @@ class GraphWeaver::Railtie < Rails::Railtie
   end
 
   initializer "graph_weaver.load_generated", after: :load_config_initializers do
+    # The graph_weaver tasks write these files and need none of them loaded.
+    # Loading them would let a stale one block its own repair: a dropped
+    # extend_type leaves a dangling include, and generate depends on
+    # :environment, so boot failed before the task that would regenerate it.
+    next if GraphWeaver.skip_generated_load
+
     # entries may be globs, so Dir[] rather than Dir.exist?
     GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir[path].any? }
   end

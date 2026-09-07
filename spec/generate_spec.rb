@@ -97,6 +97,24 @@ describe "GraphWeaver.generate!" do
     end
   end
 
+  # Dropping an extend_type leaves every file that included its mixin
+  # referencing a constant nothing defines. Since generate depends on
+  # :environment, the boot failure used to block its own repair.
+  it "names the fix when a generated file expects a helper nothing registers" do
+    generated = File.join(@dir, "generated")
+    FileUtils.mkdir_p(generated)
+    File.write(File.join(generated, "stale_query.rb"), <<~RUBY)
+      module StaleQuery
+        class Result
+          include GraphWeaver::TypeHelpers::Ghost
+        end
+      end
+    RUBY
+
+    expect { GraphWeaver.load_generated!(generated) }
+      .to raise_error(GraphWeaver::Error, /extend_type\("Ghost"\).*rake graph_weaver:generate/m)
+  end
+
   it "loads appended generated_paths — the spec-support pattern" do
     queries = File.join(@dir, "support/graphql/queries")
     output = File.join(@dir, "support/graphql/generated")

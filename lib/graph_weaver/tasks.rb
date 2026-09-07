@@ -30,7 +30,15 @@ namespace :graph_weaver do
   # Rails::Application#run_tasks_blocks), so whether it exists can only be
   # asked when the task runs, not when this file loads.
   task :environment do
+    # Every task here reads queries, the schema and the registrations; none
+    # reads a generated module. Saying so lets the railtie skip loading them,
+    # so a stale generated file can't block the task that repairs it.
+    GraphWeaver.skip_generated_load = true
     Rake::Task["environment"].invoke if Rake::Task.task_defined?("environment")
+  ensure
+    # only meaningful while booting — leaving it set would silently disable
+    # loading for anything that boots later in the same process
+    GraphWeaver.skip_generated_load = false
   end
 
   desc "Generate typed query modules (#{GraphWeaver.queries_path} -> #{GraphWeaver.generated_path})"
