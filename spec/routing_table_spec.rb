@@ -168,7 +168,9 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(built.unsupported).to contain_exactly(/Query applies @join__directive/)
   end
 
-  it "reports an @interfaceObject it cannot attribute field by field" do
+  # per type, not in `unsupported`: a query that never reaches it is
+  # unaffected, and only something planning one can tell
+  it "names an @interfaceObject it cannot attribute field by field" do
     built = supergraph(<<~SDL)
       type Query @join__type(graph: A) { media: Media @join__field(graph: A) }
       type Media @join__type(graph: A, key: "id") @join__type(graph: B, key: "id", isInterfaceObject: true) {
@@ -177,7 +179,8 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
       }
     SDL
 
-    expect(built.unsupported).to contain_exactly(/Media is an @interfaceObject/)
+    expect(built.interface_objects).to eq({ "Media" => ["b"] })
+    expect(built.unsupported).to be_empty
   end
 
   it "refuses a schema that carries no routing table" do

@@ -1202,6 +1202,19 @@ next to what a generated struct looks like. **Update any bookmark to
 - **A refusal spells a nested `@key`/`@requires` field set the way your schema
   does** — `"origin { lat lon }"`, not `"origin.lat", "origin.lon"`. The dotted
   form is this library's parse of it and matches nothing you can grep for.
+- **One `@interfaceObject` no longer disables the whole router.** It refused at
+  construction, for the entire supergraph, so a single directive made
+  `Testing::Router` unusable even for queries that never touch the type — one
+  corpus had to be split into two graphs over it. It is now a per-query refusal
+  (`Unplannable#category` `:interface_object`) keyed on the types the query
+  actually reaches, and `federation:coverage` counts it as one refusal among
+  others rather than aborting. Routing an `@interfaceObject` is still not
+  implemented; this only makes the refusal proportionate.
+  `RoutingTable#unsupported` no longer lists them —
+  `RoutingTable#interface_objects` does, as `{"Media" => ["catalog"]}`.
+- `docs/federation.md`'s refusal table now lists **every** `Unplannable`
+  category, and a spec keeps it that way. Five were missing, `chained_requires`
+  and `conditional_fragment` among them.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

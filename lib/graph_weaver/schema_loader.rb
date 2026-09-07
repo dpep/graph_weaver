@@ -858,6 +858,14 @@ module GraphWeaver::SchemaLoader
     # faithfully, each as a one-line explanation
     attr_reader :unsupported
 
+    # { "Media" => ["catalog"] } — types a subgraph resolves as an
+    # @interfaceObject, so it answers a whole interface's implementations and
+    # this table can't attribute their fields subgraph by subgraph. Not in
+    # `unsupported` because it is a fact about one type rather than about the
+    # table: a query that never reaches the type is unaffected, and only a
+    # caller planning one can tell.
+    attr_reader :interface_objects
+
     def initialize(sdl)
       @document = GraphQL.parse(sdl)
       @names = {}        # "ACCOUNTS" => "accounts"
@@ -868,6 +876,7 @@ module GraphWeaver::SchemaLoader
       @abstract = {}     # "FeedItem" => ["Announcement", "Review"]
       @possible = {}     # "FeedItem" => { "reviews" => ["Announcement", "Review"] }
       @unsupported = []
+      @interface_objects = {}
 
       read_graphs
       read_abstracts
@@ -1043,10 +1052,8 @@ module GraphWeaver::SchemaLoader
         @keys[defn.name] = read_keys(joins)
         read_possible(defn)
 
-        if joins.any? { |d| argument(d, "isInterfaceObject") == true }
-          @unsupported << "#{defn.name} is an @interfaceObject — one subgraph resolves a whole " \
-            "interface's implementations, which this table cannot attribute field by field"
-        end
+        as_object = joins.select { |d| argument(d, "isInterfaceObject") == true }
+        @interface_objects[defn.name] = as_object.filter_map { |d| subgraph(d) } if as_object.any?
 
         read_fields(defn)
       end

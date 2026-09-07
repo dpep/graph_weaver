@@ -454,6 +454,55 @@ describe GraphWeaver::Testing::Router do
       end
     end
 
+    # One @interfaceObject used to cost you the whole supergraph — the router
+    # refused at construction, so a corpus had to be split into two graphs
+    # over a directive most of its queries never reached.
+    describe "an @interfaceObject" do
+      subject(:media) do
+        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake, "b" => :fake })
+          schema @link(url: "https://specs.apollo.dev/link/v1.0")
+            @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+          { query: Query }
+          directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
+          directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+          directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
+          directive @join__type(graph: join__Graph!, key: join__FieldSet, isInterfaceObject: Boolean) repeatable on OBJECT | INTERFACE
+          scalar join__FieldSet
+          enum join__Graph {
+            A @join__graph(name: "a", url: "http://a")
+            B @join__graph(name: "b", url: "http://b")
+          }
+          type Query @join__type(graph: A) @join__type(graph: B) {
+            media: Media @join__field(graph: A)
+            books: [Book!]! @join__field(graph: A)
+          }
+          interface Media @join__type(graph: A, key: "id")
+            @join__type(graph: B, key: "id", isInterfaceObject: true) {
+            id: ID!
+            rating: Float
+          }
+          type Book implements Media @join__type(graph: A, key: "id")
+            @join__implements(graph: A, interface: "Media") {
+            id: ID!
+            rating: Float
+            title: String!
+          }
+        SDL
+      end
+
+      it "refuses only the queries that reach it" do
+        expect { media.execute("{ media { id } }") }
+          .to refuse_to_plan(:interface_object).with_detail(
+            "Query.media returns Media, which b resolves as an @interfaceObject",
+          )
+      end
+
+      it "plans everything else, and the router builds at all" do
+        expect(media.execute("{ books { title } }").dig("data", "books")).to be_an Array
+        expect(media).to have_fetched "a"
+      end
+    end
+
     # a @requires the supergraph places nowhere is a graph nothing can serve,
     # so there is no fetch to chain
     it "names a @requires field no subgraph holds" do
@@ -517,6 +566,16 @@ describe GraphWeaver::Testing::Router do
       expect(router.execute(document, operation_name: "B"))
         .to eq({ "data" => { "me" => { "email" => "pepper.daniel@gmail.com" } } })
     end
+  end
+
+  # The refusal boundary is the product, and docs/federation.md's table is
+  # where a reader meets it — so a category added here has to land there.
+  # (Two had drifted out of it before this existed.)
+  it "documents every refusal category" do
+    docs = File.read(File.expand_path("../docs/federation.md", __dir__)).delete("`")
+    labels = Unplannable::CATEGORIES.each_value.map(&:first)
+
+    expect(labels.reject { |label| docs.include?(label) }).to be_empty
   end
 
   describe "answering as a router does" do

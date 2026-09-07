@@ -102,6 +102,10 @@ A `@join__` directive the table hasn't been taught lands in `#unsupported`
 rather than being skipped — a table that silently ignores half a spec version
 answers confidently and wrongly. Callers refuse on a non-empty list; that is
 what bounds the maintenance tail across federation spec versions.
+`#interface_objects` is the one construct kept out of that list
+(`{"Media" => ["catalog"]}`), because it's a fact about one *type* rather than
+about the table: the router refuses the queries that reach it and plans the
+rest.
 
 The table is what [`Testing::Router`](#the-local-router)
 plans against, and it's a reasonable read on its own — "which subgraph owns
@@ -383,19 +387,30 @@ can produce. Each refusal names the coordinate that stopped it and what to do �
 
 What it refuses, and why:
 
+Every category, spelled as `Unplannable#category` reports it:
+
 | Refusal | Why |
 |---|---|
-| an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
+| no `@key` to cross the boundary on | an entity fetch sends a representation built from a `@key`; with none there is nothing to send |
 | an abstract type the supergraph doesn't break down | bucketing needs the concrete types a subgraph answers a union or interface with, and `@join__unionMember`/`@join__implements` is where a supergraph records that. A composition old enough to carry neither leaves nothing but a guess |
-| a nested `@key`/`@requires` field set | representations are built from flat field sets only |
-| no usable `@key` | nothing to build a representation from |
-| a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them across subgraphs would run them in whatever order the plan happened to. Sharing one subgraph they're fine, stitching below them and all — that's an ordinary read afterwards. Query roots are independent, so those are always fine |
+| an `@interfaceObject` the routing table can't attribute | one subgraph resolves a whole interface's implementations, so the supergraph never says which subgraph answers each of its fields. Per query, not per graph: a query that doesn't reach the type plans as if the directive weren't there |
+| a `@requires` whose field set names another `@requires` field | the router satisfies a `@requires` with one fetch, so it can't first satisfy that field's own requirement |
+| a nested `@key` or `@requires` field set | representations are built from flat field sets only |
+| `@skip`/`@include` on both a fragment and its field | one selection can't carry two conditions of the same name. Spell the condition once |
+| an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
+| a mutation's root fields span subgraphs | root mutation fields run in series, and splitting them across subgraphs would run them in whatever order the plan happened to. Sharing one subgraph they're fine, stitching below them and all — that's an ordinary read afterwards. Query roots are independent, so those are always fine |
+| the routing table names no subgraph | nothing can route a field the supergraph doesn't place |
 | a subgraph nothing here serves | it's served by another process, so there is nothing here to ask — unless you fake it (above) |
+| introspection mixed with data | introspection is answered from the composed API schema and data from the subgraphs, and the two can't be merged. Split them into two operations |
+| the document isn't one operation | pass `operation_name:` naming one of them |
+| not a query or a mutation | the router plans against the composed schema's query and mutation roots; a subscription has neither |
+| a fragment the document never defines | define it, or point the query at the file that does |
+| a federation construct the routing table doesn't read | an incomplete table makes every answer about this supergraph a guess. The one refusal raised **at construction**, before a single query |
+| nested deeper than the router walks | past the walk's depth limit, which validation would have rejected first |
 
-It also refuses at construction, before a single query, a supergraph carrying
-a `@join__*` construct the routing table hasn't been taught — an incomplete
-table makes every answer a guess — and a subgraph two loaded schemas both fit
-(above).
+A subgraph two loaded schemas both fit refuses at construction too, as a
+`ConfigurationError` rather than an `Unplannable` (above) — it's a wiring
+mistake, not a query the router declines.
 
 ### Is it worth wiring up? Measure.
 

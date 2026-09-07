@@ -35,6 +35,12 @@ module GraphWeaver
             "__typename, so it has to know which concrete types the subgraph can answer with — " \
             "and this supergraph doesn't say. Run this one against a real router.",
         ],
+        interface_object: [
+          "an @interfaceObject the routing table can't attribute",
+          "one subgraph resolves a whole interface's implementations there, so the supergraph " \
+            "doesn't say which subgraph answers each of its fields. Run this one against a real " \
+            "router.",
+        ],
         chained_requires: [
           "a @requires whose field set names another @requires field",
           "the router satisfies a @requires with one fetch, so it can't first satisfy that " \
@@ -721,6 +727,7 @@ module GraphWeaver
           @table = table
           @schema = schema
           @absent = absent
+          @interface_objects = table.interface_objects
         end
 
         # the operation's validation errors, GraphQL-wire shaped
@@ -752,6 +759,8 @@ module GraphWeaver
             plan.introspection = true
             return plan
           end
+
+          check_interface_objects!(root.graphql_name, selections, fragments) if @interface_objects.any?
 
           entry = single_subgraph(root.graphql_name, selections, fragments)
           if entry
@@ -795,6 +804,43 @@ module GraphWeaver
         end
 
         private
+
+        # Every type these selections reach, refused if one of them is an
+        # @interfaceObject: a subgraph resolves the whole interface there, so
+        # the supergraph records no per-field routing for it and every fetch
+        # planned against it would be a guess. Asked per query rather than at
+        # construction — one such directive shouldn't cost you the queries
+        # that never touch the type.
+        def check_interface_objects!(type_name, selections, fragments, depth = 0)
+          return if depth > MAX_DEPTH
+
+          selections.each do |node|
+            case node
+            when GraphQL::Language::Nodes::Field
+              next if node.name.start_with?("__")
+
+              child = raw_child_type(type_name, node.name) or next
+              interface_object!(child, "#{type_name}.#{node.name} returns #{child}")
+              check_interface_objects!(child, node.selections, fragments, depth + 1)
+            when GraphQL::Language::Nodes::InlineFragment
+              condition = node.type&.name || type_name
+              interface_object!(condition, "this operation selects ... on #{condition}")
+              check_interface_objects!(condition, node.selections, fragments, depth + 1)
+            when GraphQL::Language::Nodes::FragmentSpread
+              fragment = fragments[node.name] or next
+              condition = fragment.type.name
+              interface_object!(condition, "...#{node.name} is on #{condition}")
+              check_interface_objects!(condition, fragment.selections, fragments, depth + 1)
+            end
+          end
+        end
+
+        def interface_object!(type_name, where)
+          graphs = @interface_objects[type_name] or return
+
+          refuse :interface_object,
+            "#{where}, which #{graphs.join(" and ")} resolves as an @interfaceObject"
+        end
 
         # Whether a fragment's condition holds for every object of `concrete`
         # — the type itself, or an abstract type it satisfies.
