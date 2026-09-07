@@ -1,146 +1,103 @@
 # Project Plan — GraphWeaver, typed GraphQL client for Ruby/Sorbet
 
-_Resume-from-here notes. README documents the product, NOTES.md is the
-research notebook this grew out of; this is the plan. Update on change._
+_Resume-from-here notes: where the project stands and what's next. The README
+documents the product, CHANGELOG records what changed, NOTES.md is the research
+notebook this grew out of. Update on change._
 
 ## Vision
 
 A "graphql-codegen for Ruby": `.graphql` queries + a schema (live class,
-introspection JSON, or SDL) → checked-in `# typed: strict` Ruby — nested
-T::Structs, generated casting, typed execute — so `srb tc` sees the exact
-shape of every query result. Dynamic (eval) mode for development, build
-step for CI/static checking. Runtime deps: graphql + sorbet-runtime only
-(graphql-client is NOT a dependency; the exploration outgrew it).
+introspection JSON, SDL, or an Apollo supergraph) → checked-in `# typed: strict`
+Ruby — nested `T::Struct`s, generated casting, a typed `execute` — so `srb tc`
+sees the exact shape of every query result. Dynamic mode for consoles, a build
+step for CI. Runtime deps: `graphql` + `sorbet-runtime`, nothing else.
 
-## State: v0.0.1 on rubygems; v0.0.2 accumulating on main
+## State
 
-`make check` = bin/generate (spec fixture regeneration; parity specs
-enforce freshness) + rspec + srb tc.
+`0.4.6` on RubyGems. `main` carries a large unreleased body of work headed for
+**0.5.0** — see `## Unreleased` in the CHANGELOG, which is long and has a real
+upgrade story to tell.
 
-Language coverage: queries, mutations, typed variables (kwargs on
-execute, optional-when-defaulted), fragments (inline, named, interface
-conditions), union- AND interface-typed fields (__typename dispatch,
-required at generation time), enums (T::Enum), custom scalars via the
-ScalarType registry (register_scalar: codec inference off .parse/.load,
-requires:, opt-in input coercion incl. built-ins).
-Sources: live schema / introspection JSON / SDL — byte-identical output
-(enum values + abstract-type members sorted for determinism).
-Transport: executor precedence per call → per module → baked const →
-GraphWeaver.executor; Transport::HTTP (zero-dep) + opt-in Transport::Faraday
-(url / block middleware / ready connection), e2e specs against WEBrick.
-Errors: typed Response envelope (partial data + extensions survive) and
-a GraphWeaver::Error hierarchy (Transport/Server/Query/Validation/Type)
-with extensible transport-error classification, schema_stale? staleness
-detection, errors_at/each_error/report field-level surfacing (entity
-ids resolved from partial data), and #to_h machine output throughout.
-Dynamic mode: GraphWeaver.parse (paths or raw strings, derived names,
-container-scoped constants) and GraphWeaver.execute one-shots.
-Schema fetching: SchemaLoader.introspect(executor, cache:, ttl:) off
-live endpoints; load takes paths, content, or Hashes.
-Testing (graph_weaver/testing + graph_weaver/rspec): FakeExecutor
-(schema-correct castable fakes, faker semantics, GraphQL-name
-overrides, corrupt:, fail_at: with null propagation), Failure canned
-executors + SequenceExecutor, cassettes with shape-preserving
-anonymization, rspec seed + auto_fake integration. Selection module is
-the single shared query-walk (codegen/fake/anonymizer).
-Federation supergraph SDL loads transparently (needs
-directive_defaults_patch until upstream fix ships).
-Live validation: make integration (GitHub + Countries APIs).
+Green gate is in `CLAUDE.md`; `make check` runs the core of it.
 
-## Next steps (in rough order)
+**What's built**, in brief — the CHANGELOG has the detail:
 
-~~Extraction~~ DONE 2026-07-07: this repo IS the gem now — GraphWeaver,
-github.com/dpep/graph_weaver, rspec-uuid conventions throughout. The
-graphql-client spikes live in git history (tag: `exploration`) and
-NOTES.md. Prior-art check partially answered: graphql-client PR #7
-(tapioca compiler over schema-wide dynamic classes) stalled since
-Jan 2024 with users asking; schema-wide typing can't catch
-unfetched-field bugs or type unions/interfaces — the niche looks open.
+- **Codegen.** Queries and mutations, typed variable kwargs, fragments (inline,
+  named, shared across queries), unions and interfaces (a struct per named
+  condition plus a forward-compatible `Other`), enums as `T::Enum`, custom
+  scalars, `@skip`/`@include` nullability. Generated class names derive from the
+  response key, so they're stable under unrelated edits. Shared types live once
+  per schema in `GraphQLTypes`.
+- **Sources.** Live schema class, introspection JSON, SDL, Apollo supergraph
+  (composition machinery stripped, `@inaccessible` subtracted to the API schema —
+  verified identical to Apollo's own `toAPISchema`), and raw subgraph SDL.
+- **Transports.** `Transport::HTTP` (zero-dep, pooled, keep-alive) by default;
+  Faraday on explicit opt-in. `InProcess` wraps a live schema class with
+  `context:`, logging and branded errors. Composable `Retry` honouring
+  `Retry-After`. One instrumentation seam covering both paths.
+- **Errors.** A typed `Response` envelope, an error hierarchy split by failure
+  site, field-level reporting with entity ids, `schema_stale?`, `#to_h`
+  throughout.
+- **Testing.** Schema-correct fakes, failure simulation, anonymizing cassettes,
+  and an in-process federation router that runs real subgraph resolvers —
+  verified against a real `@apollo/gateway` (42 identical, 1 refused, 0 wrong),
+  refusing at plan time anything it can't answer faithfully. One rspec tag picks
+  the mode: `graphql: :fake | :in_process | :router`.
+- **Lifecycle.** `generate` / `verify` / `schema:refresh` / `schema:diff` /
+  `queries:check` / `federation:diff`, plus `rails g graph_weaver:install`.
 
-~~Input objects~~ DONE 2026-07-11: module-level T::Structs, serialize/
-to_h, hash coercion at the execute boundary.
-~~Release~~ 0.1.0 cut 2026-07-11 (breaking: execute returns the
-Response envelope; execute! for raise-or-result).
+## Next
 
-~~Stable class naming~~ DONE: types are named for the response key that
-selects them (`stargazers` -> Stargazers), so a name is a function of its
-own position — adding, removing, or reordering an unrelated selection can't
-rename anything, and the type-name collisions that used to raise are gone.
-Union members keep their type-condition names. spec/naming_spec.rb pins the
-guarantee; breaking, so the changelog says to regenerate.
+1. **Cut 0.5.0.** Needs an upgrade guide rather than a changelog dump — the
+   breaking list is long, but most of it is caught mechanically, so the guide is
+   largely *"regenerate, then follow `srb tc` and `verify_generated!`"*.
+   `gem push` needs an OTP.
+2. **`extend_type`'s mixin forms can't be statically checked.** A mixin's method
+   bodies are checked in the module's scope, not the struct's, so the docs have
+   to recommend `# typed: false` or `T.unsafe(self)`. In a library whose pitch is
+   static checking, that's a seam worth a design pass. Note `alias:` — which
+   emits into the struct body — *is* checked, which suggests the mixin forms are
+   the ones carrying the cost.
+3. **Nice-to-haves, unclaimed.** `write_timeout` on `Transport::HTTP` (and
+   possibly a `net_http:` passthrough rather than more kwargs); a Tapioca DSL
+   compiler so dynamic `parse` modules get static types without the build step.
 
-1. CLI entrypoint (graph_weaver generate --schema X --queries dir) —
-   bin/generate is spec-fixture tooling, not shipped.
-3. Subscriptions (unsupported; raise). Recursive input types (raise).
-6. Parse/execute memoization: repeated GraphWeaver.parse/execute of the
-   same [schema, query] re-generates and re-evals every call (~3x the
-   cost of a cached module; benchmarked 2026-07-09) — memo keyed on
-   schema/query/name/executor, minding shared executor= mutation.
-   (Schema-side caching landed: SchemaLoader.introspect cache:/ttl: +
-   introspection_result primitive for Rails.cache et al. Possible
-   follow-up: re-introspect + retry once on validation-shaped
-   QueryErrors, since GraphQL has no standard schema-version signal.)
-7. Nice-to-haves: __typename auto-injection (currently required manually
-   on abstract selections), fragment reuse across queries, directives on
-   selections (@skip/@include make non-null fields nullable).
-8. Tapioca DSL compiler over dynamic mode (idea from graphql-client
-   PR #7): RBI the GraphWeaver.parse-eval'd modules so development mode
-   gets static types without the bin/generate build step — tapioca is
-   already in every Sorbet shop's workflow. Upstream's
-   Tapioca::Dsl::Helpers::GraphqlTypeHelper is prior art for type mapping.
+## Federation router: what it still refuses
 
-## External dependencies
+Each refuses at plan time with the type, field, subgraphs and next action. The
+cost of moving each boundary, if a real query mix ever demands it:
 
-- rmosolgo/graphql-ruby#5659 (directive-argument defaults fix; our branch
-  `directive-argument-defaults` in ~/code/lib/ruby/graphql, pushed to the
-  dpep fork, PR in draft). When it ships in a release: bump graphql,
-  delete lib/graph_weaver/directive_defaults_patch.rb + its requires (TODO in file).
+- **`@requires` needing a chain** — the prefetch's own key must come from the
+  subgraph in hand; needs a real dependency DAG.
+- **Abstract type at a boundary** — needs per-possible-type planning to build
+  representations from a runtime `__typename`.
+- **Nested `@key`/`@requires` field sets** — representations are flat; mostly
+  plumbing, ~30 lines.
+- **Mutation root fields spanning subgraphs** — root mutation fields run in
+  series, so grouping them would run them in plan order.
+- **An alias shadowing an injected `@key`** — Apollo resolves the collision in
+  favour of its own key and a spec-conformant server doesn't, so there is no one
+  answer to agree with. Unfixable by design.
+
+`rake graph_weaver:federation:coverage` reports the refusal rate against a real
+supergraph and query set. That number decides whether any of the above is worth
+building — on the demo corpus it is 17/17.
+
+## Stated non-goals
+
+Recorded so they read as decisions rather than omissions, with the reasoning in
+`REVIEW.md` §7: subscriptions, `@defer`/`@stream`, file uploads, normalized
+caching, fragment masking, request batching, and a watch mode.
 
 ## Gotchas worth remembering
 
-- graphql-ruby to_definition/from_introspection reorder enum values and
-  possible_types — codegen sorts both; keep any new emission deterministic
-- schemas built from introspection/SDL have no scalar coercion or
-  resolvers — codegen must stay name-keyed, never call schema runtime hooks
-- graphql-client (the gem) casts scalars via coerce_isolated_input and
-  only with a live schema class — documented in the early specs
-
-## From the field-test experiments (2026-07-12)
-
-Generated-module size (2026-07-12, post-0.2.0): input structs are now
-table-driven (InputStruct runtime + FIELDS) — the PokeAPI filtered-query
-module dropped 29,233 -> 11,562 lines. The floor is ~2 lines/field
-(typed const + FIELDS entry). Remaining lever if it matters again:
-shared input structs emitted once per schema instead of per module.
-
-
-A junior + senior agent pair exercised the repo cold (clone, examples,
-extensions, a Pokedex app against Hasura's 4,441-type PokeAPI schema).
-Fixed same-day: snake_case type names generated invalid constants
-(camelize), GraphQL::ParseError/NotImplementedError escaping the Error
-umbrella, HttpExecutor timeouts, GitHub's top-level "type" error codes,
-typo'd client registrations silently no-oping. Still open:
-
-~~Recursive input types~~ DONE 2026-07-12: register-before-walk breaks
-the recursion; emission dependency-orders the structs and, for cycles,
-forward-declares the classes in an eval (srb rejects reopening a
-T::Struct statically, but adding props at runtime works — the full
-bodies below the eval are all srb sees). Verified live against Hasura
-bool_exp.
-
-~~Connection reuse in Transport::HTTP~~ DONE 2026-07-12: persistent
-keep-alive connection behind a mutex, dropped on any failure; net/http's
-keep_alive_timeout handles idle expiry. Faraday remains the pooling
-answer.
-
-- Subscriptions; @defer/@stream (routers send multipart responses — the
-  transport classifies them as ServerError today, no incremental support).
-- Shared input-type structs across generated modules: one Hasura
-  bool_exp variable pulls its whole recursive closure into EVERY module
-  (~28k lines each) — correct but heavy in PRs; needs cross-module
-  sharing or selection-based pruning (field-test round 2).
-- Structured logging: log_tag pairs lines and names operations now, but
-  events are prose — an optional {event:, url:, ms:} payload contract, a
-  scrub_variables hook, and cache-age on hit lines (field-test round 2).
-- Cut 0.1.1 — RubyGems 0.1.0 is materially behind main (snake_case fix,
-  recursive inputs, keep-alive, logging, error umbrella).
+- graphql-ruby's `to_definition`/`from_introspection` reorder enum values and
+  possible types — codegen sorts both; keep any new emission deterministic.
+- Schemas built from introspection or SDL have no scalar coercion or resolvers,
+  so codegen stays name-keyed and never calls schema runtime hooks.
+- A `SchemaDefinition` node reprints without its body when the root type names
+  are the GraphQL defaults, so directives on `schema` must be stripped before
+  reprinting a supergraph.
+- Code the build doesn't exercise rots silently — integration specs excluded from
+  the default run, examples the generator skips, doc samples nobody executes.
+  Six fabricated doc samples were found in one session by running them.
