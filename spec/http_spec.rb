@@ -201,7 +201,7 @@ describe GraphWeaver::Transport::HTTP do
     end
 
     raw = apollo_style.new(url).execute("query { nosuch }")
-    expect(raw.dig("errors", 0, "extensions", "code")).to eq "GRAPHQL_VALIDATION_FAILED"
+    expect(raw).to have_graphql_error(code: "GRAPHQL_VALIDATION_FAILED")
 
     # a 4xx WITHOUT GraphQL shape stays a ServerError
     html = Class.new(described_class) do

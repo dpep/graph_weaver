@@ -162,6 +162,6 @@ describe GraphWeaver::Retry do
     slept.clear
     exhausted = described_class.new(failure.throttled, tries: 2, retry_codes: ["THROTTLED"], sleeper:)
     response = PersonQuery.execute(client: exhausted, id: "1")
-    expect(response.errors.first&.code).to eq "THROTTLED" # last response returned
+    expect(response).to have_graphql_error(code: "THROTTLED") # last response returned
   end
 end

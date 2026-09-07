@@ -12,15 +12,6 @@ describe GraphWeaver::Testing::Router do
     described_class.new(supergraph: RouterGraph::SUPERGRAPH, subgraphs: RouterGraph::SUBGRAPHS)
   end
 
-  def refusal_from(client, query, variables: {})
-    client.execute(query, variables:)
-    raise "expected #{query.inspect} to be refused"
-  rescue Unplannable => e
-    e
-  end
-
-  def refusal(query, variables: {}) = refusal_from(router, query, variables:)
-
   # Folding a same-type fragment into its parent drops the fragment node.
   # Its @skip/@include went with it, so a stitched plan answered a selection
   # the operation had excluded — and ran an extra fetch to do it.
@@ -35,13 +26,13 @@ describe GraphWeaver::Testing::Router do
     it "excludes the guarded selection, and doesn't fetch for it" do
       expect(router.execute(spread, variables: { "s" => false }))
         .to eq({ "data" => { "me" => { "username" => "dpep" } } })
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts"]
+      expect(router).to have_fetched "accounts"
     end
 
     it "includes it when the condition says so" do
       result = router.execute(spread, variables: { "s" => true })
       expect(result.dig("data", "me", "reviews")).to be_an Array
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq %w[accounts reviews]
+      expect(router).to have_fetched "accounts", "reviews"
     end
 
     it "honours @skip, an inline fragment, and a spread at the root" do
@@ -66,7 +57,7 @@ describe GraphWeaver::Testing::Router do
         query($s: Boolean!) { me { username ...R @include(if: $s) } }
         fragment R on User { reviews @include(if: $s) { body } }
       GQL
-      expect(refusal(clash, variables: { "s" => true }).category).to eq :conditional_fragment
+      expect { router.execute(clash, variables: { "s" => true }) }.to refuse_to_plan(:conditional_fragment)
     end
   end
 
@@ -82,10 +73,10 @@ describe GraphWeaver::Testing::Router do
 
     it "routes each operation to its own subgraph" do
       router.execute("{ me { username } }")
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts"]
+      expect(router).to have_fetched "accounts"
 
       router.execute("{ reviews { body } }")
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["reviews"]
+      expect(router).to have_fetched "reviews"
     end
 
     it "passes context through to the resolvers" do
@@ -112,7 +103,7 @@ describe GraphWeaver::Testing::Router do
       response = router.execute("{ reviews { body author { username } } }")
 
       expect(response.dig("data", "reviews", 0, "author", "username")).to eq "dpep"
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["reviews"]
+      expect(router).to have_fetched "reviews"
     end
 
     it "runs a mutation-free document's __typename against whichever subgraph runs it" do
@@ -122,8 +113,6 @@ describe GraphWeaver::Testing::Router do
   end
 
   describe "a query that crosses a subgraph boundary" do
-    def subgraphs = router.trace.map { |fetch| fetch[:subgraph] }
-
     it "splits at the crossing and stitches the entity back" do
       response = router.execute("{ me { username reviews { id body } } }")
 
@@ -133,7 +122,7 @@ describe GraphWeaver::Testing::Router do
           "reviews" => [{ "id" => "r1", "body" => "Love it" }, { "id" => "r2", "body" => "Too expensive" }],
         },
       })
-      expect(subgraphs).to eq ["accounts", "reviews"]
+      expect(router).to have_fetched "accounts", "reviews"
     end
 
     # the key travels under a reserved alias so it can't collide with a
@@ -151,7 +140,7 @@ describe GraphWeaver::Testing::Router do
 
       expect(response.dig("data", "users", 1, "reviews", 0, "product", "name")).to eq "Chair"
       # two users in one fetch, then all three of their reviews' products in one more
-      expect(subgraphs).to eq ["accounts", "reviews", "products"]
+      expect(router).to have_fetched "accounts", "reviews", "products"
       expect(router.trace.last[:variables].fetch("representations").size).to eq 3
     end
 
@@ -173,7 +162,7 @@ describe GraphWeaver::Testing::Router do
         .to eq [50, 450, 25]
       # reviews for the reviews, products for price+weight, reviews again for
       # the estimate those feed
-      expect(subgraphs).to eq ["reviews", "products", "reviews"]
+      expect(router).to have_fetched "reviews", "products", "reviews"
       expect(router.trace[1][:variables].fetch("representations").first.keys)
         .to contain_exactly("upc", "__typename")
       expect(router.trace[2][:variables].fetch("representations").first.keys)
@@ -191,7 +180,7 @@ describe GraphWeaver::Testing::Router do
 
       expect(response.fetch("data"))
         .to eq({ "me" => { "username" => "dpep" }, "topProducts" => [{ "name" => "Table" }] })
-      expect(subgraphs).to eq ["accounts", "products"]
+      expect(router).to have_fetched "accounts", "products"
     end
 
     it "reads a @provides copy in place and fetches only the rest" do
@@ -199,7 +188,7 @@ describe GraphWeaver::Testing::Router do
 
       expect(response.dig("data", "reviews", 0, "author"))
         .to eq({ "username" => "dpep", "email" => "pepper.daniel@gmail.com" })
-      expect(subgraphs).to eq ["reviews", "accounts"]
+      expect(router).to have_fetched "reviews", "accounts"
     end
 
     it "leaves a skipped stitched field absent rather than null" do
@@ -235,8 +224,6 @@ describe GraphWeaver::Testing::Router do
   # has isn't in the query — so the plan carries a branch per possible type
   # and execution picks by the __typename that came back.
   describe "an abstract type at a subgraph boundary" do
-    def subgraphs = router.trace.map { |fetch| fetch[:subgraph] }
-
     it "buckets the objects by __typename and fetches each bucket's own entity" do
       response = router.execute(<<~GQL)
         { search(term: "all") { __typename ... on User { username } ... on Product { name } } }
@@ -248,7 +235,7 @@ describe GraphWeaver::Testing::Router do
         { "__typename" => "Review" },
         { "__typename" => "Announcement" },
       ]
-      expect(subgraphs).to eq %w[reviews products accounts]
+      expect(router).to have_fetched "reviews", "products", "accounts"
       expect(router.trace[1][:variables])
         .to eq({ "representations" => [{ "upc" => "p1", "__typename" => "Product" }] })
     end
@@ -267,7 +254,7 @@ describe GraphWeaver::Testing::Router do
       response = router.execute("{ me { reviews { subject { ... on Product { name } } } } }")
 
       expect(response.dig("data", "me", "reviews", 0, "subject")).to eq({ "name" => "Table" })
-      expect(subgraphs).to eq %w[accounts reviews products]
+      expect(router).to have_fetched "accounts", "reviews", "products"
     end
 
     # an interface's own fields resolve for every implementation; only the
@@ -282,13 +269,13 @@ describe GraphWeaver::Testing::Router do
         { "upc" => "p4", "reviews" => [] },
         { "upc" => "b1", "items" => [{ "name" => "Table" }, { "name" => "Chair" }] },
       ]
-      expect(subgraphs).to eq %w[products reviews]
+      expect(router).to have_fetched "products", "reviews"
     end
 
     it "sends no entity fetch for a bucket nothing lands in" do
       expect(router.execute('{ search(term: "users") { ... on Product { name } } }'))
         .to eq({ "data" => { "search" => [{}, {}] } })
-      expect(subgraphs).to eq ["reviews"]
+      expect(router).to have_fetched "reviews"
     end
 
     # one branch's entity fetch comes back null where the composed schema
@@ -315,39 +302,43 @@ describe GraphWeaver::Testing::Router do
           "author" => { "email" => "ada@example.com" },
         },
       })
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq %w[reviews products accounts]
+      expect(router).to have_fetched "reviews", "products", "accounts"
     end
 
     it "hands it over verbatim when nothing below the root crosses" do
       expect(router.execute(add % "id body").fetch("data"))
         .to eq({ "addReview" => { "id" => "r99", "body" => "Sturdy" } })
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["reviews"]
+      expect(router).to have_fetched "reviews"
     end
   end
 
   describe "refusing" do
     it "refuses before any subgraph runs" do
-      expect { router.execute("{ me { id: username reviews { body } } }") }.to raise_error(Unplannable)
-      expect(router.trace).to be_empty
+      expect { router.execute("{ me { id: username reviews { body } } }") }
+        .to refuse_to_plan(:shadowed_key)
+      expect(router).not_to have_fetched
     end
 
+    # the umbrella and the machine side, plus the shape every refusal
+    # message has: what stopped this query, then what to do about it
     it "is a GraphWeaver::Error, so one rescue catches it" do
       expect { router.execute("{ me { id: username reviews { body } } }") }
-        .to raise_error(GraphWeaver::Error)
-      expect(refusal("{ me { id: username reviews { body } } }").to_h)
-        .to include("category" => "shadowed_key")
+        .to raise_error(GraphWeaver::Error) do |error|
+          expect(error.to_h).to include("category" => "shadowed_key")
+          expect(error.message).to eq "#{error.detail} — Apollo's router resolves that collision " \
+            "in favour of its own injected key and a spec-conformant server doesn't, so there is " \
+            "no one answer to agree with. Rename the alias."
+        end
     end
 
     # Apollo's router injects the @key under its own name and lets it win, so
     # this comes back as the user's id rather than their username. Matching
     # the router matters more than being right — and we can be neither.
     it "names the alias colliding with a @key the fetch needs" do
-      error = refusal("{ me { id: username reviews { body } } }")
-
-      expect(error.category).to eq :shadowed_key
-      expect(error.detail).to eq 'User.reviews is fetched on User\'s "id", and this selection ' \
-        'aliases username as "id" over it'
-      expect(error.message).to end_with "Rename the alias."
+      expect { router.execute("{ me { id: username reviews { body } } }") }
+        .to refuse_to_plan(:shadowed_key).with_detail(
+          'User.reviews is fetched on User\'s "id", and this selection aliases username as "id" over it',
+        )
     end
 
     # Bucketing an abstract type needs the list of concrete types the subgraph
@@ -357,13 +348,13 @@ describe GraphWeaver::Testing::Router do
       sdl = File.read(RouterGraph::SUPERGRAPH)
         .gsub(/^  @join__unionMember\(graph: \w+, member: "\w+"\)\n/, "")
       opaque = described_class.new(supergraph: sdl, subgraphs: RouterGraph::SUBGRAPHS)
-      error = refusal_from(opaque, '{ search(term: "all") { ... on Product { name } } }')
 
-      expect(error.category).to eq :abstract_boundary
-      expect(error.detail).to eq "Query.search returns SearchHit, and the supergraph doesn't " \
-        "record which concrete types reviews answers it with (no @join__unionMember or " \
-        "@join__implements, and SearchHit is in more than one subgraph)"
-      expect(error.message).to end_with "Run this one against a real router."
+      expect { opaque.execute('{ search(term: "all") { ... on Product { name } } }') }
+        .to refuse_to_plan(:abstract_boundary).with_detail(
+          "Query.search returns SearchHit, and the supergraph doesn't record which concrete types " \
+            "reviews answers it with (no @join__unionMember or @join__implements, and SearchHit " \
+            "is in more than one subgraph)",
+        )
     end
 
     # a keyless member is only unanswerable if something on it resolves
@@ -393,10 +384,8 @@ describe GraphWeaver::Testing::Router do
         }
       SDL
 
-      error = refusal_from(keyless, "{ search { ... on Doc { note } } }")
-
-      expect(error.category).to eq :no_key
-      expect(error.detail).to eq "Doc.note resolves in b, and Doc has no resolvable @key there"
+      expect { keyless.execute("{ search { ... on Doc { note } } }") }
+        .to refuse_to_plan(:no_key).with_detail("Doc.note resolves in b, and Doc has no resolvable @key there")
     end
 
     # a @requires the supergraph places nowhere is a graph nothing can serve,
@@ -408,7 +397,9 @@ describe GraphWeaver::Testing::Router do
       unplaced = described_class.new(supergraph: sdl, subgraphs: RouterGraph::SUBGRAPHS)
 
       expect { unplaced.execute("{ reviews { product { shippingEstimate } } }") }
-        .to raise_error(Unplannable, /\AProduct\.shippingEstimate @requires "price", and the supergraph places Product\.price in no subgraph —/)
+        .to refuse_to_plan(:no_owner).with_detail(
+          'Product.shippingEstimate @requires "price", and the supergraph places Product.price in no subgraph',
+        )
     end
 
     # a union split across subgraphs, a mutation whose roots are, and a
@@ -422,48 +413,41 @@ describe GraphWeaver::Testing::Router do
     it "drops a fragment on a member the answering subgraph can't produce" do
       expect(split.execute("{ search { ... on Note { id } } }"))
         .to eq({ "data" => { "search" => [{}] } })
-      expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
+      expect(split).to have_fetched "a"
 
       split.execute("{ search { ... on Doc { id } } }") # the same shape, one subgraph
-      expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
+      expect(split).to have_fetched "a"
     end
 
     it "refuses a subscription" do
       expect { split.execute("subscription { ticks }") }
-        .to raise_error(Unplannable, /\Athis document is a subscription — the local router plans/)
+        .to refuse_to_plan(:operation_type).with_detail("this document is a subscription")
     end
 
     # query roots resolve independently, so the router just fetches each in
     # its own subgraph; mutation roots run in series, and splitting them
     # would run them in whatever order the plan happened to
     it "refuses a mutation whose root fields span subgraphs" do
-      begin
-        split.execute("mutation { publish { id } annotate { id } }")
-        raise "expected a refusal"
-      rescue Unplannable => e
-        expect(e.category).to eq :root_fields_span
-        expect(e.detail).to eq "this mutation's root fields span subgraphs: " \
-          "Mutation.publish (a), Mutation.annotate (b)"
-      end
+      expect { split.execute("mutation { publish { id } annotate { id } }") }
+        .to refuse_to_plan(:root_fields_span).with_detail(
+          "this mutation's root fields span subgraphs: Mutation.publish (a), Mutation.annotate (b)",
+        )
 
       split.execute("mutation { publish { id } }") # the same shape, one subgraph
-      expect(split.trace.map { |fetch| fetch[:subgraph] }).to eq ["a"]
+      expect(split).to have_fetched "a"
     end
 
     it "refuses introspection mixed with data fields" do
-      error = refusal("{ __schema { queryType { name } } me { id } }")
-
-      expect(error.category).to eq :mixed_introspection
-      expect(error.message).to include "answers introspection from the composed API schema"
+      expect { router.execute("{ __schema { queryType { name } } me { id } }") }
+        .to refuse_to_plan(:mixed_introspection)
     end
 
     it "asks which operation when the document holds more than one" do
-      error = refusal("query A { me { username } } query B { me { email } }")
+      document = "query A { me { username } } query B { me { email } }"
 
-      expect(error.category).to eq :ambiguous_operation
-      expect(error.message).to eq "the document holds 2 operations (A, B) — pass operation_name: " \
-        "naming one of them."
-      expect(router.execute("query A { me { username } } query B { me { email } }", operation_name: "B"))
+      expect { router.execute(document) }
+        .to refuse_to_plan(:ambiguous_operation).with_detail("the document holds 2 operations (A, B)")
+      expect(router.execute(document, operation_name: "B"))
         .to eq({ "data" => { "me" => { "email" => "pepper.daniel@gmail.com" } } })
     end
   end
@@ -476,20 +460,19 @@ describe GraphWeaver::Testing::Router do
 
       expect(names).to include "Product", "Review", "User"
       expect(names.grep(/join__|_Entity|_Any/)).to be_empty
-      expect(router.trace).to be_empty
+      expect(router).not_to have_fetched
     end
 
     it "reports a query that no longer validates, without asking a subgraph" do
       response = router.execute("{ me { nosuch } }")
 
       expect(response["data"]).to be_nil
-      expect(response.dig("errors", 0, "extensions", "code")).to eq "GRAPHQL_VALIDATION_FAILED"
-      expect(router.trace).to be_empty
+      expect(response).to have_graphql_error(code: "GRAPHQL_VALIDATION_FAILED")
+      expect(router).not_to have_fetched
     end
 
     it "reports an unparseable query" do
-      expect(router.execute("{ me {").dig("errors", 0, "extensions", "code"))
-        .to eq "GRAPHQL_PARSE_FAILED"
+      expect(router.execute("{ me {")).to have_graphql_error(code: "GRAPHQL_PARSE_FAILED")
     end
   end
 
@@ -499,7 +482,7 @@ describe GraphWeaver::Testing::Router do
 
       expect(auto.execute("{ me { username reviews { body } } }").dig("data", "me", "username"))
         .to eq "dpep"
-      expect(auto.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts", "reviews"]
+      expect(auto).to have_fetched "accounts", "reviews"
     end
 
     it "fills in the entries a partial map leaves out" do
@@ -562,31 +545,30 @@ describe GraphWeaver::Testing::Router do
       expect(response.fetch("data")).to eq({
         "me" => { "username" => "dpep", "reviews" => [{ "body" => "Love it" }, { "body" => "Too expensive" }] },
       })
-      expect(partial.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts", "reviews"]
+      expect(partial).to have_fetched "accounts", "reviews"
     end
 
     it "refuses a root field the absent subgraph owns, before fetching anything" do
-      error = refusal_from(partial, "{ shipments { carrier } }")
-
-      expect(error.category).to eq :absent_subgraph
       # the cause first (the class isn't loaded), then the surface an rspec
       # example can actually reach — there's no Router.new in one
-      expect(error.message).to eq 'Query.shipments resolves in "shipping", which no schema here ' \
-        'serves — nothing loaded defines what the supergraph says "shipping" resolves. Rails ' \
-        "autoloads, so the class is probably just not loaded yet: eager-load it " \
-        "(config.eager_load, or config.rake_eager_load under rake). Otherwise name it — " \
-        'GraphWeaver::Testing.config.router = { subgraphs: { "shipping" => YourSchema } } under ' \
-        "the rspec tag, subgraphs: on Router.new — or :fake in place of the class for fabricated " \
-        "answers — a query that never reaches an absent subgraph's fields still runs, so nothing " \
-        "else has to change."
-      expect(partial.trace).to be_empty
+      expect { partial.execute("{ shipments { carrier } }") }
+        .to refuse_to_plan(:absent_subgraph).with_detail(
+          'Query.shipments resolves in "shipping", which no schema here serves — nothing loaded ' \
+            'defines what the supergraph says "shipping" resolves. Rails autoloads, so the class ' \
+            "is probably just not loaded yet: eager-load it (config.eager_load, or " \
+            "config.rake_eager_load under rake). Otherwise name it — " \
+            'GraphWeaver::Testing.config.router = { subgraphs: { "shipping" => YourSchema } } ' \
+            "under the rspec tag, subgraphs: on Router.new — or :fake in place of the class for " \
+            "fabricated answers",
+        )
+      expect(partial).not_to have_fetched
     end
 
     it "names the field that reached across the boundary into it" do
-      error = refusal_from(partial, "{ reviews { body shipment { carrier } } }")
-
-      expect(error.detail).to start_with 'Review.shipment resolves in "shipping"'
-      expect(partial.trace).to be_empty
+      expect { partial.execute("{ reviews { body shipment { carrier } } }") }
+        .to refuse_to_plan(:absent_subgraph)
+        .with_detail(a_string_starting_with('Review.shipment resolves in "shipping"'))
+      expect(partial).not_to have_fetched
     end
 
     describe "with the fake opt-in" do
@@ -628,8 +610,9 @@ describe GraphWeaver::Testing::Router do
       it "still refuses the absent subgraph it wasn't asked to fake" do
         expect(partial.faked).to eq ["shipping"]
         expect(partial.absent).to eq ["billing"]
-        expect(refusal_from(partial, "{ invoices { total } }").detail)
-          .to start_with 'Query.invoices resolves in "billing"'
+        expect { partial.execute("{ invoices { total } }") }
+          .to refuse_to_plan(:absent_subgraph)
+          .with_detail(a_string_starting_with('Query.invoices resolves in "billing"'))
       end
     end
 
@@ -661,7 +644,7 @@ describe GraphWeaver::Testing::Router do
       products = mod.execute!.top_products
       expect(products.map(&:name)).to eq ["Table", "Couch"]
       expect(products.first.price).to eq 899
-      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["products"]
+      expect(router).to have_fetched "products"
     end
   end
 
