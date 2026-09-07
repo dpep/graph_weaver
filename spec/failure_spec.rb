@@ -48,14 +48,10 @@ describe "failure simulation" do
       expect { stale.data! }.to raise_error(GraphWeaver::QueryError, /regenerate/)
     end
 
-    it "stale_schema names a specific field, or samples a real one from the schema" do
+    it "stale_schema names the casualty when the message matters" do
       named = PersonQuery.execute(client: failure.stale_schema(type: "Person", field: "name"), id: "1")
-      expect(named).to have_graphql_error(message: "Field 'name' doesn't exist on type 'Person'")
 
-      sampled = PersonQuery.execute(client: failure.stale_schema(schema: Demo::Schema, seed: 3), id: "1")
-      expect(sampled)
-        .to have_graphql_error(message: /Field '\w+' doesn't exist on type '(Person|Pet|Query|Mutation)'/)
-      expect(sampled.schema_stale?).to be true
+      expect(named).to have_graphql_error(message: "Field 'name' doesn't exist on type 'Person'")
     end
   end
 

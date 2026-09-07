@@ -1225,6 +1225,12 @@ next to what a generated struct looks like. **Update any bookmark to
   number is dropped and the report says it counted planning only.
   `Coverage#servable` and `#elsewhere` are the programmatic side, and
   `Coverage::Result` gained `absent` / `servable?`.
+- **`Testing::Failure.stale_schema` drops its `schema:` / `seed:` sampling.**
+  It picked a random real type/field so a fabricated error string would look
+  plausible — but no assertion can depend on which one it picks, so it was
+  decoration with three kwargs and an RNG behind it. `stale_schema(type:,
+  field:)` names the casualty when the message matters, and the bare call still
+  trips `schema_stale?`. Passing `schema:`/`seed:` now raises `ArgumentError`.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
