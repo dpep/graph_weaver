@@ -217,6 +217,35 @@ with no tag at all, since it installs the client itself. The tag is
 One thing to know: **two identical queries fabricate different data**, so
 assert a memoization with `requests.size`, not by comparing two responses.
 
+### Naming the schema your resolvers run on
+
+`graphql_in_process` is the same idea for real resolvers. The tag runs
+`config.schema` when that's a live class, which is the whole story for an app
+that serves the API it calls:
+
+```ruby
+it "hides another reader's drafts", graphql: :in_process do
+  expect(DraftsQuery.execute!.drafts.map(&:id)).to eq %w[d3]
+end
+```
+
+A federated app has no one live class, so the example says which subgraph it
+means — testing one subgraph's resolvers directly is a different question from
+`graphql: :router`, which plans across the whole graph and stitches. Both are
+worth asking, and a suite asks them of different subgraphs:
+
+```ruby
+it "rejects a review from a blocked reader" do
+  graphql_in_process(Reviews::Schema)
+  …
+end
+```
+
+Like `graphql_fake`, it needs no tag, works in a `before` block, and is
+restored after the example. Set the GraphQL context with `graphql_context`
+rather than the helper's `context:` — the helper's is a baseline, and
+`graphql_context` is what merges onto it per example.
+
 `rspec --seed 1234` reproduces fake data along with test order. `config.mode`
 picks value fabrication: `:faker` (semantic, field-name matched — raises if
 the gem is missing), `:literal` (plain type-derived), or nil to auto-detect
