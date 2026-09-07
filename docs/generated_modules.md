@@ -520,8 +520,9 @@ GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional:
 the path just omits the accessor instead of failing generation. Reach for it when
 the alias lives on a universal type like `Query` — where a strict alias would
 force *every* query to select the path — or when it only fits some selections.
-It also silences the spellchecked path errors, so register strictly first and add
-`optional: true` once the path is right.
+It excuses a field the query didn't select, not a segment the schema doesn't
+have: a typo or a wire-cased name (`findPets` for `find_pets`) still raises,
+since no selection could ever satisfy it.
 
 For anything beyond a passthrough projection — real logic, still typed — reopen
 the generated struct in your own file and add sig'd methods; Sorbet merges the

@@ -114,6 +114,24 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
         .to raise_error(GraphWeaver::Error, /\AW: alias .* — pass optional: true to skip selections that don't fit\z/)
     end
 
+    it "still raises on a segment the schema doesn't declare (a typo, not a fit)" do
+      GraphWeaver.extend_type("Widget", alias: { x: "nmae" }, optional: true)
+      expect { generate }.to raise_error(GraphWeaver::Error,
+        %(W: alias "x" on Widget: 'nmae' is not a field of Widget — did you mean 'name'?))
+    end
+
+    it "points a wire-cased segment at the prop it should have been" do
+      wire_schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { findPets: [Pet!]! }
+        type Pet { id: ID! }
+      GRAPHQL
+      GraphWeaver.extend_type("Query", alias: { pets: "findPets.first" }, optional: true)
+
+      expect { GraphWeaver::Codegen.generate(schema: wire_schema, query: "{ findPets { id } }", module_name: "Find") }
+        .to raise_error(GraphWeaver::Error, %(Find: alias "pets" on Query: 'findPets' is not a field of Query ) +
+          %(— GraphQL fields generate snake_case props; use 'find_pets'))
+    end
+
     it "doesn't stutter when the module and the type share a name" do
       GraphWeaver.extend_type("Query", alias: { w: "widget.name" })
       expect { GraphWeaver::Codegen.generate(schema:, query: "{ widget { id } }", module_name: "Query") }

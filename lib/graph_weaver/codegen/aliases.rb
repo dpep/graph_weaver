@@ -27,6 +27,10 @@ class GraphWeaver::Codegen
         check_alias_name!(node, name)
         begin
           resolve_alias(node, name, spec[:segments])
+        rescue UnknownSegment => e
+          # names nothing in the schema, so no selection would fit — offering
+          # optional: as the way out would just hide the typo
+          raise e.class, qualify(node, e.message)
         rescue GraphWeaver::Error => e
           # a path that doesn't fit THIS query's selection: optional simply
           # omits the accessor; strict breaks generation for every query on the
@@ -68,6 +72,10 @@ class GraphWeaver::Codegen
     # list selectors — pick one element out of a list-typed hop, always nilable
     # (the list may be empty). Everything else is a field prop.
     LIST_SELECTORS = %w[first last].freeze
+    # A segment naming no field of the GraphQL type at all — no selection could
+    # ever satisfy it, so it's a typo (or a wire-cased name), not a path that
+    # doesn't fit this query. optional: skips the latter, never this.
+    UnknownSegment = Class.new(GraphWeaver::Error)
 
     # Walk a dotted path through this struct's selected shape, building the
     # delegator expression (`meta&.tag`, `_entities.first&.name`) and its return
@@ -117,6 +125,7 @@ class GraphWeaver::Codegen
           containers << obj.class_name unless obj.equal?(node)
           field = obj.fields.find { |f| f.prop == seg }
           unless field
+            check_segment_exists!(node, name, obj, seg)
             props = obj.fields.map(&:prop)
             suggestion = GraphWeaver.did_you_mean(props, seg)
             hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
@@ -133,6 +142,31 @@ class GraphWeaver::Codegen
       leaf = qualified_alias_type(cur, containers)
       type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
       ObjectNode::Alias.new(name, expr, type)
+    end
+
+    # Separate "this query didn't select it" from "no query could": a segment
+    # the schema doesn't declare on the type is a mistake in the registration,
+    # so it raises even for an optional alias — which otherwise turns a typo
+    # (or a wire-cased 'findPets') into an accessor that silently vanishes.
+    def check_segment_exists!(node, name, obj, seg)
+      type = obj.graphql_type && @schema.get_type(obj.graphql_type)
+      return unless type.respond_to?(:fields)
+
+      known = type.fields.keys.map { |field| GraphWeaver::Inflect.underscore(field) }
+      return if seg == "__typename" || known.include?(seg)
+
+      prop = GraphWeaver::Inflect.underscore(seg)
+      hint = if prop != seg && known.include?(prop)
+        # paths are the Ruby prop chain, not the GraphQL one — the classic miss
+        " — GraphQL fields generate snake_case props; use '#{prop}'"
+      elsif (suggestion = GraphWeaver.did_you_mean(known, prop))
+        " — did you mean '#{suggestion}'?"
+      else
+        " (has: #{known.sort.join(", ")})"
+      end
+
+      raise UnknownSegment,
+        "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a field of #{obj.graphql_type}#{hint}"
     end
 
     # The leaf's Sorbet type as referenced from the aliased struct. Generated
