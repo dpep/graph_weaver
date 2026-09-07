@@ -31,6 +31,35 @@ to refresh. A *request* with no recording raises
 `GraphWeaver::Testing::MissingRecording`, naming the variables it was called
 with and the ones recorded for that same query — what usually differs.
 
+## Has a recording gone stale?
+
+A cassette is the one artifact here recorded from *someone else's* server, and
+none of the other checks can see it drift: `verify` asks whether the generated
+Ruby is fresh, `queries:check` whether a query still validates, `schema:diff`
+whether the server's schema moved. When the recorded *answers* stop fitting the
+structs your schema generated — a field that was `Int!` when you recorded and
+is `String!` now — nothing notices until a spec dies mid-run on a cast error
+naming a struct and nothing else.
+
+```sh
+rake graph_weaver:cassettes:check
+```
+
+It replays every recording through the generated modules — no network — so it
+belongs in the normal PR run beside `verify`, and exits non-zero on drift:
+
+```
+spec/cassettes/dashboard.yml: 1 stale (3 checked, 1 not sent by any query module)
+  DashboardQuery {"id" => "b1"}
+    failed to cast response into DashboardQuery::Result::Me::Reviews::Book: Parameter 'price_cents': Can't set …price_cents to 4200 (instance of Integer) - need a String
+```
+
+A recording is matched to the module that sends its query, so one written by
+hand is skipped and counted rather than guessed at. Checking **none** of them
+fails too: a green run that compared nothing would pass whatever the recordings
+said. The fix is a re-record (`GRAPHWEAVER_RECORD=1`, with a live `client:`) —
+or `rake graph_weaver:generate`, if it was the schema dump that moved first.
+
 ## Anonymization
 
 Cassettes hold real responses, so scrub them as they're recorded: real data
@@ -62,6 +91,9 @@ For cassettes recorded before the flag was on:
 ```sh
 rake graph_weaver:cassettes:anonymize   # every cassette in cassette_dir, in place
 ```
+
+Anonymization preserves shape, so an anonymized cassette still passes
+`cassettes:check`.
 
 ## Cassette or FakeClient?
 

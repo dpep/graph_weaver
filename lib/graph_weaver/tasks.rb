@@ -21,6 +21,7 @@
 #      rake graph_weaver:federation:diff       # fail if the supergraph wasn't recomposed
 #      rake graph_weaver:federation:coverage   # what the local test router can plan
 #      rake graph_weaver:federation:subgraphs  # which schema serves which subgraph
+#      rake graph_weaver:cassettes:check       # fail if a recording no longer casts
 require_relative "../graph_weaver"
 
 namespace :graph_weaver do
@@ -30,9 +31,10 @@ namespace :graph_weaver do
   # Rails::Application#run_tasks_blocks), so whether it exists can only be
   # asked when the task runs, not when this file loads.
   task :environment do
-    # Every task here reads queries, the schema and the registrations; none
-    # reads a generated module. Saying so lets the railtie skip loading them,
-    # so a stale generated file can't block the task that repairs it.
+    # These tasks read queries, the schema and the registrations, not a
+    # generated module. Saying so lets the railtie skip loading them, so a
+    # stale generated file can't block the task that repairs it. It's reset
+    # below, so cassettes:check — which does read them — loads them itself.
     GraphWeaver.skip_generated_load = true
     Rake::Task["environment"].invoke if Rake::Task.task_defined?("environment")
   ensure
@@ -207,6 +209,49 @@ namespace :graph_weaver do
   end
 
   namespace :cassettes do
+    # The drift the other checks structurally can't see. verify, queries:check
+    # and schema:diff all ask about the local side; a cassette is the one
+    # artifact recorded from someone else's server, and when that server's
+    # answers stop fitting the generated structs the failure surfaces mid-spec
+    # as a cast error naming a struct and a sorbet frame — nothing points at
+    # the stale file.
+    desc "Fail when a recorded response no longer casts into the generated structs"
+    task check: :environment do
+      require "graph_weaver/testing"
+
+      # unlike its siblings this task reads generated modules — they are what
+      # a recording is checked against
+      GraphWeaver.load_generated!
+      modules = GraphWeaver.query_files.filter_map do |path|
+        name = GraphWeaver.module_name(path, File.read(path))
+        Object.const_get(name) if Object.const_defined?(name)
+      end
+
+      dir = GraphWeaver::Testing.config.cassette_dir
+      checks = Dir[File.join(dir, "*.yml")].sort.map do |path|
+        GraphWeaver::Testing::Cassette.new(path).check(modules)
+      end
+      checks.each { |check| puts check.report }
+
+      stale = checks.sum { |check| check.stale.size }
+      $stdout.flush
+      if stale.positive?
+        abort "#{stale} stale #{(stale == 1) ? "recording" : "recordings"} — the recorded server's " \
+          "answers no longer fit the structs generated from your schema. Re-record " \
+          "(GRAPHWEAVER_RECORD=1, with a live client:), or regenerate if it was the schema dump " \
+          "that moved: rake graph_weaver:generate."
+      end
+      if checks.sum(&:checked).zero?
+        # a green run that compared nothing is worse than a failure: it would
+        # pass whatever the recordings said (see federation:diff)
+        abort "this checked nothing, so it proved nothing: no recording in #{dir} carries a query " \
+          "any of the #{modules.size} generated modules sends. Drop this task from CI if you " \
+          "don't record cassettes, or check that #{dir} is where yours live."
+      end
+
+      puts "every recording still casts"
+    end
+
     desc "Anonymize every cassette in Testing.config.cassette_dir (PII-safe to commit)"
     task anonymize: :environment do
       require "graph_weaver/testing"

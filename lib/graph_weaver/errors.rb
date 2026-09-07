@@ -453,10 +453,16 @@ module GraphWeaver
     sig { returns(T.untyped) }
     attr_reader :struct
 
+    # sorbet-runtime appends its own frame to a prop type error ("Caller:
+    # .../call_validation.rb:331"), which is a path into the gem and never
+    # into the code with the problem — so it is dropped rather than reprinted
+    # as if it located anything.
+    SORBET_CALLER = /\s*\nCaller: .*\z/m
+
     sig { params(struct: T.untyped, error: T.nilable(Exception), message: T.nilable(String)).void }
     def initialize(struct:, error: nil, message: nil)
       @struct = struct
-      super("failed to cast response into #{struct}: #{message || error&.message}")
+      super("failed to cast response into #{struct}: #{message || error&.message&.sub(SORBET_CALLER, "")}")
     end
 
     sig { override.returns(T::Hash[String, T.untyped]) }

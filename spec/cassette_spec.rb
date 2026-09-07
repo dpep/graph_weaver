@@ -160,6 +160,56 @@ describe GraphWeaver::Testing::Cassette do
     end
   end
 
+  # A cassette is the one artifact recorded from someone else's server, so
+  # nothing else here notices when that server's answers stop fitting the
+  # generated structs — verify, queries:check and schema:diff all ask about
+  # the local side. Without this the drift lands mid-spec as a cast error
+  # naming a struct and a sorbet frame, with nothing pointing at the file.
+  describe "#check" do
+    def record(response)
+      described_class.new(path).tap do |cassette|
+        cassette.record(PersonQuery::QUERY, { "id" => "1" }, response, PersonQuery::OPERATION_NAME)
+      end
+    end
+
+    let(:fresh) { Demo::Schema.execute(PersonQuery::QUERY, variables: { "id" => "1" }).to_h }
+
+    it "passes a recording the current structs still read" do
+      check = record(fresh).check([PersonQuery])
+
+      expect(check).to be_ok
+      expect(check.checked).to eq 1
+      expect(check.report).to eq ["#{path}: 0 stale (1 checked)"]
+    end
+
+    # the reported failure: Book.priceCents drifted Int! -> String! server-side
+    it "names the file, the module and the variables when one has drifted" do
+      drifted = fresh.merge("data" => { "person" => fresh.dig("data", "person").merge("name" => 42) })
+      check = record(drifted).check([PersonQuery])
+
+      expect(check).not_to be_ok
+      expect(check.report.first).to eq "#{path}: 1 stale (1 checked)"
+      expect(check.report[1]).to eq '  PersonQuery {"id" => "1"}'
+      expect(check.report[2]).to include "failed to cast response into PersonQuery::Result::Person"
+      # sorbet-runtime's own "Caller:" frame points into the gem, not at
+      # anything the reader can act on
+      expect(check.report[2]).not_to include "Caller:"
+    end
+
+    # matching is on the query text, so a hand-written recording nothing
+    # generated sends is skipped rather than guessed at — and counted, since
+    # a run that checked nothing proved nothing
+    it "skips a recording no module sends, and says how many" do
+      cassette = record(fresh)
+      cassette.record("query { people { id } }", {}, { "data" => {} })
+
+      check = cassette.check([PersonQuery])
+      expect(check.checked).to eq 1
+      expect(check.skipped).to eq 1
+      expect(check.report.first).to eq "#{path}: 0 stale (1 checked, 1 not sent by any query module)"
+    end
+  end
+
   describe "#anonymize!" do
     let(:query) do
       <<~GRAPHQL

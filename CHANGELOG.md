@@ -1231,6 +1231,19 @@ next to what a generated struct looks like. **Update any bookmark to
   decoration with three kwargs and an RNG behind it. `stale_schema(type:,
   field:)` names the casualty when the message matters, and the bare call still
   trips `schema_stale?`. Passing `schema:`/`seed:` now raises `ArgumentError`.
+- **`rake graph_weaver:cassettes:check`** — replays every recording through the
+  generated modules and fails when one no longer casts. A cassette is the only
+  artifact recorded from a foreign server, and nothing else here notices when
+  that server's answers drift out of the shape the structs were generated for:
+  `verify`, `queries:check` and `schema:diff` all ask about the local side. It
+  needs no network, so it belongs beside `verify` in a PR run. A recording no
+  generated module sends is skipped and counted, and checking *none* of them
+  fails, like `federation:diff`. `Testing::Cassette#check` is the programmatic
+  side.
+- **A cast failure no longer prints sorbet-runtime's `Caller:` frame.**
+  `GraphWeaver::TypeError`'s message ended with `Caller:
+  .../sorbet-runtime/.../call_validation.rb:331` — a path into the gem, never
+  into the code with the problem, and the only location the message offered.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):

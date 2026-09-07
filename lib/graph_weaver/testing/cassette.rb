@@ -68,6 +68,25 @@ module GraphWeaver
     # entries. Testing.cassette wraps one in a record/replay client; this is
     # the file object behind it — and what the anonymize rake task rewrites.
     class Cassette
+      # What replaying one cassette through the current generated modules
+      # found. `checked` is how many recordings a module claimed: a run that
+      # claimed none proved nothing, which is a different answer from "all
+      # good" — the same distinction `federation:diff` draws.
+      Check = Struct.new(:path, :checked, :skipped, :stale, keyword_init: true) do
+        def ok? = stale.empty?
+
+        def report
+          [
+            "#{path}: #{stale.size} stale (#{checked} checked" \
+              "#{", #{skipped} not sent by any query module" if skipped.positive?})",
+            *stale.flat_map { |entry| ["  #{entry.module_name} #{entry.variables.inspect}", "    #{entry.message}"] },
+          ]
+        end
+      end
+
+      # One recording the generated structs can no longer read.
+      Stale = Struct.new(:module_name, :variables, :message, keyword_init: true)
+
       attr_reader :path
 
       def initialize(path)
@@ -102,6 +121,36 @@ module GraphWeaver
         @entries.reject! { |existing| self.class.entry_key(existing) == wanted }
         @entries << entry
         save
+      end
+
+      # Replay every recording through `modules` — the generated query
+      # modules — and report the ones that no longer cast.
+      #
+      # A cassette is the one artifact here recorded from a *foreign* server,
+      # and nothing else notices when that server's answers drift out of the
+      # shape the structs were generated for: `verify`, `queries:check` and
+      # `schema:diff` all ask about the local side. Without this the drift
+      # surfaces mid-spec as a `TypeError` naming a struct and a sorbet
+      # frame, with nothing pointing at the stale file.
+      #
+      # Matching is on the query text, which is the module that sent it — a
+      # recording no module sends is skipped rather than guessed at.
+      def check(modules)
+        index = modules.to_h { |mod| [self.class.normalize_query(mod.const_get(:QUERY)), mod] }
+        checked = 0
+        stale = @entries.filter_map do |entry|
+          mod = index[self.class.normalize_query(entry["query"])] or next
+          checked += 1
+
+          begin
+            mod.from_response(entry["response"])
+            nil
+          rescue GraphWeaver::Error => e
+            Stale.new(module_name: mod.name, variables: entry["variables"] || {}, message: e.message)
+          end
+        end
+
+        Check.new(path: @path, checked:, skipped: @entries.size - checked, stale:)
       end
 
       # Replace recorded response values with fakes, preserving structure.
