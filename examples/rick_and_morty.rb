@@ -2,9 +2,9 @@
 # typed: false
 # frozen_string_literal: true
 
-# One notch up from countries.rb: filtered search, pagination, and a
-# block-built type helper — against the Rick and Morty API (free, no
-# auth, wubba lubba dub dub):
+# One notch up from countries.rb: filtered search, pagination, an aliased
+# field, and a block-built type helper — against the Rick and Morty API
+# (free, no auth, wubba lubba dub dub):
 #
 #      examples/rick_and_morty.rb [NAME]
 #      examples/rick_and_morty.rb morty
@@ -23,7 +23,7 @@ end
 CharacterQuery = api.parse(<<~GRAPHQL)
   query($name: String, $page: Int) {
     characters(page: $page, filter: { name: $name }) {
-      # `next` is a Ruby keyword, so codegen refuses it as a prop — alias it
+      # a GraphQL alias names the prop: `info.next_page`, not `info.next`
       info { count pages nextPage: next }
       results {
         name

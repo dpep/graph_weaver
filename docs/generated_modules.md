@@ -33,16 +33,13 @@ app/graphql/
 in.** Input types, schema enums, and unions hoisted from shared fragments are
 all one kind of thing — a type that would otherwise be copied into every query
 that touches it — so they live in one module, one file each, and a query module
-that uses any of them opens with `require_relative "types"`. The constant is fixed,
-independent of where the files live; rename it (`GraphWeaver.types_module=`, or
-`generate!(types_module:)`) when one app generates against two schemas, in the
-same initializer that already gives each its own paths.
+that uses any of them opens with `require_relative "types"`. Rename the constant
+(`GraphWeaver.types_module=`, or `generate!(types_module:)`) when one app
+generates against two schemas, in the same initializer that already gives each
+its own paths.
 
-The manifest loads enums before the rest, because an input struct's props and a
-union member's selections spell them bare and a `T::Enum` can't be
-forward-declared. A shared fragment whose name is already a schema type in that
-module is refused at generation, naming both — a fragment is named by you, a
-type by the schema, and one module is one namespace.
+One module is one namespace, so a shared fragment whose name is already a schema
+type in that module is refused at generation, naming both.
 
 **Naming.** A module is named after its **file**, suffixed with the operation
 the file defines — `person.graphql` → `PersonQuery` in `person_query.rb`,
@@ -55,16 +52,12 @@ runs at all three doors: `generate!`, `GraphWeaver.parse(path)`, and
 
 Subdirectories are yours to organize with — `queries/admin/pets.graphql` is
 found, but the module name still comes from the file name alone, so it is
-`PetsQuery` in `pets_query.rb`. Two files with the same base name are refused
-at generation, naming both, rather than one silently overwriting the other.
+`PetsQuery` in `pets_query.rb`. Two files with the same base name are refused at
+generation, naming both, rather than one silently overwriting the other; so is a
+file holding two operations, since one file can't name two modules.
 
 Change a file's `query` to `mutation` and its constant changes with it; the
 next `generate!` prunes the old file, and `verify` fails until you regenerate.
-
-One operation per file, and a file holding two is refused at generation — a
-convention, not a limitation. Requests do carry `operationName`, so a second
-operation would run fine; what has no answer is naming, since one file can't
-name two modules.
 
 Parsing a raw query *string* has no file to name it after, so it uses the
 operation name (`query GetPerson` → `GetPerson`); dynamic `parse` falls back to
@@ -85,10 +78,9 @@ rake graph_weaver:generate    # queries_path -> generated_path
 rake graph_weaver:verify      # fail if anything is stale — run in CI
 ```
 
-Scalar/enum/type registrations are baked into generated source, so they
-must run before the tasks do. In Rails they will — the tasks depend on
-`:environment`, which runs your initializers. Outside Rails, require the
-file that does your registrations from the Rakefile yourself.
+Scalar/enum/type registrations are baked into generated source, so they must run
+first. In Rails they do — the tasks depend on `:environment`. Outside Rails,
+require the file that does your registrations from the Rakefile yourself.
 
 Or call the same APIs directly:
 
@@ -123,23 +115,18 @@ GraphWeaver.generated_paths << "spec/support/graphql/generated"
 
 The singular accessors read and replace the first entry — the default target for
 `generate!` and the rake tasks. `queries_path` is *only* singular: one
-`generate!` run reads one directory against one schema, so a second queries
-directory would produce modules at runtime that `rake graph_weaver:generate`
-never generates and `verify` never checks.
+`generate!` run reads one directory against one schema.
 
 (Plain requires, not Zeitwerk: Zeitwerk would expect
 `Generated::PersonQuery` from `generated/person_query.rb`, and generated
 code only changes on regeneration — restart, like a schema migration.)
 
-Regenerate when: a query changes, the schema changes (a
-[`schema_stale?`](errors.md) error in production is the late signal), a scalar
-registration changes, or GraphWeaver itself upgrades (emission may differ across
-versions; `verify_generated!` catches it).
-
-Introspected dumps record their source url, so schema drift is catchable ahead
-of that late signal — `schema:diff` detects it, `schema:refresh` rewrites the
-dump, `queries:check` names what it broke. Which to run where, and what each one
-asks, is in [getting started](getting_started.md#5-verify-in-ci).
+Regenerate when: a query changes, the schema changes, a scalar registration
+changes, or GraphWeaver itself upgrades (emission may differ across versions;
+`verify_generated!` catches it). The rake tasks that spot a schema change for
+you — `schema:diff`, `schema:refresh`, `queries:check` — are in
+[getting started](getting_started.md#5-verify-in-ci); a
+[`schema_stale?`](errors.md) error in production is the late signal.
 
 In development, skip the build entirely — `client.load_queries!` parses
 every query file into modules with the same names generation would use
@@ -150,15 +137,14 @@ every query file into modules with the same names generation would use
 The same schema and the same queries produce **byte-identical files** — on any
 machine, in any order, however many times you run it. Everything with a
 non-obvious order (schema members, enum values, requires, hoisted names) is
-sorted, nothing is carried between runs, and a spec asserts it both across
-calls and against the checked-in fixtures.
+sorted, and a spec asserts it both across calls and against the checked-in
+fixtures.
 
-This is a guarantee you can lean on, not an accident: regenerating a file you
-didn't change produces no diff, so a `graph_weaver:generate` in a PR shows
-exactly what moved, `verify_generated!` never fails spuriously, and a
-generated file is worth reviewing line by line. (A GraphWeaver upgrade may
-legitimately change emission — that's a version bump, and the changelog says
-when to regenerate.)
+Lean on it: regenerating a file you didn't change produces no diff, so a
+`graph_weaver:generate` in a PR shows exactly what moved, `verify_generated!`
+never fails spuriously, and a generated file is worth reviewing line by line.
+(A GraphWeaver upgrade may legitimately change emission — that's a version
+bump, and the changelog says when to regenerate.)
 
 ## Anatomy
 
@@ -274,11 +260,8 @@ AdoptMutation.execute!(input: AdoptMutation::AdoptionInput.new(name: "Rex", spec
 A struct is typed consts plus a compact per-field `FIELDS` table the
 `GraphWeaver::InputStruct` runtime drives — `serialize` (aliased `to_h`) builds
 the wire hash with nil optionals omitted, `coerce` builds from a plain hash.
-Carrying the conversions as data rather than unrolled methods is what keeps a
-Hasura `bool_exp` pulling hundreds of input types down to ~2 lines per field.
-Nested inputs work (dependencies emit first), including recursive ones — a
-self-referential filter generates cleanly, with `_and:`/`_not:` typed as the
-struct itself:
+Nested inputs work, including recursive ones — a self-referential filter
+generates cleanly, with `_and:`/`_not:` typed as the struct itself:
 
 ```ruby
 where = mod::PokemonBoolExp.coerce(
@@ -290,11 +273,10 @@ mod.execute!(where:)
 In the `generate!` workflow input types are emitted **once per schema**, one
 file per type under `generated/types/` with `types.rb` as the manifest. Query
 modules alias what they touch, so `AdoptMutation::AdoptionInput` still works and
-a shared type keeps one identity across modules — three filtered Hasura queries
-cost one set of type files plus ~90 lines each, instead of a full copy per
-query. A query module aliases only its *variable root* types, so a deeply nested
-one is reached as `GraphQLTypes::<Type>`. Per-type files keep drift reviewable:
-a migration diffs exactly the types it touched, and types the schema drops are pruned on
+a shared type keeps one identity across modules. A query module aliases only its
+*variable root* types, so a deeply nested one is reached as
+`GraphQLTypes::<Type>`. Per-type files keep drift reviewable: a schema migration
+diffs exactly the types it touched, and types the schema drops are pruned on
 regeneration (`verify` flags strays). Dynamic `parse` stays self-contained.
 
 ## Enums: one GraphQL enum, one Ruby type
@@ -345,13 +327,13 @@ plus a catch-all `Other`, wrapped in a module with
 unaliased and unconditional — the wire response carries no type tag unless you
 ask, and `from_h` reads it on every response.
 
-Size follows the query, not the schema: two `... on` conditions against an
-interface with 278 implementations emit three structs, not 279. Anything the
-query didn't name — a member you have no fragment on, or one the schema grew
-*after* you generated — deserializes into `Other`, carrying what the abstract
-type itself guarantees (an interface's selected interface-level fields; for a
-union, `__typename`). Adding a union member upstream is a non-breaking change,
-and it stays one here.
+Size follows the query, not the schema: two `... on` conditions against GitHub's
+`Node` — an interface with a few hundred implementations — emit three structs,
+not a few hundred. Anything the query didn't name — a member you have no
+fragment on, or one the schema grew *after* you generated — deserializes into
+`Other`, carrying what the abstract type itself guarantees (an interface's
+selected interface-level fields; for a union, `__typename`). Adding a union
+member upstream is a non-breaking change, and it stays one here.
 
 Two selections have nothing to dispatch between, so they skip the module and
 become the struct directly: **no conditions at all** (interface-level fields
@@ -385,26 +367,24 @@ items.each do |item|          # item : T.any(Result::Item::Book, Result::Item::D
 end
 ```
 
-Two things a `case item.__typename` on the string can't give you. `when Book`
+Two things a `case` on the `__typename` string can't give you. `when Book`
 *narrows*: inside the branch `item` is statically a `Book`, so its fields
-typecheck (a `Disc` field would be a compile error) — a string value narrows
-nothing. And after every branch, the `T.any` is exhausted, so `T.absurd` asserts
-the `else` is unreachable: **write a fragment for another member, regenerate,
-and the `T.absurd` stops compiling until you handle it.** Dispatching on the
-string tag gets you neither — mistakes fall through to a runtime raise.
+typecheck and a `Disc` field is a compile error. And after every branch the
+`T.any` is exhausted, so `T.absurd` asserts the `else` is unreachable —
+**write a fragment for another member, regenerate, and the `T.absurd` stops
+compiling until you handle it.**
 
-What it proves is exhaustiveness over the members *this query asked about*,
-plus `Other` — deliberately not "every type in the schema", which is what keeps
-a `case` you wrote today compiling when upstream adds a member. To make the
-compiler force your hand on a new one, name it in the query.
+Exhaustive over the members *this query asked about*, plus `Other` —
+deliberately not "every type in the schema", which is what keeps a `case` you
+wrote today compiling when upstream adds a member. To make the compiler force
+your hand on a new one, name it in the query.
 
-`__typename` is still there as a plain `String`, and has one use the class can't
+`__typename` is still there as a plain `String`, with one use the class can't
 cover: two *differently-selected* occurrences of the same union are distinct
 type families (`Result::Item::Book` is not `Result::FeaturedItem::Book`), so a
 `case` written for one won't span the other. Select the union through a shared
-fragment to hold it as one type across queries
-([above](#abstract-types)); if all you have is the bare tag, `__typename` is the
-common denominator, unchecked.
+fragment to hold it as one type across queries ([above](#abstract-types)); if
+all you have is the bare tag, `__typename` is the common denominator, unchecked.
 
 ## Naming nested types
 
@@ -426,6 +406,8 @@ The name is a function of that field's own position and nothing else, which is
 the property that matters when generated code is checked in and referenced from
 app code: **adding, removing, or reordering an unrelated selection can never
 rename a struct you already use.**
+[`spec/naming_spec.rb`](../spec/naming_spec.rb) asserts each of those three
+edits leaves the name alone.
 
 The key is used verbatim — no pluralization heuristics, so a list field `pets`
 generates `Pets`, not `Pet`. To choose the name yourself, alias the field in the
@@ -535,6 +517,9 @@ For anything beyond a passthrough projection — real logic, still typed — reo
 the generated struct in your own file and add sig'd methods; Sorbet merges the
 bodies.
 
+Every form above, and every error it raises, is a named example in
+[`spec/aliases_spec.rb`](../spec/aliases_spec.rb).
+
 ## Clients
 
 A client is anything with `execute(query, variables:, operation_name:)` whose result `to_h`s
@@ -546,11 +531,10 @@ Generate *without* a baked constant when you want modules to follow the
 app default (`GraphWeaver.client =` in an initializer) — that's also what
 lets [testing's `graphql:` tag](testing.md) swap in a client per example.
 
-`client`/`client=` themselves live in the gem (`GraphWeaver::QueryModule`,
-extended by every generated module) — they carry no per-query types, so
-there is nothing to generate. A baked constant is emitted as
-`DEFAULT_CLIENT`, resolved on first use so a module can load before the
-initializer that builds its client.
+`client`/`client=` live in the gem (`GraphWeaver::QueryModule`, extended by
+every generated module). A baked constant is emitted as `DEFAULT_CLIENT`,
+resolved on first use so a module can load before the initializer that builds
+its client.
 
 ## Dynamic mode
 

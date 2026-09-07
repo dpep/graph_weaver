@@ -54,12 +54,9 @@ New here? In Rails it's one command —
 the initializer, the `app/graphql` layout, the editor config and the schema
 dump. The **[getting started](docs/getting_started.md)** guide walks the
 production setup end to end — codegen, fakes, CI. Or run the
-**[examples](examples/)**, smallest first: `examples/countries.rb` (public
-API, no auth, all dynamic), `examples/rick_and_morty.rb` (filtering,
-pagination, a block-built type helper), and `examples/github/run.rb`
-(auth + checked-in generated modules; it stars this repo ⭐ and introduces
-you to your fellow stargazers). `examples/federation.rb` runs a whole
-federated graph in-process — the only one that needs no network.
+**[examples](examples/)**, smallest first: a public API in 30 lines, a
+paginated search, the production path against GitHub, and a whole federated
+graph in-process (the one that needs no network).
 
 #### Features
 
@@ -68,7 +65,7 @@ federated graph in-process — the only one that needs no network.
 - **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
 - **Schema lifecycle as rake tasks**: `schema:refresh`, `schema:diff`, `queries:check`, `verify` — above
 - **Rails install generator**: `rails g graph_weaver:install <url|schema class|dump>` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
-- **Any transport**: in-process schema execution, the zero-dependency HTTP executor, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call by passing a client to `execute`
+- **Any transport**: in-process schema execution, the zero-dependency HTTP transport, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call by passing a client to `execute`
 - **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
 - **Testing built in**: fakes, failure simulation, cassettes, rspec integration — above
 - **Type helpers**: mix your own methods onto a generated struct (`extend_type`), or project a nested field onto a typed flat accessor (`alias:`)
@@ -109,13 +106,8 @@ PersonQuery.execute(other_client, id: "1")          # or per call
 Module names derive from the **file** name plus the operation it defines —
 `person.graphql` → `PersonQuery`, `adopt.graphql` (a `mutation`) →
 `AdoptMutation` — for `parse(path)`, `load_queries!` and the rake task alike.
-The operation name written inside the file names no module; it goes on the wire
-as `operationName`, and an anonymous document is named after its module so every
-request is still attributable. Full rules, plus `client:` to bake a default
-client into a module, in
-[generated modules](docs/generated_modules.md#generating). Prefer Faraday? Ask
-for it — `GraphWeaver.new(url, transport: :faraday)`; middleware blocks and
-ready connections in [transports](docs/transports.md).
+Full rules, plus `client:` to bake a default client into a module, in
+[generated modules](docs/generated_modules.md#generating).
 
 In development, skip the build step entirely — modules from `client.parse`
 carry the client's transport, no global wiring needed:

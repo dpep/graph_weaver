@@ -40,10 +40,10 @@ objects to it, point `schema:` at an SDL dump instead.
 The two editor plugins that read this file:
 
 - **[vscode-graphql](https://marketplace.visualstudio.com/items?itemName=GraphQL.vscode-graphql)**
-  (~2.8M installs) — its README states it **requires** a graphql-config file,
-  which is why nothing works without the YAML above.
-- **The JetBrains GraphQL plugin** (~6.1M downloads, bundled with recent
-  RubyMine) reads the same file.
+  — its README states it **requires** a graphql-config file, which is why
+  nothing works without the YAML above.
+- **The JetBrains GraphQL plugin**, bundled with recent RubyMine, reads the
+  same file.
 
 Either one gives you, inside a `.graphql` file:
 
@@ -52,7 +52,7 @@ Either one gives you, inside a `.graphql` file:
 - go-to-definition and hover docs into schema types, including the
   descriptions the API author wrote
 
-That is the same feedback the generator gives you, ~90 seconds earlier — you
+That is the same feedback the generator gives you, one round trip earlier — you
 find the typo while typing the query, not at `rake graph_weaver:generate`.
 
 The same globs also feed the JS CI tools, if you want them (these *do* need

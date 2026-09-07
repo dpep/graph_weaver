@@ -32,6 +32,14 @@ RSpec.describe "checked-in examples" do
     end
   end
 
+  # the tour in examples/README.md is only useful while its links resolve
+  it "link only to example files that exist" do
+    links = File.read("#{EXAMPLES}/README.md").scan(/\]\((?!https?:)([^)#]+)\)/).flatten.uniq
+
+    expect(links).not_to be_empty
+    expect(links.reject { |link| File.exist?(File.join(EXAMPLES, link)) }).to be_empty
+  end
+
   # federation.rb is the one example that needs no network, so the guard can
   # be the real thing: run it. A subprocess, because it parses modules into
   # the top-level namespace.
