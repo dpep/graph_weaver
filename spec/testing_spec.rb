@@ -323,6 +323,24 @@ describe GraphWeaver::Testing do
     # :in_process runs — and only a federated app makes them want different
     # objects. Setting a subgraph so :in_process had a live class silently
     # repointed :fake at a fraction of the graph.
+    # The install generator always commits a dump, and a dump loads as an
+    # anonymous GraphQL::Schema subclass — which looks runnable and has no
+    # resolvers. Falling back to it produced a graphql-ruby 500 blaming the
+    # user's own resolver.
+    it "prefers the client's live class over a committed dump" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "schema.graphql")
+        File.write(path, Demo::Schema.to_definition)
+        GraphWeaver.schema_path = path
+        GraphWeaver.client = GraphWeaver::InProcess.new(Demo::Schema)
+
+        expect(described_class.config.schema_class!).to be Demo::Schema
+      end
+    ensure
+      GraphWeaver.schema_path = nil
+      GraphWeaver.client = nil
+    end
+
     it "runs config.schema when it is a live class" do
       described_class.config.schema = Demo::Schema
 

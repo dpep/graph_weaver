@@ -1,3 +1,12 @@
+## Unreleased
+- **`graphql: :in_process` ran the committed schema dump instead of your live
+  schema class.** A dump loads as an anonymous `GraphQL::Schema` subclass, which
+  looks like a runnable class and has no resolvers — so every app that followed
+  `getting_started.md` (the generator always commits a dump) got a graphql-ruby
+  500 blaming its own resolver, and the error that was written to explain this
+  was unreachable. Nothing to do; if you worked around it with
+  `Testing.config.schema = MySchema`, that still works and still wins.
+
 ###  v0.5.0  (2026-09-07)
 - **`graphql_in_process(SomeSchema)`** runs one example against that schema
   class's real resolvers — the sibling of `graphql_fake`, and how a federated

@@ -169,7 +169,10 @@ module GraphWeaver
       # client already runs in-process. Only a live class has resolvers, so
       # there is nothing else to fall back to: a dump is type information.
       def schema_class!
-        runnable(schema) || GraphWeaver.live_schema ||
+        # explicit_schema, not schema: the latter falls back to the committed
+        # dump, which loads as an anonymous GraphQL::Schema subclass — runnable
+        # by every test that matters, and holding not one resolver.
+        runnable(explicit_schema) || GraphWeaver.live_schema ||
           raise(GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
             "GraphQL::Schema class — and GraphWeaver.client isn't running one in-process to " \
             "borrow. Name it in the example — graphql_in_process(MySchema) — or set " \
