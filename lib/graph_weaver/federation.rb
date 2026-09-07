@@ -80,7 +80,7 @@ module GraphWeaver
         @table = GraphWeaver::SchemaLoader.routing_table(source)
         # SDL passed as content has no name to print
         @source = source.include?("\n") ? "the supergraph" : source
-        @given = named(subgraphs)
+        @given = @table.named_subgraphs(subgraphs)
         @schemas = schemas || GraphWeaver::Schemas.loaded
         @stale = {}
         @uncomposed = {}
@@ -128,20 +128,6 @@ module GraphWeaver
 
       STALE = "stale — the supergraph carries these, no schema here defines them (recompose):"
       UNCOMPOSED = "not composed in — a schema here defines these, the supergraph doesn't carry them:"
-
-      # `subgraphs:` with string keys, refusing a name this supergraph
-      # doesn't have — the same check Testing::Subgraphs makes, and for the
-      # same reason: a typo'd key would silently check nothing
-      def named(given)
-        map = (given || {}).to_h { |name, schema| [name.to_s, schema] }
-        unknown = map.keys - @table.subgraphs
-        if unknown.any?
-          raise GraphWeaver::ConfigurationError, "subgraphs: names #{unknown.join(", ")}, which " \
-            "this supergraph doesn't have (its subgraphs are #{@table.subgraphs.join(", ")})"
-        end
-
-        map
-      end
 
       def compare
         @table.subgraphs.each do |name|
