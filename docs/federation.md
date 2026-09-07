@@ -213,8 +213,12 @@ GraphWeaver.client = GraphWeaver::Testing::Router.new(
 
 In rspec that's the [`graphql: :router`](testing.md#a-federated-graph--graphql-router)
 tag and there is nothing to pass — the tag builds it, once for the suite.
-`router.trace` records the fetches one `execute` made, in order (subgraph,
-query, variables); the same lines go to `GraphWeaver.logger` at `:debug`.
+`router.trace` records the fetches made since the last `reset_trace`, in order
+(subgraph, query, variables); the same lines go to `GraphWeaver.logger` at
+`:debug`. It **accumulates across executes**, because the question worth asking
+is which subgraphs a code path touched and a service object rarely runs one
+query. The rspec tag resets it before each example; outside rspec call
+`router.reset_trace` around the code path you're measuring.
 
 **[`examples/federation.rb`](../examples/federation.rb)** is the whole shape
 in one runnable file, and the only example that needs no network: three real
@@ -323,6 +327,7 @@ A **`@requires` field set** is supplied by the router rather than by the
 subgraph that declares the field, so it's a fetch before the fetch:
 
 ```ruby
+router.reset_trace
 router.execute("{ reviews { product { shippingEstimate } } }")
 router.trace.map { _1[:subgraph] }   # => ["reviews", "products", "reviews"]
 ```
@@ -338,6 +343,7 @@ polymorphic list — is planned per concrete type, because a representation name
 one concrete `__typename` and which one an object has isn't in the query:
 
 ```ruby
+router.reset_trace
 router.execute("{ purchasables { name ... on Product { reviews { body } } } }")
 router.trace.map { _1[:subgraph] }   # => ["products", "reviews"]
 ```

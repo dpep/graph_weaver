@@ -22,8 +22,9 @@ require "graph_weaver/testing"
 module GraphWeaverMatchers
   Unplannable = GraphWeaver::Testing::Unplannable
 
-  # Which subgraphs the router's **last** `execute` fetched, in order.
-  # `router.trace` resets per execute, so this asks about one query:
+  # Which subgraphs the router has fetched since its last `reset_trace`, in
+  # order — the rspec tag resets per example, so this asks about the code
+  # path the example ran, however many queries that took:
   #
   #      router.execute("{ me { username reviews { body } } }")
   #      expect(router).to have_fetched("accounts", "reviews")

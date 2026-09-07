@@ -54,6 +54,7 @@ describe GraphWeaverMatchers do
     end
 
     it "is how a plan-time refusal says nothing ran" do
+      router.reset_trace
       expect { router.execute("{ me { id: username reviews { body } } }") }
         .to raise_error GraphWeaver::Testing::Unplannable
       expect(router).not_to have_fetched

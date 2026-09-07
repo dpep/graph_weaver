@@ -148,8 +148,10 @@ module GraphWeaver
     # subgraph, which would reply with its own slice. That is the one split a
     # real router also makes.
     #
-    # #trace records the fetches one execute made, in order (subgraph, query,
-    # variables); the same lines go to GraphWeaver.logger at :debug.
+    # #trace records the fetches made since the last #reset_trace, in order
+    # (subgraph, query, variables); the same lines go to GraphWeaver.logger
+    # at :debug. The rspec integration resets it per example; anywhere else,
+    # reset it yourself around the code path you're measuring.
     class Router
       include GraphWeaver::Parsing
 
@@ -160,7 +162,9 @@ module GraphWeaver
       # who resolves what (GraphWeaver::SchemaLoader::RoutingTable)
       attr_reader :table
 
-      # the fetches the last execute made
+      # every fetch made since the last {#reset_trace}, in order — so "which
+      # subgraphs did this code path touch" is answerable for a service
+      # object that runs more than one query
       attr_reader :trace
 
       # subgraphs no schema here serves: a query reaching their fields is
@@ -216,8 +220,15 @@ module GraphWeaver
         @planner = Planner.new(table: @table, schema: @schema, absent: @absent)
       end
 
-      def execute(query, variables: {}, operation_name: nil)
+      # Drop the fetches recorded so far. A router is built once and reused
+      # (the rspec tag builds one per suite), so without this #trace answers
+      # about whatever ran before as well.
+      def reset_trace
         @trace = []
+        self
+      end
+
+      def execute(query, variables: {}, operation_name: nil)
         document = begin
           GraphQL.parse(query)
         rescue GraphQL::ParseError => e

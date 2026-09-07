@@ -76,7 +76,7 @@ describe GraphWeaver::Testing::Router do
       expect(router).to have_fetched "accounts"
 
       router.execute("{ reviews { body } }")
-      expect(router).to have_fetched "reviews"
+      expect(router).to have_fetched "accounts", "reviews"
     end
 
     it "passes context through to the resolvers" do
@@ -109,6 +109,20 @@ describe GraphWeaver::Testing::Router do
     it "runs a mutation-free document's __typename against whichever subgraph runs it" do
       expect(router.execute("{ __typename me { username } }").fetch("data"))
         .to eq({ "__typename" => "Query", "me" => { "username" => "dpep" } })
+    end
+  end
+
+  # A service object under test runs more than one query, and "which
+  # subgraphs did this code path touch" is the assertion the trace exists
+  # for — so it accumulates, and the reset is explicit.
+  describe "#trace" do
+    it "accumulates across executes until it is reset" do
+      router.execute("{ me { username } }")
+      router.execute("{ me { username reviews { body } } }")
+      expect(router).to have_fetched "accounts", "accounts", "reviews"
+
+      expect(router.reset_trace).to be router
+      expect(router).not_to have_fetched
     end
   end
 
@@ -415,6 +429,7 @@ describe GraphWeaver::Testing::Router do
         .to eq({ "data" => { "search" => [{}] } })
       expect(split).to have_fetched "a"
 
+      split.reset_trace
       split.execute("{ search { ... on Doc { id } } }") # the same shape, one subgraph
       expect(split).to have_fetched "a"
     end

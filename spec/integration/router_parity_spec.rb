@@ -242,6 +242,7 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     each_case do |name, query, variables, _clean|
       next unless VERBATIM.include?(name)
 
+      router.reset_trace # one router for the whole loop; ask about this case
       expect(compare(query, variables)).to eq([:match, nil]), name
       expect(router.trace.size).to eq(1), "#{name} now takes #{router.trace.size} fetches"
     end

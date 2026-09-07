@@ -1183,6 +1183,16 @@ next to what a generated struct looks like. **Update any bookmark to
 `generated_modules.md#type-helpers` now. `scalars.md` still owns
 `register_scalar` and `register_enum`.
 
+- **`Testing::Router#trace` accumulates across executes and is reset
+  explicitly** — `router.reset_trace`. It used to clear itself at the top of
+  every `execute`, which made it answer about the *last* query rather than the
+  code path: a service object running two queries reported only the second's
+  fetches, and an example that ran nothing read the previous example's, so an
+  assertion could pass on another example's work and fail under `--order rand`.
+  The rspec `graphql: :router` tag resets it per example. **An example that
+  asserts on the trace after more than one `execute` now sees both**, and
+  wants a `reset_trace` in between if it meant only the last one.
+
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
 - alias: a nested-object/enum leaf (`meta.sub`) now qualifies its constant
