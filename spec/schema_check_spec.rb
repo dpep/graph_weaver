@@ -56,6 +56,16 @@ describe "GraphWeaver.check_queries" do
     expect(check(v1).keys.map { |path| File.basename(path) }).to eq %w[broken.graphql]
   end
 
+  # codegen folds the position into the message for its own rendering; this
+  # report keeps message and position apart, so the rake task printed
+  # "1:16  1:16 Expected ..." until the two agreed
+  it "keeps the position out of an unparseable query's message" do
+    write("broken.graphql", "query { media {{ id } }")
+
+    expect(check(v1)[File.join(@queries, "broken.graphql")])
+      .to eq [{ "message" => "Expected NAME, actual: LCURLY (\"{\") at [1, 16]", "line" => 1, "column" => 16 }]
+  end
+
   it "checks against a passed schema without touching the network" do
     expect(GraphWeaver::SchemaLoader).not_to receive(:introspect)
     check(v1)

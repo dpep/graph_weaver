@@ -506,13 +506,28 @@ module GraphWeaver
       super.merge("errors" => errors.map { |e| e.transform_keys(&:to_s) })
     end
 
+    # "queries/person.graphql:4:5 Field 'nmae' …" back into its three parts —
+    # [path, "line:column", message]. Codegen folds the position (and, when it
+    # knows it, the file) into :message, so anything reporting the parts
+    # separately splits it back out here rather than growing a second splitter
+    # to disagree with. A message with no such prefix passes through whole.
+    sig { params(error: T::Hash[Symbol, T.untyped]).returns([T.nilable(String), String, String]) }
+    def self.split(error)
+      message = error[:message].to_s
+      position = [error[:line], error[:column]].compact.join(":")
+      return [nil, position, message] if position.empty?
+
+      match = message.match(/\A(?:(?<path>.+):)?#{Regexp.escape(position)} (?<rest>.*)\z/m)
+      match ? [match[:path], position, match[:rest]] : [nil, position, message]
+    end
+
     private
 
     # Compiler-style: the query file once in the header, then one error per
     # line — thirty typos on one joined line is a wall nobody reads.
     sig { params(errors: T::Array[T::Hash[Symbol, T.untyped]]).returns(String) }
     def render(errors)
-      entries = errors.map { |error| split(error) }
+      entries = errors.map { |error| ValidationError.split(error) }
       paths = entries.map(&:first).compact.uniq
       hoisted = paths.one?
 
@@ -521,21 +536,6 @@ module GraphWeaver
         prefix.empty? ? "  #{message}" : "  #{prefix}  #{message}"
       end
       [hoisted ? "invalid query in #{paths.first}:" : "invalid query:", *lines].join("\n")
-    end
-
-    # "queries/person.graphql:4:5 Field 'nmae' …" back into its three parts.
-    # Codegen folds the position (and, when it knows it, the file) into
-    # :message — the structured side keeps that shape, so display splits it
-    # back out rather than the two sides disagreeing. A message with no such
-    # prefix passes through whole.
-    sig { params(error: T::Hash[Symbol, T.untyped]).returns([T.nilable(String), String, String]) }
-    def split(error)
-      message = error[:message].to_s
-      position = [error[:line], error[:column]].compact.join(":")
-      return [nil, position, message] if position.empty?
-
-      match = message.match(/\A(?:(?<path>.+):)?#{Regexp.escape(position)} (?<rest>.*)\z/m)
-      match ? [match[:path], position, match[:rest]] : [nil, position, message]
     end
   end
 end

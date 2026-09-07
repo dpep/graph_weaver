@@ -349,7 +349,13 @@ module GraphWeaver
         subgraphs.empty? ? entry : entry.merge("subgraphs" => subgraphs)
       end
     rescue GraphWeaver::ValidationError => e
-      e.errors.map { |detail| detail.transform_keys(&:to_s) }
+      # an unparseable query: codegen folds the position (and the file) into
+      # the message, and this report keeps them separate — same splitter the
+      # rendered error uses, so the two can't drift apart
+      e.errors.map do |detail|
+        _path, _position, message = ValidationError.split(detail)
+        detail.transform_keys(&:to_s).merge("message" => message)
+      end
     end
     private :validation_errors
 
