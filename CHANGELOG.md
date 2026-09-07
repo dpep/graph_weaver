@@ -1,4 +1,40 @@
 ## Unreleased
+### Has anyone changed a subgraph without recomposing?
+
+    rake graph_weaver:federation:diff SUPERGRAPH=supergraph.graphql
+
+A committed supergraph is a snapshot of a composition, and nothing checked that
+it still described your subgraphs — so it could quietly promise a graph that no
+longer exists. This reads the routing table against the subgraph schemas loaded
+in this process, needs **no network**, and exits non-zero on drift, so it gates
+a PR alongside `graph_weaver:verify`.
+
+Both directions, because they mean opposite things: **stale** (the supergraph
+carries `Product.weight`, nothing here defines it — recompose) and **not
+composed in** (a schema here defines `Product.dimensions`, the supergraph
+doesn't carry it — publish the subgraph). Comparison is deliberately looser
+than field-set equality, which would be wrong both ways: a subgraph carries
+federation plumbing no supergraph has, and `@external`/`@shareable` put a field
+in more than one subgraph.
+
+A supergraph is routinely only partly local, so the report names three states —
+checked, not here, and answered with fabricated data — and the headline counts
+them. Only drift fails; absence is a supported setup.
+`GraphWeaver::Federation::Drift` is the same thing as data (`#to_h`, `#drift?`).
+
+### Validation errors name the subgraph behind the type
+
+When the schema dump is a composed supergraph, `rake graph_weaver:queries:check`
+brands each error with who resolves the type it points at:
+
+    app/graphql/queries/product.graphql
+      4:5  Field 'dimensions' doesn't exist on type 'Product' (products, reviews)
+
+`Product.dimensions` says what broke; `(products, reviews)` says whose code to
+look at. A plain schema has no routing table and is unaffected.
+
+- New: `SchemaLoader::RoutingTable#declared_fields`, `#declares?`, `#responsible`.
+
 ### A partly-local supergraph now works
 
 The testing router serves a supergraph composed from several services when only
