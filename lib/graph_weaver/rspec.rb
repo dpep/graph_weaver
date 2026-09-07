@@ -133,7 +133,7 @@ module GraphWeaver
       # whether or not this example took a client from the hook
       module Helpers
         # The fake this example runs against, built here rather than by the
-        # tag — which is how it takes options. `#{TAG}: :fake` is exactly
+        # tag — which is how it takes options. `graphql: :fake` is exactly
         # this call with none:
         #
         #      it "shows the two paid orders" do

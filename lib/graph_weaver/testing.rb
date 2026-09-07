@@ -18,8 +18,8 @@ end
 #
 #      GraphWeaver::Testing.configure do |config|
 #        config.schema = MySchema                  # overrides the derived schema
-#        config.router = { subgraphs: { "reviews" => :fake } }  # and/or supergraph:,
-#                                                    # when it isn't the dump
+#        config.router = { subgraphs: { "reviews" => :fake } }  # or supergraph:,
+#                                                  # when it isn't the dump
 #        config.context = { current_user: }        # baseline GraphQL context
 #        config.default_mode = :fake               # untagged examples (graph_weaver/rspec)
 #        config.seed = 42                          # reproducible fakes
