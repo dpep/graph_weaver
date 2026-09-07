@@ -41,7 +41,7 @@ module GraphWeaver
       # records, so it needs a client: too.
       #
       #      client = GraphWeaver::Testing.cassette("github", client: live)
-      #      result = RepoQuery.execute!(client, owner: "dpep")
+      #      result = RepoQuery.execute!(client:, owner: "dpep")
       #
       def cassette(name, client: nil)
         file = Cassette.new(name)

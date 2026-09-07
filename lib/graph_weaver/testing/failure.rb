@@ -9,10 +9,10 @@ module GraphWeaver
     # transports produce, so error-handling paths are testable without a
     # server that misbehaves on cue:
     #
-    #      PersonQuery.execute(Failure.transport, id: "1")   # TransportError
-    #      PersonQuery.execute(Failure.server(status: 502), id: "1")
-    #      PersonQuery.execute(Failure.throttled, id: "1")   # QueryError, code THROTTLED
-    #      PersonQuery.execute(Failure.stale_schema, id: "1") # schema_stale? => true
+    #      PersonQuery.execute(client: Failure.transport, id: "1")   # TransportError
+    #      PersonQuery.execute(client: Failure.server(status: 502), id: "1")
+    #      PersonQuery.execute(client: Failure.throttled, id: "1")    # QueryError, code THROTTLED
+    #      PersonQuery.execute(client: Failure.stale_schema, id: "1") # schema_stale? => true
     #
     # For type mismatches, corrupt the wire with a FakeClient override:
     #      FakeClient.new(schema:, overrides: { "Person.birthday" => 123 })

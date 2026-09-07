@@ -250,7 +250,7 @@ class GraphWeaver::Codegen
   GENERATED_METHODS = %w[serialize to_h].to_set.freeze
   # Names the generated `execute` body owns: the per-call client kwarg and the
   # variables hash it builds. A GraphQL variable by either name redeclares one
-  # — `def self.execute(client: nil, client:)` doesn't even parse. No legal
+  # — `def self.execute(client:, client: nil)` doesn't even parse. No legal
   # Ruby local is unreachable by a GraphQL variable name, so this is a guard
   # rather than a rename.
   RESERVED_KWARGS = %w[client variables].to_set.freeze

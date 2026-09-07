@@ -10,7 +10,7 @@ require_relative "../parsing"
 # arrives — the zero-setup way to test code built on generated modules:
 #
 #      fake = GraphWeaver::Testing::FakeClient.new
-#      result = PersonQuery.execute!(fake, id: "1")
+#      result = PersonQuery.execute!(client: fake, id: "1")
 #      result.person.name  # => a plausible String, typed and castable
 #
 # Values are type-correct by construction (real enum values, valid
