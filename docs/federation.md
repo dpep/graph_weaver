@@ -142,7 +142,8 @@ union over the file's own `@key`'d types — the same way it supplies the
 `@key`/`@external` definitions. A file that declares its own keeps it.
 
 The read side is a normal union selection; `alias:` turns the
-single-entity case into a clean accessor (see [scalars.md](scalars.md)):
+single-entity case into a clean accessor (see
+[flat accessors](generated_modules.md#flat-accessors-with-alias)):
 
 ```ruby
 GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
