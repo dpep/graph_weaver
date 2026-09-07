@@ -295,22 +295,9 @@ describe "graph_weaver rake tasks" do
       expect(result.err).to include "config.rake_eager_load"
     end
 
-    it "says what to pass when there is no supergraph to compare against" do
-      result = invoke("federation:diff")
-
-      expect(result.status).to eq 1
-      expect(result.err).to include "SUPERGRAPH=supergraph.graphql"
-    end
   end
 
   describe "graph_weaver:federation:subgraphs" do
-    it "says what to pass when there is no supergraph" do
-      result = invoke("federation:subgraphs")
-
-      expect(result.status).to eq 1
-      expect(result.err).to include "SUPERGRAPH=supergraph.graphql"
-    end
-
     # the map is meant to be pasted into config — an ambiguous entry has to
     # read as "you pick", not as a schema this picked for you
     it "leaves an ambiguous subgraph nil, naming every schema that fits" do
@@ -347,6 +334,29 @@ describe "graph_weaver rake tasks" do
 
       expect(result.status).to eq 1
       expect(result.err).to include "@join__directive"
+    end
+  end
+
+  # all three take the same argument and refuse the same way, and each has to
+  # name ITS OWN task in the copy-pasteable line it prints
+  %w[diff subgraphs coverage].each do |name|
+    describe "graph_weaver:federation:#{name}" do
+      it "says what to pass when there is no supergraph" do
+        result = invoke("federation:#{name}")
+
+        expect(result.status).to eq 1
+        expect(result.err).to eq <<~ABORT
+          pass the composed supergraph: rake graph_weaver:federation:#{name} SUPERGRAPH=supergraph.graphql
+        ABORT
+      end
+
+      it "aborts with one line when the supergraph isn't a composed one" do
+        result = invoke("federation:#{name}", SUPERGRAPH: "type Query { hi: String }")
+
+        expect(result.status).to eq 1
+        expect(result.err.lines.size).to eq 1
+        expect(result.out).to be_empty
+      end
     end
   end
 
