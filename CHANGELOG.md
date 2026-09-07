@@ -1,4 +1,46 @@
 ## Unreleased
+### One tag picks what a test runs against
+
+`auto_fake` and `config.router` each installed a client for **every** example
+and refused to coexist, so a suite had to choose fakes or real resolvers once,
+for everything — and running in-process against a live schema had no configured
+mode at all. Now an rspec tag says it per example, or per group:
+
+    it "renders the empty state", graphql: :fake do        … end
+    it "authorizes drafts",       graphql: :in_process do  … end
+    describe "checkout",          graphql: :router do      … end
+
+`rspec --tag graphql:router` runs one mode's examples. The tag is namespaced
+under one `graphql:` key on purpose: a bare `:fake` or `:router` would collide
+with an app's own metadata and silently change which client an unrelated
+example runs against.
+
+**Nothing needs configuring.** Each mode derives what it runs against and
+refuses — naming what it looked for — rather than guessing. The schema is
+`config.schema` if you set one, else the committed dump, else the schema
+`GraphWeaver.client` talks to. `:in_process` finds the live schema *class*: the
+one your client already runs in-process, else the loaded class defining
+everything that schema declares (the rule `subgraphs:` detection already uses).
+`:router` plans against the dump when the dump is a composed supergraph — a
+federated suite whose checked-in dump is the supergraph needs no config at all.
+
+- **New:** `graphql_context(current_user: user)` sets the context your
+  resolvers see. It merges onto `config.context` and is reset before the next
+  example, so an example running as somebody else can't leak into the one
+  after. Pass a block to scope it. Under `graphql: :fake` it refuses — there
+  are no resolvers to receive it.
+- **New:** `config.default_mode` is what an untagged example runs against
+  (`nil`, the default, leaves `GraphWeaver.client` alone). It replaces
+  `config.auto_fake`, which still works as the old spelling of
+  `default_mode = :fake`.
+- **New:** `config.context` — the baseline every `:in_process` and `:router`
+  example starts from. `config.router = { context: … }` now refuses and points
+  here; the per-example reset would have overwritten it.
+- `GraphWeaver.execute`, `.new` and `Client.new` now refuse a *client* where a
+  schema source belongs — an `InProcess`, `Retry`, transport or fake used to
+  crash with `undefined method 'lstrip'`. The message names both ways to say
+  what you meant.
+
 ### Ruby-keyword field names now generate
 
 A result key that underscores to a Ruby keyword — `pageInfo { next }`,
@@ -42,7 +84,7 @@ doesn't define, instead of surfacing three fetches later.
 
 - **New:** `config.router = { supergraph: "supergraph.graphql" }` in
   `graph_weaver/rspec` runs every example against your real subgraph
-  resolvers. Mutually exclusive with `auto_fake`.
+  resolvers.
 - **New:** `rake graph_weaver:federation:subgraphs` prints the subgraph map
   detection sees, with the evidence for each match.
 - **New:** `Testing::Router#context` is settable, so one example can run as a

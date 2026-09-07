@@ -35,6 +35,10 @@ class GraphWeaver::Client
 
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
     open_timeout: nil, read_timeout: nil, context: nil, &middleware)
+    # here rather than only in GraphWeaver.new, so constructing a Client
+    # directly refuses a client-in-the-schema-slot the same way
+    GraphWeaver.send(:check_source!, source)
+
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, "context: applies to a schema class executing in-process" if context
 

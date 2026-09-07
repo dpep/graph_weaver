@@ -557,6 +557,25 @@ module GraphWeaver
       Codegen.clear_scalars!
     end
 
+    # Drop every register_enum mapping. (No clear_ twin: unlike scalars,
+    # there are no built-in enums to restore.)
+    def reset_enums!
+      Codegen.reset_enums!
+    end
+
+    # Drop every extend_type registration — mixins, requires, alias: paths.
+    # The block-built modules under GraphWeaver::TypeHelpers stay, since
+    # generated files may still name them.
+    def reset_type_helpers!
+      Codegen.reset_type_helpers!
+    end
+
+    # Every registry back to its starting state: built-in scalars restored,
+    # enum mappings and type helpers dropped — the clean slate between tests.
+    def reset_registrations!
+      Codegen.reset_registrations!
+    end
+
     # Parse a query into a typed query module:
     #
     #      PersonQuery = GraphWeaver.parse(schema:, query: "queries/person.graphql")
