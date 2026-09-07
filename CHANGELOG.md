@@ -1,4 +1,23 @@
 ## Unreleased
+- **`graphql_fake(**options)`** builds the example's fake where the example
+  can say what it needs — `graphql_fake(overrides: { "Reader.orders" => [{}, {}] })`
+  — and returns it, so `#requests` is in reach. `graphql: :fake` is this call
+  with no options. Options had nowhere to go before: the tag builds its client
+  in a `config.before(:each)`, which rspec runs ahead of every group hook, so
+  `Testing.config.overrides` set in a `before` block was always too late and
+  failed silently, as wrong data.
+- **`GraphWeaver.client` is snapshotted and restored around *every* example**,
+  not only a tagged one. `graphql: false` used not to restore while
+  `graphql: :fake` did, which made "tag `:fake`, then throw the client away"
+  the idiom for cleanup. Building your own client is now a plain assignment in
+  a `before` block. An example that deliberately leaked a client into later
+  examples no longer can.
+- **`graphql: :none` is gone** — a second spelling of `graphql: false`, which
+  stays. Change any `:none` tag to `false`.
+- **`GraphWeaver.client!` names the tag** when `graph_weaver/rspec` is loaded:
+  `no client configured — tag the example graphql: :fake (or :in_process /
+  :router), or build one with graphql_fake`. "Set `GraphWeaver.client=`" was
+  advice for the wrong file.
 - **An override pins a subtree by naming only the fields the test is about.**
   `overrides: { "Reader.orders" => [{ "status" => "PAID" }, {}] }` pins the
   list's length and merges each element onto fabricated data — the rest of the

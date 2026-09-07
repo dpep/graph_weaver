@@ -53,7 +53,14 @@ module GraphWeaver
 
     # the default client, when one is required
     def client!
-      @client or raise Error, "no client configured — set GraphWeaver.client= or pass a client"
+      # in a spec suite this is nearly always a forgotten tag, and "set
+      # GraphWeaver.client=" is advice for the wrong file — graph_weaver/rspec
+      # being loaded is what says which suggestion is the useful one
+      @client or raise Error, "no client configured — " + if defined?(Testing::RSpecIntegration)
+        "tag the example graphql: :fake (or :in_process / :router), or build one with graphql_fake"
+      else
+        "set GraphWeaver.client= or pass a client"
+      end
     end
 
     # Shape-check a raw response envelope, returning it. Generated

@@ -6,6 +6,10 @@ One line in your spec helper:
 require "graph_weaver/rspec"
 ```
 
+(In Rails, put it **above** the `spec/support` glob in `rails_helper.rb` —
+rspec-rails requires those partway through, and a support file mentioning
+`GraphWeaver::Testing` before this line dies on `NameError`.)
+
 Then **one tag says what an example runs against** — on the example, or on
 the group it belongs to, since rspec metadata inherits:
 
@@ -25,14 +29,22 @@ it "authorizes drafts",       graphql: :in_process do … end
 | `graphql: :router` | the same, across a federated graph | needs a composed supergraph; [refuses](federation.md#what-it-refuses) shapes it can't plan faithfully |
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
-The tag installs its client as `GraphWeaver.client` for that example and
-restores the previous one after, so generated modules run against it with
-zero per-test setup. (Generate them *without* a baked `client:` — a module
-that has one never consults `GraphWeaver.client`.) `rspec --tag
-graphql:router` runs one mode's examples; an untagged example is left
-alone unless you set `config.default_mode`. **`graphql: false` (or
-`graphql: :none`) opts one example back out** of that default — nothing is
-installed, so the example is free to wire its own client.
+The tag installs its client as `GraphWeaver.client` for that example, so
+generated modules run against it with zero per-test setup. (Generate them
+*without* a baked `client:` — a module that has one never consults
+`GraphWeaver.client`.) `rspec --tag graphql:router` runs one mode's
+examples; an untagged example is left alone unless you set
+`config.default_mode`, and **`graphql: false` opts one back out** of that
+default.
+
+`GraphWeaver.client` is **snapshotted before every example and restored
+after** — tagged, untagged or opted out, and whatever the example did to
+it. So building your own client is a plain assignment, cleaned up like a
+tagged one:
+
+```ruby
+before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
+```
 
 Everything here is a *client* — the one interface queries run through:
 anything with `execute(query, variables:, operation_name:)` returning
@@ -128,7 +140,8 @@ graphql_context(admin: true) { expect(SettingsQuery.execute!.settings).to be_pre
 
 Called with nothing it reads the context back. Under `graphql: :fake` it
 refuses: there are no resolvers to receive a context, and silently ignoring
-one would leave an example asserting on data nothing scoped.
+one would leave an example asserting on data nothing scoped. Pin the data
+itself instead — `graphql_fake(overrides: …)`, below.
 
 ## Fabricated data — `graphql: :fake`
 
@@ -157,6 +170,48 @@ GraphWeaver::Testing::FakeClient.new(schema:, overrides: {
 Keys are checked against the schema, spellchecked — `"Person.nmae"` raises
 rather than quietly pinning nothing and leaving the example green against
 random data.
+
+### The example that's *about* the data
+
+Fabricated data answers "does this render", not "does it render Ada's two
+orders". `graphql_fake` is the tag with options — same client, built where
+the example can say what it needs:
+
+```ruby
+it "shows the two paid orders", graphql: :fake do
+  graphql_fake(overrides: {
+    "Reader.name" => "Ada",
+    "Reader.orders" => [{ "status" => "PAID" }, {}],
+  })
+
+  expect(DashboardQuery.execute!.reader.orders.size).to eq 2
+end
+```
+
+An override pins a **subtree** as readily as a leaf, and **merges**: name
+the fields the example is about and everything else in the selection is
+still fabricated. A pinned list is exactly as long as you write it — `{}`
+means "another one, all fabricated". Inside a subtree the keys are
+*response* keys, as they come back on the wire (`priceCents`, or an alias
+you selected); one the query doesn't select is refused and spellchecked,
+same as a typo'd coordinate. At a union or interface, name the member with
+`"__typename"`.
+
+`graphql_fake` returns the client, which records what it was asked:
+
+```ruby
+fake = graphql_fake
+2.times { Dashboard.load }
+expect(fake.requests.size).to eq 1                      # memoized
+expect(fake.requests.first[:variables]).to eq({ "id" => "1" })
+```
+
+It works in a `before` block, an example body, or a shared context — and
+with no tag at all, since it installs the client itself. The tag is
+`graphql_fake` with no options.
+
+One thing to know: **two identical queries fabricate different data**, so
+assert a memoization with `requests.size`, not by comparing two responses.
 
 `rspec --seed 1234` reproduces fake data along with test order. `config.mode`
 picks value fabrication: `:faker` (semantic, field-name matched — raises if
