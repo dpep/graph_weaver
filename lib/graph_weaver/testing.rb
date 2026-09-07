@@ -81,7 +81,7 @@ module GraphWeaver
 
       # the explicitly configured schema, else the conventional dump
       # (SchemaLoader.locate at GraphWeaver.schema_path) — nil when
-      # neither exists, which quietly disables auto_fake
+      # neither exists
       def schema
         # the dump memoizes separately: explicit_schema has to stay honest
         # about whether anyone set one, since :in_process won't run a dump's

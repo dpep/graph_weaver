@@ -110,8 +110,8 @@ module GraphWeaver
         end
       end
 
-      # graphql_context's target: the client the hook installed, and what
-      # setting a context on it means.
+      # included into every example group, so graphql_context is there
+      # whether or not this example took a client from the hook
       module Helpers
         # The GraphQL context this example's resolvers see — merged onto
         # config.context, and reset before the next example runs:

@@ -536,7 +536,7 @@ canonical list lives in [transports](transports.md#client-resolution).
 
 Generate *without* a baked constant when you want modules to follow the
 app default (`GraphWeaver.client =` in an initializer) — that's also what
-lets [testing's auto_fake](testing.md) swap in a fake per example.
+lets [testing's `graphql:` tag](testing.md) swap in a client per example.
 
 `client`/`client=` themselves live in the gem (`GraphWeaver::QueryModule`,
 extended by every generated module) — they carry no per-query types, so

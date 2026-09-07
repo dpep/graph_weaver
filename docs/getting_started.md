@@ -236,22 +236,24 @@ one of the same name, and the union stays inlined in that query — see
 ```ruby
 # spec/support/graph_weaver.rb
 require "graph_weaver/rspec"
+```
 
-GraphWeaver::Testing.configure { |config| config.auto_fake = true }
+```ruby
+it "renders the empty state", graphql: :fake do … end   # or tag the describe
 ```
 
 A fresh `rails g rspec:install` leaves the `spec/support` glob commented
-out in `spec/rails_helper.rb`, so uncomment it — or put those two lines in
+out in `spec/rails_helper.rb`, so uncomment it — or put the require in
 `rails_helper.rb` itself. Nothing warns you that a support file went
 unread.
 
-The opt-in is deliberate (no surprise fakes); once on, the schema
-auto-locates from the committed dump and every query in every example
-executes against a seeded, schema-correct `FakeClient` — no server, no
-stubs, and `rspec --seed 1234` reproduces the fake data along with test
-order. Pin values with `overrides:`, simulate failures with `Failure.*`
-— see [testing](testing.md). Running in-process? Fake off the live class
-instead of the dump with `config.schema = MyApp::Schema`.
+The tag installs a seeded, schema-correct `FakeClient` for that example —
+no server, no stubs, and `rspec --seed 1234` reproduces the fake data along
+with test order. The schema it fabricates from is derived (the committed
+dump, or your client's), so there's nothing to configure. Tag
+`graphql: :in_process` instead and the same example runs against your real
+resolvers; pin values with `overrides:`, simulate failures with `Failure.*`
+— see [testing](testing.md).
 
 ## 5. Verify in CI
 

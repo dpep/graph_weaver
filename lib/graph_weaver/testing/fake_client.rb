@@ -56,7 +56,7 @@ class GraphWeaver::Testing::FakeClient
   NULL_BUBBLE = Object.new.freeze
 
   # the schema responses are fabricated against — the way to reach it from
-  # an auto_fake spec, where GraphWeaver.client is one of these
+  # a graphql: :fake spec, where GraphWeaver.client is one of these
   attr_reader :schema
 
   def initialize(schema: nil, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,

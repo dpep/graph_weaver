@@ -61,7 +61,7 @@ module GraphWeaver
     #      GraphWeaver.client = GraphWeaver.new(url, auth: token)
     #
     # Accepts a Client or anything satisfying the execute contract (a
-    # schema class, a fake — testing's auto_fake swaps one in per
+    # schema class, a fake — testing's graphql: tag swaps one in per
     # example). Generated modules resolve per call -> per module
     # (MyQuery.client=) -> baked constant -> here.
     attr_accessor :client
