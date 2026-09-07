@@ -1211,6 +1211,29 @@ describe GraphWeaver::Codegen do
       .to raise_error(GraphWeaver::Error, /2 operations \('A', 'B'\)/)
   end
 
+  # a query alias is the response key, so it names the prop and the struct.
+  # The examples under "hostile result keys" cover what an alias *refuses*;
+  # this is the plain case the refusals are protecting.
+  describe "query field aliases" do
+    it "names the prop and the struct after the alias" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, client: Demo::Schema, name: "Aliased",
+        query: 'query { who: person(id: "1") { moniker: name } }')
+
+      expect(mod::Result.props.keys).to eq [:who]
+      expect(mod::Result::Who.props.keys).to eq [:moniker]
+      expect(mod::Result.from_h("who" => { "moniker" => "Daniel" }).who.moniker).to eq "Daniel"
+    end
+
+    it "selects one field twice under two aliases" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, client: Demo::Schema, name: "TwiceAliased",
+        query: 'query { a: person(id: "1") { name } b: person(id: "2") { name } }')
+      result = mod::Result.from_h("a" => { "name" => "Daniel" }, "b" => { "name" => "Ann" })
+
+      expect([result.a.name, result.b.name]).to eq %w[Daniel Ann]
+      expect(result.a.class).not_to eq result.b.class # a struct per selection site
+    end
+  end
+
   describe "hostile result keys" do
     let(:schema) do
       GraphQL::Schema.from_definition("type Query { person: Person }\ntype Person { name: String! class: String! }")
