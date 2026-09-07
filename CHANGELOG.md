@@ -1,4 +1,24 @@
 ## Unreleased
+### A partly-local supergraph now works
+
+The testing router serves a supergraph composed from several services when only
+some of them run in this process. A subgraph no loaded schema defines is
+**absent** rather than an error at construction, so the router builds and every
+query that doesn't reach those fields runs normally. A query that does reach
+them is refused at plan time, before anything executes, naming the subgraph and
+the field that reached for it.
+
+    subgraphs: { "reviews" => :fake }   # answer an absent subgraph with fabricated data
+
+Faking is opt-in and never silent: a faked fetch is marked `faked: true` in
+`router.trace`, logged at `:warn` per fetch, and listed by `router.faked` and
+`#inspect`. It is deliberately not surfaced as a response error — that would
+make `execute!` raise, defeating the point.
+
+- `Testing::Subgraphs.resolve` now returns only the subgraphs this process
+  serves instead of raising when one has no candidate. Two candidates still
+  refuse, naming both.
+
 ### One tag picks what a test runs against
 
 `auto_fake` and `config.router` each installed a client for **every** example
