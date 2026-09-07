@@ -90,10 +90,15 @@ module GraphWeaver
     #
     # Every naming site goes through here — generate!, parse(path), and
     # load_queries! — so the constant a file produces is the same one
-    # whichever door you came in by.
-    def module_name(path, source)
-      "#{Inflect.camelize(File.basename(path, ".*"))}#{operation_suffix(source)}"
+    # whichever door you came in by, and the file it lands in matches it.
+    def generated_names(path, source)
+      base = File.basename(path, ".*")
+      suffix = operation_suffix(source)
+      ["#{Inflect.camelize(base)}#{suffix}", "#{base}_#{suffix.downcase}.rb"]
     end
+
+    # just the module name — see generated_names
+    def module_name(path, source) = generated_names(path, source).first
 
     # "Mutation" for a mutation document, "Query" for everything else.
     def operation_suffix(source)
@@ -443,10 +448,8 @@ module GraphWeaver
       seen = {} # module name => the file that produced it, for the collision message
 
       plan = query_files(queries).map do |path|
-        base = File.basename(path, File.extname(path))
         source = File.read(path)
-        suffix = operation_suffix(source)
-        name = "#{Inflect.camelize(base)}#{suffix}"
+        name, filename = generated_names(path, source)
         if (earlier = seen[name])
           raise Error, "duplicate query module #{name} — #{earlier} and #{path} both generate it; " \
             "the module name comes from the file name alone (directories don't namespace it), so rename one"
@@ -465,7 +468,7 @@ module GraphWeaver
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
         used_unions |= codegen.used_union_names
-        ["#{base}_#{suffix.downcase}.rb", out]
+        [filename, out]
       end
 
       if used_unions.any? || used.values.any?(&:any?)

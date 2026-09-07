@@ -159,7 +159,7 @@ class GraphWeaver::Codegen
   # place a query walk never reaches, so the enums they touch are only known
   # once the fragments are built.
   def generate_types(inputs:, enums:, unions:, fragments:)
-    validate_module_name!("types")
+    validate_module_name!("types module name")
     reset_walk_state!
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
@@ -229,10 +229,12 @@ class GraphWeaver::Codegen
   private :reset_walk_state!
 
   # generated source is eval'd by parse — never let a name inject code
-  def validate_module_name!(kind)
-    return if @module_name&.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
+  CONSTANT_NAME = /\A[A-Z]\w*(::[A-Z]\w*)*\z/
 
-    raise ArgumentError, "#{kind} module name must be a constant name, got #{@module_name.inspect}"
+  def validate_module_name!(subject)
+    return if @module_name&.match?(CONSTANT_NAME)
+
+    raise ArgumentError, "#{subject} must be a constant name, got #{@module_name.inspect}"
   end
   private :validate_module_name!
 
@@ -283,10 +285,7 @@ class GraphWeaver::Codegen
       raise ArgumentError, "module_name: required for anonymous operations"
     end
 
-    # generated source is eval'd by parse — never let a name inject code
-    unless @module_name.match?(/\A[A-Z]\w*(::[A-Z]\w*)*\z/)
-      raise ArgumentError, "module_name: must be a constant name, got #{@module_name.inspect}"
-    end
+    validate_module_name!("module_name:")
 
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
