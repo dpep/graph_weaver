@@ -106,8 +106,9 @@ module GraphWeaver
         end
         return [] if elsewhere.empty?
 
+        example = elsewhere.first.absent.first
         ["", "plannable, but nothing here serves what they reach (#{elsewhere.size}) — name a " \
-          "schema for those subgraphs, fake them (subgraphs: { #{@absent.first.inspect} => :fake }), " \
+          "schema for those subgraphs, fake them (subgraphs: { #{example.inspect} => :fake }), " \
           "or run these against a real router:"] +
           elsewhere.map { |result| "  #{name(result)}  #{result.absent.join(", ")}" }
       end

@@ -76,11 +76,13 @@ module GraphWeaver
         def ok? = stale.empty?
 
         def report
-          [
-            "#{path}: #{stale.size} stale (#{checked} checked" \
-              "#{", #{skipped} not sent by any query module" if skipped.positive?})",
-            *stale.flat_map { |entry| ["  #{entry.module_name} #{entry.variables.inspect}", "    #{entry.message}"] },
-          ]
+          counted = ["#{checked} checked"]
+          counted << "#{skipped} not sent by any query module" if skipped.positive?
+
+          ["#{path}: #{stale.size} stale (#{counted.join(", ")})"] +
+            stale.flat_map do |entry|
+              ["  #{entry.module_name} #{entry.variables.inspect}", "    #{entry.message}"]
+            end
         end
       end
 

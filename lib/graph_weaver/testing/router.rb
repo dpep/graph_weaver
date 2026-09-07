@@ -1274,14 +1274,14 @@ module GraphWeaver
           fake = "subgraphs: { #{name} => #{Subgraphs::FAKE.inspect} } " \
             "(GraphWeaver::Testing.config.router = { subgraphs: … } under the rspec tag, or " \
             "subgraphs: on Router.new) — or a schema class in place of #{Subgraphs::FAKE.inspect}"
-          unless eager_loaded?
-            return "Rails autoloads, so the class is probably just not loaded yet: eager-load it " \
+          if eager_loaded?
+            "Eager loading is on, so it isn't a class waiting to be autoloaded — it runs " \
+              "elsewhere. Fabricate its answers: #{fake}."
+          else
+            "Rails autoloads, so the class is probably just not loaded yet: eager-load it " \
               "(config.eager_load, or config.rake_eager_load under rake). If it runs elsewhere, " \
               "fabricate its answers instead — #{fake}."
           end
-
-          "Eager loading is on, so it isn't a class waiting to be autoloaded — it runs elsewhere. " \
-            "Fabricate its answers: #{fake}."
         end
 
         # Whether the "not autoloaded yet" half of the advice is already ruled
