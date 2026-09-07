@@ -1,8 +1,9 @@
 # Project Plan — GraphWeaver, typed GraphQL client for Ruby/Sorbet
 
 _Resume-from-here notes: where the project stands and what's next. The README
-documents the product, CHANGELOG records what changed, NOTES.md is the research
-notebook this grew out of. Update on change._
+documents the product, CHANGELOG records what changed, DECISIONS.md records the
+roads not taken, NOTES.md is the research notebook this grew out of. Update on
+change._
 
 ## Vision
 
