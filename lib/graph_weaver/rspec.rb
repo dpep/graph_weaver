@@ -153,8 +153,8 @@ module GraphWeaver
         # Installed as GraphWeaver.client and restored after the example,
         # like a tagged one — so the tag is optional here, not required.
         def graphql_fake(**options)
+          claim_mode!(:fake)
           options[:schema] ||= GraphWeaver::Testing.config.reference_schema!
-          @__graph_weaver_mode = :fake
           GraphWeaver.client = GraphWeaver::Testing::FakeClient.new(**options)
         end
 
@@ -175,10 +175,28 @@ module GraphWeaver
         # Returns the client, and is restored after the example like a tagged
         # one — so the tag is optional here.
         def graphql_in_process(schema = nil, **options)
+          claim_mode!(:in_process)
           schema ||= GraphWeaver::Testing.config.schema_class!
           options[:context] ||= GraphWeaver::Testing.config.context
-          @__graph_weaver_mode = :in_process
           GraphWeaver.client = GraphWeaver::InProcess.new(schema, **options)
+        end
+
+        # A tag and a helper are two spellings of one choice, so they can
+        # agree (`graphql: :fake` plus `graphql_fake(overrides:)` is the
+        # documented way to pass options) but must not contradict: one of the
+        # two is then a mistake, and silently letting the later one win hides
+        # which.
+        def claim_mode!(mode)
+          tagged = defined?(@__graph_weaver_mode) ? @__graph_weaver_mode : nil
+          if tagged && tagged != mode
+            # Kernel.raise: this module is mixed into every example group, so
+            # it doesn't include Kernel for sorbet to find
+            Kernel.raise GraphWeaver::Error, "this example is tagged #{TAG}: #{tagged.inspect} but calls " \
+              "graphql_#{mode} — drop one. The tag is the helper with no arguments, so keep the " \
+              "helper when you need to pass it something."
+          end
+
+          @__graph_weaver_mode = mode
         end
 
         # The GraphQL context this example's resolvers see — merged onto

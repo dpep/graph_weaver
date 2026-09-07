@@ -141,6 +141,15 @@ describe "graph_weaver/rspec" do
         .dig("data", "reviews").map { |review| review["body"] }).to include "Love it"
     end
 
+    it "refuses a helper that contradicts the tag", graphql: :fake do
+      expect { graphql_in_process(Demo::Schema) }
+        .to raise_error(GraphWeaver::Error, /tagged graphql: :fake but calls graphql_in_process/)
+    end
+
+    it "allows the helper the tag already named", graphql: :fake do
+      expect { graphql_fake }.not_to raise_error
+    end
+
     it "needs no tag, and is restored after the example" do
       require_relative "support/federation_router_graph"
       graphql_in_process(Object.const_get("RouterGraph::Reviews::Schema"))
