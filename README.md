@@ -3,7 +3,7 @@ GraphWeaver
 ![Gem](https://img.shields.io/gem/dt/graph_weaver?style=plastic)
 [![codecov](https://codecov.io/gh/dpep/graph_weaver/branch/main/graph/badge.svg)](https://codecov.io/gh/dpep/graph_weaver)
 
-A typed GraphQL client for Ruby, built for federation, extensibility, Sorbet, and testing.
+A typed GraphQL client for Ruby: per-query Sorbet types, schema-correct fakes for your specs, and rake tasks for the whole schema lifecycle. Federation included.
 
 GraphWeaver generates `# typed: strict` Ruby from your queries: nested `T::Struct`s, casting code, and a typed `execute` — so `srb tc` sees the exact shape of every query result, and a typo'd field is a static error, not a runtime surprise.
 
