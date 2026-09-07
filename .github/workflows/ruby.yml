@@ -29,6 +29,11 @@ jobs:
       - name: typecheck
         if: matrix.ruby-version == '3.4'
         run: bundle exec srb tc
+      # the fixture supergraph must stay what RouterGraph's subgraphs compose
+      # to; needs no network, unlike the Apollo re-composition that only runs
+      # by hand (see integration.yml)
+      - name: check the demo supergraph is composed
+        run: bundle exec ruby bin/federation-diff
       - name: upload code coverage
         uses: codecov/codecov-action@v7
         with:

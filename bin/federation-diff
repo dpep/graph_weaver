@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+# Is spec/support/federation/supergraph.graphql still what RouterGraph's
+# three subgraphs compose to?
+#
+# In an app this is `rake graph_weaver:federation:diff`; the gem has no
+# Rakefile, so this runs the same task over the fixture graph. It needs no
+# network, so CI runs it on every PR — spec/integration/router_spec.rb asks
+# the same question by re-composing with Apollo, which needs node and only
+# runs by hand.
+
+require "rake"
+
+require_relative "../lib/graph_weaver"
+require_relative "../spec/support/federation_router_graph"
+
+ENV["SUPERGRAPH"] = RouterGraph::SUPERGRAPH
+load File.expand_path("../lib/graph_weaver/tasks.rb", __dir__)
+Rake::Task["graph_weaver:federation:diff"].invoke
