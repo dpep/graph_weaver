@@ -31,7 +31,7 @@ describe GraphWeaver::Parsing do
     me = router.parse("query Dashboard { me { username reviews { product { name } } } }").execute!.me
 
     expect(me.reviews.first&.product&.name).to be_a String
-    expect(router.trace.map { |fetch| fetch[:subgraph] }).to include("accounts", "reviews", "products")
+    expect(router).to have_fetched("accounts", "reviews", "products")
   end
 
   it "load_queries! comes with it — the directory form of the same rule" do
