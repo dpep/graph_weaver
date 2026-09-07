@@ -896,6 +896,11 @@ module GraphWeaver::SchemaLoader
     # supergraph names no subgraph for it (see owners).
     def fields(type_name) = (@fields[type_name] || {}).keys
 
+    # Every field the supergraph's type declares, routed or not — `fields`
+    # answers which of them it routes explicitly, this answers what is
+    # there.
+    def declared_fields(type_name) = @field_names[type_name]&.to_a || []
+
     # Whether the supergraph carries this coordinate at all — a type, or a
     # field on it. `owners`/`fields` answer who resolves what the supergraph
     # has; this answers whether it has it, which is the question a local

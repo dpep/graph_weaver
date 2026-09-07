@@ -55,6 +55,13 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
 
   # owners answers "who resolves this"; declares? answers "is it here at
   # all" — and a field with no @join__field is still a field
+  it "lists every field a type declares, routed or not" do
+    expect(table.fields("Product")).to eq %w[name price weight reviews shippingEstimate]
+    expect(table.declared_fields("Product"))
+      .to eq %w[name price upc weight reviews shippingEstimate]
+    expect(table.declared_fields("Nope")).to be_empty
+  end
+
   it "says whether the supergraph carries a coordinate at all" do
     expect(table.declares?("Product")).to be true
     expect(table.declares?("Product", "upc")).to be true

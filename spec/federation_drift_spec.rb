@@ -36,6 +36,14 @@ describe GraphWeaver::Federation::Drift do
     expect(result.report).to include "  Widget.weight (widgets)"
   end
 
+  # a field with no @join__field lives wherever its type does — the
+  # supergraph names no subgraph for it, and dropping one is still drift
+  it "reports a dropped field the supergraph routes to nobody in particular" do
+    result = drift(DriftGraph::WidgetsUnkeyed, DriftGraph::Depots)
+
+    expect(result.to_h["stale"]).to eq("Widget.sku" => ["widgets"])
+  end
+
   # the subgraph moved first; the supergraph doesn't know the field exists
   it "reports a field a local schema defines that the supergraph doesn't carry" do
     result = drift(DriftGraph::WidgetsAhead, DriftGraph::Depots)

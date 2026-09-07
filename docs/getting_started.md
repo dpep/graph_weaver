@@ -263,7 +263,11 @@ rake graph_weaver:schema:diff    # server drifted? re-introspects and compares
 rake graph_weaver:queries:check  # did that drift break any of your queries?
 ```
 
-Three different questions.
+Three different questions — four on a federated graph, where
+`rake graph_weaver:federation:diff` asks whether anyone changed a subgraph
+without recomposing the supergraph you committed. It needs no network
+either, so it belongs in the same PR run; see
+[federation](federation.md#has-the-supergraph-been-recomposed).
 
 `graph_weaver:verify` checks that the committed generated files match what
 the current schema + queries + registrations would produce — run it in
@@ -303,6 +307,9 @@ GraphWeaver.check_queries
 Empty means everything validates. Pass `schema:` to check against a
 schema you already have and nothing touches the network — handy for
 checking a *proposed* schema (a subgraph about to ship) before it's live.
+When the dump is a composed supergraph, each error also names the
+subgraphs behind the type it points at — see
+[federation](federation.md#the-routing-table).
 
 ## Sorbet, with or without
 

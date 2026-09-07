@@ -177,11 +177,13 @@ module GraphWeaver
       # declares, minus the roots every subgraph has.
       def identifying_types(name) = declared_types(name) - ROOTS
 
-      # fields the supergraph says this subgraph resolves, but none of its
-      # candidate schemas still defines
+      # Fields the supergraph says this subgraph resolves, but none of its
+      # candidate schemas still defines. Every declared field, not only the
+      # explicitly routed ones — a field with no @join__field lives wherever
+      # its type does, and dropping one is exactly the drift this looks for.
       def record_stale(name, fitting)
         declared_types(name).each do |type_name|
-          @table.fields(type_name).each do |field_name|
+          @table.declared_fields(type_name).each do |field_name|
             next unless @table.owners(type_name, field_name).include?(name)
             next if fitting.any? { |schema| defines?(schema, type_name, field_name) }
 

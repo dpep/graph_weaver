@@ -50,6 +50,12 @@ module DriftGraph
     type Widget { sku: String! name: String! }
   SDL
 
+  # the key field, which the supergraph routes to nobody in particular
+  schema :WidgetsUnkeyed, <<~SDL
+    type Query { widget(sku: String!): Widget }
+    type Widget { name: String! weight: Int! }
+  SDL
+
   # a field that hasn't been composed in yet
   schema :WidgetsAhead, <<~SDL
     type Query { widget(sku: String!): Widget }
