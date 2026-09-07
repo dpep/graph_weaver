@@ -100,7 +100,7 @@ GraphWeaver.generate!   # what `rake graph_weaver:generate` calls
 
 # at runtime
 PersonQuery.execute(id: "1")                        # via GraphWeaver.client
-PersonQuery.execute(client: other, id: "1")         # or per call
+PersonQuery.execute(client: other_api, id: "1")     # or per call
 ```
 
 Module names derive from the **file** name plus the operation it defines —
