@@ -90,6 +90,9 @@ namespace :graph_weaver do
         puts
       end
 
+      # abort writes to unbuffered stderr; the detail above went to
+      # block-buffered stdout, so a piped CI log shows the verdict first
+      $stdout.flush
       abort "#{failures.size} invalid #{(failures.size == 1) ? "query" : "queries"}" if failures.any?
       puts "every query validates against the schema"
     end
@@ -113,6 +116,7 @@ namespace :graph_weaver do
       # only drift fails: a supergraph is routinely only partly local, so a
       # subgraph this process doesn't serve is a supported setup, not a
       # failure — the report says which, and the headline counts them
+      $stdout.flush
       abort "the supergraph is out of date — recompose it and commit the result" if drift.drift?
     rescue GraphWeaver::Error => e
       abort e.message

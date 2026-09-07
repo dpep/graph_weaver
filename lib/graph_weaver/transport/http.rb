@@ -80,9 +80,11 @@ module GraphWeaver
           result = yield http
           @idle_lock.synchronize { @idle.push(http) }
           result
-        rescue
+        rescue Exception
           # socket state is unknown — drop it, leaving the slot empty so
-          # the next call starts fresh (retry policy belongs to Retry)
+          # the next call starts fresh (retry policy belongs to Retry).
+          # Exception, not StandardError: a fiber scheduler cancels with
+          # Async::Stop, which descends from Exception.
           disconnect(http)
           raise
         ensure

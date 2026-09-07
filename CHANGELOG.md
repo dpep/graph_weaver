@@ -1,4 +1,14 @@
 ## Unreleased
+- **A cancelled request no longer leaks its socket.** `Transport::HTTP`
+  closed a connection of unknown state with a bare `rescue`, which catches
+  only `StandardError`. A fiber scheduler cancels with `Async::Stop`, which
+  descends from `Exception`, so cancelling an in-flight request walked past
+  the cleanup and left the socket open until GC. Affects any app under
+  `async`/Falcon with per-request timeouts. Nothing to do — the fix is
+  internal.
+- `rake graph_weaver:queries:check` and `federation:diff` flush stdout before
+  aborting, so a piped CI log shows the details before the verdict rather
+  than after it.
 - `generate!`, `verify_generated!` and `check_queries` accept a **path or SDL
   string** for `schema:`, like every other schema slot in the library. A String
   used to reach `schema.validate` as itself and die with `undefined method

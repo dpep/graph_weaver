@@ -69,6 +69,20 @@ describe GraphWeaver::Transport::HTTP do
     expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
   end
 
+  # A fiber scheduler cancels an in-flight task with Async::Stop, which
+  # descends from Exception rather than StandardError — so a bare rescue
+  # walks past the cleanup and the socket stays open until GC.
+  it "closes the socket when the request is cancelled by a non-StandardError" do
+    cancel = Class.new(Exception)
+    executor.execute(PersonQuery::QUERY, variables: { "id" => "1" })
+    http = executor.instance_variable_get(:@idle).last
+    expect(http).to receive(:request).and_raise(cancel)
+
+    expect { executor.execute(PersonQuery::QUERY, variables: { "id" => "1" }) }
+      .to raise_error(cancel)
+    expect(http.started?).to be false
+  end
+
   describe "connection pool" do
     # 4 threads, one call each, against a server that holds every request
     # open. Serialized behind one socket the calls can only queue; with
