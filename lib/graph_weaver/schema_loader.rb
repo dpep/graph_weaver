@@ -859,6 +859,7 @@ module GraphWeaver::SchemaLoader
       @declared_in = {}  # "User" => ["accounts", "reviews"]
       @keys = {}         # "User" => { "accounts" => [["id"]] }
       @fields = {}       # "User" => { "reviews" => Field }
+      @field_names = {}  # "User" => Set["id", "username"]
       @unsupported = []
 
       read_graphs
@@ -894,6 +895,16 @@ module GraphWeaver::SchemaLoader
     # @join__field isn't here: it lives wherever its type does, so the
     # supergraph names no subgraph for it (see owners).
     def fields(type_name) = (@fields[type_name] || {}).keys
+
+    # Whether the supergraph carries this coordinate at all — a type, or a
+    # field on it. `owners`/`fields` answer who resolves what the supergraph
+    # has; this answers whether it has it, which is the question a local
+    # schema's extra field poses.
+    def declares?(type_name, field_name = nil)
+      return @declared_in.key?(type_name) if field_name.nil?
+
+      !!@field_names[type_name]&.include?(field_name)
+    end
 
     # The @key field sets a subgraph will answer an `_entities` fetch on, each
     # as a list of dotted paths ("id organization { id }" => ["id",
@@ -975,6 +986,7 @@ module GraphWeaver::SchemaLoader
     def read_fields(defn)
       return unless defn.respond_to?(:fields) && defn.fields
 
+      @field_names[defn.name] = defn.fields.map(&:name).to_set
       @fields[defn.name] = defn.fields.filter_map do |field|
         note_unknown(field, "#{defn.name}.#{field.name}")
         applied = field.directives.select { |d| d.name == "join__field" }

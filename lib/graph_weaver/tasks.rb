@@ -18,6 +18,7 @@
 #      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
 #      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
 #      rake graph_weaver:schema:refresh  # re-introspect and rewrite the dump
+#      rake graph_weaver:federation:diff       # fail if the supergraph wasn't recomposed
 #      rake graph_weaver:federation:coverage   # what the local test router can plan
 #      rake graph_weaver:federation:subgraphs  # which schema serves which subgraph
 require_relative "../graph_weaver"
@@ -95,6 +96,31 @@ namespace :graph_weaver do
   end
 
   namespace :federation do
+    # needs no network, so it gates a PR the way verify does
+    desc "Fail when a subgraph here changed and the supergraph wasn't recomposed (SUPERGRAPH=, STRICT=1)"
+    task diff: :environment do
+      require "graph_weaver/federation"
+
+      supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
+      unless supergraph
+        abort "pass the composed supergraph: rake graph_weaver:federation:diff " \
+          "SUPERGRAPH=supergraph.graphql"
+      end
+
+      drift = GraphWeaver::Federation::Drift.new(supergraph:)
+      puts drift.report
+
+      abort "the supergraph is out of date — recompose it and commit the result" if drift.drift?
+      # STRICT is for the monorepo, where every subgraph runs in this
+      # process: one that doesn't means the check quietly stopped checking
+      skipped = drift.skipped.size
+      if ENV["STRICT"] && skipped.positive?
+        abort "#{skipped} unchecked #{(skipped == 1) ? "subgraph" : "subgraphs"}"
+      end
+    rescue GraphWeaver::Error => e
+      abort e.message
+    end
+
     desc "Show which loaded schema serves each subgraph, as a paste-ready map (SUPERGRAPH=)"
     task subgraphs: :environment do
       require "graph_weaver/testing"

@@ -114,6 +114,63 @@ The table is what [`Testing::Router`](testing.md#a-local-federation-router)
 plans against, and it's a reasonable read on its own — "which subgraph owns
 this field" is the sentence a good error message wants.
 
+### Has the supergraph been recomposed?
+
+A committed supergraph is a snapshot of a composition. Change a subgraph and
+skip the recompose and it quietly describes a graph that no longer exists —
+the failure that bites a federated app mid-migration, and the one the other
+checks don't ask about. `graph_weaver:verify` asks whether the generated Ruby
+is fresh, `schema:diff` whether the *server* has drifted from your dump,
+`queries:check` whether drift broke a query. This asks whether the supergraph
+still describes your subgraphs:
+
+```sh
+rake graph_weaver:federation:diff SUPERGRAPH=supergraph.graphql
+```
+
+It reads the routing table and the subgraph schemas loaded in this process —
+**no network** — so it belongs in the normal PR run, and it exits non-zero on
+drift so CI can gate on it:
+
+```
+supergraph.graphql vs 2 of 3 subgraphs: 1 stale, 1 not composed in
+
+stale — the supergraph carries these, no schema here defines them (recompose):
+  Product.weight (products)
+
+not composed in — a schema here defines these, the supergraph doesn't carry them:
+  Product.dimensions (Products::Schema)
+
+skipped — nothing loaded here defines what the supergraph says these declare
+(running elsewhere, or the type is gone):
+  inventory (Warehouse)
+```
+
+Both directions, because they mean opposite things: **stale** is "recompose",
+**not composed in** is "publish the subgraph". The stale side names the
+subgraph the supergraph blames, which is the sentence you want — whose code to
+look at, whose team to talk to.
+
+What counts as "defines" is deliberately looser than field-set equality, which
+would be wrong in both directions: a subgraph carries federation plumbing
+(`_entities`, `_service`) no supergraph has, and a field can legitimately sit
+in more than one subgraph (`@external` copies, `@shareable`). So a coordinate
+is compared only against the schemas that could *be* the subgraph the
+supergraph attributes it to — the ones defining every non-root type it
+declares — the uncomposed side reports only a field the supergraph's type
+doesn't carry **at all** (not one it merely attributes elsewhere), and
+underscore-prefixed fields never count.
+
+**A subgraph that isn't in this process is skipped and listed.** You can't
+check what isn't here, and saying nothing is right — but a green report that
+quietly checked half the graph is worse than no report, so it says which. In a
+monorepo every subgraph *is* here, and one that isn't means the check stopped
+checking: `STRICT=1` makes that a failure too.
+
+Programmatically it's `GraphWeaver::Federation::Drift` — `#report` prints the
+above, `#to_h` is the JSON-ready `{"stale" => …, "uncomposed" => …, "skipped"
+=> …}`, and `#drift?` is what the task exits on.
+
 ## Pointing weaver at a subgraph
 
 A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the

@@ -53,6 +53,15 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(table.field("Query", "nope")).to be_nil
   end
 
+  # owners answers "who resolves this"; declares? answers "is it here at
+  # all" — and a field with no @join__field is still a field
+  it "says whether the supergraph carries a coordinate at all" do
+    expect(table.declares?("Product")).to be true
+    expect(table.declares?("Product", "upc")).to be true
+    expect(table.declares?("Product", "dimensions")).to be false
+    expect(table.declares?("Nope")).to be false
+  end
+
   # ---- the shapes a hand-built supergraph can carry --------------------
 
   def supergraph(body, join: <<~JOIN)
