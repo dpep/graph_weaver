@@ -348,7 +348,7 @@ module GraphWeaver::SchemaLoader
 
       defn.directives
         .select { |d| LINK_DIRECTIVES.include?(d.name) }
-        .map { |d| d.arguments.to_h { |arg| [ arg.name, arg.value ] } }
+        .map { |d| d.arguments.to_h { |arg| [arg.name, arg.value] } }
     end
   end
   private_class_method :link_declarations
@@ -358,11 +358,11 @@ module GraphWeaver::SchemaLoader
   def self.imports(value)
     Array(value).filter_map do |entry|
       case entry
-      when String then [ entry, entry ]
+      when String then [entry, entry]
       when GraphQL::Language::Nodes::InputObject
         fields = entry.to_h
         name = fields["name"]
-        [ name, fields["as"].is_a?(String) ? fields["as"] : name ] if name.is_a?(String)
+        [name, fields["as"].is_a?(String) ? fields["as"] : name] if name.is_a?(String)
       end
     end
   end
