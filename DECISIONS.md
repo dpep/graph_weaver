@@ -158,3 +158,23 @@ unrelated global registry state.
   keeps growing. Deliberately a hash and not a block: the pool creates
   connections lazily and on failure, so a block would run an unpredictable number
   of times. Configuration survives that; behaviour doesn't.
+
+## Coercion says *whether*, never *how*
+
+**Considered:** keeping `coerce: <Symbol>` (`register_scalar("ID", String, coerce: :to_s)`),
+which let a registration name the conversion as well as opt into it.
+
+**Rejected because** it asked the user to answer a question the library already
+answers — the conversion for every scalar that has one is derived from the
+scalar itself, and a custom scalar's conversion is its `cast:`/`serialize:`
+pair. Its documented showcase existed only to re-enable something deliberately
+removed from the auto path: the feature arguing for its own removal.
+
+**Also considered:** dropping the `Int`/`Float` conversion entirely, leaving
+parse as the single coercion mechanism. **Rejected because** `first: params[:page_size]`
+arriving as a String is the most common real coercion in a Rails app, and
+without it `auto_coerce` would loosen nothing among the built-ins but `Date` —
+capability loss wearing simplicity's clothes.
+
+`coerce:` and `auto_coerce` both survive because they are one question at two
+scopes — a global default with a local override, the standard shape.
