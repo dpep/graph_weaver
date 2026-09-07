@@ -92,14 +92,35 @@ where it pays off in developer experience; leave the rest at `# typed: true`.
 
 ## Green before commit
 
+`bundle exec` needs the rvm ruby — the default PATH ruby is 2.6 and can't even
+load bundler:
+
 ```sh
-bundle exec rspec        # full suite
-bundle exec srb tc       # Sorbet typecheck (CI gates on this too)
+source ~/.rvm/scripts/rvm && rvm use 3.4.9
 ```
 
-Both must pass. Sorbet sigs are runtime-checked by sorbet-runtime, so a wrong
-sig surfaces as an rspec failure, not only a `srb tc` error — a green suite
+Then:
+
+```sh
+bundle exec rspec              # full suite
+bundle exec srb tc             # Sorbet typecheck (CI gates on this too)
+bundle exec ruby bin/generate  # regenerate fixtures — must leave the tree clean
+```
+
+All three must pass. Sorbet sigs are runtime-checked by sorbet-runtime, so a
+wrong sig surfaces as an rspec failure, not only a `srb tc` error — a green suite
 validates the sigs against real usage.
+
+Two more when the change could reach them:
+
+```sh
+bundle exec rspec --order rand:1        # and a couple of other seeds
+bundle exec ruby bin/federation-diff    # the fixture supergraph still composes
+```
+
+Order-independence is worth checking rather than assuming — four order-dependent
+failures have hidden behind the default `:defined` order, and a *burst* of them
+usually means one shared resource cascading rather than many bugs.
 
 ## Drive it from a throwaway app when the host seam changes
 
