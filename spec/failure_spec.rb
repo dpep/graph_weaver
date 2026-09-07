@@ -10,7 +10,7 @@ describe "failure simulation" do
   describe GraphWeaver::Testing::Failure do
     it "simulates network failures with the cause preserved" do
       expect {
-        PersonQuery.execute(failure.transport, id: "1")
+        PersonQuery.execute(client: failure.transport, id: "1")
       }.to raise_error(GraphWeaver::TransportError) do |e|
         expect(e.cause).to be_a SocketError
       end
@@ -18,7 +18,7 @@ describe "failure simulation" do
 
     it "simulates non-2xx responses" do
       expect {
-        PersonQuery.execute(failure.server(status: 502, body: "bad gateway"), id: "1")
+        PersonQuery.execute(client: failure.server(status: 502, body: "bad gateway"), id: "1")
       }.to raise_error(GraphWeaver::ServerError) do |e|
         expect(e.status).to eq 502
       end
@@ -30,7 +30,7 @@ describe "failure simulation" do
         data: { "person" => nil },
       )
 
-      response = PersonQuery.execute(executor, id: "1")
+      response = PersonQuery.execute(client: executor, id: "1")
       expect(response.errors?).to be true
       expect(response.errors_at("person").first&.code).to eq "BOOM"
       expect { response.data! }.to raise_error(GraphWeaver::QueryError) do |e|
@@ -39,20 +39,20 @@ describe "failure simulation" do
     end
 
     it "simulates throttling and schema staleness" do
-      throttled = PersonQuery.execute(failure.throttled, id: "1")
+      throttled = PersonQuery.execute(client: failure.throttled, id: "1")
       expect(throttled.errors.first&.code).to eq "THROTTLED"
       expect(throttled.schema_stale?).to be false
 
-      stale = PersonQuery.execute(failure.stale_schema, id: "1")
+      stale = PersonQuery.execute(client: failure.stale_schema, id: "1")
       expect(stale.schema_stale?).to be true
       expect { stale.data! }.to raise_error(GraphWeaver::QueryError, /regenerate/)
     end
 
     it "stale_schema names a specific field, or samples a real one from the schema" do
-      named = PersonQuery.execute(failure.stale_schema(type: "Person", field: "name"), id: "1")
+      named = PersonQuery.execute(client: failure.stale_schema(type: "Person", field: "name"), id: "1")
       expect(named.errors.first&.message).to eq "Field 'name' doesn't exist on type 'Person'"
 
-      sampled = PersonQuery.execute(failure.stale_schema(schema: Demo::Schema, seed: 3), id: "1")
+      sampled = PersonQuery.execute(client: failure.stale_schema(schema: Demo::Schema, seed: 3), id: "1")
       message = sampled.errors.first&.message
       expect(message).to match(/Field '\w+' doesn't exist on type '(Person|Pet|Query|Mutation)'/)
       expect(sampled.schema_stale?).to be true
@@ -68,10 +68,10 @@ describe "failure simulation" do
       )
 
       2.times do
-        expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
+        expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
       end
-      expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil
-      expect(PersonQuery.execute!(executor, id: "1").person).not_to be_nil # last repeats
+      expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
+      expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil # last repeats
     end
   end
 
@@ -84,7 +84,7 @@ describe "failure simulation" do
       )
 
       expect {
-        PersonQuery.execute(corrupt, id: "1")
+        PersonQuery.execute(client: corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
@@ -94,7 +94,7 @@ describe "failure simulation" do
       # String field gets an Integer
       name_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.name")
       expect {
-        PersonQuery.execute(name_corrupt, id: "1")
+        PersonQuery.execute(client: name_corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
@@ -104,7 +104,7 @@ describe "failure simulation" do
       # names Pets
       pets_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.pets")
       expect {
-        PersonQuery.execute(pets_corrupt, id: "1")
+        PersonQuery.execute(client: pets_corrupt, id: "1")
       }.to raise_error(GraphWeaver::TypeError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
         expect(e.cause&.message).to include("Pets.from_h")
@@ -118,7 +118,7 @@ describe "failure simulation" do
         overrides: { "Person.birthday" => "not-iso8601" },
       )
 
-      expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TypeError)
+      expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TypeError)
     end
 
     it "appends verbatim errors alongside fake data" do
@@ -128,7 +128,7 @@ describe "failure simulation" do
         errors: [{ message: "cost warning", extensions: { code: "EXPENSIVE" } }],
       )
 
-      response = PersonQuery.execute(executor, id: "1")
+      response = PersonQuery.execute(client: executor, id: "1")
       expect(response.data&.person).not_to be_nil # data AND errors
       expect(response.errors.first&.code).to eq "EXPENSIVE"
     end
@@ -140,7 +140,7 @@ describe "failure simulation" do
         fail_at: { path: "person.birthday", message: "hidden", code: "PRIVATE" },
       )
 
-      response = PersonQuery.execute(executor, id: "1")
+      response = PersonQuery.execute(client: executor, id: "1")
       person = response.data&.person
 
       expect(person&.birthday).to be_nil
@@ -159,7 +159,7 @@ describe "failure simulation" do
         fail_at: "person.pets.name",
       )
 
-      response = PersonQuery.execute(executor, id: "1")
+      response = PersonQuery.execute(client: executor, id: "1")
 
       expect(response.data&.person).to be_nil
       error = response.errors.first

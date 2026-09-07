@@ -72,19 +72,18 @@ module AdoptMutation
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(client: T.untyped, input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped])).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, input:)
+  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(input:, client: nil)
     variables = {
       "input" => AdoptionInput.coerce(input).serialize,
     }
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped])).returns(Result) }
-  def self.execute!(client = nil, input:)
-    execute(client, input:).data!
+  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(Result) }
+  def self.execute!(input:, client: nil)
+    execute(input:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

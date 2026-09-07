@@ -32,7 +32,7 @@ describe "the registration registry" do
     it "applies to a client's own parse, with no per-client overlay to disagree with" do
       GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
 
-      birthday = client.execute!("query { person(id: 1) { birthday } }").person&.birthday
+      birthday = client.run!("query { person(id: 1) { birthday } }").person&.birthday
       expect(birthday).to be_a String
     end
 
@@ -48,12 +48,12 @@ describe "the registration registry" do
     it "casts wire values into the registered app enum, and serializes back" do
       GraphWeaver.register_enum("Species", PetKind)
 
-      species = client.execute!(query).person&.pets&.map(&:species)
+      species = client.run!(query).person&.pets&.map(&:species)
       expect(species).to eq [PetKind::Dog, PetKind::Cat]
 
       # variables accept the member or its wire value
-      expect(client.execute!(mutation, species: PetKind::Dog).add_pet.species).to eq PetKind::Dog
-      expect(client.execute!(mutation, species: "CAT").add_pet.species).to eq PetKind::Cat
+      expect(client.run!(mutation, species: PetKind::Dog).add_pet.species).to eq PetKind::Dog
+      expect(client.run!(mutation, species: "CAT").add_pet.species).to eq PetKind::Cat
     end
 
     it "checks exhaustiveness at generation, naming the gaps" do
@@ -66,10 +66,10 @@ describe "the registration registry" do
     it "fallback: absorbs unknown wire values on cast; inputs stay strict" do
       GraphWeaver.register_enum("Species", CatsOnly, fallback: CatsOnly::Cat)
 
-      species = client.execute!(query).person&.pets&.map(&:species)
+      species = client.run!(query).person&.pets&.map(&:species)
       expect(species).to eq [CatsOnly::Cat, CatsOnly::Cat] # DOG absorbed
 
-      expect { client.execute!(mutation, species: "DOG") }.to raise_error(KeyError)
+      expect { client.run!(mutation, species: "DOG") }.to raise_error(KeyError)
     end
 
     it "names the map: keyword when a value map is passed positionally" do
@@ -89,7 +89,7 @@ describe "the registration registry" do
     it "includes registered modules into structs generated from the type" do
       GraphWeaver.extend_type("Pet", PetShouting)
 
-      pet = client.execute!(query).person&.pets&.first
+      pet = client.run!(query).person&.pets&.first
       expect(pet&.shout).to eq "Shelby!"
       expect(pet&.name).to eq "Shelby" # the wire value stays honest
     end
@@ -106,13 +106,13 @@ describe "the registration registry" do
         def whisper = "#{name.downcase}..."
       end
 
-      pet = client.execute!(query).person&.pets&.first
+      pet = client.run!(query).person&.pets&.first
       expect(pet&.whisper).to eq "shelby..."
       expect(GraphWeaver::TypeHelpers.const_defined?(:Pet)).to be true
 
       # a second block registration stacks under a fresh name
       GraphWeaver.extend_type("Pet") { def echo = name * 2 }
-      expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
+      expect(client.run!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
 
       expect { GraphWeaver.extend_type("Pet") }.to raise_error(ArgumentError, /helper modules, a block, or alias/)
     end
@@ -166,7 +166,7 @@ describe "the registration registry" do
       end
 
       # ...and parse, from the same client, agrees
-      expect(client.execute!(query).person&.birthday).to be_a String
+      expect(client.run!(query).person&.birthday).to be_a String
     end
 
     it "generate! takes a Client where it takes a schema" do

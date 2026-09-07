@@ -515,7 +515,7 @@ describe "federation / _entities representations" do
     end.new
 
     mod = build(catalog, CATALOG_ENTITIES, "CatalogExecute").first
-    result = mod.execute!(client, reps: [reps.variant(id: "v-1"), reps.variant(serial: "gone")])
+    result = mod.execute!(client:, reps: [reps.variant(id: "v-1"), reps.variant(serial: "gone")])
 
     expect(sent["reps"]).to eq [
       { "__typename" => "Variant", "id" => "v-1" },

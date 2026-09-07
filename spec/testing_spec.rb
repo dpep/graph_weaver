@@ -10,7 +10,7 @@ describe GraphWeaver::Testing do
 
   describe GraphWeaver::Testing::FakeClient do
     it "fabricates responses that cast cleanly through generated structs" do
-      person = PersonQuery.execute!(fake, id: "1").person
+      person = PersonQuery.execute!(client: fake, id: "1").person
 
       expect(person&.name).to be_a String
       expect(person&.pets).to all(be_a(PersonQuery::Result::Person::Pets))
@@ -18,13 +18,13 @@ describe GraphWeaver::Testing do
     end
 
     it "samples real enum values and valid union members" do
-      results = SearchQuery.execute!(fake, term: "x").search
+      results = SearchQuery.execute!(client: fake, term: "x").search
 
       results.each do |member|
         expect(%w[Person Pet]).to include(member.__typename)
       end
 
-      pet = AddPetMutation.execute!(fake, name: "Rex", species: AddPetMutation::Species::Dog).add_pet
+      pet = AddPetMutation.execute!(client: fake, name: "Rex", species: AddPetMutation::Species::Dog).add_pet
       expect([AddPetMutation::Species::Dog, AddPetMutation::Species::Cat])
         .to include(pet.species)
     end
@@ -117,10 +117,10 @@ describe GraphWeaver::Testing do
     it "honors null_chance and list_size" do
       always_nil = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, null_chance: 1.0)
       # person is itself nullable, so it nils at the root
-      expect(PersonQuery.execute!(always_nil, id: "1").person).to be_nil
+      expect(PersonQuery.execute!(client: always_nil, id: "1").person).to be_nil
 
       never_nil = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, list_size: 2..2)
-      person = PersonQuery.execute!(never_nil, id: "1").person
+      person = PersonQuery.execute!(client: never_nil, id: "1").person
       expect(person&.birthday).to be_a Date # default null_chance 0: nullable but present
       expect(person&.pets&.size).to eq 2
     end
@@ -264,7 +264,7 @@ describe GraphWeaver::Testing do
       end
 
       person = PersonQuery.execute!(
-        GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema),
+        client: GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema),
         id: "1",
       ).person
 
@@ -275,7 +275,7 @@ describe GraphWeaver::Testing do
     it "falls back to config.schema, like every other option" do
       described_class.configure { |config| config.schema = Demo::Schema }
 
-      expect(PersonQuery.execute!(GraphWeaver::Testing::FakeClient.new, id: "1").person&.name)
+      expect(PersonQuery.execute!(client: GraphWeaver::Testing::FakeClient.new, id: "1").person&.name)
         .to be_a String
     end
 
@@ -293,7 +293,7 @@ describe GraphWeaver::Testing do
         overrides: { "Person.name" => "explicit" },
       )
 
-      expect(PersonQuery.execute!(executor, id: "1").person&.name).to eq "explicit"
+      expect(PersonQuery.execute!(client: executor, id: "1").person&.name).to eq "explicit"
     end
 
     it "validates override keys when a schema is already configured" do
@@ -320,7 +320,7 @@ describe GraphWeaver::Testing do
         query: "query { people { pets { name } pets { species } } }")
       fake = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, list_size: 1..1)
 
-      pet = mod.execute!(fake).people.first.pets.first # would raise (name missing) before the merge fix
+      pet = mod.execute!(client: fake).people.first.pets.first # would raise (name missing) before the merge fix
       expect(pet.name).to be_a(String)
       expect(pet.species).not_to be_nil
     end

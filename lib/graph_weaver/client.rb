@@ -14,8 +14,8 @@ require_relative "transport/http"
 #
 #      github = GraphWeaver.new("https://api.github.com/graphql", auth: token, cache: true)
 #
-#      RepoQuery = github.parse("queries/repo.graphql")   # implicit schema + transport
-#      github.execute!("query { viewer { login } }")      # one-shot
+#      RepoQuery = github.parse("queries/repo.graphql")   # implicit schema + client
+#      github.run!("query { viewer { login } }")          # one-shot
 #
 # The first argument is a url (a transport is built; the schema comes
 # from introspection on first use, cached per cache:/ttl:) or a schema
@@ -38,9 +38,7 @@ class GraphWeaver::Client
 
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
     open_timeout: nil, read_timeout: nil, context: nil, &middleware)
-    # here rather than only in GraphWeaver.new, so constructing a Client
-    # directly refuses a client-in-the-schema-slot the same way
-    GraphWeaver.send(:check_source!, source)
+    check_source!(source)
 
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, "context: applies to a schema class executing in-process" if context
@@ -98,27 +96,42 @@ class GraphWeaver::Client
     @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
   end
 
-  # #parse and #load_queries! come from Parsing. A parsed module bakes this
-  # client's *transport* rather than the client: Client#execute is the
-  # one-shot parse-and-run below, not the client contract a module calls.
-  # (nil for a schema-dump client, which falls back to GraphWeaver.client.)
-  private def parse_client = transport
-
-  # One-shot dynamic execution — parse + execute, returning the typed
-  # Response envelope (execute! returns the result or raises). Variables
-  # are plain kwargs, exactly as on a generated module; graphql-cased
-  # string keys work too.
-  def execute(query, **variables)
-    mod = parse(query)
-    kwargs = variables.to_h { |key, value| [GraphWeaver::Inflect.underscore(key.to_s).to_sym, value] }
-    mod.execute(transport!, **kwargs)
+  # The client contract, same as every transport: a query and its
+  # variables in, the raw response hash out. (#run is the one-shot that
+  # parses and returns the typed envelope.)
+  def execute(query, variables: {}, operation_name: nil)
+    transport!.execute(query, variables:, operation_name:)
   end
 
-  def execute!(query, **variables)
-    execute(query, **variables).data!
+  # One-shot dynamic execution — parse + run, returning the typed
+  # Response envelope (run! returns the result or raises). Variables
+  # are plain kwargs, exactly as on a generated module; graphql-cased
+  # string keys work too.
+  def run(query, **variables)
+    mod = parse(query)
+    kwargs = variables.to_h { |key, value| [GraphWeaver::Inflect.underscore(key.to_s).to_sym, value] }
+    mod.execute(**kwargs)
+  end
+
+  def run!(query, **variables)
+    run(query, **variables).data!
   end
 
   private
+
+  # Anything already speaking the client contract — another Client,
+  # InProcess, Retry, a transport, a fake, the test router — carries no
+  # schema to generate from, so it can't stand in as the schema source.
+  # Without this it is handed to SchemaLoader and fails as `undefined
+  # method 'lstrip'`.
+  def check_source!(source)
+    # a graphql-ruby schema class executes too, and *is* a schema source
+    return if source.is_a?(Module) || !source.respond_to?(:execute)
+
+    raise GraphWeaver::Error, "#{source.class} is a client, not a schema source — pass the schema, and this " \
+      "as its transport: GraphWeaver.new(schema, transport: client). For a live schema class " \
+      "with a context: GraphWeaver.new(schema, context: { ... })."
+  end
 
   # auth: is a token — "Bearer" is assumed unless the string carries its
   # own scheme ("Basic dXNlcjpwYXNz...").

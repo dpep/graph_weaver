@@ -39,7 +39,7 @@ describe "PokeAPI (Hasura)", :integration do
   it "passes unregistered scalars (jsonb) through untyped" do
     # execute! takes a client-or-schema positionally; kwargs are query variables,
     # so the transport rides in on the client rather than beside it
-    sprites = GraphWeaver.execute!(
+    sprites = GraphWeaver.run!(
       GraphWeaver.new(schema, transport: executor),
       "query { pokemon_v2_pokemonsprites(limit: 1, order_by: { id: asc }) { sprites } }",
     ).pokemon_v2_pokemonsprites.first&.sprites

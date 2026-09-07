@@ -7,14 +7,14 @@ describe GraphWeaver::Transport::Faraday do
 
   it "builds a default connection from a url" do
     executor = described_class.new(url)
-    result = PersonQuery.execute(executor, id: "1").data!
+    result = PersonQuery.execute(client: executor, id: "1").data!
 
     expect(result.person&.name).to eq "Daniel"
     expect(result.person&.birthday).to eq Date.new(1990, 6, 15)
   end
 
   it "sends the graphql-over-http Accept header and an attributable User-Agent" do
-    PersonQuery.execute(described_class.new(url), id: "1")
+    PersonQuery.execute(client: described_class.new(url), id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["content-type"]).to eq ["application/json"]
@@ -24,7 +24,7 @@ describe GraphWeaver::Transport::Faraday do
 
   it "lets the caller override the defaults" do
     executor = described_class.new(url, headers: { "Accept" => "application/json", "User-Agent" => "myapp/1" })
-    PersonQuery.execute(executor, id: "1")
+    PersonQuery.execute(client: executor, id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["accept"]).to eq ["application/json"]
@@ -33,7 +33,7 @@ describe GraphWeaver::Transport::Faraday do
 
   it "fills in the defaults a prebuilt connection left blank" do
     executor = described_class.new(Faraday.new(url:, headers: { "User-Agent" => "mine/1" }))
-    PersonQuery.execute(executor, id: "1")
+    PersonQuery.execute(client: executor, id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["user-agent"]).to eq ["mine/1"]
@@ -50,7 +50,7 @@ describe GraphWeaver::Transport::Faraday do
   it "applies read_timeout: to the socket" do
     executor = described_class.new(slow_url, read_timeout: 0.01)
 
-    expect { PersonQuery.execute(executor, id: "1") }
+    expect { PersonQuery.execute(client: executor, id: "1") }
       .to raise_error(GraphWeaver::TransportError, /Timeout/)
   end
 
@@ -58,7 +58,7 @@ describe GraphWeaver::Transport::Faraday do
     connection = Faraday.new(url:, headers: { "X-Client" => "custom" })
     executor = described_class.new(connection)
 
-    expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
+    expect(PersonQuery.execute(client: executor, id: "1").data!.person&.name).to eq "Daniel"
     expect(@requests.last[:headers]["x-client"]).to eq ["custom"]
   end
 
@@ -67,21 +67,21 @@ describe GraphWeaver::Transport::Faraday do
       conn.request :authorization, "Bearer", "t0ken"
     end
 
-    PersonQuery.execute(executor, id: "1")
+    PersonQuery.execute(client: executor, id: "1")
     expect(@requests.last[:headers]["authorization"]).to eq ["Bearer t0ken"]
   end
 
   it "raises ServerError on a non-2xx response" do
     executor = described_class.new("http://127.0.0.1:#{@port}/nope")
 
-    expect { PersonQuery.execute(executor, id: "1") }
+    expect { PersonQuery.execute(client: executor, id: "1") }
       .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 404 }
   end
 
   it "carries the response headers on a ServerError" do
     executor = described_class.new(throttled_url)
 
-    expect { PersonQuery.execute(executor, id: "1") }
+    expect { PersonQuery.execute(client: executor, id: "1") }
       .to raise_error(GraphWeaver::ServerError) { |e|
         expect(e.headers["x-ratelimit-remaining"]).to eq "0"
         expect(e.retry_after).to eq 7.0
@@ -94,7 +94,7 @@ describe GraphWeaver::Transport::Faraday do
     probe.close
     executor = described_class.new("http://127.0.0.1:#{port}/")
 
-    expect { PersonQuery.execute(executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
+    expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
   end
 
   it "rejects headers:/timeouts with a prebuilt connection (they'd be silently ignored)" do

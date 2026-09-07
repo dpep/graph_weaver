@@ -18,7 +18,7 @@ describe "error handling" do
   def run(payload)
     executor = Object.new
     executor.define_singleton_method(:execute) { |_query, variables:, operation_name: nil| payload }
-    mod.execute(executor, id: "1")
+    mod.execute(client: executor, id: "1")
   end
 
   let(:person_data) do
@@ -351,7 +351,7 @@ describe "error handling" do
     def run_generated(payload)
       executor = Object.new
       executor.define_singleton_method(:execute) { |_query, variables:, operation_name: nil| payload }
-      PersonQuery.execute(executor, id: "1")
+      PersonQuery.execute(client: executor, id: "1")
     end
 
     it "wraps wire data that disagrees with the generated types, naming the struct" do

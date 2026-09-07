@@ -107,19 +107,18 @@ module NamedQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(client: T.untyped, name: String).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, name:)
+  sig { params(name: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(name:, client: nil)
     variables = {
       "name" => name,
     }
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, name: String).returns(Result) }
-  def self.execute!(client = nil, name:)
-    execute(client, name:).data!
+  sig { params(name: String, client: T.untyped).returns(Result) }
+  def self.execute!(name:, client: nil)
+    execute(name:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

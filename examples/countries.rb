@@ -34,6 +34,6 @@ codes.each do |code|
 end
 
 # or skip the module entirely — a one-shot with variables as kwargs
-continents = api.execute!("query { continents { name countries { code } } }").continents
+continents = api.run!("query { continents { name countries { code } } }").continents
 biggest = continents.max_by { |c| c.countries.size }
 puts "\n#{continents.size} continents; #{biggest.name} has the most countries (#{biggest.countries.size})"

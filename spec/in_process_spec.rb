@@ -81,7 +81,7 @@ describe GraphWeaver::InProcess do
       weaver = GraphWeaver.new(InProcessDemo::Schema, context:)
 
       expect(weaver.transport).to be_a described_class
-      expect(weaver.execute!("query { me }").me).to eq "dpep"
+      expect(weaver.run!("query { me }").me).to eq "dpep"
     end
 
     it "wraps even without a context, for the logging and branded errors" do

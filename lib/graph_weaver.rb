@@ -38,30 +38,15 @@ module GraphWeaver
     # The first argument is a url or any schema source (a live schema
     # class, or a path/SDL/introspection dump).
     def new(source, **options, &middleware)
-      check_source!(source)
       Client.new(source, **options, &middleware)
     end
-
-    # Anything already speaking the client contract — InProcess, Retry, a
-    # transport, a fake, the test router — carries no schema to generate
-    # from, so it can't stand in as the schema source. Without this it is
-    # handed to SchemaLoader and fails as `undefined method 'lstrip'`.
-    def check_source!(source)
-      # a graphql-ruby schema class executes too, and *is* a schema source
-      return if source.is_a?(Module) || !source.respond_to?(:execute)
-
-      raise Error, "#{source.class} is a client, not a schema source — pass the schema, and this " \
-        "as its transport: GraphWeaver.new(schema, transport: client). For a live schema class " \
-        "with a context: GraphWeaver.new(schema, context: { ... })."
-    end
-    private :check_source!
 
     # The app's default client — how generated modules find their server:
     #
     #      GraphWeaver.client = GraphWeaver.new(url, auth: token)
     #
-    # Accepts a Client or anything satisfying the execute contract (a
-    # schema class, a fake — testing's graphql: tag swaps one in per
+    # Anything satisfying the execute contract — a Client, a schema class,
+    # a transport, a fake (testing's graphql: tag swaps one in per
     # example). Generated modules resolve per call -> per module
     # (MyQuery.client=) -> baked constant -> here.
     attr_accessor :client
@@ -69,19 +54,6 @@ module GraphWeaver
     # the default client, when one is required
     def client!
       @client or raise Error, "no client configured — set GraphWeaver.client= or pass a client"
-    end
-
-    # The transport behind a client-or-transport value: a Client resolves
-    # to its own transport, anything else already speaks execute.
-    # Generated modules call this on every execute, so any slot in the
-    # resolution chain can hold either kind.
-    def resolve_transport(target)
-      return target.transport! if target.is_a?(Client)
-      unless target.respond_to?(:execute)
-        raise Error, "client must respond to #execute(query, variables:), got #{target.class}"
-      end
-
-      target
     end
 
     # Shape-check a raw response envelope, returning it. Generated
@@ -638,7 +610,7 @@ module GraphWeaver
     # impossible since each parse gets its own container). Pass name: to
     # override, client: to bake the module's default client/transport.
     def parse(schema:, query:, name: nil, client: nil, fragments: fragments_paths)
-      client ||= schema.transport if schema.is_a?(Client)
+      client ||= schema if schema.is_a?(Client)
       schema = schema_for(schema)
       path = query if query.end_with?(".graphql", ".gql")
       if path
@@ -652,24 +624,24 @@ module GraphWeaver
 
     # One-shot dynamic execution — a throwaway client, no build step:
     #
-    #      GraphWeaver.execute(schema, "query($id: ID!) { ... }", id: "1")   # => Response
-    #      GraphWeaver.execute!(url, "query { viewer { login } }")           # => Result (or raise)
+    #      GraphWeaver.run(schema, "query($id: ID!) { ... }", id: "1")   # => Response
+    #      GraphWeaver.run!(url, "query { viewer { login } }")           # => Result (or raise)
     #
     # The first argument is a url or schema source, exactly as
-    # GraphWeaver.new; this is Client#execute on a client you don't keep.
+    # GraphWeaver.new; this is Client#run on a client you don't keep.
     # (A url source introspects the schema on every call — keep a client
     # for more than one query.) Variables are plain kwargs, as on a
-    # generated module (nothing reserved). execute returns the
-    # Response envelope, execute! the typed result, raising QueryError on
-    # top-level errors.
-    def execute(source, query, **variables)
+    # generated module (nothing reserved). run returns the Response
+    # envelope, run! the typed result, raising QueryError on top-level
+    # errors.
+    def run(source, query, **variables)
       client = source.is_a?(Client) ? source : new(source)
-      client.execute(query, **variables)
+      client.run(query, **variables)
     end
 
-    # execute + data! — the typed result, or a raised QueryError. See execute.
-    def execute!(source, query, **variables)
-      execute(source, query, **variables).data!
+    # run + data! — the typed result, or a raised QueryError. See run.
+    def run!(source, query, **variables)
+      run(source, query, **variables).data!
     end
   end
 end

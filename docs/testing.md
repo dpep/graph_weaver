@@ -139,7 +139,7 @@ arrives: real enum values, valid `__typename` members, iso8601 date scalars
 ```ruby
 fake = GraphWeaver::Testing::FakeClient.new   # schema: falls back to Testing.config
 
-person = PersonQuery.execute!(fake, id: "1").person
+person = PersonQuery.execute!(client: fake, id: "1").person
 person.name       # => "Eliza Kertzmann" (faker-matched on field name, when faker is loaded)
 person.birthday   # => a real Date
 ```
@@ -184,11 +184,11 @@ error-handling paths are testable without a server that misbehaves on cue:
 ```ruby
 Failure = GraphWeaver::Testing::Failure
 
-PersonQuery.execute(Failure.transport, id: "1")             # TransportError (cause preserved)
+PersonQuery.execute(client: Failure.transport, id: "1")             # TransportError (cause preserved)
 PersonQuery.execute(Failure.server(status: 502), id: "1")   # ServerError
-PersonQuery.execute(Failure.throttled, id: "1")             # QueryError, code THROTTLED
-PersonQuery.execute(Failure.stale_schema, id: "1")          # schema_stale? => true
-PersonQuery.execute(Failure.graphql("boom", data: {...}), id: "1")  # partial failure
+PersonQuery.execute(client: Failure.throttled, id: "1")             # QueryError, code THROTTLED
+PersonQuery.execute(client: Failure.stale_schema, id: "1")          # schema_stale? => true
+PersonQuery.execute(client: Failure.graphql("boom", data: {...}), id: "1")  # partial failure
 
 # retries: clients run in sequence (the last repeats) — here, two
 # transport failures and then a FakeClient serving good responses

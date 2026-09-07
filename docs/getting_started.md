@@ -120,7 +120,7 @@ where you know the request and pass it per call:
 
 ```ruby
 client = GraphWeaver.new(MyApp::Schema, context: { current_user: })
-PetQuery.execute!(client, id: "1").pet.owner   # => the context's user
+PetQuery.execute!(client:, id: "1").pet.owner   # => the context's user
 ```
 
 **Keep the dump in step with the schema.** Codegen reads the committed

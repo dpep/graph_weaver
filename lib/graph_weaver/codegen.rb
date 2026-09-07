@@ -248,12 +248,12 @@ class GraphWeaver::Codegen
     BEGIN END __FILE__ __LINE__ __ENCODING__
   ].to_set.freeze
   GENERATED_METHODS = %w[serialize to_h].to_set.freeze
-  # Locals the generated `execute` body owns: the per-call client override and
-  # the two it builds. A kwarg by any of these names redeclares or overwrites
-  # one — `def self.execute(client = nil, client:)` doesn't even parse. No
-  # legal Ruby local is unreachable by a GraphQL variable name, so this is a
-  # guard rather than a rename.
-  RESERVED_KWARGS = %w[client variables transport].to_set.freeze
+  # Names the generated `execute` body owns: the per-call client kwarg and the
+  # variables hash it builds. A GraphQL variable by either name redeclares one
+  # — `def self.execute(client: nil, client:)` doesn't even parse. No legal
+  # Ruby local is unreachable by a GraphQL variable name, so this is a guard
+  # rather than a rename.
+  RESERVED_KWARGS = %w[client variables].to_set.freeze
   # Every method a struct instance already answers: T::Props refuses to redefine
   # those (`class`, `hash`, `send`, `to_s`), so the generated file would raise
   # ArgumentError at require time. Derived rather than listed, so it tracks

@@ -12,18 +12,18 @@ describe GraphWeaver::Client do
       client = GraphWeaver.new(url)
 
       expect(client.transport).to be_a GraphWeaver::Transport::HTTP # no retry wrapper by default
-      expect(client.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
+      expect(client.run!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
       expect(client.schema.types).to have_key "Person"
     end
 
     it "sends bearer auth, or a verbatim scheme, or custom headers" do
-      GraphWeaver.new(url, auth: "t0ken").execute!("query { person(id: 1) { id } }")
+      GraphWeaver.new(url, auth: "t0ken").run!("query { person(id: 1) { id } }")
       expect(@requests.last[:headers]["authorization"]).to eq ["Bearer t0ken"]
 
-      GraphWeaver.new(url, auth: "Basic dXNlcg==").execute!("query { person(id: 1) { id } }")
+      GraphWeaver.new(url, auth: "Basic dXNlcg==").run!("query { person(id: 1) { id } }")
       expect(@requests.last[:headers]["authorization"]).to eq ["Basic dXNlcg=="]
 
-      GraphWeaver.new(url, headers: { "X-Api-Key" => "k" }).execute!("query { person(id: 1) { id } }")
+      GraphWeaver.new(url, headers: { "X-Api-Key" => "k" }).run!("query { person(id: 1) { id } }")
       expect(@requests.last[:headers]["x-api-key"]).to eq ["k"]
     end
 
@@ -79,7 +79,7 @@ describe GraphWeaver::Client do
       # nothing listens on port 1: every attempt is a connection refusal
       client = GraphWeaver.new("http://127.0.0.1:1/graphql", retries: { tries: 3, sleeper: ->(s) { slept << s } })
 
-      expect { client.execute!("query { person(id: 1) { id } }") }.to raise_error(GraphWeaver::TransportError)
+      expect { client.run!("query { person(id: 1) { id } }") }.to raise_error(GraphWeaver::TransportError)
       expect(slept.size).to eq 2 # the Hash reached the Retry
 
       expect(GraphWeaver.new(url, retries: true).transport).to be_a GraphWeaver::Retry
@@ -148,7 +148,7 @@ describe GraphWeaver::Client do
     it "a live schema class executes in-process" do
       client = GraphWeaver.new(Demo::Schema)
 
-      expect(client.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
+      expect(client.run!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
       expect(client.schema).to equal Demo::Schema
     end
 
@@ -167,7 +167,7 @@ describe GraphWeaver::Client do
       end
 
       GraphWeaver.client = recorder.new
-      GraphWeaver.new(Demo::Schema).execute!("query { person(id: 1) { id } }")
+      GraphWeaver.new(Demo::Schema).run!("query { person(id: 1) { id } }")
 
       expect(recorded).to be_empty # the explicit client ran in-process
     ensure
@@ -181,12 +181,12 @@ describe GraphWeaver::Client do
 
         client = GraphWeaver.new(path)
         expect(client.schema.types).to have_key "Person"
-        expect { client.execute("query { person(id: 1) { id } }") }
+        expect { client.run("query { person(id: 1) { id } }") }
           .to raise_error(GraphWeaver::Error, /no transport/)
 
         # bring your own transport
         with_transport = GraphWeaver.new(path, transport: Demo::Schema)
-        expect(with_transport.execute!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
+        expect(with_transport.run!("query { person(id: 1) { name } }").person&.name).to eq "Daniel"
       end
     end
 
@@ -200,6 +200,39 @@ describe GraphWeaver::Client do
       mod = GraphWeaver.new(Demo::Schema).parse("query Who { person(id: 1) { name } }")
 
       expect(mod.execute!.person&.name).to eq "Daniel" # no global wiring needed
+    end
+  end
+
+  # a Client answers execute(query, variables:, operation_name:) like every
+  # other client, so anything that wraps one takes it
+  describe "the client contract" do
+    let(:client) { GraphWeaver.new(Demo::Schema) }
+    let(:query) { "query { person(id: 1) { name } }" }
+
+    it "returns the raw envelope, like a transport" do
+      expect(client.execute(query)).to eq("data" => { "person" => { "name" => "Daniel" } })
+    end
+
+    it "wraps in Retry" do
+      retrying = GraphWeaver::Retry.new(client)
+
+      expect(retrying.execute(query).dig("data", "person", "name")).to eq "Daniel"
+    end
+
+    it "stands in a Testing::Sequence" do
+      executor = GraphWeaver::Testing::Sequence.new(GraphWeaver::Testing::Failure.transport, client)
+
+      expect { executor.execute(query) }.to raise_error(GraphWeaver::TransportError)
+      expect(executor.execute(query).dig("data", "person", "name")).to eq "Daniel"
+    end
+
+    it "records to a cassette" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "people.yml")
+        GraphWeaver::Testing.cassette(path, client:).execute(query)
+
+        expect(GraphWeaver::Testing::Cassette.new(path).size).to eq 1
+      end
     end
   end
 
@@ -219,7 +252,7 @@ describe GraphWeaver::Client do
     it "a per-call client beats the app default" do
       GraphWeaver.client = GraphWeaver.new("http://127.0.0.1:1/graphql") # nothing listens
 
-      expect(mod.execute!(Demo::Schema).person&.name).to eq "Daniel"
+      expect(mod.execute!(client: Demo::Schema).person&.name).to eq "Daniel"
     end
   end
 

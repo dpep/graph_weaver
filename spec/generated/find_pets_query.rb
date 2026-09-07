@@ -70,18 +70,17 @@ module FindPetsQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(client: T.untyped, where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped]))).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, where: nil)
+  sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(where: nil, client: nil)
     variables = {}
     variables["where"] = PetFilter.coerce(where).serialize unless where.nil?
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped]))).returns(Result) }
-  def self.execute!(client = nil, where: nil)
-    execute(client, where:).data!
+  sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(Result) }
+  def self.execute!(where: nil, client: nil)
+    execute(where:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

@@ -100,7 +100,7 @@ GraphWeaver.generate!   # what `rake graph_weaver:generate` calls
 
 # at runtime
 PersonQuery.execute(id: "1")                        # via GraphWeaver.client
-PersonQuery.execute(other_client, id: "1")          # or per call
+PersonQuery.execute(client: other_client, id: "1")          # or per call
 ```
 
 Module names derive from the **file** name plus the operation it defines —
@@ -121,7 +121,7 @@ PersonQuery.execute(id: "1")
 api.load_queries!
 
 # or one-shot, no module at all — variables are plain kwargs
-api.execute!("query($id: ID!) { person(id: $id) { name } }", id: "1")
+api.run!("query($id: ID!) { person(id: $id) { name } }", id: "1")
 ```
 
 

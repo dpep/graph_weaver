@@ -69,20 +69,19 @@ module AddPetMutation
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(client: T.untyped, name: String, species: T.any(Species, String)).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, name:, species:)
+  sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(name:, species:, client: nil)
     variables = {
       "name" => name,
       "species" => (species.is_a?(Species) ? species : Species.deserialize(species)).serialize,
     }
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, name: String, species: T.any(Species, String)).returns(Result) }
-  def self.execute!(client = nil, name:, species:)
-    execute(client, name:, species:).data!
+  sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(Result) }
+  def self.execute!(name:, species:, client: nil)
+    execute(name:, species:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

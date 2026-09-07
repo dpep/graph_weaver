@@ -435,27 +435,33 @@ class GraphWeaver::Codegen
 
       # The kwarg surface: one kwarg per declared variable, always — so the
       # call sites a query already has don't change shape when it grows one.
-      # The per-call client override rides as an optional POSITIONAL arg, so
-      # only this body's own locals (RESERVED_KWARGS) are off limits.
-      sig_params = ["client: T.untyped"]
-      sig_params += variables.map do |var|
+      # The per-call client override is a kwarg like the rest; a GraphQL
+      # variable can't claim the name (RESERVED_KWARGS).
+      #
+      # Required kwargs first, then optional ones (client: last, since it
+      # always has a default): Method#parameters reports them in that order
+      # whatever the source says, and sorbet-runtime checks the sig against it.
+      required, optional = variables.partition(&:required)
+      ordered = required + optional
+
+      sig_params = ordered.map do |var|
         bare = var.node.coerce? ? var.node.coerce_input_type : var.node.bare_type
         kwarg_type = var.required || bare == "T.untyped" ? bare : "T.nilable(#{bare})"
         "#{var.kwarg}: #{kwarg_type}"
       end
+      sig_params << "client: T.untyped"
 
-      kwargs = ["client = nil"]
-      kwargs += variables.map { |var| var.required ? "#{var.kwarg}:" : "#{var.kwarg}: nil" }
+      kwargs = required.map { |var| "#{var.kwarg}:" } +
+        optional.map { |var| "#{var.kwarg}: nil" } + ["client: nil"]
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # `execute(...).data!` — the typed result, or a raised QueryError.
       # kwargs forward via hash shorthand (key == value)
-      forward = (["client"] + variables.map { |var| "#{var.kwarg}:" }).join(", ")
+      forward = (ordered.map { |var| "#{var.kwarg}:" } + ["client:"]).join(", ")
 
       out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.execute(#{kwargs.join(", ")})"
 
-      required, optional = variables.partition(&:required)
       if required.empty?
         out << "    variables = {}"
       else
@@ -470,8 +476,7 @@ class GraphWeaver::Codegen
       end
 
       out << ""
-      out << "    transport = GraphWeaver.resolve_transport(client || self.client)"
-      out << "    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))"
+      out << "    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))"
       out << "  end"
       out << ""
       out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"

@@ -28,6 +28,21 @@ module GraphWeaver
 
     private
 
+    # The client one execute runs through: the per-call `client:`, else the
+    # module's, else the app default. Checked here so a wrong one names the
+    # contract and the module, rather than surfacing as a NoMethodError from
+    # inside the call.
+    sig { params(override: T.untyped).returns(T.untyped) }
+    def client_for(override)
+      target = override || client
+      return target if target.respond_to?(:execute)
+
+      # Kernel.raise: this module is extended into another, so sorbet can't
+      # see that its host is an Object
+      Kernel.raise GraphWeaver::Error,
+        "#{self}: client must respond to #execute(query, variables:), got #{target.class}"
+    end
+
     # Codegen's `client:` constant, emitted as a DEFAULT_CLIENT lambda so the
     # constant it names is resolved on first use rather than at load — a
     # generated file may load before the initializer that builds the client.

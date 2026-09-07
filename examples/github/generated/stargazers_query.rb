@@ -179,21 +179,20 @@ module StargazersQuery
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
-  sig { params(client: T.untyped, owner: String, name: String, first: Integer).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, owner:, name:, first:)
+  sig { params(owner: String, name: String, first: Integer, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(owner:, name:, first:, client: nil)
     variables = {
       "owner" => owner,
       "name" => name,
       "first" => first,
     }
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, owner: String, name: String, first: Integer).returns(Result) }
-  def self.execute!(client = nil, owner:, name:, first:)
-    execute(client, owner:, name:, first:).data!
+  sig { params(owner: String, name: String, first: Integer, client: T.untyped).returns(Result) }
+  def self.execute!(owner:, name:, first:, client: nil)
+    execute(owner:, name:, first:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

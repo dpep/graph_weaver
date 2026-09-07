@@ -168,7 +168,7 @@ describe GraphWeaver::Codegen do
     end
 
     it "refuses variables whose kwarg is one of execute's own locals" do
-      %w[client variables transport].each do |name|
+      %w[client variables].each do |name|
         expect {
           GraphWeaver.parse(schema: Demo::Schema, query: "query($#{name}: ID!) { person(id: $#{name}) { id } }")
         }.to raise_error(GraphWeaver::Error, /\$#{name}.*generated execute already uses.*rename/m)
@@ -231,7 +231,22 @@ describe GraphWeaver::Codegen do
     # the client slot stays duck-typed: a graphql-ruby schema class takes
     # operation_name: as a kwarg, so widening the contract didn't shut it out
     it "runs against a bare graphql-ruby schema class in the client slot" do
-      expect(SearchQuery.execute(Demo::Schema, term: "el").data!.search).not_to be_empty
+      expect(SearchQuery.execute(client: Demo::Schema, term: "el").data!.search).not_to be_empty
+    end
+
+    it "names the contract, and itself, when the client can't execute" do
+      expect { PersonQuery.execute(client: {}, id: "1") }.to raise_error(
+        GraphWeaver::Error,
+        "PersonQuery: client must respond to #execute(query, variables:), got Hash",
+      )
+    end
+
+    # every argument is a kwarg, so a variable a query doesn't declare is
+    # named as one — it used to land on the positional client and blame it
+    it "names an unknown variable, on a query that declares none" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, client: Demo::Schema, query: "{ people { name } }")
+
+      expect { mod.execute(id: "1") }.to raise_error(ArgumentError, /unknown keyword: :id/)
     end
 
     it "executes and casts into the generated structs" do
@@ -250,7 +265,7 @@ describe GraphWeaver::Codegen do
         end
       end
 
-      response = PersonQuery.execute(failing.new, id: "1")
+      response = PersonQuery.execute(client: failing.new, id: "1")
       expect(response.errors?).to be true
       expect(response.errors.first.code).to eq "OOPS"
       expect { response.data! }.to raise_error(GraphWeaver::QueryError, /boom/)
@@ -262,7 +277,7 @@ describe GraphWeaver::Codegen do
       failing = Class.new do
         def execute(_query, variables:, operation_name: nil) = { "errors" => [{ "message" => "boom" }] }
       end
-      expect { PersonQuery.execute!(failing.new, id: "1") }
+      expect { PersonQuery.execute!(client: failing.new, id: "1") }
         .to raise_error(GraphWeaver::QueryError)
     end
   end
@@ -494,7 +509,7 @@ describe GraphWeaver::Codegen do
       end.new
 
       mod = GraphWeaver.parse(schema:, query: "query Q($sort: [Sort!], $one: Sort) { items(sort: $sort, one: $one) }")
-      mod.execute!(executor, sort: ["DESC", mod::Sort::Asc], one: "ASC")
+      mod.execute!(client: executor, sort: ["DESC", mod::Sort::Asc], one: "ASC")
 
       expect(sent).to eq("sort" => %w[DESC ASC], "one" => "ASC")
     end
@@ -574,8 +589,8 @@ describe GraphWeaver::Codegen do
         }
       GRAPHQL
 
-      expect(alone).to include("def self.execute(client = nil, input:)")
-      expect(grown).to include("def self.execute(client = nil, input:, detail:)")
+      expect(alone).to include("def self.execute(input:, client: nil)")
+      expect(grown).to include("def self.execute(input:, detail:, client: nil)")
     end
 
     describe "@oneOf inputs" do
@@ -595,7 +610,7 @@ describe GraphWeaver::Codegen do
 
       it "rejects zero or many, naming what was supplied" do
         expect { mod::Ref.coerce({}).serialize }.to raise_error(GraphWeaver::InputError, /got none/)
-        expect { mod.execute(nil, ref: { id: "1", name: "x" }) }
+        expect { mod.execute(client: nil, ref: { id: "1", name: "x" }) }
           .to raise_error(GraphWeaver::InputError, /got id, name/)
       end
     end
@@ -870,7 +885,7 @@ describe GraphWeaver::Codegen do
 
       baked.client = fake
       expect(baked.execute.data!.people.map(&:name)).to eq ["Fake"]
-      expect(baked.execute(Demo::Schema).data!.people.map(&:name)).to eq ["Daniel"]
+      expect(baked.execute(client: Demo::Schema).data!.people.map(&:name)).to eq ["Daniel"]
     end
 
     it "resolves the baked constant on first use, not when the module loads" do
@@ -887,7 +902,7 @@ describe GraphWeaver::Codegen do
 
   describe "GraphWeaver.execute (one-shot)" do
     it "runs a query in-process with variables" do
-      result = GraphWeaver.execute!(
+      result = GraphWeaver.run!(
         Demo::Schema,
         "query($id: ID!) { person(id: $id) { name } }",
         id: "1",
@@ -899,8 +914,8 @@ describe GraphWeaver::Codegen do
     it "execute returns the envelope, execute! the result" do
       query = "query($id: ID!) { person(id: $id) { name } }"
 
-      expect(GraphWeaver.execute(Demo::Schema, query, id: "1")).to be_a GraphWeaver::Response
-      expect(GraphWeaver.execute!(Demo::Schema, query, id: "1").person&.name).to eq "Daniel"
+      expect(GraphWeaver.run(Demo::Schema, query, id: "1")).to be_a GraphWeaver::Response
+      expect(GraphWeaver.run!(Demo::Schema, query, id: "1").person&.name).to eq "Daniel"
     end
 
     it "refuses a client where a schema source belongs" do
@@ -910,13 +925,13 @@ describe GraphWeaver::Codegen do
         GraphWeaver::InProcess.new(Demo::Schema),
         GraphWeaver::Retry.new(GraphWeaver::InProcess.new(Demo::Schema)),
       ].each do |client|
-        expect { GraphWeaver.execute!(client, "{ people { name } }") }
+        expect { GraphWeaver.run!(client, "{ people { name } }") }
           .to raise_error(GraphWeaver::Error, /client, not a schema source.*transport:/m)
       end
     end
 
     it "accepts graphql-cased variable keys" do
-      result = GraphWeaver.execute!(
+      result = GraphWeaver.run!(
         Demo::Schema,
         'query($term: String!) { search(term: $term) { __typename ... on Named { name } } }',
         "term" => "el",
@@ -937,7 +952,7 @@ describe GraphWeaver::Codegen do
 
       begin
         GraphWeaver.client = recorder.new(recorded)
-        result = GraphWeaver.execute!(
+        result = GraphWeaver.run!(
           Demo::Schema,
           "query($id: ID!) { person(id: $id) { name } }",
           id: "1",
@@ -953,7 +968,7 @@ describe GraphWeaver::Codegen do
     it "a Client source runs through that client" do
       begin
         GraphWeaver.client = Class.new { def execute(*, **) = { "errors" => [{ "message" => "wrong" }] } }.new
-        result = GraphWeaver.execute!(
+        result = GraphWeaver.run!(
           GraphWeaver.new(Demo::Schema),
           "query($id: ID!) { person(id: $id) { name } }",
           id: "1",
@@ -1024,7 +1039,7 @@ describe GraphWeaver::Codegen do
       GraphWeaver.register_scalar("ISO8601DateTime", Time, cast: :iso8601, requires: "time")
       GraphWeaver.register_scalar("Event.createdOn", Date, cast: :iso8601, requires: "date")
 
-      event = client.execute!("query E { event { startsAt createdOn } }").event
+      event = client.run!("query E { event { startsAt createdOn } }").event
       expect(event.starts_at).to be_a(Time)
       expect(event.created_on).to be_a(Date)
     end

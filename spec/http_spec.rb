@@ -12,7 +12,7 @@ describe GraphWeaver::Transport::HTTP do
   let(:executor) { described_class.new(url) }
 
   it "runs generated queries over HTTP" do
-    person = PersonQuery.execute(executor, id: "1").data!.person
+    person = PersonQuery.execute(client: executor, id: "1").data!.person
 
     expect(person&.name).to eq "Daniel"
     expect(person&.birthday).to eq Date.new(1990, 6, 15)
@@ -20,7 +20,7 @@ describe GraphWeaver::Transport::HTTP do
   end
 
   it "sends the graphql-over-http Accept header and an attributable User-Agent" do
-    PersonQuery.execute(executor, id: "1")
+    PersonQuery.execute(client: executor, id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["content-type"]).to eq ["application/json"]
@@ -29,13 +29,13 @@ describe GraphWeaver::Transport::HTTP do
   end
 
   it "sends an operation name for every generated query, named or not" do
-    SearchQuery.execute(executor, term: "el")
+    SearchQuery.execute(client: executor, term: "el")
     expect(JSON.parse(@requests.last[:body])["operationName"]).to eq "Search"
 
     # person.graphql declares an anonymous operation — the documented shape —
     # so the module names it after itself, in the document and on the wire.
     # Sending a name the document doesn't declare would be rejected.
-    PersonQuery.execute(executor, id: "1")
+    PersonQuery.execute(client: executor, id: "1")
     body = JSON.parse(@requests.last[:body])
     expect(body["operationName"]).to eq "PersonQuery"
     expect(body["query"]).to start_with "query PersonQuery($id: ID!)"
@@ -43,7 +43,7 @@ describe GraphWeaver::Transport::HTTP do
 
   it "lets the caller override the defaults" do
     custom = described_class.new(url, headers: { "Accept" => "application/json", "User-Agent" => "myapp/1" })
-    PersonQuery.execute(custom, id: "1")
+    PersonQuery.execute(client: custom, id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["accept"]).to eq ["application/json"]
@@ -54,19 +54,19 @@ describe GraphWeaver::Transport::HTTP do
     expect(Net::HTTP).to receive(:start).once.and_call_original
 
     2.times do
-      expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
+      expect(PersonQuery.execute(client: executor, id: "1").data!.person&.name).to eq "Daniel"
     end
   end
 
   it "drops a failed connection and reconnects on the next call" do
-    PersonQuery.execute(executor, id: "1")
+    PersonQuery.execute(client: executor, id: "1")
     http = executor.instance_variable_get(:@idle).last
     expect(http).to receive(:request).and_raise(Errno::ECONNRESET)
 
-    expect { PersonQuery.execute(executor, id: "1") }
+    expect { PersonQuery.execute(client: executor, id: "1") }
       .to raise_error(GraphWeaver::TransportError)
     expect(executor.instance_variable_get(:@idle)).to be_empty
-    expect(PersonQuery.execute(executor, id: "1").data!.person&.name).to eq "Daniel"
+    expect(PersonQuery.execute(client: executor, id: "1").data!.person&.name).to eq "Daniel"
   end
 
   # A fiber scheduler cancels an in-flight task with Async::Stop, which
@@ -90,7 +90,7 @@ describe GraphWeaver::Transport::HTTP do
     # invisible to a correctness-only spec.
     def call_concurrently(transport, threads: 4)
       reset_inflight!
-      Array.new(threads) { Thread.new { PersonQuery.execute(transport, id: "1") } }.each(&:join)
+      Array.new(threads) { Thread.new { PersonQuery.execute(client: transport, id: "1") } }.each(&:join)
     end
 
     let(:slow) { described_class.new(slow_url, pool_size: 4) }
@@ -107,7 +107,7 @@ describe GraphWeaver::Transport::HTTP do
     end
 
     it "applies read_timeout: to a pooled socket" do
-      expect { PersonQuery.execute(described_class.new(slow_url, read_timeout: 0.01), id: "1") }
+      expect { PersonQuery.execute(client: described_class.new(slow_url, read_timeout: 0.01), id: "1") }
         .to raise_error(GraphWeaver::TransportError, /Timeout/)
     end
 
@@ -119,14 +119,14 @@ describe GraphWeaver::Transport::HTTP do
   it "raises ServerError on a non-2xx response (reached the server)" do
     bad = described_class.new("http://127.0.0.1:#{@port}/nope")
 
-    expect { PersonQuery.execute(bad, id: "1") }
+    expect { PersonQuery.execute(client: bad, id: "1") }
       .to raise_error(GraphWeaver::ServerError) { |e| expect(e.status).to eq 404 }
   end
 
   it "carries the response headers on a ServerError" do
     throttled = described_class.new(throttled_url)
 
-    expect { PersonQuery.execute(throttled, id: "1") }
+    expect { PersonQuery.execute(client: throttled, id: "1") }
       .to raise_error(GraphWeaver::ServerError) { |e|
         expect(e.status).to eq 429
         expect(e.headers["x-ratelimit-remaining"]).to eq "0"
@@ -142,7 +142,7 @@ describe GraphWeaver::Transport::HTTP do
     probe.close
     bad = described_class.new("http://127.0.0.1:#{port}/")
 
-    expect { PersonQuery.execute(bad, id: "1") }
+    expect { PersonQuery.execute(client: bad, id: "1") }
       .to raise_error(GraphWeaver::TransportError)
   end
 
@@ -151,7 +151,7 @@ describe GraphWeaver::Transport::HTTP do
     GraphWeaver.register_transport_error(pool_error)
     allow(Net::HTTP).to receive(:start).and_raise(pool_error.new("pool exhausted"))
 
-    expect { PersonQuery.execute(executor, id: "1") }
+    expect { PersonQuery.execute(client: executor, id: "1") }
       .to raise_error(GraphWeaver::TransportError, /pool exhausted/)
   ensure
     GraphWeaver.transport_errors.delete(pool_error)
@@ -219,15 +219,15 @@ describe GraphWeaver::Transport::HTTP do
     it "trusts a private CA given ca_file:" do
       transport = described_class.new(@tls_url, ca_file: @ca.path)
 
-      expect(PersonQuery.execute(transport, id: "1").data!.person&.name).to eq "Daniel"
+      expect(PersonQuery.execute(client: transport, id: "1").data!.person&.name).to eq "Daniel"
     end
 
     it "still verifies by default, and honours verify_mode:" do
-      expect { PersonQuery.execute(described_class.new(@tls_url), id: "1") }
+      expect { PersonQuery.execute(client: described_class.new(@tls_url), id: "1") }
         .to raise_error(GraphWeaver::TransportError, /certificate verify failed/)
 
       unverified = described_class.new(@tls_url, verify_mode: OpenSSL::SSL::VERIFY_NONE)
-      expect(PersonQuery.execute(unverified, id: "1").data!.person&.name).to eq "Daniel"
+      expect(PersonQuery.execute(client: unverified, id: "1").data!.person&.name).to eq "Daniel"
     end
 
     it "refuses TLS options on a plain http url rather than ignoring them" do

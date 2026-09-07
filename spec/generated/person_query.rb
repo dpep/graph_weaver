@@ -90,19 +90,18 @@ module PersonQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(client: T.untyped, id: String).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, id:)
+  sig { params(id: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(id:, client: nil)
     variables = {
       "id" => id,
     }
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, id: String).returns(Result) }
-  def self.execute!(client = nil, id:)
-    execute(client, id:).data!
+  sig { params(id: String, client: T.untyped).returns(Result) }
+  def self.execute!(id:, client: nil)
+    execute(id:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

@@ -47,22 +47,21 @@ describe GraphWeaver::Parsing do
   end
 
   describe "a Client" do
-    it "bakes its transport, not itself — Client#execute is the one-shot form, not the contract" do
+    it "bakes itself, like every other parser" do
       mod = GraphWeaver.new(Demo::Schema).parse(query)
 
-      expect(mod.execute!.person&.name).to eq "Daniel" # ran on the client's transport, no global wiring
+      expect(mod.execute!.person&.name).to eq "Daniel" # ran on the client, no global wiring
     end
 
-    it "bakes nothing when it is a schema dump — there is no transport to bake" do
+    it "says so when the client it baked is a schema dump, rather than falling through to the app default" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "schema.graphql")
         File.write(path, Demo::Schema.to_definition)
         mod = GraphWeaver.new(path).parse(query)
-
-        expect { mod.execute! }.to raise_error(GraphWeaver::Error, /no client/)
-
         GraphWeaver.client = Demo::Schema
-        expect(mod.execute!.person&.name).to eq "Daniel"
+
+        expect { mod.execute! }
+          .to raise_error(GraphWeaver::Error, "this client has no transport (built from a schema dump) — pass a url or transport:")
       end
     end
   end

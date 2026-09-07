@@ -13,7 +13,7 @@ doesn't exist yet.
 
 ```ruby
 client = GraphWeaver::Testing.cassette("github", client: live)
-result = RepoQuery.execute!(client, owner: "dpep", name: "graph_weaver")
+result = RepoQuery.execute!(client:, owner: "dpep", name: "graph_weaver")
 ```
 
 That first run writes `spec/cassettes/github.yml` (`Testing.config.cassette_dir`

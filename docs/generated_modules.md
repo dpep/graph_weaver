@@ -165,8 +165,8 @@ module PersonQuery
   end
 
   extend GraphWeaver::QueryModule # client / client= (see below)
-  def self.execute(client = nil, id:)   # -> GraphWeaver::Response[Result]
-  def self.execute!(client = nil, id:)  # -> Result, or raises QueryError
+  def self.execute(client: client = nil, id:)   # -> GraphWeaver::Response[Result]
+  def self.execute!(client: client = nil, id:)  # -> Result, or raises QueryError
 
   def self.from_response(response)      # deserialize a raw hash -> Response[Result]
   def self.from_response!(response)     # -> Result, or raises QueryError
@@ -207,7 +207,7 @@ person   = response.data!.person            # typed, no network
 person   = PersonQuery.from_response!(raw).person
 ```
 
-`execute` *is* `from_response(transport.execute(...))`, so the envelope is
+`execute` *is* `from_response(transport.execute(client: ...))`, so the envelope is
 identical: errors and extensions preserved, `#data!` / `from_response!` raising
 `QueryError` on top-level errors.
 
@@ -238,7 +238,7 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 One kwarg per declared variable, always — so adding a variable to a query
 adds a kwarg and leaves every existing call site alone. Three names are refused
 at generation, `$client`, `$variables` and `$transport`: they are the locals the
-generated `execute` body already owns, and `def self.execute(client = nil,
+generated `execute` body already owns, and `def self.execute(client: client = nil,
 client:)` doesn't even parse. Rename the variable in the query.
 
 **Input objects** take the generated `T::Struct` or a plain hash — `.coerce`
@@ -541,7 +541,7 @@ its client.
 `GraphWeaver.parse` generates + evals in one step (no build artifact, evaled
 into an anonymous container — no global constants leak). Same runtime
 semantics; invisible to `srb tc`, so prefer the build step where static
-checking matters. `GraphWeaver.execute(schema:, query:, variables: {})` is
+checking matters. `GraphWeaver.run(schema:, query:, variables: {})` is
 the one-shot form.
 
 Generated source is eval'd, so inputs are validated: module names must be

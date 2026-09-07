@@ -139,19 +139,18 @@ module SearchQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(client: T.untyped, term: String).returns(GraphWeaver::Response[Result]) }
-  def self.execute(client = nil, term:)
+  sig { params(term: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  def self.execute(term:, client: nil)
     variables = {
       "term" => term,
     }
 
-    transport = GraphWeaver.resolve_transport(client || self.client)
-    from_response(transport.execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(client: T.untyped, term: String).returns(Result) }
-  def self.execute!(client = nil, term:)
-    execute(client, term:).data!
+  sig { params(term: String, client: T.untyped).returns(Result) }
+  def self.execute!(term:, client: nil)
+    execute(term:, client:).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

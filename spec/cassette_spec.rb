@@ -30,11 +30,11 @@ describe GraphWeaver::Testing::Cassette do
   describe "record and replay" do
     it "records through a live executor, then replays without it" do
       recorder = GraphWeaver::Testing::Recorder.new(live, path)
-      recorded = PersonQuery.execute!(recorder, id: "1")
+      recorded = PersonQuery.execute!(client: recorder, id: "1")
       expect(recorded.person&.name).to eq "Daniel"
       expect(live.calls).to eq 1
 
-      replayed = PersonQuery.execute!(GraphWeaver::Testing::Replayer.new(path), id: "1")
+      replayed = PersonQuery.execute!(client: GraphWeaver::Testing::Replayer.new(path), id: "1")
       expect(replayed.person&.name).to eq "Daniel"
       expect(replayed.person&.pets&.map(&:name)).to eq %w[Shelby Brownie]
       expect(live.calls).to eq 1 # replay never touched the live executor
@@ -82,11 +82,11 @@ describe GraphWeaver::Testing::Cassette do
     it "Testing.cassette records when the file is missing, replays when present" do
       first = GraphWeaver::Testing.cassette(path, client: live)
       expect(first).to be_a GraphWeaver::Testing::Recorder
-      PersonQuery.execute!(first, id: "1")
+      PersonQuery.execute!(client: first, id: "1")
 
       second = GraphWeaver::Testing.cassette(path, client: live)
       expect(second).to be_a GraphWeaver::Testing::Replayer
-      expect(PersonQuery.execute!(second, id: "1").person&.name).to eq "Daniel"
+      expect(PersonQuery.execute!(client: second, id: "1").person&.name).to eq "Daniel"
       expect(live.calls).to eq 1
     end
 
@@ -230,7 +230,7 @@ describe GraphWeaver::Testing::Cassette do
           operation_name: PersonQuery::OPERATION_NAME)
       described_class.new(path).anonymize!(schema: Demo::Schema, seed: 5)
 
-      person = PersonQuery.execute!(GraphWeaver::Testing::Replayer.new(path), id: "1").person
+      person = PersonQuery.execute!(client: GraphWeaver::Testing::Replayer.new(path), id: "1").person
 
       expect(person&.name).to be_a String
       expect(person&.name).not_to eq "Daniel"
@@ -252,13 +252,8 @@ describe GraphWeaver::Testing::Cassette do
     it "records against a Client, the call the docs show" do
       recorder = GraphWeaver::Testing.cassette(path, client: GraphWeaver.new(Demo::Schema))
 
-      expect(PersonQuery.execute!(recorder, id: "1").person&.name).to eq "Daniel"
+      expect(PersonQuery.execute!(client: recorder, id: "1").person&.name).to eq "Daniel"
       expect(described_class.new(path).size).to eq 1
-    end
-
-    it "rejects a client that can't execute, instead of failing at the call site" do
-      expect { GraphWeaver.resolve_transport({}) }
-        .to raise_error(GraphWeaver::Error, /must respond to #execute.*Hash/)
     end
 
     it "keeps concrete-fragment fields when the recorded data has no __typename" do
