@@ -126,7 +126,7 @@ module GraphWeaver
           router = config.built_router
           router.context = config.context
           # built once for the suite, so the trace has to be told where this
-          # example starts — otherwise have_fetched reads the last one's
+          # example starts — otherwise have_fetched_subgraphs reads the last one's
           router.reset_trace
         end
       end

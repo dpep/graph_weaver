@@ -146,12 +146,12 @@ module GraphWeaver
     # the object the SDL spells rather than as a flattened path; and a union
     # or interface at a boundary, planned per concrete type and bucketed on
     # the `__typename` the data comes back with.
-    # Everything it can't plan
-    # *faithfully* raises {Unplannable}, before any subgraph runs, so a
-    # refusal can never be a half-executed query. Apollo's planner is twenty
-    # thousand lines; a double that approximated the rest of it would let a
-    # test pass on an answer production disagrees with, which is the most
-    # expensive thing this library can produce.
+    #
+    # Everything it can't plan *faithfully* raises {Unplannable}, before any
+    # subgraph runs, so a refusal can never be a half-executed query. Apollo's
+    # planner is twenty thousand lines; a double that approximated the rest of
+    # it would let a test pass on an answer production disagrees with, which is
+    # the most expensive thing this library can produce.
     #
     # Introspection is answered from the composed API schema — never from a
     # subgraph, which would reply with its own slice. That is the one split a
@@ -341,9 +341,6 @@ module GraphWeaver
         response
       end
 
-      # Everything the plan applies at this level: one _entities fetch per
-      # subgraph the level defers to (all nodes at once — _entities answers
-      # in representation order), then the same again one level down.
       def variable_defaults(operation)
         operation.variables.each_with_object({}) do |definition, defaults|
           value = definition.default_value
@@ -368,6 +365,9 @@ module GraphWeaver
         end
       end
 
+      # Everything the plan applies at this level: one _entities fetch per
+      # subgraph the level defers to (all nodes at once — _entities answers
+      # in representation order), then the same again one level down.
       def stitch(step, nodes, operation, variables, errors)
         return if nodes.empty?
 
@@ -386,14 +386,14 @@ module GraphWeaver
 
         blocked = prefetch(step, nodes, operation, variables, errors)
 
-        # a @requires fetch and a plain one need different node sets, so they
-        # can't share a call even into the same subgraph — which is the split
-        # a real router makes too
         # A fetch for a selection the operation excluded is a fetch a real
         # router never makes, and `trace` is something specs assert on. The
         # plan is built once and reused, so only here are the variables known.
         wanted = step.deferrals.select { |d| included?(d.node, variables) }
 
+        # a @requires fetch and a plain one need different node sets, so they
+        # can't share a call even into the same subgraph — which is the split
+        # a real router makes too
         wanted.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
           fetched = chained ? nodes.reject { |(node, _)| blocked.include?(node.object_id) } : nodes
           tree = Router.field_tree(deferrals.flat_map(&:representation).uniq)
