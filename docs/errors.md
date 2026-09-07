@@ -11,6 +11,7 @@ response = PersonQuery.execute(id: "1")   # => GraphWeaver::Response[Result]
 response.data           # T.nilable(Result) — typed, present even on partial success
 response.errors         # Array[GraphWeaver::GraphQLError]
 response.errors?        # any top-level errors?
+response.success?       # the same question the other way round
 response.extensions     # { "cost" => … } — rides on success too
 response.data!          # the Result, or raise GraphWeaver::QueryError
 ```
