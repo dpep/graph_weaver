@@ -3,14 +3,19 @@ GraphWeaver
 ![Gem](https://img.shields.io/gem/dt/graph_weaver?style=plastic)
 [![codecov](https://codecov.io/gh/dpep/graph_weaver/branch/main/graph/badge.svg)](https://codecov.io/gh/dpep/graph_weaver)
 
-A typed GraphQL client for Ruby: per-query Sorbet types, schema-correct fakes for your specs, and rake tasks for the whole schema lifecycle. Federation included.
+**Your `.graphql` files, compiled into Sorbet types — and the fakes to test them.**
 
-GraphWeaver generates `# typed: strict` Ruby from your queries: nested `T::Struct`s, casting code, and a typed `execute` — so `srb tc` sees the exact shape of every query result, and a typo'd field is a static error, not a runtime surprise.
+GraphWeaver is graphql-codegen for Ruby. Write a query as a `.graphql` file and it
+generates checked-in `# typed: strict` Ruby — nested `T::Struct`s, casting, a typed
+`execute` — so `srb tc` knows the exact shape of every result. The schema can be a
+live graphql-ruby class, an introspection dump, SDL, or an Apollo supergraph;
+at runtime the only dependencies are `graphql` and `sorbet-runtime`.
 
 ```graphql
-# queries/person.graphql
+# app/graphql/queries/person.graphql
 query($id: ID!) {
   person(id: $id) {
+    id
     name
     birthday
     pets { name }
@@ -18,154 +23,143 @@ query($id: ID!) {
 }
 ```
 
-```ruby
-result = PersonQuery.execute!(id: "1")   # typed result, or raises on errors (execute returns an envelope)
-
-result.person&.name       # => "Daniel" (typed String)
-result.person&.birthday   # => Date (custom scalars deserialize)
-result.person&.nmae       # => srb tc: Method `nmae` does not exist
-```
-
-Typed structs are the part every generator gets right. What decides whether
-you're still happy six months in:
-
-**You can test them.** Generation makes result types *precise*, which makes
-them expensive to construct by hand — and most generators stop there, leaving
-you to write the fixtures. GraphWeaver ships the fabricator: schema-correct
-fakes seeded from your own schema (`rspec --seed` reproduces the data),
-field-level failure simulation (`fail_at:`, `corrupt:`, `Failure` + `Sequence`),
-record/replay cassettes with anonymization, and rspec integration you turn on
-in one line. See [testing](docs/testing.md).
-
-**The schema keeps itself honest.** `cache: true` commits the dump;
-`rake graph_weaver:schema:refresh` re-introspects it, `schema:diff` fails when
-the server has drifted, and `queries:check` names the queries that drift broke,
-with the line and column of each error. `rake graph_weaver:verify` fails when
-the committed Ruby is stale. That's the whole schema lifecycle as rake tasks
-rather than a CI pipeline you assemble yourself — see
-[getting started](docs/getting_started.md#5-verify-in-ci).
-
-Generation is **deterministic**: the same schema and queries produce
-byte-identical files, on any machine, in any order — sorted throughout and
-enforced by a spec. Regenerating never shows a diff you didn't earn.
-
-New here? In Rails it's one command —
-`rails g graph_weaver:install https://api.example.com/graphql` writes
-the initializer, the `app/graphql` layout, the editor config and the schema
-dump. The **[getting started](docs/getting_started.md)** guide walks the
-production setup end to end — codegen, fakes, CI. Or run the
-**[examples](examples/)**, smallest first: a public API in 30 lines, a
-paginated search, the production path against GitHub, and a whole federated
-graph in-process (the one that needs no network).
-
-#### Features
-
-- **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
-- **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), **custom scalars** (pluggable registry), `@skip`/`@include` nullability
-- **Any schema source**: live schema class, introspection JSON, or SDL — including Apollo Federation supergraph SDL; introspect live endpoints with caching
-- **Schema lifecycle as rake tasks**: `schema:refresh`, `schema:diff`, `queries:check`, `verify` — above
-- **Rails install generator**: `rails g graph_weaver:install <url|schema class|dump>` scaffolds the initializer, the `app/graphql` layout, `graphql.config.yml` (editor autocomplete) and the schema dump
-- **Any transport**: in-process schema execution, the zero-dependency HTTP transport, or Faraday with your own middleware — plus a composable `Retry` (exponential/linear/custom backoff, jitter, retry-by-error-class or GraphQL code) — swap per call with `execute(client: ...)`
-- **Structured errors**: a typed response envelope (partial data + extensions survive), an error hierarchy split by failure site, field-level reports with entity ids, and `schema_stale?` detection — every error dual-surfaced as a human message plus JSON-ready `#to_h`
-- **Testing built in**: fakes, failure simulation, cassettes, rspec integration — above
-- **Type helpers**: mix your own methods onto a generated struct (`extend_type`), or project a nested field onto a typed flat accessor (`alias:`)
-- **Dynamic mode** for development: `GraphWeaver.parse(...)` generates and evals on the fly, no build step
-
-#### Usage
-
-Three ways to run a query — pick by context:
-
-| Context | Use |
-|---------|-----|
-| Production | checked-in codegen (`rake graph_weaver:generate`) — reviewed, `srb tc`-checked |
-| Development, consoles | `client.parse` / `client.load_queries!` — no build step |
-| Scripts, one-offs | `client.run!` — no module at all |
-
-The production path assembled is the [getting started](docs/getting_started.md);
-the pieces:
+`rake graph_weaver:generate` turns that file into a `PersonQuery` module, and what
+comes back is a struct rather than a Hash you have to trust:
 
 ```ruby
-require "graph_weaver"
+result = PersonQuery.execute!(id: "1")   # or #execute, for the Response envelope
 
-# a client for one server: transport, auth, and a lazily introspected
-# schema. The first argument is a url or any schema
-# source — a live schema class, or a .json/.graphql dump
-api = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["API_TOKEN"], cache: true)
+result.person&.name                # => "Daniel"
+result.person&.birthday            # => #<Date: 1990-06-15>   custom scalars deserialize
+result.person&.pets&.map(&:name)   # => ["Shelby", "Brownie"]
 
-# make it the app default — generated modules execute through it
-GraphWeaver.client = api
-
-# write the checked-in typed modules: app/graphql/queries -> app/graphql/generated
-GraphWeaver.generate!   # what `rake graph_weaver:generate` calls
-
-# at runtime
-PersonQuery.execute(id: "1")                        # via GraphWeaver.client
-PersonQuery.execute(client: other_api, id: "1")     # or per call
+result.person&.nmae
+# srb tc: Method `nmae` does not exist on `PersonQuery::Result::Person`
+#         Did you mean `name`?
 ```
 
-Module names derive from the **file** name plus the operation it defines —
-`person.graphql` → `PersonQuery`, `adopt.graphql` (a `mutation`) →
-`AdoptMutation` — for `parse(path)`, `load_queries!` and the rake task alike.
-Full rules, plus `client:` to bake a default client into a module, in
-[generated modules](docs/generated_modules.md#generating).
+`person` is `T.nilable` because the schema says the field is nullable — the `&.`
+isn't defensive, it's the schema talking. A field you misspelled, or never
+selected, is a typecheck error rather than a `NoMethodError` in production.
 
-In development, skip the build step entirely — a module from `client.parse`
-runs on the client that parsed it, no global wiring needed:
+Typed structs are the part every generator gets right. What decides whether you're
+still happy six months in is everything around them.
+
+## Precise types are expensive to fake, so it fakes them for you
+
+Generation makes result types exact, which makes them tedious to build by hand —
+and most generators stop there and leave you the fixtures. GraphWeaver ships the
+fabricator. One line in the spec helper:
 
 ```ruby
-# parse a query into a typed module on the fly — a .graphql path or a raw string
-PersonQuery = api.parse("queries/person.graphql")
-PersonQuery.execute(id: "1")
-
-# or every query file at once (queries_paths convention), named like generation would
-api.load_queries!
-
-# or one-shot, no module at all — variables are plain kwargs
-api.run!("query($id: ID!) { person(id: $id) { name } }", id: "1")
+require "graph_weaver/rspec"
 ```
 
+then one tag says what an example runs against:
 
-#### Dig deeper
+```ruby
+it "shows the profile", graphql: :fake do
+  person = PersonQuery.execute!(id: "1").person
 
-- **[Getting started](docs/getting_started.md)** — the production path in Rails,
-  step by step: the install generator, rake tasks, fakes, CI, Sorbet or not
-- **[Editor support](docs/editors.md)** — five lines of YAML give VS Code and
-  RubyMine schema autocomplete and validation in your `.graphql` files, with no
-  JS project
-- **[Generated modules](docs/generated_modules.md)** — module anatomy, typed
-  variables (enums, input objects), fragments/unions/interfaces,
-  `@skip`/`@include`, naming, type helpers, clients, dynamic mode
-- **[Against a real API](docs/real_world.md)** — the exploratory tour:
-  introspect a live endpoint (GitHub end to end), dynamic mode, schema caching
-- **[Federation](docs/federation.md)** — Apollo Federation: supergraph vs API
-  schema, feeding weaver a composed graph, the `@inaccessible` caveat, and the
-  local in-process router your specs run against
-- **[Transports](docs/transports.md)** — clients, the execute contract,
-  Faraday, retries and backoff
-- **[Custom scalars](docs/scalars.md)** — the registry: codec inference,
-  requires, input coercion
-- **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy,
-  field-level reports with entity ids, stale-schema detection
-- **[Logging](docs/logging.md)** — point `GraphWeaver.logger` at any Logger:
-  wire traffic at debug, introspection/cache/codegen at info, errors at warn
-- **[Testing](docs/testing.md)** — schema-correct fakes, failure simulation,
-  rspec integration
-- **[Cassettes](docs/cassettes.md)** — capture and replay real API
-  responses; anonymized recording (`GRAPHWEAVER_RECORD=1`, rake tasks)
+  person.name       # => "Shakita Stark"      fabricated from your schema
+  person.birthday   # => #<Date: 2024-12-16>  custom scalars included
+  person.pets.size  # => 2
+end
+```
 
-----
-## Installation
+No fixture, no stub, no HTTP — and the values are seeded from rspec's own seed, so
+`--seed 4242` hands back that same person and a failure reproduces. The tag also
+picks a *real* client when you want one: `:in_process` runs your resolvers,
+`:router` runs them across a federated graph. Field-level failure simulation and
+record/replay cassettes with anonymization are in [testing](docs/testing.md).
+
+## Federation without a gateway
+
+When your app is both a GraphQL client and a subgraph, the local router plans a
+query across the composed supergraph and runs your **real resolvers** over the
+boundary — no gateway process, no node, no sockets. That's
+[`examples/federation.rb`](examples/federation.rb), the example that needs no network:
+
+```
+$ bundle exec examples/federation.rb
+#<GraphWeaver::Testing::Router subgraphs=["accounts", "products", "reviews"]>
+
+dpep reviewed 2 products:
+  Table ($899) — Love it
+  Couch ($1299) — Too expensive
+
+fetches:
+  → accounts  root fields
+  → reviews   _entities × 1 User
+  → products  _entities × 2 Product
+```
+
+The trace is the query plan: every node at a level in one `_entities` call, so two
+products cost one fetch. Anything it can't answer *faithfully* it refuses at plan
+time rather than guessing — and it's diffed against a real `@apollo/gateway` over
+the same supergraph, currently 42 queries identical, 1 refused, 0 wrong
+([`spec/integration/router_parity_spec.rb`](spec/integration/router_parity_spec.rb)).
+See [federation](docs/federation.md).
+
+## The schema keeps itself honest
+
+The lifecycle is rake tasks, not a CI pipeline you assemble yourself:
+`schema:refresh` re-introspects the committed dump, `schema:diff` fails when the
+server has drifted, `queries:check` names the queries that drift broke and where,
+and `verify` fails when the checked-in Ruby is stale. Generation is deterministic
+— same schema and queries, byte-identical files — so regenerating never shows a
+diff you didn't earn. See [getting started](docs/getting_started.md#5-verify-in-ci).
+
+## Start here
 
 ```ruby
 # Gemfile
 gem "graph_weaver"
 ```
 
-or
+In Rails, setup is then one command:
 
 ```sh
-gem install graph_weaver
+rails g graph_weaver:install https://api.example.com/graphql
 ```
+
+which writes the initializer, the `app/graphql` layout, the editor config and the
+schema dump. **[Getting started](docs/getting_started.md)** walks the production
+setup end to end. Or skip the build step entirely and poke at an API from a
+console — anything holding a schema parses, and the module runs on what parsed it:
+
+```ruby
+api = GraphWeaver.new("https://countries.trevorblades.com/")
+CountryQuery = api.parse("queries/country.graphql")   # a path or a raw string
+CountryQuery.execute!(code: "JP").country&.capital    # => "Tokyo"
+
+api.run!("query { continents { name } }").continents  # or no module at all
+```
+
+The **[examples](examples/)** run that path for real, smallest first: a public API
+in 30 lines, a paginated search, the production path against GitHub, and the
+federated graph above.
+
+#### Also in the box
+
+- **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
+- **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), `@skip`/`@include` nullability
+- **Any transport**: in-process execution, a zero-dependency HTTP client, or Faraday with your own middleware — plus a composable `Retry` with backoff and jitter
+- **Structured errors**: a typed envelope that keeps partial data and extensions, an error hierarchy split by failure site, field-level reports with entity ids, and stale-schema detection
+
+#### Dig deeper
+
+- **[Getting started](docs/getting_started.md)** — the production path in Rails, step by step
+- **[Generated modules](docs/generated_modules.md)** — module anatomy, typed variables, fragments/unions/interfaces, naming, clients, dynamic mode
+- **[Testing](docs/testing.md)** — fakes, failure simulation, the rspec tags
+- **[Federation](docs/federation.md)** — supergraph vs API schema, the local router, what it refuses
+- **[Transports](docs/transports.md)** — the execute contract, Faraday, retries and backoff
+- **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy, field-level reports
+- **[Custom scalars](docs/scalars.md)** — the registry: codec inference, requires, input coercion
+- **[Cassettes](docs/cassettes.md)** — capture and replay real responses, anonymized
+- **[Editor support](docs/editors.md)** — five lines of YAML for schema autocomplete in `.graphql` files, no JS project
+- **[Against a real API](docs/real_world.md)** — introspecting a live endpoint, GitHub end to end
+- **[Logging](docs/logging.md)** — point `GraphWeaver.logger` at any Logger
 
 ----
 ## Development
