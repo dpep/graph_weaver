@@ -15,10 +15,11 @@ require "sorbet-runtime"
 # T::Enum), and typed variables (kwargs on execute). Subscriptions are
 # still open.
 #
-# Split across: codegen/scalar_type.rb (the scalar registry),
-# codegen/nodes.rb (the typed IR), codegen/aliases.rb (registered alias
-# paths), codegen/emit.rb (source emission); this file holds the public
-# API and the query walk.
+# Split across: codegen/scalar_type.rb and codegen/enum_type.rb (the leaf
+# registries), codegen/type_helpers.rb (extend_type and the alias/mixin
+# registry), codegen/nodes.rb (the typed IR), codegen/aliases.rb (resolving
+# registered alias paths against a node), codegen/emit.rb (source emission);
+# this file holds the public API and the query walk.
 require_relative "hints"
 require_relative "input_struct"
 require_relative "representation"
@@ -926,7 +927,9 @@ class GraphWeaver::Codegen
     end
   end
 
-  # the input-side core kinds a variable (or input-object field) can have
+  # The node for a core type, reached from a variable, an input-object field
+  # or a result-side enum. All three share it so that one schema enum is one
+  # Ruby type wherever it appears — see object_node's ENUM branch.
   def variable_core(core)
     case core.kind.name
     when "SCALAR"
