@@ -47,9 +47,10 @@ module GraphWeaver
             "field's own requirement. Run this one against a real router.",
         ],
         nested_field_set: [
-          "a nested @key or @requires field set",
-          "the local router builds representations from flat field sets only. Run this one against " \
-            "a real router.",
+          "a nested field set no one fetch can build",
+          "a representation carries a nested field set as one object, so one fetch has to answer " \
+            "the whole of it — and here every subgraph answers only part. Run this one against a " \
+            "real router.",
         ],
         conditional_fragment: [
           "@skip/@include on both a fragment and its field",
@@ -141,8 +142,10 @@ module GraphWeaver
     # boundary — split at the crossing, refetched from the owning subgraph
     # through `_entities(representations:)`, and stitched back; a `@requires`
     # field set, fetched from the subgraph that holds it and handed back in
-    # the representation; and a union or interface at a boundary, planned per
-    # concrete type and bucketed on the `__typename` the data comes back with.
+    # the representation; a nested `@key` or `@requires`, which crosses as
+    # the object the SDL spells rather than as a flattened path; and a union
+    # or interface at a boundary, planned per concrete type and bucketed on
+    # the `__typename` the data comes back with.
     # Everything it can't plan
     # *faithfully* raises {Unplannable}, before any subgraph runs, so a
     # refusal can never be a half-executed query. Apollo's planner is twenty
@@ -192,6 +195,34 @@ module GraphWeaver
       # position holds is a fact only the data carries, so every abstract
       # fetch asks for it — under this key whether or not the caller did.
       TYPENAME = "#{PREFIX}__typename"
+
+      # A field set as dotted paths, back into the selection set it was parsed
+      # from ({"origin" => {"lat" => {}, "lon" => {}}}). Both sides of a
+      # crossing need it: one to ask for the fields, the other to read them
+      # back in the shape the SDL spells.
+      def self.field_tree(paths)
+        paths.each_with_object({}) do |path, tree|
+          path.split(".").reduce(tree) { |node, segment| node[segment] ||= {} }
+        end
+      end
+
+      # What a fetch adds to carry a field set across a boundary: one field
+      # per root, aliased under PREFIX so the caller's answer never gains a
+      # field it didn't ask for, and nested exactly as the field set is —
+      # `origin { lat lon }` comes back whole, under one response key.
+      def self.injected_selections(paths)
+        field_tree(paths).map do |root, children|
+          GraphQL::Language::Nodes::Field.new(
+            name: root, field_alias: PREFIX + root, selections: field_selections(children),
+          )
+        end
+      end
+
+      def self.field_selections(tree)
+        tree.map do |name, children|
+          GraphQL::Language::Nodes::Field.new(name:, selections: field_selections(children))
+        end
+      end
 
       # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
       # any of its entries) and the rest are derived from what each loaded
@@ -365,10 +396,8 @@ module GraphWeaver
 
         wanted.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
           fetched = chained ? nodes.reject { |(node, _)| blocked.include?(node.object_id) } : nodes
-          paths = deferrals.flat_map(&:representation).uniq
-          representations = fetched.map do |(node, _)|
-            paths.to_h { |path| [path, node[PREFIX + path]] }.merge("__typename" => step.type_name)
-          end
+          tree = Router.field_tree(deferrals.flat_map(&:representation).uniq)
+          representations = fetched.map { |(node, _)| representation(node, tree, step.type_name) }
 
           entities = []
           if fetched.any?
@@ -414,12 +443,10 @@ module GraphWeaver
       def prefetch(step, nodes, operation, variables, errors)
         blocked = []
         step.prefetches.each do |prefetch|
-          representations = nodes.map do |(node, _)|
-            prefetch.key.to_h { |path| [path, node[PREFIX + path]] }.merge("__typename" => step.type_name)
-          end
-          selections = prefetch.paths.map do |path|
-            GraphQL::Language::Nodes::Field.new(name: path, field_alias: PREFIX + path)
-          end
+          key = Router.field_tree(prefetch.key)
+          representations = nodes.map { |(node, _)| representation(node, key, step.type_name) }
+          selections = Router.injected_selections(prefetch.paths)
+          roots = selections.map(&:alias)
 
           result = entities_fetch(prefetch.subgraph, step.type_name, selections, representations, operation, variables)
           entities = result.dig("data", "_entities") || []
@@ -428,10 +455,31 @@ module GraphWeaver
           nodes.each_with_index do |(node, _), index|
             entity = entities[index]
             blocked << node.object_id if entity.nil?
-            prefetch.paths.each { |path| node[PREFIX + path] = entity && entity[PREFIX + path] }
+            roots.each { |root| node[root] = entity && entity[root] }
           end
         end
         blocked
+      end
+
+      # The representation an entity fetch sends for one object: every path
+      # the field set names, read back out of the response key its injected
+      # selection landed under. Pruned to that field set — one selection can
+      # carry two deferrals' fields, and a representation holding fields the
+      # @key doesn't name isn't the one a router sends.
+      def representation(node, tree, type_name)
+        tree.to_h { |root, children| [root, prune(node[PREFIX + root], children)] }
+          .merge("__typename" => type_name)
+      end
+
+      # a null object contributes a null rather than dropping the field, which
+      # is the representation a real gateway sends for one too
+      def prune(value, tree)
+        return value if tree.empty?
+
+        case value
+        when Array then value.map { |item| prune(item, tree) }
+        when Hash then tree.to_h { |name, children| [name, prune(value[name], children)] }
+        end
       end
 
       # Every object the plan's next level applies to, with the response path
@@ -450,7 +498,7 @@ module GraphWeaver
       end
 
       def strip!(node, step)
-        step.injected.each { |path| node.delete(PREFIX + path) }
+        step.injected.each { |key| node.delete(key) }
       end
 
       # A subgraph reports where the failure was in the query IT ran, and a
@@ -640,15 +688,17 @@ module GraphWeaver
       # graph_weaver:federation:coverage` measures how much of a query set is
       # plannable without any subgraph being runnable.
       class Planner
-        # One subgraph fetch. `selections` go over as written; `injected`
-        # names the @key paths added under Router::PREFIX to carry entities
-        # across a boundary; `children` and `deferrals` are what happens to
-        # the objects it answers with — a child stays in this subgraph and
-        # only carries deferrals deeper, a deferral is refetched elsewhere.
-        # Both are lists: two selections can share a response key, and each
-        # brings its own subtree.
-        Step = Struct.new(:subgraph, :type_name, :selections, :injected, :prefetches, :children,
-          :deferrals, keyword_init: true) do
+        # One subgraph fetch. `selections` go over as written; `keys` names the
+        # @key/@requires paths this fetch also asks for, to carry entities
+        # across a boundary, and `injected` the response keys those land under
+        # (Router::PREFIX + the path's first segment — a nested field set
+        # arrives as one object), which the answer is stripped of. `children`
+        # and `deferrals` are what happens to the objects it answers with — a
+        # child stays in this subgraph and only carries deferrals deeper, a
+        # deferral is refetched elsewhere. Both are lists: two selections can
+        # share a response key, and each brings its own subtree.
+        Step = Struct.new(:subgraph, :type_name, :selections, :keys, :injected, :prefetches,
+          :children, :deferrals, keyword_init: true) do
           def subgraphs
             [subgraph] + prefetches.map(&:subgraph) +
               children.flat_map { |_key, child| child.subgraphs } + deferrals.flat_map(&:subgraphs)
@@ -852,7 +902,7 @@ module GraphWeaver
         end
 
         def step(subgraph, type_name)
-          Step.new(subgraph:, type_name:, selections: [], injected: [], prefetches: [],
+          Step.new(subgraph:, type_name:, selections: [], keys: [], injected: [], prefetches: [],
             children: [], deferrals: [])
         end
 
@@ -956,6 +1006,13 @@ module GraphWeaver
             end
           end
 
+          check_one_source!(type_name, here, subgraph)
+          # every crossing this fetch feeds, asked for once and together: a
+          # field set shared by two deferrals is one selection, and a nested
+          # one is nested rather than a dotted alias no schema has
+          here.selections.concat(Router.injected_selections(here.keys))
+          here.injected = (here.keys + here.prefetches.flat_map(&:paths))
+            .map { |path| Router::PREFIX + path.split(".").first }.uniq
           here
         end
 
@@ -1006,17 +1063,16 @@ module GraphWeaver
         # doesn't hold — the router refetches for those too.
         def defer(step, type_name, node, subgraph, target, field, fragments, siblings, depth)
           key = usable_key(type_name, node, subgraph, target)
-          requires = requires_paths(type_name, node, field)
+          requires = requires_paths(field)
           check_shadowing!(type_name, node, siblings, (key + requires).uniq)
 
           # a @requires field this subgraph doesn't hold is fetched from the
           # one that does and handed back in the representation — a fetch
           # before the fetch, which is what makes this a chain
-          elsewhere = requires.reject { |path| @table.owners(type_name, path).include?(subgraph) }
+          elsewhere = requires.reject { |path| path_owners(type_name, path).include?(subgraph) }
           prefetch(step, type_name, node, subgraph, elsewhere)
 
           ((key + requires).uniq - elsewhere).each { |path| inject(step, path) }
-          elsewhere.each { |path| step.injected << path } # fetched, not selected here
 
           child = plan_child(type_name, node, target, field, fragments, depth) if node.selections.any?
 
@@ -1045,28 +1101,59 @@ module GraphWeaver
         # A prefetch sends the entity's own @key and nothing else, so a required
         # field that is itself @requires-ed gets computed from a representation
         # missing its input — silently, and the same field then holds two
-        # different values in one response.
+        # different values in one response. Asked of every field a path walks
+        # through, not only its first: nesting doesn't make a chain shallower.
         def check_chain!(type_name, node, path)
-          inner = @table.field(type_name, path)&.requires or return
+          walk(type_name, path).each do |owner, name|
+            inner = @table.field(owner, name)&.requires or next
 
-          refuse :chained_requires,
-            "#{type_name}.#{node.name} @requires #{path.inspect}, and #{type_name}.#{path} " \
-              "itself @requires #{inner.inspect}"
+            refuse :chained_requires,
+              "#{type_name}.#{node.name} @requires #{path.inspect}, and #{owner}.#{name} " \
+                "itself @requires #{inner.inspect}"
+          end
         end
 
         def requires_holder(type_name, node, path)
-          owners = @table.owners(type_name, path)
-          refuse(:no_owner, "#{type_name}.#{node.name} @requires #{path.inspect}, and the " \
-            "supergraph places #{type_name}.#{path} in no subgraph") if owners.empty?
+          owners = path_owners(type_name, path)
+          return available!(owners, "#{type_name}.#{path}").first if owners.any?
 
-          available!(owners, "#{type_name}.#{path}").first
+          # two different facts, and only the second is about nesting: a field
+          # the supergraph places nowhere, or one whose path it places in
+          # subgraphs that don't overlap
+          pairs = walk(type_name, path)
+          orphan = pairs.find { |owner, name| @table.owners(owner, name).empty? }
+          missing = pairs.empty? ? "#{type_name}.#{path}" : orphan&.join(".")
+          refuse(:no_owner, "#{type_name}.#{node.name} @requires #{path.inspect}, and the " \
+            "supergraph places #{missing} in no subgraph") if missing
+
+          refuse :nested_field_set, "#{type_name}.#{node.name} @requires a nested field set " \
+            "(#{field_set([path]).inspect}) no one subgraph holds whole (" +
+            pairs.map { |owner, name| "#{owner}.#{name} in #{@table.owners(owner, name).join(" or ")}" }
+              .join(", ") + ")"
         end
 
         def inject(step, path)
-          return if step.selections.any? { |field| field.alias == Router::PREFIX + path }
+          step.keys << path unless step.keys.include?(path)
+        end
 
-          step.injected << path unless step.injected.include?(path)
-          step.selections << GraphQL::Language::Nodes::Field.new(name: path, field_alias: Router::PREFIX + path)
+        # A nested field set arrives as ONE object under one response key, so
+        # every path sharing a root has to come from the same fetch: half of
+        # `origin` from here and half from a prefetch leaves the object
+        # half-built, and two prefetches overwrite each other's half.
+        def check_one_source!(type_name, step, subgraph)
+          sources = Hash.new { |roots, root| roots[root] = {} }
+          step.keys.each { |path| sources[path.split(".").first][path] = subgraph }
+          step.prefetches.each do |prefetch|
+            prefetch.paths.each { |path| sources[path.split(".").first][path] = prefetch.subgraph }
+          end
+
+          sources.each do |root, from|
+            next if from.values.uniq.one?
+
+            refuse :nested_field_set, "#{type_name}'s #{root.inspect} is part of a field set this " \
+              "fetch would have to build from more than one subgraph " \
+              "(#{from.map { |path, graph| "#{path} from #{graph}" }.join(", ")})"
+          end
         end
 
         # Apollo's router injects the @key under its own name and lets it win,
@@ -1075,19 +1162,24 @@ module GraphWeaver
         # disagrees — and since we can't match both, refuse rather than hand
         # back an answer one of them contradicts.
         def check_shadowing!(type_name, node, siblings, paths)
+          # Apollo injects a field set under its own names, so what an alias
+          # can collide with is each path's first segment — the field a flat
+          # path is, or the object a nested one arrives in
+          roots = paths.map { |path| path.split(".").first }.uniq
           shadowed = siblings.select do |sibling|
-            sibling.alias && sibling.alias != sibling.name && paths.include?(sibling.alias)
+            sibling.alias && sibling.alias != sibling.name && roots.include?(sibling.alias)
           end
           return if shadowed.empty?
 
           refuse :shadowed_key,
-            "#{type_name}.#{node.name} is fetched on #{type_name}'s #{paths.map(&:inspect).join(", ")}, " \
+            "#{type_name}.#{node.name} is fetched on #{type_name}'s #{roots.map(&:inspect).join(", ")}, " \
             "and this selection aliases " \
             "#{shadowed.map { |s| "#{s.name} as #{s.alias.inspect}" }.join(", ")} over it"
         end
 
         # A @key field set the source subgraph can build a representation
-        # from. An @external copy counts: it exists precisely so this
+        # from — the first the supergraph declares that it can, nested or
+        # flat. An @external copy counts: it exists precisely so this
         # subgraph can name the field in its @key.
         def usable_key(type_name, node, from, to)
           candidates = @table.keys(type_name, to)
@@ -1097,29 +1189,18 @@ module GraphWeaver
               "@key there"
           end
 
-          flat, nested = candidates.partition { |paths| paths.none? { |path| path.include?(".") } }
-          usable = flat.find { |paths| paths.all? { |path| declares?(type_name, path, from) } }
+          usable = candidates.find { |paths| paths.all? { |path| declares?(type_name, path, from) } }
           return usable if usable
-
-          if flat.empty?
-            refuse :nested_field_set, "#{type_name} is keyed in #{to} on a nested field set " \
-              "(#{nested.map { |paths| field_set(paths).inspect }.join(", ")})"
-          end
 
           refuse :no_key, "#{type_name}.#{node.name} needs a fetch into #{to}, and #{from} can't " \
             "supply any of #{type_name}'s @keys there " \
-            "(#{flat.map { |paths| paths.join(" ").inspect }.join(", ")})"
+            "(#{candidates.map { |paths| field_set(paths).inspect }.join(", ")})"
         end
 
-        def requires_paths(type_name, node, field)
+        def requires_paths(field)
           return [] unless field&.requires
 
-          paths = GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(field.requires)
-          nested = paths.select { |path| path.include?(".") }
-          return paths if nested.empty?
-
-          refuse :nested_field_set, "#{type_name}.#{node.name} @requires a nested field set " \
-            "(#{field_set(nested).inspect})"
+          GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(field.requires)
         end
 
         # Dotted paths back to the selection set they were parsed from — the
@@ -1149,7 +1230,31 @@ module GraphWeaver
           return true unless field&.requires
 
           GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(field.requires)
-            .all? { |path| @table.owners(type_name, path).include?(subgraph) }
+            .all? { |path| path_owners(type_name, path).include?(subgraph) }
+        end
+
+        # The subgraphs that can answer a field set path in ONE fetch: the
+        # owners of every field it walks through, intersected. A representation
+        # carries the nested object whole, so a path answerable only a level at
+        # a time is answerable by nobody.
+        def path_owners(type_name, path)
+          pairs = walk(type_name, path)
+          return [] if pairs.empty?
+
+          pairs.map { |owner, name| @table.owners(owner, name) }.reduce(:&)
+        end
+
+        # Every [type, field] a dotted path names, from `type_name` down —
+        # empty when the composed schema doesn't carry the whole walk.
+        def walk(type_name, path)
+          pairs = []
+          path.split(".").each do |segment|
+            return [] if type_name.nil?
+
+            pairs << [type_name, segment]
+            type_name = raw_child_type(type_name, segment)
+          end
+          pairs
         end
 
         # Every field these selections reach is answerable by `subgraph`, so
@@ -1218,11 +1323,17 @@ module GraphWeaver
           declared.empty? || declared.include?(subgraph)
         end
 
-        # Whether `subgraph` can hand back this field as part of a
-        # representation — an @external copy counts, which is the whole
-        # reason one is declared.
+        # Whether `subgraph` can hand back this field set path as part of a
+        # representation — every field it walks through, since a nested path
+        # is selected there in one go. An @external copy counts, which is the
+        # whole reason one is declared.
         def declares?(type_name, path, subgraph)
-          field = @table.field(type_name, path)
+          pairs = walk(type_name, path)
+          pairs.any? && pairs.all? { |owner, name| declares_field?(owner, name, subgraph) }
+        end
+
+        def declares_field?(type_name, field_name, subgraph)
+          field = @table.field(type_name, field_name)
           return @table.declared_in(type_name).include?(subgraph) if field.nil?
 
           field.graphs.include?(subgraph) || field.external.include?(subgraph)

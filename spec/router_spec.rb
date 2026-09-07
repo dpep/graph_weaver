@@ -232,6 +232,67 @@ describe GraphWeaver::Testing::Router do
           .to eq [{ "message" => "carrier unavailable", "path" => ["topProducts", 3, "shippingEstimate"] }]
       end
     end
+
+    # A field set is a selection set, so a nested one crosses as an object
+    # rather than as one field per dotted path. What has to be right is the
+    # representation's SHAPE: spec/integration/router_parity_spec.rb diffs
+    # every one of these against a real gateway.
+    describe "a nested field set" do
+      # Listing is keyed "upc store { id }" in both subgraphs
+      it "sends a @key that is part flat and part nested" do
+        response = router.execute("{ listings { name shelfCode } }")
+
+        expect(response.dig("data", "listings").map { |l| l["shelfCode"] })
+          .to eq %w[p1/s1 p2/s2 p3/online]
+        expect(router.trace.last[:variables].fetch("representations")).to eq [
+          { "upc" => "p1", "store" => { "id" => "s1" }, "__typename" => "Listing" },
+          { "upc" => "p2", "store" => { "id" => "s2" }, "__typename" => "Listing" },
+          # l3 has no store: the inner object is null, which is a
+          # representation a real router sends too
+          { "upc" => "p3", "store" => nil, "__typename" => "Listing" },
+        ]
+      end
+
+      # Product.crateSize @requires "weight dimensions { length width unit
+      # { code } }" — flat, nested, and nested again, in one field set
+      it "carries a @requires nested two levels deep in one representation" do
+        response = router.execute("{ topProducts(first: 1) { crateSize } }")
+
+        expect(response.dig("data", "topProducts", 0, "crateSize")).to eq "60x30cm@100"
+        expect(router.trace.last[:variables].fetch("representations")).to eq [{
+          "upc" => "p1", "weight" => 100,
+          "dimensions" => { "length" => 60, "width" => 30, "unit" => { "code" => "cm" } },
+          "__typename" => "Product",
+        }]
+      end
+
+      # the subgraph in hand holds none of the field set, so it is fetched
+      # from the one that does and handed back in the representation
+      it "prefetches a nested @requires from the subgraph that holds it" do
+        response = router.execute("{ reviews { product { crateSize } } }")
+
+        expect(response.dig("data", "reviews").map { |r| r.dig("product", "crateSize") })
+          .to eq ["60x30cm@100", "84x36cm@900", "20x20cm@50"]
+        expect(router).to have_fetched_subgraphs "reviews", "products", "reviews"
+      end
+
+      it "leaves no injected object in the answer" do
+        response = router.execute("{ listings { name store { name } shelfCode } }")
+
+        expect(response.dig("data", "listings", 0))
+          .to eq({ "name" => "Table, Downtown", "store" => { "name" => "Downtown" }, "shelfCode" => "p1/s1" })
+      end
+
+      # Apollo injects a field set under its own names, so an alias over the
+      # object a nested key arrives in is the same collision a flat one has
+      it "refuses an alias shadowing the object an injected key arrives in" do
+        expect { router.execute("{ listings { store: name shelfCode } }") }
+          .to refuse_to_plan(:shadowed_key).with_detail(
+            'Listing.shelfCode is fetched on Listing\'s "upc", "store", and this selection ' \
+            'aliases name as "store" over it',
+          )
+      end
+    end
   end
 
   # A representation names ONE concrete __typename, and which one an object
@@ -402,12 +463,15 @@ describe GraphWeaver::Testing::Router do
         .to refuse_to_plan(:no_key).with_detail("Doc.note resolves in b, and Doc has no resolvable @key there")
     end
 
-    # A field set is a selection set, and the refusal spells it the way the
-    # schema does — dotted paths are this library's parse of it, and nothing
-    # a reader can grep their own SDL for.
+    # A field set is a selection set, so a nested one crosses as one: the
+    # fetch asks for the object, and the representation carries it back in
+    # the shape the SDL spells. What is left to refuse is a set no single
+    # subgraph can answer — and a refusal spells it the way the schema does,
+    # since dotted paths are this library's parse of it and nothing a reader
+    # can grep their own SDL for.
     describe "a nested field set" do
       subject(:nested) do
-        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake, "b" => :fake })
+        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake, "b" => :fake, "c" => :fake })
           schema @link(url: "https://specs.apollo.dev/link/v1.0")
             @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
           { query: Query }
@@ -418,10 +482,14 @@ describe GraphWeaver::Testing::Router do
           enum join__Graph {
             A @join__graph(name: "a", url: "http://a")
             B @join__graph(name: "b", url: "http://b")
+            C @join__graph(name: "c", url: "http://c")
           }
-          type Query @join__type(graph: A) @join__type(graph: B) {
+          type Query @join__type(graph: A) @join__type(graph: B) @join__type(graph: C) {
             shipments: [Shipment!]! @join__field(graph: A)
             listings: [Listing!]! @join__field(graph: A)
+            parcels: [Parcel!]! @join__field(graph: A)
+            vouchers: [Voucher!]! @join__field(graph: A)
+            crates: [Crate!]! @join__field(graph: A)
           }
           type Shipment @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
             id: ID!
@@ -434,22 +502,92 @@ describe GraphWeaver::Testing::Router do
             organization: Org! @join__field(graph: A)
             note: String @join__field(graph: B)
           }
+          type Parcel @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+            id: ID!
+            box: Box! @join__field(graph: A)
+            boxLabel: String! @join__field(graph: B, requires: "box { width depth }")
+          }
+          type Box @join__type(graph: A) @join__type(graph: C) {
+            width: Int! @join__field(graph: A)
+            depth: Int! @join__field(graph: C)
+          }
+          type Voucher @join__type(graph: A, key: "code")
+            @join__type(graph: B, key: "id organization { id }") @join__type(graph: B, key: "code") {
+            id: ID! @join__field(graph: B)
+            organization: Org! @join__field(graph: B)
+            code: String!
+            label: String @join__field(graph: B)
+          }
+          type Crate @join__type(graph: A, key: "id lid { id }")
+            @join__type(graph: B, key: "id lid { id }") {
+            id: ID!
+            lid: Lid!
+            seal: String! @join__field(graph: B, requires: "lid { code }")
+          }
+          type Lid @join__type(graph: A) @join__type(graph: B) {
+            id: ID!
+            code: String! @join__field(graph: B)
+          }
           type Place @join__type(graph: A) @join__type(graph: B) { lat: Float! lon: Float! }
           type Org @join__type(graph: A) @join__type(graph: B) { id: ID! }
         SDL
       end
 
-      it "echoes a @requires field set the way the schema spells it" do
-        expect { nested.execute("{ shipments { originZone } }") }
+      # the injected selection is nested, not a dotted alias no schema has
+      it "asks for a nested @requires as one object and hands it back nested" do
+        nested.execute("{ shipments { originZone } }")
+
+        expect(nested.trace.first[:query]).to match(/_gw_origin: origin \{\s+lat\s+lon\s+\}/)
+        expect(nested.trace.last[:variables]["representations"].first).to match(
+          "__typename" => "Shipment", "id" => anything,
+          "origin" => { "lat" => anything, "lon" => anything },
+        )
+      end
+
+      it "crosses a boundary on a @key that is part flat and part nested" do
+        nested.execute("{ listings { note } }")
+
+        expect(nested.trace.last[:variables]["representations"].first)
+          .to match("__typename" => "Listing", "id" => anything, "organization" => { "id" => anything })
+      end
+
+      # One rule, stated once: the first @key the source subgraph can supply.
+      # b keys Voucher on "id organization { id }" and on "code", and a holds
+      # neither id nor organization — so the nested one isn't a candidate.
+      it "takes the first @key the fetching subgraph can supply" do
+        nested.execute("{ vouchers { label } }")
+
+        expect(nested.trace.last[:variables]["representations"].first)
+          .to match("__typename" => "Voucher", "code" => anything)
+      end
+
+      # the injected keys are the router's own bookkeeping, nested or not
+      it "leaves no injected selection in the answer" do
+        response = nested.execute("{ listings { note } shipments { originZone } }")
+
+        expect(response.dig("data", "listings").flat_map(&:keys).uniq).to eq %w[note]
+        expect(response.dig("data", "shipments").flat_map(&:keys).uniq).to eq %w[originZone]
+      end
+
+      # a representation is built from ONE fetch, so a nested set answered a
+      # level at a time is answered by nobody — and that is a different
+      # refusal from a @requires naming another @requires field
+      it "refuses a nested field set no one subgraph holds whole" do
+        expect { nested.execute("{ parcels { boxLabel } }") }
           .to refuse_to_plan(:nested_field_set).with_detail(
-            'Shipment.originZone @requires a nested field set ("origin { lat lon }")',
+            'Parcel.boxLabel @requires a nested field set ("box { depth }") no one subgraph ' \
+            "holds whole (Parcel.box in a, Box.depth in c)",
           )
       end
 
-      it "echoes a @key field set the same way" do
-        expect { nested.execute("{ listings { note } }") }
+      # Crate is keyed on "id lid { id }" and its seal @requires "lid { code }",
+      # which only b holds — so `lid` would arrive twice, each fetch knowing
+      # half of it and overwriting the other
+      it "refuses a nested object two fetches would each half-build" do
+        expect { nested.execute("{ crates { seal } }") }
           .to refuse_to_plan(:nested_field_set).with_detail(
-            'Listing is keyed in b on a nested field set ("id organization { id }")',
+            'Crate\'s "lid" is part of a field set this fetch would have to build from more than ' \
+            "one subgraph (lid.id from a, lid.code from b)",
           )
       end
     end

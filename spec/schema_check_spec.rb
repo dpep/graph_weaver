@@ -90,16 +90,16 @@ describe "GraphWeaver.check_queries" do
     GraphWeaver.client = nil
   end
 
-  # "Product.dimensions" says what broke; "(products, reviews)" says whose
+  # "Product.colour" says what broke; "(products, reviews)" says whose
   # code to look at and whose team to talk to — and the supergraph's routing
   # table already has the mapping
   it "names the subgraphs behind an error when the dump is a supergraph" do
     GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
-    write("federated.graphql", "{ product(upc: \"1\") { dimensions } }\n")
+    write("federated.graphql", "{ product(upc: \"1\") { colour } }\n")
 
     expect(GraphWeaver.check_queries(queries: @queries, fragments: [])[File.join(@queries, "federated.graphql")])
       .to eq [{
-        "message" => "Field 'dimensions' doesn't exist on type 'Product' (products, reviews)",
+        "message" => "Field 'colour' doesn't exist on type 'Product' (products, reviews)",
         "line" => 1, "column" => 23, "subgraphs" => %w[products reviews],
       }]
   ensure

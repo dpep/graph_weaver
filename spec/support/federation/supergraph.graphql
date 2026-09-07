@@ -35,6 +35,15 @@ type Bundle implements Purchasable
   upc: String!
 }
 
+type Dimensions
+  @join__type(graph: PRODUCTS)
+  @join__type(graph: REVIEWS)
+{
+  length: Int! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
+  unit: Unit! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
+  width: Int! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
+}
+
 union FeedItem
   @join__type(graph: REVIEWS)
   @join__unionMember(graph: REVIEWS, member: "Announcement")
@@ -63,6 +72,17 @@ enum link__Purpose {
   EXECUTION
 }
 
+type Listing
+  @join__type(graph: PRODUCTS, key: "upc store { id }")
+  @join__type(graph: REVIEWS, key: "upc store { id }", extension: true)
+{
+  name: String! @join__field(graph: PRODUCTS)
+  sku: ID! @join__field(graph: PRODUCTS)
+  store: Store
+  upc: String!
+  shelfCode: String! @join__field(graph: REVIEWS)
+}
+
 type Mutation
   @join__type(graph: REVIEWS)
 {
@@ -74,10 +94,12 @@ type Product implements Purchasable
   @join__type(graph: PRODUCTS, key: "upc")
   @join__type(graph: REVIEWS, key: "upc", extension: true)
 {
+  dimensions: Dimensions! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
   name: String! @join__field(graph: PRODUCTS)
   price: Int! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
   upc: String!
   weight: Int! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
+  crateSize: String! @join__field(graph: REVIEWS, requires: "weight dimensions { length width unit { code } }")
   reviews: [Review!]! @join__field(graph: REVIEWS)
   shippingEstimate: Int! @join__field(graph: REVIEWS, requires: "price weight")
 }
@@ -98,6 +120,7 @@ type Query
   me: User @join__field(graph: ACCOUNTS)
   user(id: ID!): User @join__field(graph: ACCOUNTS)
   users: [User!]! @join__field(graph: ACCOUNTS)
+  listings: [Listing!]! @join__field(graph: PRODUCTS)
   product(upc: String!): Product @join__field(graph: PRODUCTS)
   purchasables: [Purchasable!]! @join__field(graph: PRODUCTS)
   topProducts(first: Int = 3): [Product!]! @join__field(graph: PRODUCTS)
@@ -108,12 +131,19 @@ type Query
   search(term: String!): [SearchHit!]! @join__field(graph: REVIEWS)
 }
 
+type Region
+  @join__type(graph: PRODUCTS)
+{
+  code: String!
+}
+
 type Review
   @join__type(graph: REVIEWS, key: "id")
 {
   author: User! @join__field(graph: REVIEWS, provides: "username")
   body: String!
   id: ID!
+  listing: Listing
   product: Product!
   subject: SearchHit!
 }
@@ -127,6 +157,22 @@ union SearchHit
   @join__unionMember(graph: REVIEWS, member: "Product")
   @join__unionMember(graph: REVIEWS, member: "Review")
  = User | Announcement | Product | Review
+
+type Store
+  @join__type(graph: PRODUCTS)
+  @join__type(graph: REVIEWS)
+{
+  id: ID!
+  name: String! @join__field(graph: PRODUCTS)
+  region: Region! @join__field(graph: PRODUCTS)
+}
+
+type Unit
+  @join__type(graph: PRODUCTS)
+  @join__type(graph: REVIEWS)
+{
+  code: String! @join__field(graph: PRODUCTS) @join__field(graph: REVIEWS, external: true)
+}
 
 type User
   @join__type(graph: ACCOUNTS, key: "id")

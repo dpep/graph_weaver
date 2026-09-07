@@ -342,6 +342,13 @@ in the representation, and only then asks for the estimate. One hop only: the
 key for the first fetch has to come from the subgraph already in hand, so a
 chain can't grow a chain.
 
+A **nested field set** — `@key(fields: "id organization { id }")`,
+`@requires(fields: "origin { lat lon }")` — is a selection set like any other,
+so it crosses as one: the fetch asks for `organization { id }` under a
+reserved alias, and the representation carries the object back in the shape
+the SDL spells it, to any depth, nulls and all. Where a type has more than one
+`@key`, the plan takes the first one the fetching subgraph can supply.
+
 A **union or interface at a boundary** — a feed, a search page, any
 polymorphic list — is planned per concrete type, because a representation names
 one concrete `__typename` and which one an object has isn't in the query:
@@ -395,7 +402,7 @@ Every category, spelled as `Unplannable#category` reports it:
 | an abstract type the supergraph doesn't break down | bucketing needs the concrete types a subgraph answers a union or interface with, and `@join__unionMember`/`@join__implements` is where a supergraph records that. A composition old enough to carry neither leaves nothing but a guess |
 | an `@interfaceObject` the routing table can't attribute | one subgraph resolves a whole interface's implementations, so the supergraph never says which subgraph answers each of its fields. Per query, not per graph: a query that doesn't reach the type plans as if the directive weren't there |
 | a `@requires` whose field set names another `@requires` field | the router satisfies a `@requires` with one fetch, so it can't first satisfy that field's own requirement |
-| a nested `@key` or `@requires` field set | representations are built from flat field sets only |
+| a nested field set no one fetch can build | a nested field set crosses as one object, so one fetch has to answer the whole of it. Nesting itself is fine — this is the set whose fields are split across subgraphs, so the object would arrive half-built from each |
 | `@skip`/`@include` on both a fragment and its field | one selection can't carry two conditions of the same name. Spell the condition once |
 | an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
 | a mutation's root fields span subgraphs | root mutation fields run in series, and splitting them across subgraphs would run them in whatever order the plan happened to. Sharing one subgraph they're fine, stitching below them and all — that's an ordinary read afterwards. Query roots are independent, so those are always fine |

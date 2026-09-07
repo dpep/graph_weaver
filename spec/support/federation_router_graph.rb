@@ -29,19 +29,41 @@ module RouterGraph
     field_class BaseField
   end
 
+  # A representation arrives as a hash whose keys are strings over the wire
+  # and symbols from a Ruby caller; a resolver shouldn't care which.
+  def self.at(object, name)
+    return unless object.respond_to?(:key?)
+
+    object.key?(name.to_s) ? object[name.to_s] : object[name.to_sym]
+  end
+
   USERS = {
     "1" => { id: "1", username: "dpep", email: "pepper.daniel@gmail.com" },
     "2" => { id: "2", username: "ada", email: "ada@example.com" },
   }.freeze
 
   PRODUCTS = {
-    "p1" => { upc: "p1", name: "Table", price: 899, weight: 100 },
-    "p2" => { upc: "p2", name: "Couch", price: 1299, weight: 900 },
-    "p3" => { upc: "p3", name: "Chair", price: 54, weight: 50 },
+    "p1" => { upc: "p1", name: "Table", price: 899, weight: 100, length: 60, width: 30 },
+    "p2" => { upc: "p2", name: "Couch", price: 1299, weight: 900, length: 84, width: 36 },
+    "p3" => { upc: "p3", name: "Chair", price: 54, weight: 50, length: 20, width: 20 },
     # OVERWEIGHT: shippingEstimate raises on it, so a stitched fetch can put a
     # null where the composed schema says Int! and null propagation has
     # something to do
-    "p4" => { upc: "p4", name: "Piano", price: 4200, weight: OVERWEIGHT = 1000 },
+    "p4" => { upc: "p4", name: "Piano", price: 4200, weight: OVERWEIGHT = 1000, length: 60, width: 150 },
+  }.freeze
+
+  STORES = {
+    "s1" => { id: "s1", name: "Downtown", region: { code: "NW" } },
+    "s2" => { id: "s2", name: "Airport", region: { code: "SE" } },
+  }.freeze
+
+  # Listings are keyed on a NESTED field set — `upc store { id }` — so
+  # crossing into reviews sends a representation with an object inside it.
+  # l3 has no store, which is the same key with its inner object null.
+  LISTINGS = {
+    "l1" => { sku: "l1", upc: "p1", store: "s1", name: "Table, Downtown" },
+    "l2" => { sku: "l2", upc: "p2", store: "s2", name: "Couch, Airport" },
+    "l3" => { sku: "l3", upc: "p3", store: nil, name: "Chair, online only" },
   }.freeze
 
   # the second Purchasable, so the interface has an implementation whose whole
@@ -122,6 +144,26 @@ module RouterGraph
       end
     end
 
+    class Unit < RouterGraph::BaseObject
+      graphql_name "Unit"
+
+      field :code, String, null: false
+    end
+
+    # What a nested @requires reaches into: reviews' crateSize needs
+    # `dimensions { length width unit { code } }`, which only exists here.
+    # Two levels deep on purpose — nothing about crossing a boundary stops
+    # at one, so the router's depth limit had better be the schema's.
+    class Dimensions < RouterGraph::BaseObject
+      graphql_name "Dimensions"
+
+      field :length, Integer, null: false
+      field :width, Integer, null: false
+      field :unit, Unit, null: false
+
+      def unit = { code: "cm" }
+    end
+
     class Product < RouterGraph::BaseObject
       graphql_name "Product"
       implements Purchasable
@@ -131,9 +173,49 @@ module RouterGraph
       field :name, String, null: false
       field :price, Integer, null: false
       field :weight, Integer, null: false
+      field :dimensions, Dimensions, null: false
+
+      def dimensions = { length: object[:length], width: object[:width] }
 
       def self.resolve_reference(reference, _context)
         PRODUCTS[(reference[:upc] || reference["upc"]).to_s]
+      end
+    end
+
+    class Region < RouterGraph::BaseObject
+      graphql_name "Region"
+
+      field :code, String, null: false
+    end
+
+    class Store < RouterGraph::BaseObject
+      graphql_name "Store"
+
+      field :id, ID, null: false
+      field :name, String, null: false
+      field :region, Region, null: false
+    end
+
+    # Keyed on a field set that is part flat and part nested — an ordinary
+    # `@key(fields: "id organization { id }")`, and the ONLY key, so a router
+    # has to cross on it rather than fall back to something flat.
+    class Listing < RouterGraph::BaseObject
+      graphql_name "Listing"
+      key fields: "upc store { id }"
+
+      field :sku, ID, null: false
+      field :upc, String, null: false
+      field :store, Store, null: true
+      field :name, String, null: false
+
+      def store = STORES[object[:store]]
+
+      def self.resolve_reference(reference, _context)
+        store = RouterGraph.at(reference, :store)
+        store_id = store && RouterGraph.at(store, :id)
+        LISTINGS.values.find do |listing|
+          listing[:upc] == RouterGraph.at(reference, :upc) && listing[:store] == store_id
+        end
       end
     end
 
@@ -163,10 +245,12 @@ module RouterGraph
       # p4 is the OVERWEIGHT one, so an interface branch can fail where the
       # composed schema says Int!
       field :purchasables, [Purchasable], null: false
+      field :listings, [Listing], null: false
 
       def top_products(first:) = PRODUCTS.values.first(first)
       def product(upc:) = PRODUCTS[upc.to_s]
       def purchasables = [PRODUCTS["p1"], PRODUCTS["p4"], BUNDLES["b1"]]
+      def listings = LISTINGS.values
     end
 
     class Schema < GraphQL::Schema
@@ -196,6 +280,22 @@ module RouterGraph
       def self.resolve_reference(reference, _context) = reference
     end
 
+    # products' Dimensions, named here only so Product.crateSize can @requires
+    # into it — every field is external, which is what an @external copy is for
+    class Unit < RouterGraph::BaseObject
+      graphql_name "Unit"
+
+      field :code, String, null: false, external: true
+    end
+
+    class Dimensions < RouterGraph::BaseObject
+      graphql_name "Dimensions"
+
+      field :length, Integer, null: false, external: true
+      field :width, Integer, null: false, external: true
+      field :unit, Unit, null: false, external: true
+    end
+
     class Product < RouterGraph::BaseObject
       graphql_name "Product"
       extend_type
@@ -204,9 +304,21 @@ module RouterGraph
       field :upc, String, null: false, external: true
       field :price, Integer, null: false, external: true
       field :weight, Integer, null: false, external: true
+      field :dimensions, Dimensions, null: false, external: true
 
       field :reviews, ["RouterGraph::Reviews::Review"], null: false
       field :shipping_estimate, Integer, null: false, requires: { fields: "price weight" }
+      # one field set holding a flat field and a nested one two levels deep,
+      # so a single representation has to carry every shape at once
+      field :crate_size, String, null: false,
+        requires: { fields: "weight dimensions { length width unit { code } }" }
+
+      def crate_size
+        dimensions = RouterGraph.at(object, :dimensions)
+        unit = RouterGraph.at(RouterGraph.at(dimensions, :unit), :code)
+        "#{RouterGraph.at(dimensions, :length)}x#{RouterGraph.at(dimensions, :width)}#{unit}" \
+          "@#{RouterGraph.at(object, :weight)}"
+      end
 
       def reviews
         upc = (object[:upc] || object["upc"]).to_s
@@ -223,6 +335,32 @@ module RouterGraph
       def self.resolve_reference(reference, _context) = reference
     end
 
+    class Store < RouterGraph::BaseObject
+      graphql_name "Store"
+
+      field :id, ID, null: false, external: true
+    end
+
+    # The far side of the nested @key. shelfCode reads BOTH halves of the
+    # field set out of the representation, so a key that arrives flattened,
+    # pruned or half-built shows up as a wrong answer rather than silence.
+    class Listing < RouterGraph::BaseObject
+      graphql_name "Listing"
+      extend_type
+      key fields: "upc store { id }"
+
+      field :upc, String, null: false, external: true
+      field :store, Store, null: true, external: true
+      field :shelf_code, String, null: false
+
+      def shelf_code
+        store = RouterGraph.at(object, :store)
+        "#{RouterGraph.at(object, :upc)}/#{store ? RouterGraph.at(store, :id) : "online"}"
+      end
+
+      def self.resolve_reference(reference, _context) = reference
+    end
+
     class Review < RouterGraph::BaseObject
       graphql_name "Review"
       key fields: :id
@@ -233,12 +371,23 @@ module RouterGraph
       # query asking only for that never leaves this subgraph
       field :author, User, null: false, provides: { fields: "username" }
       field :product, Product, null: false
+      # the nested @key from the other side: reviews holds only the key
+      # fields, so `name` crosses back into products on `upc store { id }`
+      field :listing, "RouterGraph::Reviews::Listing", null: true
       # an abstract type UNDER a boundary: reaching it from Query.me crosses
       # accounts -> reviews before any of its branches cross again
       field :subject, "RouterGraph::Reviews::SearchHit", null: false
 
       def author = { id: object[:author_id], username: USERS.fetch(object[:author_id])[:username] }
       def product = { upc: object[:upc] }
+
+      # a reference, resolvable or not: the orphan review's upc is listed
+      # nowhere, so the entity fetch this key sends comes back null
+      def listing
+        found = LISTINGS.values.find { |listing| listing[:upc] == object[:upc] }
+
+        { upc: object[:upc], store: found && found[:store] && { id: found[:store] } }
+      end
       def subject = { upc: object[:upc] }
 
       def self.resolve_reference(reference, _context)
@@ -328,7 +477,7 @@ module RouterGraph
       include ApolloFederation::Schema
       query Query
       mutation Mutation
-      orphan_types User, Product
+      orphan_types User, Product, Listing
     end
   end
 

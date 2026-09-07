@@ -164,6 +164,28 @@ genuinely doesn't say — no `@join__unionMember`/`@join__implements`, and the
 type in more than one subgraph — because then the branch list itself would be
 invented.
 
+## A nested field set crosses whole, or not at all
+
+**Considered:** assembling a nested `@key`/`@requires` object from more than
+one fetch — `store { id }` from the subgraph in hand and `store { region
+{ code } }` from a prefetch, deep-merged into one representation. It is what
+`@apollo/gateway` does internally (`deepMerge(entity, dataReceivedFromService)`),
+and it would close the last nested case rather than refusing it.
+
+**Rejected because** the only shapes that produce the split are ones where the
+gateway is no longer an oracle. A field set reaching *through* a key field is
+the common one, and there the gateway doesn't split at all: composition drops
+`@external` from key fields — an entity's key is answerable by any subgraph
+declaring it — so the extending subgraph looks able to resolve the whole path,
+the gateway satisfies the `@requires` locally, and gets back whatever that
+subgraph happens to hold. Merging would mean answering *better* than the
+gateway, which under `0 wrong` is the same failure as answering worse. So a
+root fed by two fetches refuses, naming both halves and where each comes from.
+
+That trap is also why the fixture graph's nested `@requires` walks a plain
+external field (`dimensions`) and not the nested `@key`'s object (`store`):
+the first is diffable against a real gateway, the second isn't.
+
 ## The in-process router refuses rather than approximates
 
 **Considered:** planning every query shape, falling back to a best-effort answer
