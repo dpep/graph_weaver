@@ -734,10 +734,18 @@ module GraphWeaver
           if operation.operation_type == "mutation"
             owners = selections.reject { |node| node.name.start_with?("__") }
               .to_h { |node| [node.name, owners!(root, node.name)] }
-            # root mutation fields run in series; splitting them across
-            # subgraphs would run them in whatever order the plan happens to
-            refuse :root_fields_span, "this mutation's root fields span subgraphs: " \
-              "#{owners.map { |name, graphs| "#{root}.#{name} (#{graphs.join(" or ")})" }.join(", ")}"
+            # Root mutation fields run in series. Sharing a subgraph, they go
+            # over as one document and it serializes them; only roots in
+            # *different* subgraphs would run in whatever order the plan
+            # happens to. Whatever stitches below a root is an ordinary read
+            # afterwards, so it doesn't bear on the ordering.
+            shared = owners.values.reduce(:&) || @table.subgraphs
+            if shared.empty?
+              refuse :root_fields_span, "this mutation's root fields span subgraphs: " \
+                "#{owners.map { |name, graphs| "#{root}.#{name} (#{graphs.join(" or ")})" }.join(", ")}"
+            end
+
+            return [plan_step(root, selections, available!(shared, root).first, fragments, [], 0)]
           end
 
           groups = {}

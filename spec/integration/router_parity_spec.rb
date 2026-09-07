@@ -60,6 +60,9 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "a @requires chain beside a plain join" => ["{ reviews { id product { name shippingEstimate } } }", {}],
     "a @requires chain over an entity list" => ["{ users { reviews { product { name shippingEstimate reviews { body } } } } }", {}],
     "root fields split three ways" => ["{ me { username } topProducts(first: 1) { name } reviews { body } }", {}],
+    # serial execution governs the ROOTS; what stitches below one is an
+    # ordinary read, and the gateway is the proof of that
+    "a mutation stitching below its root" => ['mutation { addReview(upc: "p1", body: "Sturdy") { body product { name } author { email } } }', {}],
   }.freeze
 
   # Probes where a subgraph *fails*. A stitched fetch can leave a null where

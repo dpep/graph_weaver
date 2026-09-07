@@ -231,6 +231,32 @@ describe GraphWeaver::Testing::Router do
     end
   end
 
+  # Serial execution is about the ROOTS: sharing a subgraph, they go over as
+  # one document and it runs them in order. Stitching below a root is an
+  # ordinary read afterwards and has no ordering to preserve.
+  describe "a mutation" do
+    let(:add) { 'mutation { addReview(upc: "p1", body: "Sturdy") { %s } }' }
+
+    it "runs it in its own subgraph and stitches below the root" do
+      response = router.execute(add % "body product { name } author { email }")
+
+      expect(response.fetch("data")).to eq({
+        "addReview" => {
+          "body" => "Sturdy",
+          "product" => { "name" => "Table" },
+          "author" => { "email" => "ada@example.com" },
+        },
+      })
+      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq %w[reviews products accounts]
+    end
+
+    it "hands it over verbatim when nothing below the root crosses" do
+      expect(router.execute(add % "id body").fetch("data"))
+        .to eq({ "addReview" => { "id" => "r99", "body" => "Sturdy" } })
+      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["reviews"]
+    end
+  end
+
   describe "refusing" do
     it "refuses before any subgraph runs" do
       expect { router.execute("{ me { id: username reviews { body } } }") }.to raise_error(Unplannable)

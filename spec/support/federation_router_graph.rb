@@ -223,9 +223,25 @@ module RouterGraph
       def review(id:) = REVIEWS.find { |r| r[:id] == id.to_s }
     end
 
+    # The graph's only mutation root, so every mutation's roots share one
+    # subgraph — and what hangs below one (product, author) stitches into
+    # another. Deterministic: it records nothing, so the gateway and the
+    # local router are asked the same question twice.
+    class Mutation < RouterGraph::BaseObject
+      graphql_name "Mutation"
+
+      field :add_review, Review, null: false do
+        argument :upc, String, required: true
+        argument :body, String, required: true
+      end
+
+      def add_review(upc:, body:) = { id: "r99", body:, author_id: "2", upc: }
+    end
+
     class Schema < GraphQL::Schema
       include ApolloFederation::Schema
       query Query
+      mutation Mutation
       orphan_types User, Product
     end
   end

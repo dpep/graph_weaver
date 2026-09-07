@@ -1,4 +1,11 @@
 ## Unreleased
+- **The local test router refused every mutation that stitched below its root**,
+  with a message claiming its root fields "span subgraphs" when there was one
+  root field in one subgraph — and advice (split it per subgraph) that couldn't
+  be followed. It now plans any mutation whose root fields share a subgraph:
+  they go over as one document and that subgraph serializes them, and what
+  hangs below a root is an ordinary read afterwards. The refusal is left for
+  root fields that genuinely span subgraphs, where the message is true.
 - **The local router honoured `@skip`/`@include` on a field but ignored it on a
   fragment spread or inline fragment that crossed a subgraph boundary** — it
   answered a selection the operation had excluded, and ran an extra subgraph
