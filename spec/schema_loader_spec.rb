@@ -515,3 +515,33 @@ describe GraphWeaver::SchemaLoader do
     end
   end
 end
+
+RSpec.describe "#{GraphWeaver::SchemaLoader} auth provenance" do
+  # `--auth MY_TOKEN` used to give an app that authenticated and rake tasks
+  # that 401'd: the generator wrote ENV["MY_TOKEN"] into the initializer
+  # while the schema tasks hardcoded GRAPHWEAVER_AUTH.
+  it "reads the ENV var the dump recorded" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "schema.json")
+      File.write(path, JSON.generate(
+        "data" => { "__schema" => {} },
+        "graph_weaver" => { "url" => "https://api.example.com/graphql", "auth_env" => "MY_TOKEN" },
+      ))
+
+      expect(GraphWeaver::SchemaLoader.auth_env(path)).to eq "MY_TOKEN"
+    end
+  end
+
+  it "falls back for a dump that never named one" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "schema.json")
+      File.write(path, JSON.generate(
+        "data" => { "__schema" => {} },
+        "graph_weaver" => { "url" => "https://api.example.com/graphql" },
+      ))
+
+      expect(GraphWeaver::SchemaLoader.auth_env(path)).to eq "GRAPHWEAVER_AUTH"
+      expect(GraphWeaver::SchemaLoader.auth_env(nil)).to eq "GRAPHWEAVER_AUTH"
+    end
+  end
+end

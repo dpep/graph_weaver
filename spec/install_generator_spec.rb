@@ -124,7 +124,10 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       ENV["GITHUB_TOKEN"] = "s3cret"
       actions = run_generator(auth: "GITHUB_TOKEN")
 
-      expect(GraphWeaver::SchemaLoader).to have_received(:refresh!).with(url: URL, auth: "s3cret")
+      # the var NAME, not the resolved token — it lands in the dump's
+      # provenance so schema:refresh/:diff read the same one the
+      # initializer does, rather than defaulting to GRAPHWEAVER_AUTH
+      expect(GraphWeaver::SchemaLoader).to have_received(:refresh!).with(url: URL, auth_env: "GITHUB_TOKEN")
       expect(actions).to include([:say_status, :introspect, "app/graphql/schema.json from #{URL}"])
     ensure
       ENV.delete("GITHUB_TOKEN")

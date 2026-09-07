@@ -75,7 +75,10 @@ module GraphWeaver
         return unless options[:schema] && form != :path
 
         if form == :url
-          GraphWeaver::SchemaLoader.refresh!(url: source, auth: ENV[auth_var])
+          # pass the var name, not just the token — it lands in the dump's
+          # provenance so schema:refresh/:diff read the same one the
+          # initializer does, instead of defaulting to GRAPHWEAVER_AUTH
+          GraphWeaver::SchemaLoader.refresh!(url: source, auth_env: auth_var)
         else
           # a schema class is its own introspection source; ttl: 0 so an
           # existing dump never counts as fresh

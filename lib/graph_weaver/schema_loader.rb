@@ -577,7 +577,7 @@ module GraphWeaver::SchemaLoader
   #        GraphWeaver::SchemaLoader.introspect(transport).to_json
   #      end
   #      schema = GraphWeaver::SchemaLoader.load(json)
-  def self.introspect(transport, cache: nil, ttl: nil)
+  def self.introspect(transport, cache: nil, ttl: nil, auth_env: nil)
     cache = cache_path(cache)
 
     if cache
@@ -616,7 +616,7 @@ module GraphWeaver::SchemaLoader
       # the extension picks the format: .json is the verbatim wire
       # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
       # diffs (both generate byte-identical code)
-      meta = stamp(transport)
+      meta = stamp(transport, auth_env)
       content = if cache.end_with?(".json")
         JSON.generate(meta ? result.merge("graph_weaver" => meta) : result)
       else
@@ -649,8 +649,13 @@ module GraphWeaver::SchemaLoader
     found && load(found)
   end
 
+  # The ENV var holding the token for a private API, when the dump doesn't
+  # name its own.
+  DEFAULT_AUTH_ENV = "GRAPHWEAVER_AUTH"
+
   # The provenance recorded in a dump ({"url" => ..., "introspected_at"
-  # => ...}), whichever format holds it; nil for local/unannotated dumps.
+  # => ..., "auth_env" => ...}), whichever format holds it; nil for
+  # local/unannotated dumps.
   def self.provenance(path)
     content = File.read(path)
     if path.end_with?(".json")
@@ -658,6 +663,15 @@ module GraphWeaver::SchemaLoader
     elsif (meta = content[/\A# graph_weaver: (\{.*\})$/, 1])
       JSON.parse(meta)
     end
+  end
+
+  # The ENV var a dump's token lives in — whichever the generator recorded,
+  # else GRAPHWEAVER_AUTH. Keeps `--auth MY_TOKEN` from producing an app
+  # that authenticates and rake tasks that 401.
+  def self.auth_env(path = nil)
+    # the first refresh names a dump that doesn't exist yet
+    recorded = provenance(path)&.dig("auth_env") if path && File.exist?(path)
+    recorded || DEFAULT_AUTH_ENV
   end
 
   # Re-introspect a dump's source and compare — true when the server has
@@ -675,16 +689,19 @@ module GraphWeaver::SchemaLoader
   # url: defaults to the one the dump recorded, so a refresh needs no
   # arguments once a dump exists — and passing one bootstraps the first
   # dump, which is what `rails g graph_weaver:install` does.
-  # auth: defaults to GRAPHWEAVER_AUTH; the generator passes whichever
-  # var it wrote into the initializer.
-  def self.refresh!(url: nil, auth: ENV["GRAPHWEAVER_AUTH"])
+  # auth_env: the ENV var holding the token — defaults to whichever the
+  # dump recorded, so `--auth MY_TOKEN` keeps working on every later
+  # refresh without being repeated. auth: passes a token directly.
+  def self.refresh!(url: nil, auth_env: nil, auth: nil)
     path = locate_path
     url ||= path && provenance(path)&.dig("url")
     raise GraphWeaver::Error, refresh_hint(path) unless url
 
     path ||= GraphWeaver.schema_path
+    auth_env ||= self.auth_env(path)
+    auth ||= ENV[auth_env]
     # ttl: 0 — an existing dump never counts as fresh, a refresh always refetches
-    introspect(GraphWeaver.new(url, auth:).transport, cache: path, ttl: 0)
+    introspect(GraphWeaver.new(url, auth:).transport, cache: path, ttl: 0, auth_env:)
     [path, url]
   end
 
@@ -696,8 +713,8 @@ module GraphWeaver::SchemaLoader
   end
   private_class_method :refresh_hint
 
-  # a transport to the dump's recorded url (GRAPHWEAVER_AUTH supplies a
-  # token when set)
+  # a transport to the dump's recorded url, authenticated from whichever
+  # ENV var the dump named (else GRAPHWEAVER_AUTH)
   def self.source_transport(path)
     meta = provenance(path)
     unless meta&.key?("url")
@@ -706,7 +723,7 @@ module GraphWeaver::SchemaLoader
         "or rebuild it from the schema class that produced it."
     end
 
-    GraphWeaver.new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport
+    GraphWeaver.new(meta["url"], auth: ENV[auth_env(path)]).transport
   end
   private_class_method :source_transport
 
@@ -715,11 +732,15 @@ module GraphWeaver::SchemaLoader
   # "graph_weaver" sibling key in introspection JSON (from_introspection
   # reads only "data"). nil when the transport has no url (schema
   # classes, fakes).
-  def self.stamp(transport)
+  def self.stamp(transport, auth_env = nil)
     return unless transport.respond_to?(:url) && transport.url
 
     require "time"
-    { "url" => transport.url, "introspected_at" => Time.now.utc.iso8601 }
+    meta = { "url" => transport.url, "introspected_at" => Time.now.utc.iso8601 }
+    # only the non-default var is worth recording — auth_env falls back to
+    # DEFAULT_AUTH_ENV, so an unannotated dump reads the same either way
+    meta["auth_env"] = auth_env if auth_env && auth_env != DEFAULT_AUTH_ENV
+    meta
   end
   private_class_method :stamp
 
