@@ -72,9 +72,9 @@ looked for — rather than guessing**:
 
 - **the schema** is `config.schema` if you set one, else the committed dump
   at `GraphWeaver.schema_path`, else the schema `GraphWeaver.client` talks to.
-  (`config.schema` refuses a federation *subgraph* class: fakes are fabricated
-  against it too, so one subgraph would be a fraction of the graph. A
-  federated graph has no one schema class — that's what `:router` is.)
+  (A federated app has no one schema class, so `config.schema` is the whole
+  graph's shape and an example names the subgraph whose resolvers it wants —
+  see `graphql_in_process` below.)
 - **`:in_process`** needs the live schema *class*, since only that has
   resolvers: the one your client already runs in-process, else the loaded
   class that defines everything the schema declares — the same

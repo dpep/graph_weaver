@@ -276,20 +276,27 @@ capability loss wearing simplicity's clothes.
 `coerce:` and `auto_coerce` both survive because they are one question at two
 scopes — a global default with a local override, the standard shape.
 
-## `config.schema` refuses a subgraph rather than splitting in two
+## `:in_process` names its schema per example, not per suite
 
-**Considered:** splitting the setting, since it serves two masters — the schema
-fakes are fabricated against, and the live class `:in_process` runs. In a
-federated app you can't have both, and setting one to make `:in_process` work
-silently repointed `:fake` at a fraction of the graph.
+**Considered, and both built and reverted in one session:** first splitting
+`config.schema` in two, since it serves two masters — the schema fakes are
+fabricated against, and the live class `:in_process` runs — then instead
+*refusing* a federation subgraph class, so the one setting meant one thing
+again.
 
-**Rejected because** the split is a second knob plus a rule about which one
-applies, and it buys a capability nothing lost: `:router` runs a subgraph's
-real resolvers too, stitched. The two masters only want different objects in a
-federated app, so refusing a subgraph class is the smaller change that makes
-`config.schema` mean one thing again — and the refusal `:in_process` already
-raises ("a federated graph has no one schema class — tag those examples
-`graphql: :router`") becomes the whole story instead of half of it.
+**Rejected because** neither answers the case that motivated them. A federated
+app has several subgraphs, and a suite tests more than one; a suite-wide
+setting cannot say "Catalog here, Reviews there" whichever way it is spelled.
+The split was a second knob *and* still insufficient; the refusal was one
+concept fewer *and* removed a capability worth having — testing one subgraph's
+resolvers directly is a real question, distinct from testing the graph
+stitched.
+
+`graphql_in_process(Catalog::Schema)` says it where it varies, and
+`config.schema` keeps one meaning: what a response is shaped like, which is
+also the live class when it happens to be one. The general form is now a
+design principle in `CLAUDE.md` — don't answer a varying question with a
+global setting.
 
 ## The `graphql:` tag names a mode; a client is built in the example
 
