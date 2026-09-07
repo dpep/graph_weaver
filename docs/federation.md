@@ -11,11 +11,9 @@ strips the composition machinery before building the schema — the synthetic
 `join__*`/`link__*` types and directive definitions, and every `@join__*`/`@link`
 application on the real types — so what codegen sees is the merged graph's
 ordinary type shapes, with no federation plumbing leaking into `schema.types`.
-(It's a pure AST rewrite of the SDL; no graphql-ruby monkeypatch, and plain
-schemas pass through untouched.) Field shapes — nullability, args, enums,
-inputs — are identical to the API schema, so your generated structs are correct;
-and because codegen is **query-driven**, nothing federation-internal could
-generate code anyway.
+(A pure AST rewrite of the SDL; plain schemas pass through untouched.) Field
+shapes — nullability, args, enums, inputs — are identical to the API schema, so
+your generated structs are correct.
 
 **Which names count as machinery is read off the schema**, not a fixed list.
 Federation namespaces itself through [`@link`](https://specs.apollo.dev/link/v1.0/)
@@ -39,29 +37,20 @@ so the schema it generates against is the API schema, not the superset.
 ### `@inaccessible`
 
 A federation-v2 directive marking an element as *present in the federated graph
-but removed from the public API schema*. Its common use is safely rolling out a
-change to a **shared type**: add the field to one subgraph marked
-`@inaccessible` (so composition doesn't require every subgraph to have it yet),
-roll it out to the rest, then drop the directive to publish it. (Apollo
-contracts also pair `@tag` + `@inaccessible` to build filtered API variants.)
-It's a fed-v2 feature — common in mature, multi-team graphs with lots of shared
-types, rare in small or young ones, and targeted where present (a handful of
-elements, not every field).
+but removed from the public API schema*. You'll meet it rolling out a change to
+a **shared type**: add the field to one subgraph marked `@inaccessible` (so
+composition doesn't require every subgraph to have it yet), roll it out to the
+rest, then drop the directive to publish it. (Apollo contracts also pair `@tag`
++ `@inaccessible` to build filtered API variants.)
 
 Weaver derives the API schema from the supergraph for you: loading strips every
 `@inaccessible` element and cascades — a field/argument/union-member/interface
 referencing a removed type goes too, and a type left empty is removed in turn.
-So codegen validates against what clients can query, with no over-permit gap
-and no need for Apollo's JS tooling (`@apollo/federation-internals`) to
-subtract the API schema first; feed weaver the raw supergraph and you get the
-router's contract. (A pure SDL rewrite at load time — see
+So codegen validates against what clients can query, with no need for Apollo's
+JS tooling (`@apollo/federation-internals`) to subtract the API schema first;
+feed weaver the raw supergraph and you get the router's contract. (A pure SDL
+rewrite at load time — see
 [`SchemaLoader`](../lib/graph_weaver/schema_loader.rb).)
-
-What makes that subtraction *exact* is composition, not the cascade: Apollo's
-`REFERENCED_INACCESSIBLE` rule already refuses to compose a supergraph where a
-visible element references a hidden one, so on a real supergraph the cascade
-has nothing left to find. It earns its keep on hand-written or hand-edited
-supergraphs, where nothing has checked that invariant.
 
 The directive is matched by the **local name it was linked under**, so
 `@link(url: "…/federation/v2.5", import: [{name: "@inaccessible", as: "@private"}])`
@@ -146,7 +135,7 @@ It reads the routing table and the subgraph schemas loaded in this process —
 drift so CI can gate on it:
 
 ```
-supergraph.graphql: 1 stale, 1 not composed in (checked 2 of 4 subgraphs)
+supergraph.graphql: 1 stale, 1 not composed in (checked 1 of 3 subgraphs)
 
 stale — the supergraph carries these, no schema here defines them (recompose):
   Product.weight (products)
@@ -154,9 +143,8 @@ stale — the supergraph carries these, no schema here defines them (recompose):
 not composed in — a schema here defines these, the supergraph doesn't carry them:
   Product.dimensions (Products::Schema)
 
-not checked — nothing here defines what the supergraph says these declare
-(running elsewhere, or the type is gone):
-  inventory (Warehouse)
+not checked — nothing here defines what the supergraph says these declare (running elsewhere, or the type is gone):
+  shipping (Shipment)
 
 not checked — answered with fabricated data:
   reviews
@@ -167,20 +155,18 @@ Both directions, because they mean opposite things: **stale** is "recompose",
 subgraph the supergraph blames, which is the sentence you want — whose code to
 look at, whose team to talk to.
 
-What counts as "defines" is deliberately looser than field-set equality, which
-would be wrong in both directions: a subgraph carries federation plumbing
-(`_entities`, `_service`) no supergraph has, and a field can legitimately sit
-in more than one subgraph (`@external` copies, `@shareable`). So a coordinate
-is compared only against the schemas that could *be* the subgraph the
-supergraph attributes it to — the ones defining every non-root type it
-declares — the uncomposed side reports only a field the supergraph's type
-doesn't carry **at all** (not one it merely attributes elsewhere), and
-underscore-prefixed fields never count.
+"Defines" is deliberately looser than field-set equality: a subgraph carries
+federation plumbing (`_entities`, `_service`) no supergraph has, and a field can
+legitimately sit in more than one subgraph (`@external` copies, `@shareable`).
+So a coordinate is compared only against the schemas that could *be* the
+subgraph the supergraph attributes it to, the uncomposed side reports only a
+field the supergraph's type doesn't carry **at all**, and underscore-prefixed
+fields never count.
 
 **A supergraph is routinely only partly local**, so the report names three
 states rather than two: checked, not here (running elsewhere — or the type is
-gone), and [faked](#the-local-router). A clean report that quietly checked two
-of four subgraphs would be actively misleading, so the headline counts them and
+gone), and [faked](#the-local-router). A clean report that quietly checked one
+subgraph of three would be actively misleading, so the headline counts them and
 the sections name them. Only drift fails the task; absence is a supported
 setup, not a failure.
 
@@ -231,11 +217,10 @@ graph and the `:fake` opt-in, each as a named example.
 
 `subgraphs:` is optional. Left out, each one is **derived from what the loaded
 schemas define**: a schema serves subgraph `s` when it defines every type and
-field the routing table says `s` resolves. That's evidence rather than a guess —
-matching on class names would be one, and a wrong guess points a suite at the
-wrong resolvers and still passes. So exactly one match is used, and **two**
-matches refuse, naming both. **No** match isn't a refusal: that subgraph is
-simply served somewhere else (next section).
+field the routing table says `s` resolves. That's evidence rather than a guess,
+and a wrong guess would point a suite at the wrong resolvers and still pass — so
+exactly one match is used, and **two** matches refuse, naming both. **No** match
+isn't a refusal: that subgraph is simply served somewhere else (next section).
 
 Name them yourself when you'd rather have the wiring committed, or when
 detection can't settle it — including partially, with the rest derived:
@@ -290,7 +275,7 @@ it raises, and it names the subgraph, the field that reached for it, and both
 ways out — name a schema for it, or fake it:
 
 ```ruby
-subgraphs: { "shipping" => :fake }   # billing, being absent, still refuses
+subgraphs: { "shipping" => :fake }   # any other absent subgraph still refuses
 ```
 
 If the subgraph *is* here and detection just couldn't see it — a Rails schema
@@ -354,13 +339,13 @@ which would reply with its own slice — the one split a real router also makes.
 
 Everything it can't plan **faithfully** raises
 `GraphWeaver::Testing::Unplannable` (a `GraphWeaver::Error`), at plan time,
-before any subgraph runs — so a refusal is never a half-executed query.
-Apollo's planner is ~20k lines; a double that approximated the rest of it would
-let a test pass on an answer production disagrees with, which is the most
-expensive thing this library can produce. Each refusal names the coordinate
-that stopped it and what to do — `examples/federation.rb` prints one.
+before any subgraph runs — so a refusal is never a half-executed query. A double
+that approximated the rest of Apollo's planner would let a test pass on an
+answer production disagrees with, which is the most expensive thing this library
+can produce. Each refusal names the coordinate that stopped it and what to do —
+`examples/federation.rb` prints one.
 
-What's left, and why:
+What it refuses, and why:
 
 | Refusal | Why |
 |---|---|
@@ -386,17 +371,16 @@ rather than guess:
 $ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
 17/17 queries plannable locally (100%)
   accounts 4, reviews 4, products+reviews 3, accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1
-
-refused (0)
 ```
 
 `QUERIES=` picks the directory (default `GraphWeaver.queries_path`). Planning
 needs the supergraph and nothing else, so this runs in CI with the SDL alone —
 no subgraph has to be loadable. The second line says which subgraphs each query
 touches, so a graph whose queries all sit in one is visibly a different
-situation from one that stitches everywhere; the reasons group by category, so
-one glance says whether the gap is one construct or many. The run above is
-against the demo graph in `spec/support/federation`, not a real app's mix.
+situation from one that stitches everywhere. Anything refused is listed after
+it, grouped by category, so one glance says whether the gap is one construct or
+many. The run above is against the demo graph in `spec/support/federation`, not
+a real app's mix.
 
 ### How the refusals are kept honest
 
@@ -404,20 +388,19 @@ A double that quietly answered *differently* from the router would be worse
 than no double at all, so
 [`spec/integration/router_parity_spec.rb`](../spec/integration/router_parity_spec.rb)
 serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
-supergraph, and runs every corpus query through both. Three outcomes, one of
-them a defect: match, refuse, or answer differently. On 43 queries — the corpus,
-twenty boundary probes, and five where a subgraph deliberately fails — the local
-router is byte-identical to the gateway on 42, refuses 1, and is wrong on none.
-It also checks that the gateway answers every refusal cleanly, so each is a
-capability gap rather than a broken query. `make integration` runs it (node
-required).
+supergraph, and runs the whole corpus through both. Three outcomes, one of them
+a defect: match, refuse, or answer differently — and the spec fails on the
+third. It also checks that the gateway answers every refusal cleanly, so each
+refusal is a capability gap rather than a broken query. `make integration` runs
+it (node required).
 
-The five deliberate failures are the ones that matter most: a resolver erroring
-under a stitched fetch, an entity nothing can resolve, a `@requires` fetch that
-comes back empty. Each is a case where a merge that doesn't re-propagate hands
-back a populated tree while the real router answers `data: null` — so it is
-checked against the real thing rather than against an expectation someone wrote
-down.
+Alongside the corpus it runs boundary probes and a handful of queries where a
+subgraph deliberately **fails** — a resolver erroring under a stitched fetch, an
+entity nothing can resolve, a `@requires` fetch that comes back empty. Those are
+the ones that matter most: each is a case where a merge that doesn't
+re-propagate hands back a populated tree while the real router answers
+`data: null`, so it's checked against the real thing rather than against an
+expectation someone wrote down.
 
 ## Pointing weaver at a subgraph
 
@@ -440,11 +423,10 @@ graph, feed the composed artifact.
 Every subgraph serves the entity resolver
 `_entities(representations: [_Any!]!): [_Entity]!`, and **no subgraph SDL
 contains it**: `_service { sdl }` and `rover subgraph fetch` print the
-*published* schema, where the plumbing is implicit. A supergraph omits it
-deliberately, and live introspection carries no `@key` to type it from. So
-weaver supplies it on the subgraph path — `_Any`, `_Service`, and an `_Entity`
-union over the file's own `@key`'d types — the same way it supplies the
-`@key`/`@external` definitions. A file that declares its own keeps it.
+*published* schema, where the plumbing is implicit. So weaver supplies it on the
+subgraph path — `_Any`, `_Service`, and an `_Entity` union over the file's own
+`@key`'d types — the same way it supplies the `@key`/`@external` definitions. A
+file that declares its own keeps it.
 
 The read side is a normal union selection; `alias:` turns the
 single-entity case into a clean accessor (see
@@ -489,4 +471,5 @@ subgraph with fifty entities emits nothing for the forty-nine you didn't name.
 And a `@key(..., resolvable: false)` declares a key this subgraph does *not*
 answer for, so it builds nothing. Key fields typed as scalars get their
 registered Ruby type; anything else (a nested selection) is an open `Hash` the
-runtime narrows.
+runtime narrows. Every shape above is a named example in
+[`spec/federation_spec.rb`](../spec/federation_spec.rb).
