@@ -489,6 +489,7 @@ describe GraphWeaver::Testing::Router do
             listings: [Listing!]! @join__field(graph: A)
             parcels: [Parcel!]! @join__field(graph: A)
             vouchers: [Voucher!]! @join__field(graph: A)
+            crates: [Crate!]! @join__field(graph: A)
           }
           type Shipment @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
             id: ID!
@@ -516,6 +517,16 @@ describe GraphWeaver::Testing::Router do
             organization: Org! @join__field(graph: B)
             code: String!
             label: String @join__field(graph: B)
+          }
+          type Crate @join__type(graph: A, key: "id lid { id }")
+            @join__type(graph: B, key: "id lid { id }") {
+            id: ID!
+            lid: Lid!
+            seal: String! @join__field(graph: B, requires: "lid { code }")
+          }
+          type Lid @join__type(graph: A) @join__type(graph: B) {
+            id: ID!
+            code: String! @join__field(graph: B)
           }
           type Place @join__type(graph: A) @join__type(graph: B) { lat: Float! lon: Float! }
           type Org @join__type(graph: A) @join__type(graph: B) { id: ID! }
@@ -566,6 +577,17 @@ describe GraphWeaver::Testing::Router do
           .to refuse_to_plan(:nested_field_set).with_detail(
             'Parcel.boxLabel @requires a nested field set ("box { depth }") no one subgraph ' \
             "holds whole (Parcel.box in a, Box.depth in c)",
+          )
+      end
+
+      # Crate is keyed on "id lid { id }" and its seal @requires "lid { code }",
+      # which only b holds — so `lid` would arrive twice, each fetch knowing
+      # half of it and overwriting the other
+      it "refuses a nested object two fetches would each half-build" do
+        expect { nested.execute("{ crates { seal } }") }
+          .to refuse_to_plan(:nested_field_set).with_detail(
+            'Crate\'s "lid" is part of a field set this fetch would have to build from more than ' \
+            "one subgraph (lid.id from a, lid.code from b)",
           )
       end
     end

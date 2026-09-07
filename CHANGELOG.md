@@ -8,11 +8,13 @@
   a type declares more than one `@key`, the plan takes the first one the
   fetching subgraph can supply.
 - **`:nested_field_set` narrowed rather than disappeared.** It now names only
-  a nested `@requires` whose fields no *single* subgraph holds — `origin` in
-  one and `origin.lat` in another — which would take a fetch per level when a
-  representation comes from one. If you group refusals by category, that
-  bucket shrinks; its message and `docs/federation.md`'s table say what is
-  left. `:chained_requires` is unchanged and still a different refusal.
+  a nested field set no one *fetch* can build — `origin` resolving in one
+  subgraph and `origin.lat` in another, or a nested `@key` whose object a
+  `@requires` would half-fill from somewhere else. Either way the object
+  would arrive in pieces, and a representation comes from one fetch. If you
+  group refusals by category, that bucket shrinks; its message and
+  `docs/federation.md`'s table say what is left. `:chained_requires` is
+  unchanged and still a different refusal.
 - **`Testing.config.router` takes `subgraphs:` without `supergraph:`.** It
   raised — "must be the arguments to build one, e.g. `{ supergraph: … }`" —
   even where the committed dump already is the supergraph, which is the case

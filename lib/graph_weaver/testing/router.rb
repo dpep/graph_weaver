@@ -47,7 +47,7 @@ module GraphWeaver
             "field's own requirement. Run this one against a real router.",
         ],
         nested_field_set: [
-          "a nested @requires field set no one subgraph holds",
+          "a nested field set no one fetch can build",
           "a representation carries a nested field set as one object, so one fetch has to answer " \
             "the whole of it — and here every subgraph answers only part. Run this one against a " \
             "real router.",
@@ -1007,6 +1007,7 @@ module GraphWeaver
           # every crossing this fetch feeds, asked for once and together: a
           # field set shared by two deferrals is one selection, and a nested
           # one is nested rather than a dotted alias no schema has
+          check_one_source!(type_name, here, subgraph)
           here.selections.concat(Router.injected_selections(here.keys))
           here.injected = (here.keys + here.prefetches.flat_map(&:paths))
             .map { |path| Router::PREFIX + path.split(".").first }.uniq
@@ -1131,6 +1132,26 @@ module GraphWeaver
 
         def inject(step, path)
           step.keys << path unless step.keys.include?(path)
+        end
+
+        # A nested field set arrives as ONE object under one response key, so
+        # every path sharing a root has to come from the same fetch: half of
+        # `origin` from here and half from a prefetch leaves the object
+        # half-built, and two prefetches overwrite each other's half.
+        def check_one_source!(type_name, step, subgraph)
+          sources = Hash.new { |roots, root| roots[root] = {} }
+          step.keys.each { |path| sources[path.split(".").first][path] = subgraph }
+          step.prefetches.each do |prefetch|
+            prefetch.paths.each { |path| sources[path.split(".").first][path] = prefetch.subgraph }
+          end
+
+          sources.each do |root, from|
+            next if from.values.uniq.one?
+
+            refuse :nested_field_set, "#{type_name}'s #{root.inspect} is part of a field set this " \
+              "fetch would have to build from more than one subgraph " \
+              "(#{from.map { |path, graph| "#{path} from #{graph}" }.join(", ")})"
+          end
         end
 
         # Apollo's router injects the @key under its own name and lets it win,
