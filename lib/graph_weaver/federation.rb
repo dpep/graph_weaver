@@ -215,9 +215,13 @@ module GraphWeaver
       # no supergraph carries and which is never drift
       def local_fields(schema, type_name)
         type = schema.get_type(type_name)
-        return [] unless type.respond_to?(:fields)
+        members =
+          if type.respond_to?(:fields) then type.fields.keys
+          elsif type.respond_to?(:arguments) then type.arguments.keys
+          else []
+          end
 
-        type.fields.keys.reject { |field| field.start_with?("_") }
+        members.reject { |field| field.start_with?("_") }
       end
 
       def headline

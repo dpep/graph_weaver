@@ -1,4 +1,17 @@
 ## Unreleased
+- **The local router honoured `@skip`/`@include` on a field but ignored it on a
+  fragment spread or inline fragment that crossed a subgraph boundary** — it
+  answered a selection the operation had excluded, and ran an extra subgraph
+  fetch to do it. Folding a same-type fragment into its parent dropped the
+  fragment node, and its directives with it. They now move onto the selections
+  they guarded, and a fetch is skipped entirely when everything it was for is
+  excluded (so `trace` matches what a real router does). A field and the
+  fragment around it both carrying the same directive refuses, as
+  `conditional_fragment` — one selection can't hold two conditions of one name.
+- **`rake graph_weaver:federation:diff` reported false drift for every input
+  object**, so a correct supergraph failed the CI gate with advice to recompose
+  something that wasn't broken. An input object exposes its members as
+  `arguments`, not `fields`, and the check only asked for fields.
 - **A `Pathname` works anywhere a schema path does** — `GraphWeaver.new`,
   `generate!(schema:)`, `SchemaLoader.load`. `Rails.root.join("schema.graphql")`
   previously failed as `undefined method 'lstrip' for an instance of Pathname`.

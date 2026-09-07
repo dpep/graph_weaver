@@ -44,6 +44,11 @@ module GraphWeaver
           "the local router builds representations from flat field sets only. Run this one against " \
             "a real router.",
         ],
+        conditional_fragment: [
+          "@skip/@include on both a fragment and its field",
+          "one selection can't carry two conditions of the same name. Spell the condition once, " \
+            "on the field or on the fragment.",
+        ],
         shadowed_key: [
           "an alias shadowing an injected @key",
           "Apollo's router resolves that collision in favour of its own injected key and a " \
@@ -280,6 +285,20 @@ module GraphWeaver
       # Everything the plan applies at this level: one _entities fetch per
       # subgraph the level defers to (all nodes at once — _entities answers
       # in representation order), then the same again one level down.
+      # @skip/@include against the variables in hand. An unknown variable
+      # reads as absent, which is what graphql-ruby does with it too.
+      def included?(node, variables)
+        node.directives.all? do |directive|
+          next true unless %w[skip include].include?(directive.name)
+
+          argument = directive.arguments.find { |arg| arg.name == "if" } or next true
+          value = argument.value
+          value = variables[value.name] if value.is_a?(GraphQL::Language::Nodes::VariableIdentifier)
+
+          directive.name == "skip" ? !value : !value.nil? && value != false
+        end
+      end
+
       def stitch(step, nodes, operation, variables, errors)
         return if nodes.empty?
 
@@ -288,7 +307,12 @@ module GraphWeaver
         # a @requires fetch and a plain one need different node sets, so they
         # can't share a call even into the same subgraph — which is the split
         # a real router makes too
-        step.deferrals.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
+        # A fetch for a selection the operation excluded is a fetch a real
+        # router never makes, and `trace` is something specs assert on. The
+        # plan is built once and reused, so only here are the variables known.
+        wanted = step.deferrals.select { |d| included?(d.node, variables) }
+
+        wanted.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
           fetched = chained ? nodes.reject { |(node, _)| blocked.include?(node.object_id) } : nodes
           paths = deferrals.flat_map(&:representation).uniq
           representations = fetched.map do |(node, _)|
@@ -956,7 +980,7 @@ module GraphWeaver
             when GraphQL::Language::Nodes::Field then [node]
             when GraphQL::Language::Nodes::InlineFragment
               condition = node.type&.name
-              next expand(type_name, node.selections, subgraph, fragments, depth + 1) if
+              next carry(node, expand(type_name, node.selections, subgraph, fragments, depth + 1)) if
                 condition.nil? || condition == type_name
 
               check_condition!(type_name, condition, node.selections, subgraph, fragments)
@@ -964,13 +988,33 @@ module GraphWeaver
             when GraphQL::Language::Nodes::FragmentSpread
               fragment = fragments[node.name] or
                 refuse(:undefined_fragment, "the document spreads ...#{node.name}, which it never defines")
-              next expand(type_name, fragment.selections, subgraph, fragments, depth + 1) if
+              next carry(node, expand(type_name, fragment.selections, subgraph, fragments, depth + 1)) if
                 fragment.type.name == type_name
 
               check_condition!(type_name, fragment.type.name, fragment.selections, subgraph, fragments)
               [node]
             else []
             end
+          end
+        end
+
+        # Folding a same-type fragment into its parent drops the fragment node,
+        # so whatever @skip/@include it carried has to move onto the selections
+        # it guarded — otherwise a stitched plan answers a selection the
+        # operation excluded, and fetches a subgraph to do it.
+        def carry(node, expanded)
+          return expanded if node.directives.empty?
+
+          expanded.map do |field|
+            clash = field.directives.map(&:name) & node.directives.map(&:name)
+            if clash.any?
+              # one selection can't hold two conditions of the same name
+              refuse :conditional_fragment,
+                "#{field.alias || field.name} carries @#{clash.first}, and so does the fragment " \
+                  "spread around it"
+            end
+
+            field.merge(directives: node.directives + field.directives)
           end
         end
 
@@ -1077,10 +1121,10 @@ module GraphWeaver
             case node
             when GraphQL::Language::Nodes::Field then [node]
             when GraphQL::Language::Nodes::InlineFragment
-              flatten(type_name, node.selections, fragments, depth + 1)
+              carry(node, flatten(type_name, node.selections, fragments, depth + 1))
             when GraphQL::Language::Nodes::FragmentSpread
               fragment = fragments[node.name]
-              fragment ? flatten(type_name, fragment.selections, fragments, depth + 1) : []
+              fragment ? carry(node, flatten(type_name, fragment.selections, fragments, depth + 1)) : []
             else []
             end
           end

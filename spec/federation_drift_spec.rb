@@ -10,6 +10,31 @@ require "graph_weaver/testing"
 # The supergraph you committed, read against the subgraph schemas running
 # here — the question no other check asks: has someone changed a subgraph
 # without recomposing?
+# An input object exposes its members as arguments, not fields, so a
+# fields-only check reported every input field as missing — and a correct
+# supergraph failed the CI gate it was supposed to pass.
+describe "GraphWeaver::Schemas.defines? on an input object" do
+  let(:schema) do
+    input = Class.new(GraphQL::Schema::InputObject) do
+      graphql_name "TicketInput"
+      argument :event_id, String, required: true
+    end
+    query = Class.new(GraphQL::Schema::Object) do
+      graphql_name "Query"
+      # an input type is reachable only through an argument
+      field :book, String do
+        argument :input, input, required: true
+      end
+    end
+    Class.new(GraphQL::Schema) { query(query) }
+  end
+
+  it "finds an input field, and still refuses one that isn't there" do
+    expect(GraphWeaver::Schemas.defines?(schema, "TicketInput.eventId")).to be true
+    expect(GraphWeaver::Schemas.defines?(schema, "TicketInput.nope")).to be false
+  end
+end
+
 describe GraphWeaver::Federation::Drift do
   let(:supergraph) { DriftGraph::SUPERGRAPH }
 

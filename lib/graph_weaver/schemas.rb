@@ -29,7 +29,11 @@ module GraphWeaver
         type = schema.get_type(type_name) or return false
         return true unless field_name
 
-        type.respond_to?(:fields) && type.fields.key?(field_name)
+        return type.fields.key?(field_name) if type.respond_to?(:fields)
+        # an input object's members are arguments, not fields
+        return type.arguments.key?(field_name) if type.respond_to?(:arguments)
+
+        false
       end
 
       private

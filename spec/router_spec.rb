@@ -21,6 +21,55 @@ describe GraphWeaver::Testing::Router do
 
   def refusal(query, variables: {}) = refusal_from(router, query, variables:)
 
+  # Folding a same-type fragment into its parent drops the fragment node.
+  # Its @skip/@include went with it, so a stitched plan answered a selection
+  # the operation had excluded — and ran an extra fetch to do it.
+  describe "@skip/@include on a fragment that crosses a boundary" do
+    let(:spread) do
+      <<~GQL
+        query($s: Boolean!) { me { username ...R @include(if: $s) } }
+        fragment R on User { reviews { body } }
+      GQL
+    end
+
+    it "excludes the guarded selection, and doesn't fetch for it" do
+      expect(router.execute(spread, variables: { "s" => false }))
+        .to eq({ "data" => { "me" => { "username" => "dpep" } } })
+      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq ["accounts"]
+    end
+
+    it "includes it when the condition says so" do
+      result = router.execute(spread, variables: { "s" => true })
+      expect(result.dig("data", "me", "reviews")).to be_an Array
+      expect(router.trace.map { |fetch| fetch[:subgraph] }).to eq %w[accounts reviews]
+    end
+
+    it "honours @skip, an inline fragment, and a spread at the root" do
+      skipped = <<~GQL
+        query { me { username ...R @skip(if: true) } }
+        fragment R on User { reviews { body } }
+      GQL
+      expect(router.execute(skipped)).to eq({ "data" => { "me" => { "username" => "dpep" } } })
+
+      inline = "{ me { username ... on User @include(if: false) { reviews { body } } } }"
+      expect(router.execute(inline)).to eq({ "data" => { "me" => { "username" => "dpep" } } })
+
+      root = <<~GQL
+        query { ...R @include(if: false) me { username } }
+        fragment R on Query { topProducts(first: 1) { name } }
+      GQL
+      expect(router.execute(root)).to eq({ "data" => { "me" => { "username" => "dpep" } } })
+    end
+
+    it "refuses when the fragment and the field both carry the same directive" do
+      clash = <<~GQL
+        query($s: Boolean!) { me { username ...R @include(if: $s) } }
+        fragment R on User { reviews @include(if: $s) { body } }
+      GQL
+      expect(refusal(clash, variables: { "s" => true }).category).to eq :conditional_fragment
+    end
+  end
+
   describe "a query that stays inside one subgraph" do
     it "answers exactly what that subgraph answers, and says which it asked" do
       query = "query($first: Int!) { topProducts(first: $first) { upc name price } }"
