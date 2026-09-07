@@ -85,6 +85,11 @@ same path (`Date` even carries its own `require "date"`), so a later
 `register_scalar` overrides them; `GraphWeaver.reset_scalars!` restores the
 defaults and `clear_scalars!` empties the registry.
 
+The other registries reset the same way: `reset_enums!` drops every
+`register_enum` mapping, `reset_type_helpers!` every `extend_type` registration,
+and `reset_registrations!` does all of it at once — built-in scalars restored,
+enums and type helpers dropped, the clean slate between tests.
+
 A scalar you never register is not an error — it generates as `T.untyped` and
 the wire value passes through untouched. It is, though, the one hole in an
 otherwise exact result type, so generation names the holes at `info` (see
@@ -97,7 +102,7 @@ otherwise exact result type, so generation names the holes at `info` (see
 ## Enums: map onto your own T::Enum
 
 By default a schema enum generates one `T::Enum` per schema, shared by every
-query module that touches it (`GraphQLEnums::Species`, aliased as
+query module that touches it (`GraphQLTypes::Species`, aliased as
 `AddPetMutation::Species`). That's fine until your app has its own domain
 enum, and then the boundary shuffle starts:
 

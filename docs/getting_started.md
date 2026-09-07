@@ -209,8 +209,8 @@ default `app/graphql/fragments`).
 ### Shared unions
 
 When a shared fragment *is* the whole selection on a union field, its type is
-hoisted once into a `GraphQLUnions` module and every query that spreads it
-aliases the same type — so a `union` selected across many queries becomes one
+hoisted once into the shared `GraphQLTypes` module and every query that spreads
+it aliases the same type — so a `union` selected across many queries becomes one
 Ruby type family, and you write one exhaustive `case … when … T.absurd` that
 works everywhere:
 

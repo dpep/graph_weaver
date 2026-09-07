@@ -23,19 +23,26 @@ app/graphql/
   queries/           # *.graphql / *.gql, nested — hand-written, reviewed
   fragments/         # shared fragments, spread by name from any query
   generated/
-    enums.rb         # one Ruby type per schema enum
-    inputs.rb        # manifest: requires + forward declarations
-    inputs/          # one file per input struct
-    unions.rb        # unions hoisted from shared fragments (if any)
+    types.rb         # manifest: requires + forward declarations, in load order
+    types/           # one file per shared type
     *_query.rb       # one module per query — generated, checked in, never edited
     *_mutation.rb    # ...and per mutation
 ```
 
-The three shared modules are fixed constants — `GraphQLEnums`, `GraphQLInputs`,
-`GraphQLUnions` — independent of where their files live. Rename them
-(`GraphWeaver.enums_module=` and friends, or the matching `generate!` kwargs)
-when one app generates against two schemas, in the same initializer that already
-gives each its own paths.
+**A type shared across query modules lives in `GraphQLTypes` and is aliased
+in.** Input types, schema enums, and unions hoisted from shared fragments are
+all one kind of thing — a type that would otherwise be copied into every query
+that touches it — so they live in one module, one file each, and a query module
+that uses any of them opens with `require_relative "types"`. The constant is fixed,
+independent of where the files live; rename it (`GraphWeaver.types_module=`, or
+`generate!(types_module:)`) when one app generates against two schemas, in the
+same initializer that already gives each its own paths.
+
+The manifest loads enums before the rest, because an input struct's props and a
+union member's selections spell them bare and a `T::Enum` can't be
+forward-declared. A shared fragment whose name is already a schema type in that
+module is refused at generation, naming both — a fragment is named by you, a
+type by the schema, and one module is one namespace.
 
 **Naming.** A module is named after its **file**, suffixed with the operation
 the file defines — `person.graphql` → `PersonQuery` in `person_query.rb`,
@@ -281,20 +288,20 @@ mod.execute!(where:)
 ```
 
 In the `generate!` workflow input types are emitted **once per schema**, one
-file per type under `generated/inputs/` with `inputs.rb` as the manifest. Query
+file per type under `generated/types/` with `types.rb` as the manifest. Query
 modules alias what they touch, so `AdoptMutation::AdoptionInput` still works and
 a shared type keeps one identity across modules — three filtered Hasura queries
-cost one inputs file plus ~90 lines each, instead of a full copy per query.
-Deeply nested types live unaliased in the shared module
-(`GraphQLInputs::PetFilter`). Per-type files keep drift reviewable: a migration
-diffs exactly the types it touched, and types the schema drops are pruned on
+cost one set of type files plus ~90 lines each, instead of a full copy per
+query. A query module aliases only its *variable root* types, so a deeply nested
+one is reached as `GraphQLTypes::<Type>`. Per-type files keep drift reviewable:
+a migration diffs exactly the types it touched, and types the schema drops are pruned on
 regeneration (`verify` flags strays). Dynamic `parse` stays self-contained.
 
 ## Enums: one GraphQL enum, one Ruby type
 
 Every schema enum a query touches — as a variable, in a result, or both —
-becomes exactly one Ruby type in `enums.rb`, named for the enum
-(`GraphQLEnums::Species`), and every query module aliases it:
+becomes exactly one Ruby type in the shared module, named for the enum
+(`GraphQLTypes::Species`), and every query module aliases it:
 
 ```ruby
 species = SearchQuery.execute!(term: "Shelby").search.first.species
@@ -356,10 +363,10 @@ which is why an all-`@skip`/`@include` narrowed fragment without a `__typename`
 is refused: a match would be indistinguishable from a miss.
 
 When a whole union field is selected as one named *shared* fragment
-(`{ ...FeedItemFields }`), that type is hoisted once into `GraphQLUnions` and
-each query aliases it — so the same union is one Ruby type family across
-queries, not a fresh dispatch module per query. Like shared inputs, it's a
-`generate!`-directory concern; dynamic `parse` inlines.
+(`{ ...FeedItemFields }`), that type is hoisted once into `GraphQLTypes` — named
+for the fragment — and each query aliases it, so the same union is one Ruby type
+family across queries, not a fresh dispatch module per query. Like shared
+inputs, it's a `generate!`-directory concern; dynamic `parse` inlines.
 
 ### Consuming a union — dispatch on the class, not `__typename`
 

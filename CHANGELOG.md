@@ -9,6 +9,37 @@
   to `docs/testing.md#the-in-process-router--graphql-router`, now
   `docs/federation.md#the-local-router`.
 
+### One shared module, not three (**breaking** — regenerate)
+
+`GraphQLInputs`, `GraphQLUnions` and `GraphQLEnums` are now one `GraphQLTypes`.
+They were three constants, three config knobs and three file shapes for one
+idea — a type shared across query modules — and the rule now fits in a
+sentence: **a type shared across query modules lives in the shared module and is
+aliased in.**
+
+**What to do:** run `rake graph_weaver:generate` (`verify` fails until you do,
+naming the stale files). Every generated file changes: a query module opens with
+one `require_relative "types"` instead of up to three, and its aliases read
+`AdoptionInput = GraphQLTypes::AdoptionInput`. On disk, `enums.rb`, `inputs.rb`,
+`inputs/` and `unions.rb` become `types.rb` (the manifest) plus one file per
+type under `types/` — the old files are pruned for you, since pruning keys off
+the generated header. If you referenced `GraphQLInputs::PetFilter` (or the other
+two) by hand, spell it `GraphQLTypes::PetFilter`.
+
+`GraphWeaver.inputs_module=` / `unions_module=` / `enums_module=` are now
+`GraphWeaver.types_module=`, and `generate!`/`verify_generated!` take one
+`types_module:` in place of three.
+
+One namespace also removes the aliasing *between* the shared artifacts: an input
+struct's props and a union member's selections spell their enums bare now, being
+lexically inside the same module. The manifest requires the enum files first for
+that reason.
+
+New: a shared fragment whose name is already a schema type in that module is
+refused at generation, naming both — a fragment is named by you, a type by the
+schema, and one module is one namespace. Previously they lived apart and could
+never meet.
+
 ### Has anyone changed a subgraph without recomposing?
 
     rake graph_weaver:federation:diff SUPERGRAPH=supergraph.graphql

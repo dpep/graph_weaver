@@ -309,10 +309,10 @@ class GraphWeaver::Codegen
     def nested = self
   end
 
-  # A reference to a union hoisted into the shared unions module (a named
+  # A reference to a union hoisted into the shared types module (a named
   # shared fragment spread as a whole union field): the query references
   # <Name>::Type and dispatches through <Name>.from_h, where <Name> is the
-  # alias the query module gives GraphQLUnions::<Name>. The type family lives
+  # alias the query module gives GraphQLTypes::<Name>. The type family lives
   # once in the shared module, so the same union across queries is one Ruby
   # type — nested is nil, nothing is emitted here.
   class UnionRefNode < Node
