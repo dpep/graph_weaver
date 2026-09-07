@@ -20,7 +20,7 @@ describe GraphWeaverMatchers do
     matcher.failure_message_when_negated
   end
 
-  describe "have_fetched" do
+  describe "have_fetched_subgraphs" do
     subject(:router) do
       GraphWeaver::Testing::Router.new(
         supergraph: RouterGraph::SUPERGRAPH, subgraphs: RouterGraph::SUBGRAPHS,
@@ -30,26 +30,26 @@ describe GraphWeaverMatchers do
     before { router.execute("{ me { username reviews { body } } }") }
 
     it "asks for exactly those subgraphs, in the order they were fetched" do
-      expect(router).to have_fetched("accounts", "reviews")
-      expect(router).not_to have_fetched("reviews", "accounts")
-      expect(router).not_to have_fetched("accounts")
+      expect(router).to have_fetched_subgraphs("accounts", "reviews")
+      expect(router).not_to have_fetched_subgraphs("reviews", "accounts")
+      expect(router).not_to have_fetched_subgraphs("accounts")
     end
 
     it "prints the fetch list it got, in order" do
-      expect(failing(have_fetched("accounts", "products"), router))
+      expect(failing(have_fetched_subgraphs("accounts", "products"), router))
         .to eq 'expected the router to have fetched ["accounts", "products"], but it fetched ["accounts", "reviews"]'
     end
 
     # the negated message says which reading is meant — "not that exact
     # list", not "never touched accounts"
     it "says the list matched exactly, when it shouldn't have" do
-      expect(passing(have_fetched("accounts", "reviews"), router))
+      expect(passing(have_fetched_subgraphs("accounts", "reviews"), router))
         .to eq 'expected the router not to have fetched ["accounts", "reviews"], but that is exactly what it fetched'
     end
 
     it "asks whether anything was fetched when no subgraph is named" do
-      expect(router).to have_fetched
-      expect(passing(have_fetched, router))
+      expect(router).to have_fetched_subgraphs
+      expect(passing(have_fetched_subgraphs, router))
         .to eq 'expected the router to have fetched nothing, but it fetched ["accounts", "reviews"]'
     end
 
@@ -57,19 +57,19 @@ describe GraphWeaverMatchers do
       router.reset_trace
       expect { router.execute("{ me { id: username reviews { body } } }") }
         .to raise_error GraphWeaver::Testing::Unplannable
-      expect(router).not_to have_fetched
-      expect(failing(have_fetched, router))
+      expect(router).not_to have_fetched_subgraphs
+      expect(failing(have_fetched_subgraphs, router))
         .to eq "expected the router to have fetched a subgraph, but it fetched none"
     end
 
     it "names what it wanted when handed something that isn't a router" do
-      expect { expect(GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema)).to have_fetched }
+      expect { expect(GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema)).to have_fetched_subgraphs }
         .to raise_error(ArgumentError, /reads a GraphWeaver::Testing::Router's #trace.*graphql: :router/m)
     end
 
     it "describes itself for a one-liner" do
-      expect(have_fetched("accounts").description).to eq 'have fetched ["accounts"]'
-      expect(have_fetched.description).to eq "have fetched a subgraph"
+      expect(have_fetched_subgraphs("accounts").description).to eq 'have fetched ["accounts"]'
+      expect(have_fetched_subgraphs.description).to eq "have fetched a subgraph"
     end
   end
 

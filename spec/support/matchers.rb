@@ -7,7 +7,7 @@ require "graph_weaver/testing"
 # subgraph list nineteen times over, two helpers to rescue a refusal, and
 # `errors.first&.code`.
 #
-#      expect(router).to have_fetched("accounts", "reviews")
+#      expect(router).to have_fetched_subgraphs("accounts", "reviews")
 #      expect { router.execute(query) }.to refuse_to_plan(:shadowed_key)
 #      expect(response).to have_graphql_error(code: "THROTTLED")
 #
@@ -27,13 +27,13 @@ module GraphWeaverMatchers
   # path the example ran, however many queries that took:
   #
   #      router.execute("{ me { username reviews { body } } }")
-  #      expect(router).to have_fetched("accounts", "reviews")
+  #      expect(router).to have_fetched_subgraphs("accounts", "reviews")
   #
   # Exactly those, in that order — a stitched query's fetch *order* is what's
   # worth pinning (a `@requires` chain is reviews, products, reviews). Name no
   # subgraph and it asks whether anything was fetched at all, which is how a
-  # plan-time refusal says nothing ran: `expect(router).not_to have_fetched`.
-  def have_fetched(*subgraphs) = HaveFetched.new(subgraphs)
+  # plan-time refusal says nothing ran: `expect(router).not_to have_fetched_subgraphs`.
+  def have_fetched_subgraphs(*subgraphs) = HaveFetchedSubgraphs.new(subgraphs)
 
   # A query the local router won't plan, by {Unplannable} category. The
   # category is the assertion: it carries the advice the message ends with,
@@ -86,15 +86,16 @@ module GraphWeaverMatchers
     def below(sentence, actual) = "#{sentence}:\n  #{actual}"
   end
 
-  class HaveFetched
+  class HaveFetchedSubgraphs
     def initialize(expected)
       @expected = expected
     end
 
     def matches?(router)
       unless router.respond_to?(:trace)
-        raise ArgumentError, "have_fetched reads a GraphWeaver::Testing::Router's #trace, and " \
-          "#{router.class} has none — in a `graphql: :router` example the router is GraphWeaver.client"
+        raise ArgumentError,
+          "have_fetched_subgraphs reads a GraphWeaver::Testing::Router's #trace, and #{router.class} " \
+            "has none — in a `graphql: :router` example the router is GraphWeaver.client"
       end
 
       @actual = router.trace.map { |fetch| fetch[:subgraph] }
