@@ -23,9 +23,19 @@ module GraphWeaver
       # transport-error set.
       GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
 
+      # How many requests this process can have in flight at once. Rails sizes
+      # its own connection pool from RAILS_MAX_THREADS and this is the same
+      # question, so it answers both. A fiber server (Falcon) sets no such
+      # ceiling of its own — pass pool_size: there.
+      def self.default_pool_size
+        threads = ENV["RAILS_MAX_THREADS"].to_i
+        threads.positive? ? threads : 5
+      end
+
       def initialize(url, headers: {}, open_timeout: DEFAULT_OPEN_TIMEOUT,
-        read_timeout: DEFAULT_READ_TIMEOUT, keep_alive_timeout: 2, pool_size: 5,
+        read_timeout: DEFAULT_READ_TIMEOUT, keep_alive_timeout: 2, pool_size: nil,
         ca_file: nil, ca_path: nil, cert: nil, key: nil, verify_mode: nil)
+        pool_size ||= self.class.default_pool_size
         raise ArgumentError, "pool_size: must be >= 1" unless pool_size >= 1
 
         @url = url
@@ -46,6 +56,7 @@ module GraphWeaver
         # One permit per allowed socket: holding a permit is the right to
         # hold a connection, so at most pool_size requests are in flight
         # and the rest queue rather than opening unbounded sockets.
+        @pool_size = pool_size
         @permits = SizedQueue.new(pool_size)
         pool_size.times { @permits.push(true) }
 
@@ -72,7 +83,7 @@ module GraphWeaver
       # the whole trip — opening the socket included — so pool_size really
       # is the concurrency ceiling.
       def with_connection
-        @permits.pop
+        acquire_permit
         http = nil
 
         begin
@@ -104,6 +115,26 @@ module GraphWeaver
           keep_alive_timeout: @keep_alive_timeout,
           **@ssl,
         )
+      end
+
+      # Take a permit, saying so when none is free. A queued request is
+      # indistinguishable from a slow server from the outside, which is the
+      # whole problem: pool_size is a hard ceiling under fibers exactly as
+      # under threads. Warned once — a saturated pool stays saturated, and a
+      # line per request would bury it.
+      def acquire_permit
+        @permits.pop(true)
+      rescue ThreadError
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        @permits.pop
+        waited = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+
+        first = !@saturated
+        @saturated = true
+        GraphWeaver.log(first ? :warn : :debug) do
+          "connection pool saturated: waited #{waited}ms for 1 of #{@pool_size} connections to " \
+            "#{@uri.hostname} — raise pool_size: to this process's concurrency"
+        end
       end
 
       def disconnect(http)

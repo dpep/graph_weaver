@@ -1,4 +1,14 @@
 ## Unreleased
+- **`Transport::HTTP`'s `pool_size:` defaults to `RAILS_MAX_THREADS`** (else 5,
+  as before) — the variable Rails already sizes its own connection pool from,
+  because it is the same question. A threaded app that raised its thread count
+  no longer silently queues behind five sockets.
+- **A saturated pool says so.** The first request that has to wait for a
+  connection logs a warning naming the wait and the ceiling; later ones log at
+  debug. Queueing was previously indistinguishable from a slow server, which
+  mattered most under a fiber scheduler — `async`/Falcon multiplexes fine, but
+  nothing sets `RAILS_MAX_THREADS` there, so the default capped it at 5 with no
+  signal. See `docs/transports.md`.
 
 ### One `execute`, one way to pass a client (**breaking**)
 

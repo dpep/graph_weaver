@@ -70,6 +70,7 @@ GraphWeaver::Transport::HTTP.new(
   open_timeout: 10, read_timeout: 30,  # seconds (the defaults)
   keep_alive_timeout: 2,               # idle window before reconnecting
   pool_size: 5,                        # concurrent requests in flight
+                                       # (default: RAILS_MAX_THREADS, else 5)
 
   # TLS, forwarded to Net::HTTP.start — a private CA, or mTLS, without
   # reaching for Faraday. Passing any of these to an http:// url raises
@@ -145,10 +146,21 @@ and a genuinely anonymous one sends no `operationName` key at all.
 (`GraphWeaver.client = api`), so it has to serve every thread.
 `Transport::HTTP` opens up to `pool_size:` sockets lazily and reuses the
 warmest one; requests beyond that queue for a free slot rather than
-opening unbounded connections. Raise it for a threaded server (Puma with
-`threads: 16`), lower it for a server that counts connections. A socket
-that errors is closed and its slot left empty, so the next call
-reconnects.
+opening unbounded connections. A socket that errors is closed and its slot
+left empty, so the next call reconnects.
+
+`pool_size:` defaults to `RAILS_MAX_THREADS` (else 5) — the same variable
+Rails sizes its own connection pool from, because it is the same question:
+how many requests this process can have in flight at once. Lower it for a
+server that counts connections.
+
+Under a fiber scheduler (`async`, Falcon) everything here works unchanged —
+`SizedQueue`, `Mutex`, `net/http` and `Kernel#sleep` are all scheduler-aware,
+so requests multiplex on one thread at thread-equivalent throughput. But
+`pool_size:` is the same hard ceiling there, and nothing sets
+`RAILS_MAX_THREADS` for you, so set it to the concurrency you expect.
+Saturation is not silent: the first request that has to queue logs a warning
+naming how long it waited and what to raise.
 
 ## Client resolution
 

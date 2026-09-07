@@ -111,6 +111,35 @@ describe GraphWeaver::Transport::HTTP do
         .to raise_error(GraphWeaver::TransportError, /Timeout/)
     end
 
+    # a queued request looks exactly like a slow server from outside, so the
+    # ceiling has to announce itself
+    it "warns once when the pool is saturated" do
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+
+      call_concurrently(serial, threads: 3)
+
+      expect(io.string).to include("connection pool saturated")
+      expect(io.string).to include("1 of 1 connections")
+      expect(io.string.scan("connection pool saturated").size).to eq 1
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    it "sizes the pool from RAILS_MAX_THREADS" do
+      expect(described_class.default_pool_size).to eq 5
+
+      ENV["RAILS_MAX_THREADS"] = "16"
+      expect(described_class.default_pool_size).to eq 16
+      expect(described_class.new(url).instance_variable_get(:@pool_size)).to eq 16
+
+      # garbage falls back rather than raising at boot
+      ENV["RAILS_MAX_THREADS"] = "lots"
+      expect(described_class.default_pool_size).to eq 5
+    ensure
+      ENV.delete("RAILS_MAX_THREADS")
+    end
+
     it "rejects a pool that can't hold a connection" do
       expect { described_class.new(url, pool_size: 0) }.to raise_error(ArgumentError, /pool_size/)
     end
