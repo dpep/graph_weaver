@@ -13,15 +13,8 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
 
   let(:query) { "query W { widget { id name meta { tag color } } }" }
 
-  # snapshot/restore the global type registry so aliases don't leak between examples
-  around do |example|
-    saved = GraphWeaver::Codegen.type_registry.dup
-    example.run
-  ensure
-    reg = GraphWeaver::Codegen.type_registry
-    reg.clear
-    reg.merge!(saved)
-  end
+  # the registry is global — clear it so aliases don't leak between examples
+  after { GraphWeaver::Codegen.reset_type_helpers! }
 
   def generate(q = query)
     GraphWeaver::Codegen.generate(schema:, query: q, module_name: "W")

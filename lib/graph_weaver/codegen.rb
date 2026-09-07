@@ -125,6 +125,16 @@ class GraphWeaver::Codegen
     mod
   end
 
+  # Every registry back to its starting state — scalars (built-ins restored),
+  # enum mappings, and type helpers. The clean slate between tests, and the
+  # one call that stays right when a fourth kind of registration shows up.
+  def self.reset_registrations!
+    reset_scalars!
+    reset_enums!
+    reset_type_helpers!
+    self
+  end
+
   # The schema-level types this walk touched, by GraphQL name — the generate!
   # workflow unions these across queries to decide what the shared inputs and
   # enums modules must contain.

@@ -91,6 +91,13 @@ class GraphWeaver::Codegen
       @enum_registry ||= {}
     end
 
+    # Drop every register_enum mapping. No pair with a clear_ twin the way
+    # scalars have one: there are no built-in enums to restore.
+    def reset_enums!
+      enum_registry.clear
+      self
+    end
+
     # Attach app-owned helper modules to every struct generated from a
     # GraphQL type — the logic stays in your code, generation wires it in:
     #
@@ -168,6 +175,14 @@ class GraphWeaver::Codegen
 
     def type_registry
       @type_registry ||= {}
+    end
+
+    # Drop every extend_type registration (mixins, requires, alias: paths).
+    # The block-built mixin constants under GraphWeaver::TypeHelpers stay —
+    # generated files may still name them.
+    def reset_type_helpers!
+      type_registry.clear
+      self
     end
 
     # shared with Client#extend_type: build/validate the mixins and

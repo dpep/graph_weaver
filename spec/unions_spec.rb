@@ -214,8 +214,6 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
     end
 
     it "aliases mapped-enum tables into unions.rb and resolves them at from_h" do
-      registry = GraphWeaver::Codegen.enum_registry
-      saved = registry.dup
       GraphWeaver.register_enum("Rank", HoistRank)
       generate(@base)
 
@@ -227,8 +225,7 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
       got = HomeQuery.from_response!("data" => { "feed" => [{ "__typename" => "Post", "rank" => "HIGH" }] })
       expect(got.feed.first.rank).to eq(HoistRank::High)
     ensure
-      registry.clear
-      registry.merge!(saved)
+      GraphWeaver::Codegen.reset_enums!
     end
 
     it "hoists an unmapped enum a shared fragment reaches into the enums module" do

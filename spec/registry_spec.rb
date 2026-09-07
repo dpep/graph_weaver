@@ -22,15 +22,7 @@ end
 # One registry, global, consulted by every generation path — the console
 # (parse) and the build step (generate!) alike.
 describe "the registration registry" do
-  around do |example|
-    enums = GraphWeaver::Codegen.enum_registry.dup
-    types = GraphWeaver::Codegen.type_registry.dup
-    example.run
-  ensure
-    GraphWeaver::Codegen.enum_registry.replace(enums)
-    GraphWeaver::Codegen.type_registry.replace(types)
-    GraphWeaver.reset_scalars!
-  end
+  after { GraphWeaver::Codegen.reset_registrations! }
 
   let(:client) { GraphWeaver.new(Demo::Schema) }
   let(:query) { "query { person(id: 1) { pets { species } } }" }
@@ -123,6 +115,37 @@ describe "the registration registry" do
       expect(client.execute!(query).person&.pets&.first&.echo).to eq "ShelbyShelby"
 
       expect { GraphWeaver.extend_type("Pet") }.to raise_error(ArgumentError, /helper modules, a block, or alias/)
+    end
+  end
+
+  describe "resets" do
+    before do
+      GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
+      GraphWeaver.register_enum("Species", PetKind)
+      GraphWeaver.extend_type("Pet", PetShouting)
+    end
+
+    it "drops enum mappings on their own" do
+      GraphWeaver::Codegen.reset_enums!
+
+      expect(GraphWeaver::Codegen.enum_registry).to be_empty
+      expect(GraphWeaver::Codegen.type_registry).not_to be_empty
+    end
+
+    it "drops type helpers on their own" do
+      GraphWeaver::Codegen.reset_type_helpers!
+
+      expect(GraphWeaver::Codegen.type_registry).to be_empty
+      expect(GraphWeaver::Codegen.enum_registry).not_to be_empty
+    end
+
+    it "clears all three at once, built-in scalars restored" do
+      GraphWeaver::Codegen.reset_registrations!
+
+      expect(GraphWeaver::Codegen.enum_registry).to be_empty
+      expect(GraphWeaver::Codegen.type_registry).to be_empty
+      # the override is gone, the built-in Date codec is back
+      expect(GraphWeaver::Codegen.scalar("Date").cast?).to be true
     end
   end
 
