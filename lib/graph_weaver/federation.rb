@@ -4,6 +4,7 @@
 require "graphql"
 
 require_relative "schema_loader"
+require_relative "schemas"
 
 module GraphWeaver
   # Federation checks that need no network — the supergraph you committed,
@@ -80,7 +81,7 @@ module GraphWeaver
         # SDL passed as content has no name to print
         @source = source.include?("\n") ? "the supergraph" : source
         @given = named(subgraphs)
-        @schemas = schemas || loaded_schemas
+        @schemas = schemas || GraphWeaver::Schemas.loaded
         @stale = {}
         @uncomposed = {}
         @skipped = {}
@@ -185,9 +186,11 @@ module GraphWeaver
         declared_types(name).each do |type_name|
           @table.declared_fields(type_name).each do |field_name|
             next unless @table.owners(type_name, field_name).include?(name)
-            next if fitting.any? { |schema| defines?(schema, type_name, field_name) }
 
-            (@stale["#{type_name}.#{field_name}"] ||= []) << name
+            coordinate = "#{type_name}.#{field_name}"
+            next if fitting.any? { |schema| GraphWeaver::Schemas.defines?(schema, coordinate) }
+
+            (@stale[coordinate] ||= []) << name
           end
         end
       end
@@ -215,16 +218,6 @@ module GraphWeaver
         return [] unless type.respond_to?(:fields)
 
         type.fields.keys.reject { |field| field.start_with?("_") }
-      end
-
-      def defines?(schema, type_name, field_name)
-        type = schema.get_type(type_name)
-        type.respond_to?(:fields) && type.fields.key?(field_name)
-      end
-
-      def loaded_schemas
-        require "graph_weaver/testing"
-        GraphWeaver::Testing::Subgraphs.loaded
       end
 
       def headline

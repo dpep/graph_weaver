@@ -62,6 +62,14 @@
   partial data alongside top-level errors is **not** a success.
 - **`Testing::Config#auto_fake` is gone** — it was the pre-tag spelling of
   `config.default_mode = :fake`. Use that.
+- **`rake graph_weaver:federation:diff` no longer loads the test harness.**
+  `Federation::Drift` needed one thing from it — the list of loaded schema
+  classes — and did `require "graph_weaver/testing"` from inside itself to get
+  it, pulling faker into a task that fabricates nothing. That question, and
+  "does this schema define this coordinate", now live in `GraphWeaver::Schemas`,
+  shared with `Testing::Subgraphs`. Measured over the fixture supergraph, the
+  task loads 15 files instead of 323 (253 of them faker's).
+  `Testing::Subgraphs.loaded` moved with it: call `GraphWeaver::Schemas.loaded`.
 
 ### One shared module, not three (**breaking** — regenerate)
 

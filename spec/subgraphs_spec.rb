@@ -61,8 +61,8 @@ describe GraphWeaver::Testing::Subgraphs do
   it "only ever considers named schemas" do
     GraphQL::Schema.from_definition("type Query { hi: String }")
 
-    expect(described_class.loaded).to all(satisfy { |schema| schema.name })
-    expect(described_class.loaded).to include RouterGraph::Reviews::Schema
+    expect(GraphWeaver::Schemas.loaded).to all(satisfy { |schema| schema.name })
+    expect(GraphWeaver::Schemas.loaded).to include RouterGraph::Reviews::Schema
   end
 
   # the router derives the map itself; the task is for reading what detection

@@ -4,6 +4,7 @@
 require "graphql"
 
 require_relative "../schema_loader"
+require_relative "../schemas"
 
 module GraphWeaver
   module Testing
@@ -51,7 +52,7 @@ module GraphWeaver
               "doesn't have (its subgraphs are #{table.subgraphs.join(", ")})"
           end
 
-          searched = schemas || loaded
+          searched = schemas || GraphWeaver::Schemas.loaded
           table.subgraphs.filter_map do |name|
             served = named.key?(name) ? check!(table, name, named[name]) : detect(table, name, searched)
             [name, served] if served
@@ -59,7 +60,7 @@ module GraphWeaver
         end
 
         # every loaded schema that defines what the table says `name` resolves
-        def candidates(table, name, schemas = loaded)
+        def candidates(table, name, schemas = GraphWeaver::Schemas.loaded)
           schemas.select { |schema| missing(table, name, schema).empty? }
         end
 
@@ -77,14 +78,7 @@ module GraphWeaver
 
         # which of them `schema` doesn't define
         def missing(table, name, schema)
-          expected(table, name).reject { |coordinate| defines?(schema, coordinate) }
-        end
-
-        # Every named GraphQL::Schema in the process. An anonymous one is
-        # graphql-ruby building from SDL — the router's own view of the
-        # supergraph is one — and never an app's subgraph.
-        def loaded
-          descendants(GraphQL::Schema).select(&:name)
+          expected(table, name).reject { |coordinate| GraphWeaver::Schemas.defines?(schema, coordinate) }
         end
 
         private
@@ -120,18 +114,6 @@ module GraphWeaver
           raise ArgumentError, "subgraphs[#{name.inspect}] is #{schema.name || schema.inspect}, " \
             "which doesn't define #{sample(gaps)} — the supergraph says #{name} resolves them. " \
             "Did two entries get swapped?"
-        end
-
-        def defines?(schema, coordinate)
-          type_name, field_name = coordinate.split(".", 2)
-          type = schema.get_type(type_name) or return false
-          return true unless field_name
-
-          type.respond_to?(:fields) && type.fields.key?(field_name)
-        end
-
-        def descendants(klass)
-          klass.subclasses.flat_map { |subclass| [subclass] + descendants(subclass) }
         end
 
         def sample(list)
