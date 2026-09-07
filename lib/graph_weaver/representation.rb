@@ -35,7 +35,7 @@ module GraphWeaver
     # round-tripped through JSON.
     def self.dig(values, path)
       path.split(".").reduce(values) do |scope, name|
-        return nil unless scope.is_a?(Hash)
+        return unless scope.is_a?(Hash)
 
         scope.key?(name) ? scope[name] : scope[name.to_sym]
       end
