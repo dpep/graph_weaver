@@ -125,7 +125,9 @@ module GraphWeaver
         when :router
           router = config.built_router
           router.context = config.context
-          router
+          # built once for the suite, so the trace has to be told where this
+          # example starts — otherwise have_fetched reads the last one's
+          router.reset_trace
         end
       end
 

@@ -266,9 +266,6 @@ GraphWeaver::Testing::Sequence.new(Failure.transport, Failure.transport, fake)
 # casting raises GraphWeaver::TypeError (overrides remain the manual escape hatch)
 GraphWeaver::Testing::FakeClient.new(schema:, corrupt: "Person.birthday")
 
-# stale schema naming a real (sampled) field
-Failure.stale_schema(schema: MySchema)
-
 # field-level partial failure with real GraphQL null propagation: the error
 # lands with its concrete path and nulls bubble to the nearest nullable spot
 GraphWeaver::Testing::FakeClient.new(schema:, fail_at: { path: "person.email", code: "PRIVATE" })
