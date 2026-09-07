@@ -325,6 +325,8 @@ module GraphWeaver
     # replaced on reload. (Public because testing's :in_process mode asks:
     # a client already running in-process names its own schema class.)
     def live_schema
+      # through #transport, not #schema: a url client's #schema introspects,
+      # so asking it would answer this question over the network
       target = client.is_a?(Client) ? client.transport : client
       target = target.schema if target.is_a?(InProcess)
       target if target.is_a?(Class) && target <= GraphQL::Schema

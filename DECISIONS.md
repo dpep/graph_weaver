@@ -148,6 +148,21 @@ only bare read is an `alias:` delegator's first hop, which now spells
 `self.next`. The proposed narrowing would also have made generation depend on
 unrelated global registry state.
 
+## Queries directories are a list again
+
+**Considered:** leaving `queries_path` singular, as 0.4.x made it — one
+`generate!` run reads one directory against one schema, and a second entry
+would produce modules at runtime that `rake graph_weaver:generate` never
+generated and `verify` never checked.
+
+**Rejected because** that failure was the *divergence*, not the plurality:
+back then `load_queries!` walked the list and `generate!` read only its first
+entry. Every reader now goes through `GraphWeaver.query_files`, so a second
+directory is generated, verified and loaded alike — and a duplicate module
+name across two directories refuses, as it already did within one. What
+survives is the honest half of the argument: one run reads one *schema*, so
+`schema_path` stays singular.
+
 ## Deferred, deliberately
 
 - **`write_timeout` on `Transport::HTTP`** — a real gap (nothing bounds sending),
