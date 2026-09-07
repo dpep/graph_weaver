@@ -80,6 +80,46 @@ describe "GraphWeaver.check_queries" do
     GraphWeaver.client = nil
   end
 
+  # "Product.dimensions" says what broke; "(products, reviews)" says whose
+  # code to look at and whose team to talk to — and the supergraph's routing
+  # table already has the mapping
+  it "names the subgraphs behind an error when the dump is a supergraph" do
+    GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
+    write("federated.graphql", "{ product(upc: \"1\") { dimensions } }\n")
+
+    expect(GraphWeaver.check_queries(queries: @queries, fragments: [])[File.join(@queries, "federated.graphql")])
+      .to eq [{
+        "message" => "Field 'dimensions' doesn't exist on type 'Product' (products, reviews)",
+        "line" => 1, "column" => 23, "subgraphs" => %w[products reviews],
+      }]
+  ensure
+    GraphWeaver.schema_path = nil
+  end
+
+  # an argument error names the AST node kind ("Field") where a type would
+  # go, so there is nothing to attribute and nothing is claimed
+  it "says nothing when the error names no type of the graph" do
+    GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
+    write("federated.graphql", "{ topProducts(nope: 1) { upc } }\n")
+
+    expect(GraphWeaver.check_queries(queries: @queries, fragments: [])[File.join(@queries, "federated.graphql")])
+      .to eq [{
+        "message" => "Field 'topProducts' doesn't accept argument 'nope'", "line" => 1, "column" => 15,
+      }]
+  ensure
+    GraphWeaver.schema_path = nil
+  end
+
+  it "leaves the same error untouched on a plain schema" do
+    plain = GraphWeaver::SchemaLoader.load(
+      "type Product { upc: String! }\ntype Query { product(upc: String!): Product }",
+    )
+    write("federated.graphql", "{ product(upc: \"1\") { dimensions } }\n")
+
+    expect(check(plain)[File.join(@queries, "federated.graphql")])
+      .to eq [{ "message" => "Field 'dimensions' doesn't exist on type 'Product'", "line" => 1, "column" => 23 }]
+  end
+
   it "falls back to the local dump when it records no source url" do
     path = File.join(@dir, "dump", "schema.graphql")
     FileUtils.mkdir_p(File.dirname(path))

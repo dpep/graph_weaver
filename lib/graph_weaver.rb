@@ -275,18 +275,41 @@ module GraphWeaver
     # live schema class when the app default runs in-process — and the dump
     # is left alone; pass schema: and nothing touches the network.
     #
+    # When that dump is a composed supergraph, an error naming a type is
+    # branded with the subgraphs behind it — "…on type 'Product'
+    # (products, reviews)", plus a "subgraphs" key — since knowing whose
+    # code to look at is half the answer. A plain schema is unaffected.
+    #
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
     # graph_weaver:queries:check` prints this and exits non-zero.
     def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
+      table = schema ? nil : checked_routing_table
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
 
       Dir[File.join(queries, Codegen::DOCUMENT_GLOB)].sort.each_with_object({}) do |path, failures|
-        errors = validation_errors(schema, File.read(path), shared)
+        errors = validation_errors(schema, File.read(path), shared, table)
         failures[path] = errors if errors.any?
       end
     end
+
+    # The routing table behind the schema check_queries is about to use,
+    # when there is one: a composed supergraph dump says who resolves what,
+    # so a validation error can name the subgraph whose code to look at. nil
+    # for every other source — a plain schema is entirely unaffected — and
+    # nil when a live schema class is what gets checked, since the dump then
+    # isn't what the errors came from.
+    def checked_routing_table
+      return if live_schema
+
+      path = SchemaLoader.locate_path
+      return unless path&.end_with?(".graphql", ".gql")
+
+      sdl = File.read(path)
+      SchemaLoader.routing_table(sdl) if SchemaLoader.federation_sdl?(sdl)
+    end
+    private :checked_routing_table
 
     # The schema check_queries defaults to: the server as it is now. Over a
     # socket that's a fresh introspection of the url the local dump recorded,
@@ -324,17 +347,42 @@ module GraphWeaver
     # source position graphql-ruby reports. Unparseable counts as an error
     # too — it doesn't validate either, and inline_fragments (which parses
     # first) has already branded it with its position.
-    def validation_errors(schema, source, shared)
+    def validation_errors(schema, source, shared, table = nil)
       # path omitted: the caller keys the report by file, so branding the
       # message with it too would just print the path twice
       schema.validate(Codegen.inline_fragments(source, shared)).map do |error|
-        location = error.to_h["locations"]&.first || {}
-        { "message" => error.message, "line" => location["line"], "column" => location["column"] }
+        detail = error.to_h
+        location = detail["locations"]&.first || {}
+        subgraphs = table ? attribute(table, detail["extensions"]) : []
+        entry = {
+          "message" => subgraphs.empty? ? error.message : "#{error.message} (#{subgraphs.join(", ")})",
+          "line" => location["line"],
+          "column" => location["column"],
+        }
+        subgraphs.empty? ? entry : entry.merge("subgraphs" => subgraphs)
       end
     rescue GraphWeaver::ValidationError => e
       e.errors.map { |detail| detail.transform_keys(&:to_s) }
     end
     private :validation_errors
+
+    # Which subgraphs a validation error is about, on a federated schema:
+    # "Field 'weight' doesn't exist on type 'Product'" is much less useful
+    # than the same line plus "(products)" — whose code to look at, whose
+    # team to talk to. graphql-ruby reports the coordinate structurally, so
+    # this is a lookup rather than message parsing. Both halves of the
+    # coordinate are required: an argument error reports typeName "Field"
+    # (the AST node kind, not a type), and looking that up would attribute
+    # confidently and wrongly.
+    def attribute(table, extensions)
+      return [] unless extensions
+
+      type_name, field_name = extensions.values_at("typeName", "fieldName")
+      return [] unless type_name && field_name
+
+      table.responsible(type_name, field_name)
+    end
+    private :attribute
 
     # Load the generated modules — one line in an initializer or spec
     # helper (loading happens only when you call this; skip it and

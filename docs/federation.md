@@ -114,6 +114,19 @@ The table is what [`Testing::Router`](testing.md#a-local-federation-router)
 plans against, and it's a reasonable read on its own — "which subgraph owns
 this field" is the sentence a good error message wants.
 
+Weaver says it where it has the coordinate to say it about. When the schema
+dump is a composed supergraph, `rake graph_weaver:queries:check` brands each
+validation error with the subgraphs behind the type it names:
+
+```
+app/graphql/queries/product.graphql
+  4:5  Field 'dimensions' doesn't exist on type 'Product' (products, reviews)
+```
+
+`Product.dimensions` says what broke; `(products, reviews)` says whose code to
+look at. `check_queries` carries the same list as a `"subgraphs"` key. A plain
+schema has no routing table, so nothing changes for it.
+
 ### Has the supergraph been recomposed?
 
 A committed supergraph is a snapshot of a composition. Change a subgraph and

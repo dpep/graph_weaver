@@ -62,6 +62,14 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(table.declares?("Nope")).to be false
   end
 
+  it "names who is responsible for a coordinate, falling back to the type" do
+    expect(table.responsible("Product", "shippingEstimate")).to eq ["reviews"]
+    # a field the supergraph doesn't carry — the case an error message is
+    # usually asking about: whoever declares the type is still who to talk to
+    expect(table.responsible("Product", "dimensions")).to eq %w[products reviews]
+    expect(table.responsible("Nope", "nope")).to be_empty
+  end
+
   # ---- the shapes a hand-built supergraph can carry --------------------
 
   def supergraph(body, join: <<~JOIN)

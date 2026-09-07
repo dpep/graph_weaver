@@ -906,6 +906,16 @@ module GraphWeaver::SchemaLoader
       !!@field_names[type_name]&.include?(field_name)
     end
 
+    # Who to name in an error about a coordinate: the subgraphs that resolve
+    # Type.field, or — for a bare type, or a field the supergraph no longer
+    # carries — the ones that declare the type. Empty when it places
+    # neither, so a message can simply say nothing.
+    def responsible(type_name, field_name = nil)
+      return declared_in(type_name) unless field_name && declares?(type_name, field_name)
+
+      owners(type_name, field_name)
+    end
+
     # The @key field sets a subgraph will answer an `_entities` fetch on, each
     # as a list of dotted paths ("id organization { id }" => ["id",
     # "organization.id"]). A `resolvable: false` key declares a shape this
