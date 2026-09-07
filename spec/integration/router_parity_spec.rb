@@ -113,6 +113,7 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "a @requires chain whose first fetch finds nothing" => ["{ orphanReviews { product { shippingEstimate } } }", {}],
     "one abstract branch's entity fetch nulls a non-null field" => ['{ search(term: "gone") { __typename ... on Product { name } } }', {}],
     "a resolver error inside one abstract branch" => ["{ purchasables { name ... on Product { shippingEstimate } } }", {}],
+    "a nested @key whose entity fetch finds nothing" => ["{ orphanReviews { body listing { name } } }", {}],
   }.freeze
 
   before(:all) do

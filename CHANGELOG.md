@@ -1,4 +1,18 @@
 ## Unreleased
+- **`Testing::Router` crosses a boundary on a nested `@key` or `@requires`.**
+  `@key(fields: "id organization { id }")` and
+  `@requires(fields: "origin { lat lon }")` used to refuse; they now plan, to
+  any depth, with the object carried in the representation the way the SDL
+  spells it (a null inner object included). **Nothing to do** — queries your
+  suite marked "run this one against a real router" may now simply run. Where
+  a type declares more than one `@key`, the plan takes the first one the
+  fetching subgraph can supply.
+- **`:nested_field_set` narrowed rather than disappeared.** It now names only
+  a nested `@requires` whose fields no *single* subgraph holds — `origin` in
+  one and `origin.lat` in another — which would take a fetch per level when a
+  representation comes from one. If you group refusals by category, that
+  bucket shrinks; its message and `docs/federation.md`'s table say what is
+  left. `:chained_requires` is unchanged and still a different refusal.
 - **`Testing.config.router` takes `subgraphs:` without `supergraph:`.** It
   raised — "must be the arguments to build one, e.g. `{ supergraph: … }`" —
   even where the committed dump already is the supergraph, which is the case

@@ -77,8 +77,12 @@ cost of moving each boundary, if a real query mix ever demands it:
   `@join__unionMember`/`@join__implements`, and the type in more than one
   subgraph. Closing it means reading a join version that predates those
   directives; a modern composition always carries them.
-- **Nested `@key`/`@requires` field sets** — representations are flat; mostly
-  plumbing, ~30 lines.
+- **A nested `@requires` no one subgraph holds** — a nested field set now
+  crosses as the object it is, to any depth. What is left is the set whose
+  fields are split across subgraphs (`origin` in one, `origin.lat` in
+  another): a representation comes from one fetch, so answering it would need
+  an entity fetch on the *inner* type — the same dependency DAG the
+  `@requires` chain above wants.
 - **Mutation root fields spanning subgraphs** — root mutation fields run in
   series, so grouping them would run them in plan order.
 - **An alias shadowing an injected `@key`** — Apollo resolves the collision in

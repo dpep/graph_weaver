@@ -488,6 +488,7 @@ describe GraphWeaver::Testing::Router do
             shipments: [Shipment!]! @join__field(graph: A)
             listings: [Listing!]! @join__field(graph: A)
             parcels: [Parcel!]! @join__field(graph: A)
+            vouchers: [Voucher!]! @join__field(graph: A)
           }
           type Shipment @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
             id: ID!
@@ -508,6 +509,13 @@ describe GraphWeaver::Testing::Router do
           type Box @join__type(graph: A) @join__type(graph: C) {
             width: Int! @join__field(graph: A)
             depth: Int! @join__field(graph: C)
+          }
+          type Voucher @join__type(graph: A, key: "code")
+            @join__type(graph: B, key: "id organization { id }") @join__type(graph: B, key: "code") {
+            id: ID! @join__field(graph: B)
+            organization: Org! @join__field(graph: B)
+            code: String!
+            label: String @join__field(graph: B)
           }
           type Place @join__type(graph: A) @join__type(graph: B) { lat: Float! lon: Float! }
           type Org @join__type(graph: A) @join__type(graph: B) { id: ID! }
@@ -530,6 +538,16 @@ describe GraphWeaver::Testing::Router do
 
         expect(nested.trace.last[:variables]["representations"].first)
           .to match("__typename" => "Listing", "id" => anything, "organization" => { "id" => anything })
+      end
+
+      # One rule, stated once: the first @key the source subgraph can supply.
+      # b keys Voucher on "id organization { id }" and on "code", and a holds
+      # neither id nor organization — so the nested one isn't a candidate.
+      it "takes the first @key the fetching subgraph can supply" do
+        nested.execute("{ vouchers { label } }")
+
+        expect(nested.trace.last[:variables]["representations"].first)
+          .to match("__typename" => "Voucher", "code" => anything)
       end
 
       # the injected keys are the router's own bookkeeping, nested or not

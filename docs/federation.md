@@ -342,6 +342,13 @@ in the representation, and only then asks for the estimate. One hop only: the
 key for the first fetch has to come from the subgraph already in hand, so a
 chain can't grow a chain.
 
+A **nested field set** — `@key(fields: "id organization { id }")`,
+`@requires(fields: "origin { lat lon }")` — is a selection set like any other,
+so it crosses as one: the fetch asks for `organization { id }` under a
+reserved alias, and the representation carries the object back in the shape
+the SDL spells it, to any depth, nulls and all. Where a type has more than one
+`@key`, the plan takes the first one the fetching subgraph can supply.
+
 A **union or interface at a boundary** — a feed, a search page, any
 polymorphic list — is planned per concrete type, because a representation names
 one concrete `__typename` and which one an object has isn't in the query:

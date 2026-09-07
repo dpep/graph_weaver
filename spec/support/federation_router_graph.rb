@@ -381,10 +381,12 @@ module RouterGraph
       def author = { id: object[:author_id], username: USERS.fetch(object[:author_id])[:username] }
       def product = { upc: object[:upc] }
 
+      # a reference, resolvable or not: the orphan review's upc is listed
+      # nowhere, so the entity fetch this key sends comes back null
       def listing
-        found = LISTINGS.values.find { |listing| listing[:upc] == object[:upc] } or return
+        found = LISTINGS.values.find { |listing| listing[:upc] == object[:upc] }
 
-        { upc: found[:upc], store: found[:store] && { id: found[:store] } }
+        { upc: object[:upc], store: found && found[:store] && { id: found[:store] } }
       end
       def subject = { upc: object[:upc] }
 

@@ -142,8 +142,10 @@ module GraphWeaver
     # boundary — split at the crossing, refetched from the owning subgraph
     # through `_entities(representations:)`, and stitched back; a `@requires`
     # field set, fetched from the subgraph that holds it and handed back in
-    # the representation; and a union or interface at a boundary, planned per
-    # concrete type and bucketed on the `__typename` the data comes back with.
+    # the representation; a nested `@key` or `@requires`, which crosses as
+    # the object the SDL spells rather than as a flattened path; and a union
+    # or interface at a boundary, planned per concrete type and bucketed on
+    # the `__typename` the data comes back with.
     # Everything it can't plan
     # *faithfully* raises {Unplannable}, before any subgraph runs, so a
     # refusal can never be a half-executed query. Apollo's planner is twenty
