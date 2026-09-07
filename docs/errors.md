@@ -22,8 +22,10 @@ Every `GraphQLError` exposes `#message`, `#locations`, `#path`, `#extensions`,
 and `#code` (`extensions["code"]`) — match on the **code**, not the message
 string (`response.errors.first.code == "THROTTLED"`).
 
-Everything GraphWeaver raises descends from `GraphWeaver::Error`, split by where
-it failed:
+Everything GraphWeaver *concludes* descends from `GraphWeaver::Error` — a
+transport failure, a rejected query, a response that wouldn't cast, a plan the
+[local router](federation.md) refused, a subgraph map that doesn't add up. The
+subclass says where it failed:
 
 | Class | When |
 |-------|------|
@@ -33,6 +35,14 @@ it failed:
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#field`, `#struct` |
 | `ValidationError` | build time: the query didn't validate against the schema |
+| `ConfigurationError` | setup judged against your schema — which Ruby schema serves which subgraph (`Testing::Router`, `federation:diff`) |
+| `Testing::Unplannable` | the local test router won't plan this operation — `#category`, `#detail` |
+
+An argument that is wrong *on its face* raises a plain `ArgumentError` instead
+(`pool_size: must be >= 1`, `cast: must be a Symbol, Proc, :itself, or nil`),
+like any Ruby method — a bug at the call site, not a condition to rescue. The
+line is whether the library had to read your schema to reach the verdict: it
+did for `ConfigurationError`, which is why a spec helper can rescue that one.
 
 ```ruby
 begin

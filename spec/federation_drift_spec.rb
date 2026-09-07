@@ -112,7 +112,7 @@ describe GraphWeaver::Federation::Drift do
 
   it "refuses a subgraph name the supergraph doesn't have" do
     expect { drift(subgraphs: { "ledger" => DriftGraph::Depots }) }
-      .to raise_error(ArgumentError, /names ledger, which this supergraph doesn't have/)
+      .to raise_error(GraphWeaver::ConfigurationError, /names ledger, which this supergraph doesn't have/)
   end
 
   # federation plumbing (_entities/_service), @external copies and a field

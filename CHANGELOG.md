@@ -1,4 +1,12 @@
 ## Unreleased
+- **Subgraph-mapping refusals are `GraphWeaver::ConfigurationError` (was
+  `ArgumentError`)** — `rescue GraphWeaver::Error` around `Testing::Router.new`
+  now catches them, as `docs/errors.md` said it would. Rescue `ArgumentError`
+  for these and you must change it. The rule the docs now state: what the
+  library *concludes*, having read your schema, is a `GraphWeaver::Error`; an
+  argument wrong on its face (`pool_size: must be >= 1`) stays an
+  `ArgumentError`. An ambiguous-detection refusal also names each candidate
+  schema once, instead of repeating a reloaded constant.
 - **The local test router refused every mutation that stitched below its root**,
   with a message claiming its root fields "span subgraphs" when there was one
   root field in one subgraph — and advice (split it per subgraph) that couldn't

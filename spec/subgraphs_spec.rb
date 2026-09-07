@@ -28,8 +28,18 @@ describe GraphWeaver::Testing::Subgraphs do
 
   it "refuses when two schemas fit, naming both" do
     expect { described_class.resolve(split) }.to raise_error(
-      ArgumentError,
+      GraphWeaver::ConfigurationError,
       /\A2 loaded schemas define everything the supergraph says "b" resolves \(SplitGraph::B::Schema, SplitGraph::Twin::Schema\) — pass subgraphs:/,
+    )
+  end
+
+  # a dev reload leaves two class objects spelled the same, and the list
+  # read as a bug in the message
+  it "names each candidate once" do
+    expect {
+      described_class.resolve(split, schemas: [SplitGraph::B::Schema, SplitGraph::B::Schema, SplitGraph::Twin::Schema])
+    }.to raise_error(
+      /\A2 loaded schemas define .*\(SplitGraph::B::Schema, SplitGraph::Twin::Schema\)/,
     )
   end
 
@@ -47,13 +57,13 @@ describe GraphWeaver::Testing::Subgraphs do
 
   it "names the one symbol an entry takes" do
     expect { described_class.resolve(table, { "reviews" => :faked }) }
-      .to raise_error(ArgumentError, /is :faked — the only symbol an entry takes is :fake/)
+      .to raise_error(GraphWeaver::ConfigurationError, /is :faked — the only symbol an entry takes is :fake/)
   end
 
   it "names an entry the caller got wrong rather than letting it run" do
     expect {
       described_class.resolve(table, RouterGraph::SUBGRAPHS.merge("reviews" => RouterGraph::Accounts::Schema))
-    }.to raise_error(ArgumentError, /\Asubgraphs\["reviews"\] is RouterGraph::Accounts::Schema, which doesn't define Announcement/)
+    }.to raise_error(GraphWeaver::ConfigurationError, /\Asubgraphs\["reviews"\] is RouterGraph::Accounts::Schema, which doesn't define Announcement/)
   end
 
   # graphql-ruby builds anonymous schemas from SDL — the router's own view of

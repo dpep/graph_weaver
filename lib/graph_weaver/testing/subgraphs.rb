@@ -48,8 +48,8 @@ module GraphWeaver
           named = (given || {}).to_h { |name, schema| [name.to_s, schema] }
           unknown = named.keys - table.subgraphs
           if unknown.any?
-            raise ArgumentError, "subgraphs: names #{unknown.join(", ")}, which this supergraph " \
-              "doesn't have (its subgraphs are #{table.subgraphs.join(", ")})"
+            raise GraphWeaver::ConfigurationError, "subgraphs: names #{unknown.join(", ")}, which " \
+              "this supergraph doesn't have (its subgraphs are #{table.subgraphs.join(", ")})"
           end
 
           searched = schemas || GraphWeaver::Schemas.loaded
@@ -91,8 +91,11 @@ module GraphWeaver
           return found.first if found.one?
           return if found.empty?
 
-          raise ArgumentError, "#{found.size} loaded schemas define everything the supergraph says " \
-            "#{name.inspect} resolves (#{found.map(&:name).sort.join(", ")}) — pass subgraphs: naming " \
+          # by name: a dev reload leaves two class objects spelled the same,
+          # and naming one of them twice reads as a bug in the message
+          names = found.map(&:name).uniq.sort
+          raise GraphWeaver::ConfigurationError, "#{names.size} loaded schemas define everything the " \
+            "supergraph says #{name.inspect} resolves (#{names.join(", ")}) — pass subgraphs: naming " \
             "the one you mean"
         end
 
@@ -100,8 +103,8 @@ module GraphWeaver
           return FAKE if schema == FAKE
 
           if schema.is_a?(Symbol)
-            raise ArgumentError, "subgraphs[#{name.inspect}] is #{schema.inspect} — the only symbol " \
-              "an entry takes is #{FAKE.inspect}, which answers it with fabricated data"
+            raise GraphWeaver::ConfigurationError, "subgraphs[#{name.inspect}] is #{schema.inspect} — " \
+              "the only symbol an entry takes is #{FAKE.inspect}, which answers it with fabricated data"
           end
 
           verify!(table, name, schema)
@@ -111,9 +114,9 @@ module GraphWeaver
           gaps = missing(table, name, schema)
           return schema if gaps.empty?
 
-          raise ArgumentError, "subgraphs[#{name.inspect}] is #{schema.name || schema.inspect}, " \
-            "which doesn't define #{sample(gaps)} — the supergraph says #{name} resolves them. " \
-            "Did two entries get swapped?"
+          raise GraphWeaver::ConfigurationError, "subgraphs[#{name.inspect}] is " \
+            "#{schema.name || schema.inspect}, which doesn't define #{sample(gaps)} — the supergraph " \
+            "says #{name} resolves them. Did two entries get swapped?"
         end
 
         def sample(list)

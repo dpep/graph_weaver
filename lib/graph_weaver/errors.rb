@@ -14,8 +14,9 @@ module GraphWeaver
   # structured failures to users. One subclass per failure site —
   # {TransportError} (never reached the server), {ServerError} (non-2xx),
   # {QueryError} (GraphQL-level errors), {TypeError} (response wouldn't
-  # cast), {InputError} (bad variables), {ValidationError} (build time) —
-  # each merging its specifics into #to_h.
+  # cast), {InputError} (bad variables), {ValidationError} (build time),
+  # {ConfigurationError} (setup judged against your schema) — each merging
+  # its specifics into #to_h.
   class Error < StandardError
     extend T::Sig
 
@@ -492,6 +493,15 @@ module GraphWeaver
       super.merge("field" => field, "struct" => struct&.to_s).compact
     end
   end
+
+  # The setup doesn't add up — judged against your schema, not against the
+  # shape of an argument. Which Ruby schema serves which subgraph is the
+  # case that exists: two schemas fit one subgraph, or the one you named
+  # doesn't define what the supergraph says that subgraph resolves. A
+  # verdict the library reached, so it's under the Error umbrella and a
+  # spec helper can rescue it; a plainly wrong argument (`pool_size: must
+  # be >= 1`) stays an ArgumentError, as in any Ruby method.
+  class ConfigurationError < Error; end
 
   # Build-time: the query didn't validate against the schema. Carries the
   # structured validation errors (message + line/column) rather than a

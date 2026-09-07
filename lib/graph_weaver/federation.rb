@@ -130,8 +130,8 @@ module GraphWeaver
         map = (given || {}).to_h { |name, schema| [name.to_s, schema] }
         unknown = map.keys - @table.subgraphs
         if unknown.any?
-          raise ArgumentError, "subgraphs: names #{unknown.join(", ")}, which this supergraph " \
-            "doesn't have (its subgraphs are #{@table.subgraphs.join(", ")})"
+          raise GraphWeaver::ConfigurationError, "subgraphs: names #{unknown.join(", ")}, which " \
+            "this supergraph doesn't have (its subgraphs are #{@table.subgraphs.join(", ")})"
         end
 
         map

@@ -406,7 +406,7 @@ describe GraphWeaver::Testing::Router do
           supergraph: RouterGraph::SUPERGRAPH,
           subgraphs: RouterGraph::SUBGRAPHS.merge("accounts" => RouterGraph::Products::Schema),
         )
-      }.to raise_error(ArgumentError, /\Asubgraphs\["accounts"\] is RouterGraph::Products::Schema, which doesn't define .*Query\.me/)
+      }.to raise_error(GraphWeaver::ConfigurationError, /\Asubgraphs\["accounts"\] is RouterGraph::Products::Schema, which doesn't define .*Query\.me/)
     end
 
     it "names a subgraph the supergraph doesn't have" do
@@ -415,7 +415,7 @@ describe GraphWeaver::Testing::Router do
           supergraph: RouterGraph::SUPERGRAPH,
           subgraphs: RouterGraph::SUBGRAPHS.merge("billing" => RouterGraph::Accounts::Schema),
         )
-      }.to raise_error(ArgumentError, /names billing, which this supergraph doesn't have/)
+      }.to raise_error(GraphWeaver::ConfigurationError, /names billing, which this supergraph doesn't have/)
     end
 
     # bounding the maintenance tail across federation spec versions: a
@@ -520,7 +520,7 @@ describe GraphWeaver::Testing::Router do
     # flip — absence tolerance must not soften that
     it "still refuses a subgraph two loaded schemas fit" do
       expect { described_class.new(supergraph: SplitGraph::SUPERGRAPH) }
-        .to raise_error(ArgumentError, /2 loaded schemas define everything the supergraph says "b" resolves/)
+        .to raise_error(GraphWeaver::ConfigurationError, /2 loaded schemas define everything the supergraph says "b" resolves/)
     end
   end
 
