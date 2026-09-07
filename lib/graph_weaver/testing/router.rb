@@ -263,11 +263,22 @@ module GraphWeaver
         @planner = Planner.new(table: @table, schema: @schema, absent: @absent)
       end
 
-      # Drop the fetches recorded so far. A router is built once and reused
-      # (the rspec tag builds one per suite), so without this #trace answers
-      # about whatever ran before as well.
+      # Drop the fetches recorded so far, so #trace answers about what runs
+      # next. For counting fetches across part of a run — the whole example
+      # boundary is #reset!.
       def reset_trace
         @trace = []
+        self
+      end
+
+      # An example boundary. A router is built once and reused (the rspec tag
+      # builds one per suite), so a faked subgraph would otherwise keep
+      # fabricating from wherever the previous example left its sequence —
+      # making the same example give different data alone than in a full run,
+      # which is exactly what `rspec --seed` promises it won't.
+      def reset!
+        reset_trace
+        @faked.each { |name| @subgraphs[name] = FakeSubgraph.new(name, @schema) }
         self
       end
 
@@ -347,10 +358,16 @@ module GraphWeaver
         response
       end
 
+      # Only for evaluating @skip/@include, which read Booleans — so only the
+      # scalar defaults the parser hands back as Ruby values are wanted. An
+      # enum or input-object default is an AST node; sending one to a subgraph
+      # puts a parser back-pointer on the wire, or raises inside JSON. The
+      # subgraph applies those itself: used_variables copies each declaration
+      # verbatim, defaults and all.
       def variable_defaults(operation)
         operation.variables.each_with_object({}) do |definition, defaults|
           value = definition.default_value
-          next if value.nil? || value.is_a?(GraphQL::Language::Nodes::NullValue)
+          next unless value == true || value == false
 
           defaults[definition.name] = value
         end
@@ -636,7 +653,10 @@ module GraphWeaver
           # __typename the fetch bucketed by says what this object is. Without
           # one the subtree ran whole in one subgraph, which already applied
           # its own propagation — there is nothing to redo.
-          concrete = value.is_a?(Hash) ? @schema.types[value[TYPENAME] || value["__typename"]] : nil
+          # get_type, not types[]: the latter merges every type through a
+          # visibility filter into a fresh hash, and this runs once per
+          # response row — so it would cost rows x schema size
+          concrete = value.is_a?(Hash) ? @schema.get_type(value[TYPENAME] || value["__typename"]) : nil
           return value unless concrete&.kind&.fields?
 
           propagate_object(value, concrete, @planner.narrow(concrete.graphql_name, selections, fragments), fragments)
@@ -898,7 +918,7 @@ module GraphWeaver
         def applies?(condition, concrete)
           return true if condition.nil? || condition == concrete
 
-          type = @schema.types[condition]
+          type = @schema.get_type(condition)
           !!type&.kind&.abstract? && @schema.possible_types(type).any? { |t| t.graphql_name == concrete }
         end
 
@@ -1029,7 +1049,7 @@ module GraphWeaver
         def plan_child(type_name, node, subgraph, field, fragments, depth)
           child_type = child_type_name(type_name, node.name)
           return plan_branches(type_name, node, child_type, subgraph, field, fragments, depth) if
-            @schema.types[child_type]&.kind&.abstract?
+            @schema.get_type(child_type)&.kind&.abstract?
 
           plan_step(child_type, narrow(child_type, node.selections, fragments), subgraph, fragments,
             provides(field), depth + 1)
@@ -1410,7 +1430,7 @@ module GraphWeaver
         end
 
         def raw_child_type(type_name, field_name)
-          type = @schema.types[type_name]
+          type = @schema.get_type(type_name)
           return unless type.respond_to?(:fields)
 
           field = type.fields[field_name] or return

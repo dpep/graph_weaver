@@ -141,6 +141,17 @@ describe "graph_weaver/rspec" do
         .dig("data", "reviews").map { |review| review["body"] }).to include "Love it"
     end
 
+    # default_mode answers for examples that said nothing, so a helper is the
+    # example finally saying something — not a contradiction
+    it "lets a helper override config.default_mode without a tag" do
+      GraphWeaver::Testing.config.default_mode = :fake
+
+      expect { graphql_in_process(DraftsDemo::Schema) }.not_to raise_error
+      expect(GraphWeaver.client).to be_a GraphWeaver::InProcess
+    ensure
+      GraphWeaver::Testing.config.default_mode = nil
+    end
+
     it "refuses a helper that contradicts the tag", graphql: :fake do
       expect { graphql_in_process(Demo::Schema) }
         .to raise_error(GraphWeaver::Error, /tagged graphql: :fake but calls graphql_in_process/)

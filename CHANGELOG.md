@@ -1,4 +1,30 @@
 ## Unreleased
+- **A `graphql: :router` example now starts from the same fabricated data
+  whether it runs alone or after two hundred others.** The router is built once
+  for the suite, and a faked subgraph kept fabricating from wherever the last
+  example left its sequence — so `rspec spec/foo_spec.rb:12` disagreed with the
+  same example in a full run, which is the opposite of what `--seed` promises.
+  `Router#reset!` is the example boundary (`reset_trace` still clears only the
+  trace); the rspec tag calls it for you.
+- **An override key given as a Symbol now pins.** `graphql_fake(overrides: { name: "Ada" })`
+  validated clean and silently fabricated a random value, because lookup is by
+  String — the exact silent-green failure the override validation exists to
+  prevent.
+- **A helper no longer contradicts `config.default_mode`.** With
+  `default_mode = :fake`, an untagged example calling `graphql_in_process`
+  raised *"this example is tagged graphql: :fake"* — naming a tag that wasn't
+  there, and blocking the untagged form the docs recommend. Only an explicit
+  tag can disagree with a helper now.
+- **A variable default that isn't a Boolean no longer reaches a subgraph.** An
+  enum or input-object default is a parser AST node; sending one put a
+  back-pointer to the lexer on the wire, and an input object raised
+  `NoMethodError` outside any rescue. Only `@skip`/`@include` read these, and
+  they read Booleans; a subgraph applies its own defaults from the variable
+  declaration it already receives.
+- The local router asks the schema for one type by name rather than rebuilding
+  the whole type map, at four sites — one of them per response row. On a
+  1200-type supergraph a stitched query over 200 rows was **5x** slower than it
+  needed to be; the cost is now flat in schema size.
 - **`graphql: :in_process` ran the committed schema dump instead of your live
   schema class.** A dump loads as an anonymous `GraphQL::Schema` subclass, which
   looks like a runnable class and has no resolvers — so every app that followed

@@ -61,6 +61,29 @@ describe GraphWeaver::Testing::Router do
     end
   end
 
+  # a router is built once for the suite, so an example has to start from the
+  # same place whether it runs alone or after two hundred others
+  describe "#reset!" do
+    it "restarts a faked subgraph's fabricated data" do
+      faked = described_class.new(
+        supergraph: RouterGraph::SUPERGRAPH,
+        subgraphs: RouterGraph::SUBGRAPHS.merge("reviews" => :fake),
+      )
+      query = "{ me { username reviews { body } } }"
+
+      first = faked.execute(query).dig("data", "me", "reviews", 0, "body")
+      faked.reset!
+      expect(faked.execute(query).dig("data", "me", "reviews", 0, "body")).to eq first
+    end
+
+    it "clears the trace, as reset_trace does" do
+      router.execute("{ me { username } }")
+
+      expect(router.reset!).to be router
+      expect(router).not_to have_fetched_subgraphs
+    end
+  end
+
   describe "a query that stays inside one subgraph" do
     it "answers exactly what that subgraph answers, and says which it asked" do
       query = "query($first: Int!) { topProducts(first: $first) { upc name price } }"

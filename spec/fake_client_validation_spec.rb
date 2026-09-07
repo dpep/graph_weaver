@@ -25,6 +25,14 @@ describe GraphWeaver::Testing::FakeClient do
       .to eq GraphWeaver::InProcess.new(schema).execute(query, variables: {}).dig("errors", 0, "message")
   end
 
+  # a Symbol is the natural thing to type for the bare-field form, and it used
+  # to validate clean and pin nothing
+  it "pins on a Symbol override key, as on a String" do
+    client = described_class.new(schema:, overrides: { name: "Ada" })
+
+    expect(client.execute("{ me { name } }", variables: {}).dig("data", "me", "name")).to eq "Ada"
+  end
+
   it "still fabricates a valid query" do
     result = described_class.new(schema:).execute("query { me { name } }", variables: {})
 

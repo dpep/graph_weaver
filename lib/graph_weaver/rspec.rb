@@ -83,9 +83,12 @@ module GraphWeaver
         # so there is no idiom to discover and no way to leak a client forward
         rspec_config.before(:each) do
           @__graph_weaver_prior_client = GraphWeaver.client
-          @__graph_weaver_mode = GraphWeaver::Testing::RSpecIntegration.mode_for(
-            RSpec.current_example&.metadata || {},
-          )
+          metadata = RSpec.current_example&.metadata || {}
+          # what this example said, apart from what config.default_mode says
+          # for the ones that said nothing — a helper may only contradict the
+          # former
+          @__graph_weaver_tag = metadata[TAG] if metadata.key?(TAG)
+          @__graph_weaver_mode = GraphWeaver::Testing::RSpecIntegration.mode_for(metadata)
           if @__graph_weaver_mode
             GraphWeaver.client = GraphWeaver::Testing::RSpecIntegration.client_for(@__graph_weaver_mode)
           end
@@ -125,9 +128,9 @@ module GraphWeaver
         when :router
           router = config.built_router
           router.context = config.context
-          # built once for the suite, so the trace has to be told where this
-          # example starts — otherwise have_fetched_subgraphs reads the last one's
-          router.reset_trace
+          # built once for the suite, so it has to be told where this example
+          # starts — the trace, and any faked subgraph's fabricated data
+          router.reset!
         end
       end
 
@@ -187,7 +190,10 @@ module GraphWeaver
         # two is then a mistake, and silently letting the later one win hides
         # which.
         def claim_mode!(mode)
-          tagged = defined?(@__graph_weaver_mode) ? @__graph_weaver_mode : nil
+          # only an explicit tag can contradict a helper. config.default_mode
+          # is a fallback for examples that said nothing, so a helper is the
+          # example finally saying something — not a disagreement.
+          tagged = defined?(@__graph_weaver_tag) ? @__graph_weaver_tag : nil
           if tagged && tagged != mode
             # Kernel.raise: this module is mixed into every example group, so
             # it doesn't include Kernel for sorbet to find
