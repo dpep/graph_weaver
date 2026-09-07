@@ -4,6 +4,7 @@
 require "graphql"
 require "json"
 
+require_relative "../parsing"
 require_relative "../schema_loader"
 require_relative "../transport"
 require_relative "subgraphs"
@@ -143,6 +144,8 @@ module GraphWeaver
     # #trace records the fetches one execute made, in order (subgraph, query,
     # variables); the same lines go to GraphWeaver.logger at :debug.
     class Router
+      include GraphWeaver::Parsing
+
       # the schema the router serves — the supergraph with its composition
       # machinery stripped, exactly what a real router exposes
       attr_reader :schema

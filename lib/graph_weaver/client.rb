@@ -4,6 +4,7 @@
 require_relative "codegen"
 require_relative "errors"
 require_relative "inflect"
+require_relative "parsing"
 require_relative "retry"
 require_relative "schema_loader"
 require_relative "transport/http"
@@ -31,6 +32,8 @@ require_relative "transport/http"
 # are a codegen concern and live in one global registry (see
 # GraphWeaver.register_scalar) — the same registry the rake tasks bake.
 class GraphWeaver::Client
+  include GraphWeaver::Parsing
+
   URL = %r{\Ahttps?://}i
 
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
@@ -95,40 +98,11 @@ class GraphWeaver::Client
     @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
   end
 
-  # Parse a query (a .graphql path or raw string) into a typed module
-  # bound to this client's schema and transport (including a live schema
-  # class executing in-process — the module came from this client, so it
-  # runs against it; pass a client per call to override, e.g. with a
-  # fake). Same as GraphWeaver.parse(schema: self, ...).
-  def parse(query, name: nil)
-    GraphWeaver.parse(schema: self, query:, name:)
-  end
-
-  # Parse every query in a directory (subdirectories included) into typed
-  # modules, named like generation would name them — the no-build-step
-  # analog of generate! + load_generated!:
-  #
-  #      github.load_queries!                        # queries/person.graphql => ::PersonQuery
-  #      github.load_queries!(namespace: Github)     # => Github::PersonQuery
-  #                                                  # a mutation file => ::AdoptMutation
-  #
-  # Reloadable (constants are replaced), so it suits consoles and dev.
-  # Returns the modules.
-  def load_queries!(dir = nil, namespace: Object)
-    Dir[File.join(dir || GraphWeaver.queries_path, GraphWeaver::Codegen::DOCUMENT_GLOB)].sort.map do |path|
-      name = GraphWeaver.module_name(path, File.read(path))
-      if namespace.const_defined?(name, false)
-        # the constant moves, its instances don't — a struct built before the
-        # reload keeps failing is_a? against the new module, silently
-        GraphWeaver.log(:info) do
-          "replacing #{name} — objects built from the previous module stay instances of it"
-        end
-        namespace.send(:remove_const, name)
-      end
-      GraphWeaver.log(:info) { "loaded #{name} from #{path}" }
-      namespace.const_set(name, parse(path))
-    end
-  end
+  # #parse and #load_queries! come from Parsing. A parsed module bakes this
+  # client's *transport* rather than the client: Client#execute is the
+  # one-shot parse-and-run below, not the client contract a module calls.
+  # (nil for a schema-dump client, which falls back to GraphWeaver.client.)
+  private def parse_client = transport
 
   # One-shot dynamic execution — parse + execute, returning the typed
   # Response envelope (execute! returns the result or raises). Variables

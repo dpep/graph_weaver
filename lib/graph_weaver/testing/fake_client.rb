@@ -4,6 +4,8 @@
 require "graphql"
 require "json"
 
+require_relative "../parsing"
+
 # A fake client that fabricates schema-correct responses for whatever query
 # arrives — the zero-setup way to test code built on generated modules:
 #
@@ -50,6 +52,7 @@ require "json"
 # schema: included, falls back to GraphWeaver::Testing.config — and the
 # config's schema falls back to the committed dump.
 class GraphWeaver::Testing::FakeClient
+  include GraphWeaver::Parsing
   include GraphWeaver::Selection
 
   # sentinel: a simulated failure bubbling up to the nearest nullable spot

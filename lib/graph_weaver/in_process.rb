@@ -4,6 +4,7 @@
 require "json"
 
 require_relative "errors"
+require_relative "parsing"
 require_relative "transport"
 
 # Runs queries against a live graphql-ruby schema in the same process —
@@ -29,6 +30,8 @@ require_relative "transport"
 # The original exception stays as #cause: in-process, the real backtrace
 # is usually the whole reason you're running in-process.
 class GraphWeaver::InProcess
+  include GraphWeaver::Parsing
+
   # the schema queries run against, and the context handed to every one
   attr_reader :schema, :context
 
