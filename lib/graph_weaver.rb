@@ -38,15 +38,30 @@ module GraphWeaver
     # The first argument is a url or any schema source (a live schema
     # class, or a path/SDL/introspection dump).
     def new(source, **options, &middleware)
+      check_source!(source)
       Client.new(source, **options, &middleware)
     end
+
+    # Anything already speaking the client contract — InProcess, Retry, a
+    # transport, a fake, the test router — carries no schema to generate
+    # from, so it can't stand in as the schema source. Without this it is
+    # handed to SchemaLoader and fails as `undefined method 'lstrip'`.
+    def check_source!(source)
+      # a graphql-ruby schema class executes too, and *is* a schema source
+      return if source.is_a?(Module) || !source.respond_to?(:execute)
+
+      raise Error, "#{source.class} is a client, not a schema source — pass the schema, and this " \
+        "as its transport: GraphWeaver.new(schema, transport: client). For a live schema class " \
+        "with a context: GraphWeaver.new(schema, context: { ... })."
+    end
+    private :check_source!
 
     # The app's default client — how generated modules find their server:
     #
     #      GraphWeaver.client = GraphWeaver.new(url, auth: token)
     #
     # Accepts a Client or anything satisfying the execute contract (a
-    # schema class, a fake — testing's auto_fake swaps one in per
+    # schema class, a fake — testing's graphql: tag swaps one in per
     # example). Generated modules resolve per call -> per module
     # (MyQuery.client=) -> baked constant -> here.
     attr_accessor :client
@@ -297,13 +312,13 @@ module GraphWeaver
     # The graphql-ruby schema class the app default executes against, when it
     # runs in-process — a Client wrapping one, or the class in the slot bare.
     # nil for every network client. Not memoized: in dev the class object is
-    # replaced on reload.
+    # replaced on reload. (Public because testing's :in_process mode asks:
+    # a client already running in-process names its own schema class.)
     def live_schema
       target = client.is_a?(Client) ? client.transport : client
       target = target.schema if target.is_a?(InProcess)
       target if target.is_a?(Class) && target <= GraphQL::Schema
     end
-    private :live_schema
 
     # One query's schema-validation errors as JSON-ready hashes, with the
     # source position graphql-ruby reports. Unparseable counts as an error
@@ -580,7 +595,7 @@ module GraphWeaver
     # Response envelope, execute! the typed result, raising QueryError on
     # top-level errors.
     def execute(source, query, **variables)
-      client = source.is_a?(Client) ? source : Client.new(source)
+      client = source.is_a?(Client) ? source : new(source)
       client.execute(query, **variables)
     end
 

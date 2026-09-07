@@ -166,6 +166,7 @@ describe GraphWeaver::Testing do
       Class.new do
         define_method(:before) { |scope, &block| recorder[[:before, scope]] << block }
         define_method(:after) { |scope, &block| recorder[[:after, scope]] << block }
+        define_method(:include) { |_mod| } # the graphql_context helper
       end.new
     end
     let(:context) { Object.new }
@@ -185,10 +186,10 @@ describe GraphWeaver::Testing do
       expect(GraphWeaver::Testing.config.seed).to eq RSpec.configuration.seed
     end
 
-    it "auto-injects a fake executor per example when opted in" do
+    it "installs a client per example and restores the prior one" do
       GraphWeaver::Testing.configure do |config|
         config.schema = Demo::Schema
-        config.auto_fake = true
+        config.default_mode = :fake
       end
 
       run([:before, :each])
@@ -199,29 +200,24 @@ describe GraphWeaver::Testing do
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
+    it "accepts auto_fake, the pre-tag spelling" do
+      GraphWeaver::Testing.configure { |config| config.auto_fake = true }
+
+      expect(GraphWeaver::Testing.config.default_mode).to eq :fake
+      expect(GraphWeaver::Testing.config.auto_fake).to be true
+    end
+
     # spec/support/federation_router_graph.rb composes it; naming the path
     # rather than its constant keeps this file type-checked
     let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
-
-    it "auto-injects the federation router per example when opted in" do
-      GraphWeaver::Testing.configure do |config|
-        config.router = { supergraph: }
-      end
-
-      run([:before, :each])
-      expect(GraphWeaver.client).to be_a GraphWeaver::Testing::Router
-      expect(GraphWeaver.client.execute("{ me { username reviews { body } } }").dig("data", "me"))
-        .to eq({ "username" => "dpep", "reviews" => [{ "body" => "Love it" }, { "body" => "Too expensive" }] })
-
-      run([:after, :each])
-      expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
-    end
 
     # parsing a supergraph per example is real time; a context set by one
     # example leaking into the next is a real bug
     it "builds the router once, and resets its context every example" do
       GraphWeaver::Testing.configure do |config|
-        config.router = { supergraph:, context: { current_user_id: "2" } }
+        config.router = { supergraph: }
+        config.context = { current_user_id: "2" }
+        config.default_mode = :router
       end
 
       run([:before, :each])
@@ -236,29 +232,19 @@ describe GraphWeaver::Testing do
       run([:after, :each])
     end
 
-    it "refuses to run both a fake and the router" do
-      expect {
-        GraphWeaver::Testing.configure do |config|
-          config.schema = Demo::Schema
-          config.auto_fake = true
-          config.router = { supergraph: }
-        end
-      }.to raise_error(GraphWeaver::Error, /pick one/)
-    end
-
-    it "defaults OFF — fakes are an explicit opt-in" do
-      expect(GraphWeaver::Testing.config.auto_fake).to be false
+    it "defaults OFF — an untagged example keeps the app's client" do
+      expect(GraphWeaver::Testing.config.default_mode).to be_nil
 
       run([:before, :each])
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
-    it "once opted in, the schema auto-locates from the conventional dump" do
+    it "derives the schema from the conventional dump" do
       Dir.mktmpdir do |dir|
         GraphWeaver.schema_path = File.join(dir, "schema.graphql")
         File.write(GraphWeaver.schema_path, Demo::Schema.to_definition)
 
-        GraphWeaver::Testing.configure { |config| config.auto_fake = true }
+        GraphWeaver::Testing.configure { |config| config.default_mode = :fake }
 
         run([:before, :each])
         expect(GraphWeaver.client).to be_a GraphWeaver::Testing::FakeClient

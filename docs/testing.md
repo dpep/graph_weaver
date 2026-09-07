@@ -1,17 +1,115 @@
 # Testing
 
-Everything here is a *client* — the one interface queries run
-through: anything with `execute(query, variables:, operation_name:)` returning
-`{"data" => ..., "errors" => ...}` (see [transports](transports.md)).
-Fakes, failures, and cassettes all slot in wherever a real transport
-would.
+One line in your spec helper:
 
-`require "graph_weaver/rspec"` from your spec helper (or
-`graph_weaver/testing` outside rspec — never in production) for a
-zero-setup fake backend. `FakeClient` fabricates
-schema-correct responses for whatever query arrives: real enum values,
-valid `__typename` members, iso8601 date scalars — every fake casts
-cleanly through your generated structs.
+```ruby
+require "graph_weaver/rspec"
+```
+
+Then **one tag says what an example runs against** — on the example, or on
+the group it belongs to, since rspec metadata inherits:
+
+```ruby
+describe "checkout", graphql: :router do
+  it "stitches the dashboard" do … end     # every example here, too
+end
+
+it "renders the empty state", graphql: :fake do … end
+it "authorizes drafts",       graphql: :in_process do … end
+```
+
+| mode | reach for it when | what it costs |
+|---|---|---|
+| `graphql: :fake` | most unit tests — you need *a* well-shaped response | no resolver code runs |
+| `graphql: :in_process` | the point of the test is that your resolver logic works | slower; needs a live schema class |
+| `graphql: :router` | the same, across a federated graph | needs a composed supergraph; [refuses](#what-it-refuses) shapes it can't plan faithfully |
+| [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
+
+The tag installs its client as `GraphWeaver.client` for that example and
+restores the previous one after, so generated modules run against it with
+zero per-test setup. (Generate them *without* a baked `client:` — a module
+that has one never consults `GraphWeaver.client`.) `rspec --tag
+graphql:router` runs one mode's examples; an untagged example is left
+alone unless you set `config.default_mode`.
+
+Everything here is a *client* — the one interface queries run through:
+anything with `execute(query, variables:, operation_name:)` returning
+`{"data" => ..., "errors" => ...}` (see [transports](transports.md)). Fakes,
+the router, failures, and cassettes all slot in wherever a real transport
+would, so they work outside rspec too (`require "graph_weaver/testing"` —
+never from production code).
+
+## Nothing to configure
+
+Each mode works out what to run against, and **refuses — naming what it
+looked for — rather than guessing**:
+
+- **the schema** is `config.schema` if you set one, else the committed dump
+  at `GraphWeaver.schema_path`, else the schema `GraphWeaver.client` talks to.
+- **`:in_process`** needs the live schema *class*, since only that has
+  resolvers: the one your client already runs in-process, else the loaded
+  class that defines everything the schema declares — the same
+  derive-verify-refuse rule that [maps subgraphs](#which-schema-serves-which-subgraph).
+- **`:router`** plans against the composed supergraph. If your committed
+  dump *is* one (it carries `@join__*` markers), that's it — no config at
+  all. Subgraphs are derived either way.
+
+A client can't supply a supergraph, and the refusal says why:
+
+```
+:router needs the composed supergraph SDL — a client's schema is the API schema
+the router serves, with the @join__* routing table stripped out, so the
+supergraph has to be named. app/graphql/schema.json carries no @join__*
+markers. Set GraphWeaver::Testing.config.router = { supergraph: "supergraph.graphql" }.
+```
+
+So configure only to override a derivation, or to tune fabricated values:
+
+```ruby
+GraphWeaver::Testing.configure do |config|
+  # config.schema = MySchema         # the live class, rather than the dump
+  # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
+  # config.context = { tenant: }     # baseline context every example starts from
+  # config.default_mode = :fake      # what an UNtagged example runs against
+  # config.mode = :faker             # or :literal (plain typed values); nil = auto
+  # config.overrides = { "Person.name" => "Daniel" }
+  # config.list_size = 1..3
+  # config.null_chance = 0.1         # nullable fields go nil sometimes
+end
+```
+
+All three modes, tagged and running end to end, are in
+[`spec/rspec_spec.rb`](../spec/rspec_spec.rb).
+
+## The context your resolvers see
+
+`graphql_context` is available in every example. It **merges** onto
+`config.context` — the baseline survives unless you override a key — and is
+**reset before the next example**, so one example running as somebody else
+can't leak into the one after it:
+
+```ruby
+it "shows the owner's drafts", graphql: :in_process do
+  graphql_context(current_user: alice)
+  expect(DraftsQuery.execute!.drafts.size).to eq 2
+end
+```
+
+Pass a block to scope it, for the example that needs two identities:
+
+```ruby
+graphql_context(admin: true) { expect(SettingsQuery.execute!.settings).to be_present }
+```
+
+Called with nothing it reads the context back. Under `graphql: :fake` it
+refuses: there are no resolvers to receive a context, and silently ignoring
+one would leave an example asserting on data nothing scoped.
+
+## Fabricated data — `graphql: :fake`
+
+`FakeClient` fabricates schema-correct responses for whatever query
+arrives: real enum values, valid `__typename` members, iso8601 date scalars
+— every fake casts cleanly through your generated structs.
 
 ```ruby
 fake = GraphWeaver::Testing::FakeClient.new   # schema: falls back to Testing.config
@@ -35,41 +133,15 @@ Keys are checked against the schema, spellchecked — `"Person.nmae"` raises
 rather than quietly pinning nothing and leaving the example green against
 random data.
 
-With rspec, the setup is two lines in `spec/support/graph_weaver.rb` —
-the require, plus an explicit opt-in to per-example fakes (deliberately
-not a default: silently swapping every example onto a fake would be
-surprising). The schema auto-locates from the committed dump at
-`GraphWeaver.schema_path`:
-
-```ruby
-require "graph_weaver/rspec"   # seed follows --seed
-
-GraphWeaver::Testing.configure do |config|
-  config.auto_fake = true              # every example runs against a fresh fake
-  # config.schema = MySchema           # the live class instead of the dump
-  # config.mode = :faker               # or :literal (plain typed values); nil = auto
-  # config.overrides = { "Person.name" => "Daniel" }
-  # config.list_size = 1..3
-  # config.null_chance = 0.1           # nullable fields go nil sometimes
-end
-```
-
-In an app that serves its own schema, set `config.schema` to the live class:
-fakes are then fabricated from the schema the app actually runs, so they can't
-drift from it the way a stale committed dump can.
-
-With the rspec integration, `rspec --seed 1234` reproduces fake data
-along with test order, and `auto_fake` installs a seeded fake as the
-app client per example (generate modules *without* a baked `client:` so
-they consult `GraphWeaver.client`). `mode:` picks value fabrication: `:faker`
-(semantic, field-name matched — raises if the gem is missing),
-`:literal` (plain type-derived), or nil to auto-detect faker.
+`rspec --seed 1234` reproduces fake data along with test order. `config.mode`
+picks value fabrication: `:faker` (semantic, field-name matched — raises if
+the gem is missing), `:literal` (plain type-derived), or nil to auto-detect
+faker.
 
 Need the schema itself inside an example — to sample a field, or build a
-query on the fly? `GraphWeaver::Testing.config.schema` reads back what
-`config.schema =` set, falling back to the committed dump; under
-`auto_fake` the client in play exposes the same object as
-`GraphWeaver.client.schema`.
+query on the fly? The client in play exposes it as
+`GraphWeaver.client.schema`, and `GraphWeaver::Testing.config.schema` reads
+back what `config.schema =` set, falling back to the committed dump.
 
 Test-only generated modules don't have to live in `app/` —
 `generated_paths` is an appendable list, so the same support file can
@@ -79,7 +151,9 @@ register a spec-local set that `load_generated!` (and the Railtie) pick up:
 GraphWeaver.generated_paths << "spec/support/graphql/generated"
 ```
 
-**Simulating failures** — every failure mode is just a client, so
+## Simulating failures
+
+Every failure mode is just a client, so
 error-handling paths are testable without a server that misbehaves on cue:
 
 ```ruby
@@ -108,7 +182,9 @@ Failure.stale_schema(schema: MySchema)
 GraphWeaver::Testing::FakeClient.new(schema:, fail_at: { path: "person.email", code: "PRIVATE" })
 ```
 
-**Capture and replay** — cassettes record real API responses and replay
+## Capture and replay
+
+Cassettes record real API responses and replay
 them offline, above the transport (no HTTP interception):
 
 ```ruby
@@ -121,13 +197,44 @@ real data never lands in a committed file — the full workflow guide is
 **[cassettes](cassettes.md)**.
 
 
-## A local federation router
+## Real resolvers, one schema — `graphql: :in_process`
+
+Your actual resolvers, your actual `context`, in the same process — no
+socket, no serialization, and a resolver's real backtrace when it raises.
+
+```ruby
+it "hides other people's drafts", graphql: :in_process do
+  graphql_context(current_user: alice)
+  expect(DraftsQuery.execute!.drafts.map(&:owner)).to all(eq alice.name)
+end
+```
+
+The live schema *class* is found for you (a schema dump has no resolvers,
+so it won't do). If two loaded classes match, or none does, it says so and
+asks for `config.schema = MySchema` — and in Rails, remember that an
+autoloaded schema isn't loaded until something references it.
+
+## The in-process router — `graphql: :router`
 
 If your app is a client of a **federated** graph, its subgraphs are Ruby
 schema classes you can run in-process. `Testing::Router` takes the composed
 supergraph and those classes and satisfies the client contract, so every
 generated module runs against the real resolvers — no gateway, no node, no
-sockets:
+sockets. It is not a mock: your resolvers run, which is the whole point.
+
+```ruby
+describe "the dashboard", graphql: :router do
+  it "stitches a user's reviews" do
+    graphql_context(current_user: user)
+    expect(DashboardQuery.execute!.me.reviews.size).to eq 2
+  end
+end
+```
+
+The router is built once for the suite (parsing a supergraph per example
+would be real time) and installed as `GraphWeaver.client` for each; its
+context is reset from `config.context` every time, so an example that runs
+as someone else can't leak into the next. Outside rspec, build one yourself:
 
 ```ruby
 GraphWeaver.client = GraphWeaver::Testing::Router.new(
@@ -135,23 +242,6 @@ GraphWeaver.client = GraphWeaver::Testing::Router.new(
   context: { current_user: user },
 )
 ```
-
-Or wire it once and every example runs against your real resolvers, with no
-per-test setup:
-
-```ruby
-# spec/spec_helper.rb — require "graph_weaver/rspec"
-GraphWeaver::Testing.configure do |config|
-  config.router = { supergraph: Rails.root.join("supergraph.graphql") }
-end
-```
-
-The router is built once for the suite and installed as `GraphWeaver.client`
-for each example; the prior client is restored after. An example that runs as
-someone else sets `GraphWeaver.client.context = { current_user: user }`, and
-the configured context is restored before the next one. `auto_fake` and
-`router` both install a client for every example, so configuring both refuses
-— pick the one you want.
 
 ### Which schema serves which subgraph
 

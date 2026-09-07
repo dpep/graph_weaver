@@ -45,7 +45,7 @@ logs which transport it built at `info`.
 
 To wire generated modules that don't bake a client, make it the app's
 default: `GraphWeaver.client = github`. Anything satisfying the execute
-contract works there — testing's auto_fake swaps in a fake per example.
+contract works there — testing's `graphql:` tag swaps in a client per example.
 
 ## Building blocks
 

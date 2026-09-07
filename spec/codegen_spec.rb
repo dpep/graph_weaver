@@ -903,6 +903,18 @@ describe GraphWeaver::Codegen do
       expect(GraphWeaver.execute!(Demo::Schema, query, id: "1").person&.name).to eq "Daniel"
     end
 
+    it "refuses a client where a schema source belongs" do
+      # every one of these speaks execute, and none carries a schema to
+      # generate from — the old failure was NoMethodError on lstrip
+      [
+        GraphWeaver::InProcess.new(Demo::Schema),
+        GraphWeaver::Retry.new(GraphWeaver::InProcess.new(Demo::Schema)),
+      ].each do |client|
+        expect { GraphWeaver.execute!(client, "{ people { name } }") }
+          .to raise_error(GraphWeaver::Error, /client, not a schema source.*transport:/m)
+      end
+    end
+
     it "accepts graphql-cased variable keys" do
       result = GraphWeaver.execute!(
         Demo::Schema,
