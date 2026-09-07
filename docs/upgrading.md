@@ -1,16 +1,27 @@
 # Upgrading to 0.5.0
 
-0.5.0 is one large breaking release. Almost all of it is caught mechanically —
-the work is running three commands and following what they tell you.
+0.5.0 is one large breaking release. Almost all of it is caught mechanically,
+in this order:
 
 ```sh
-rake graph_weaver:generate   # 1. regenerate; the emitted call shape changed
-srb tc                       # 2. every call site that moved is now a type error
-rake graph_weaver:verify     # 3. fails until the tree is regenerated
+# 1. rename the path settings first — generate won't load without them
+#    (queries_path -> queries_paths, generated_path -> generated_paths,
+#     fragments_path -> fragments_paths; see "One plurality rule" below)
+
+bundle exec tapioca gem graph_weaver   # 2. regenerate the RBI
+rake graph_weaver:generate             # 3. the emitted call shape changed
+srb tc                                 # 4. every call site that moved is an error
+rake graph_weaver:verify               # 5. fails until the tree is regenerated
 ```
 
-Generated code is `# typed: strict`, so step 2 finds the call sites for you.
-The rest of this page is what a typechecker can't see.
+**Step 2 is not optional.** Against the 0.4.6 RBI, `srb tc` reports errors
+pointing into your `generated/` directory — `QueryModule`, `client_for`,
+`check_envelope!` — which read as though codegen emitted broken Ruby. It
+didn't; sorbet is checking new generated code against the old gem's types.
+Regenerate the RBI and what remains is only your own call sites.
+
+Generated code is `# typed: strict`, so step 4 finds those for you. The rest of
+this page is what a typechecker can't see.
 
 ## `execute` means one thing now
 
@@ -30,7 +41,9 @@ GraphWeaver.run(source, query, **vars)       # after
 ```
 
 **This one is worth grepping for.** `Client#execute` still exists, so a stale
-call fails at runtime rather than at typecheck: `rg '\.execute!?\(' --type ruby`
+call fails at runtime rather than at typecheck — as do `GraphWeaver.execute`
+and `GraphWeaver.reset_scalars!`, which are simply gone and will not be flagged
+until the RBI is regenerated (step 2): `rg '\.execute!?\(' --type ruby`
 and check each hit is passing `variables:` rather than loose kwargs.
 
 A generated module takes its per-call client as a **keyword**:
@@ -69,16 +82,25 @@ GraphWeaver::Codegen.reset_scalars!   # after   (also reset_enums!, clear_scalar
 
 | before | after |
 |---|---|
-| `response.ok?` | `response.success?` |
 | `Testing.config.auto_fake = true` | `Testing.config.default_mode = :fake` |
 | `register_scalar(…, coerce: :to_s)` | `coerce: true`, or a `cast:`/`serialize:` pair |
 | a mutation's `…Query` module | `…Mutation` |
+| `graphql: :none` (rspec tag) | `graphql: false` |
 
-`Testing::LiveSchema` is gone. If your client points at a different API than the
-schema class your specs run in-process, name it once:
+**The shared types module was three, and is now one.** `GraphQLInputs`,
+`GraphQLEnums` and `GraphQLUnions` are all `GraphQLTypes`, and the files move
+with them — `generated/inputs/` becomes `generated/types/`. The three settings
+that named them (`inputs_module=`, `enums_module=`, `unions_module=`) are one
+`types_module=`. Regenerating writes the new tree; delete the old directory,
+which pruning leaves behind empty.
+
+If your specs run one schema class in-process while your client points at a
+different API, name it — per example, since a federated suite runs more than
+one:
 
 ```ruby
-GraphWeaver::Testing.config.schema = MySchema
+graphql_in_process(MySchema)                     # in the example
+GraphWeaver::Testing.config.schema = MySchema    # or once, for the whole suite
 ```
 
 ## Registering from Rails

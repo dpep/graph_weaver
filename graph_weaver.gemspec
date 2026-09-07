@@ -11,8 +11,17 @@ Gem::Specification.new do |s|
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"
-  s.summary     = "GraphWeaver"
+  # rubygems.org shows summary as the headline, description below it
+  s.summary     = "A typed GraphQL client for Ruby"
   s.version     = GraphWeaver::VERSION
+
+  s.metadata = {
+    "bug_tracker_uri" => "#{s.homepage}/issues",
+    "changelog_uri" => "#{s.homepage}/blob/main/CHANGELOG.md",
+    "documentation_uri" => "#{s.homepage}/tree/main/docs",
+    "rubygems_mfa_required" => "true",
+    "source_code_uri" => s.homepage,
+  }
 
   s.required_ruby_version = ">= 3.3"
 
