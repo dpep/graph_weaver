@@ -86,7 +86,7 @@ describe "Apollo Federation, live", :integration do
     router = GraphWeaver.new(@gateway_url)
 
     # unknown user: USERS returns null user; no stitch, no data drama
-    response = router.execute("query($id: ID!) { user(id: $id) { name petNames } }", id: "999")
+    response = router.run("query($id: ID!) { user(id: $id) { name petNames } }", id: "999")
     expect(response.data!.user).to be_nil
 
     # a stale query hitting the ROUTER directly (raw transport — the
