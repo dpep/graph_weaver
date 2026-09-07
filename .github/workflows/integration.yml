@@ -8,6 +8,13 @@ name: Integration
 #
 # Scheduled only: a public endpoint being down must never block a PR. It is
 # deliberately NOT continue-on-error — a red nightly is the whole signal.
+#
+# The federation job needs no network, only node — it exists because
+# Testing::Router's refusal categories are a *claim* about how the local
+# router differs from Apollo's, and a claim nothing re-checks becomes a
+# record of what someone believed on the day they wrote it. The cost of it
+# going stale is the one outcome this library is built to prevent: a test
+# that passes on semantics production disagrees with.
 on:
   schedule:
     - cron: "17 7 * * *"
@@ -31,3 +38,33 @@ jobs:
         env:
           INTEGRATION: "1"
         run: bundle exec rspec spec/integration/countries_spec.rb spec/integration/pokeapi_spec.rb
+
+  federation:
+    runs-on: ubuntu-latest
+
+    name: apollo gateway parity
+
+    steps:
+      - name: clone ${{ github.repository }}
+        uses: actions/checkout@v7
+      - name: setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: spec/support/federation/package-lock.json
+      - name: install the gateway harness
+        run: npm --prefix spec/support/federation ci
+      - name: diff the local router against a real @apollo/gateway
+        env:
+          INTEGRATION: "1"
+        run: >
+          bundle exec rspec
+          spec/integration/router_parity_spec.rb
+          spec/integration/federation_spec.rb
+          spec/integration/api_schema_spec.rb
