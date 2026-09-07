@@ -1,4 +1,8 @@
 ###  Unreleased
+- **`GraphWeaver.parse(query:)` accepts a `Pathname`.** `schema:` already did,
+  so `GraphWeaver.parse(schema: Rails.root.join("schema.graphql"), query:
+  Rails.root.join("app/graphql/queries/person.graphql"))` died on the query
+  argument with `undefined method 'end_with?'`. Same for `client.parse(path)`.
 - **`rake graph_weaver:cassettes:check` and `:anonymize` now find cassettes
   from any working directory.** Both read `config.cassette_dir` raw, while
   `Cassette.new` resolves it against `Rails.root` — so run from anywhere but

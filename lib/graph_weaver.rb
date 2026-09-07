@@ -616,6 +616,10 @@ module GraphWeaver
     def parse(schema:, query:, name: nil, client: nil, fragments: fragments_paths)
       client ||= schema if schema.is_a?(Client)
       schema = schema_for(schema)
+      # Rails.root.join(...) hands you a Pathname, and to_path is the
+      # ecosystem's "I am a path" — the same conversion schema: gets through
+      # SchemaLoader.load. Without it end_with? below is a NoMethodError.
+      query = query.to_path if query.respond_to?(:to_path)
       path = query if query.end_with?(".graphql", ".gql")
       if path
         query = File.read(path)
