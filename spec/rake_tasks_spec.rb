@@ -380,5 +380,28 @@ describe "graph_weaver rake tasks" do
       expect(name).to be_a String
       expect(name).not_to eq "Daniel Pepper"
     end
+
+    # config.cassette_dir is relative by default and rake runs from wherever
+    # it runs from — Testing.cassette_dir resolves it against Rails.root for
+    # exactly that reason, and Cassette.new already goes through it. A task
+    # reading config directly looks somewhere else than the recordings live.
+    it "resolves a relative cassette_dir against Rails.root" do
+      write_schema
+      stub_const("Rails", Module.new { def self.root = @root })
+      Rails.instance_variable_set(:@root, Pathname.new(@root))
+      GraphWeaver::Testing.config.cassette_dir = "cassettes"
+      FileUtils.mkdir_p(File.join(@root, "cassettes"))
+      path = File.join(@root, "cassettes", "person.yml")
+      File.write(path, [{
+        "query" => "query Person($id: ID!) { person(id: $id) { name } }",
+        "variables" => { "id" => "1" },
+        "response" => { "data" => { "person" => { "name" => "Daniel Pepper" } } },
+      }].to_yaml)
+
+      result = invoke("cassettes:anonymize")
+
+      expect(result.status).to eq 0
+      expect(result.out).to eq "anonymized #{path}\n"
+    end
   end
 end

@@ -1,4 +1,10 @@
 ###  Unreleased
+- **`rake graph_weaver:cassettes:check` and `:anonymize` now find cassettes
+  from any working directory.** Both read `config.cassette_dir` raw, while
+  `Cassette.new` resolves it against `Rails.root` — so run from anywhere but
+  the app root, `check` aborted with "this checked nothing, so it proved
+  nothing" and `anonymize` silently did nothing, both while a spec run found
+  the same files fine. They now use the same resolution the recordings do.
 - **An `extend_type(alias:)` name a struct instance already answers to now
   refuses** instead of silently overriding it. `alias: { hash: "…" }` emitted
   `def hash`, which breaks every `Hash` and `Set` holding that struct;

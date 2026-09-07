@@ -227,7 +227,9 @@ namespace :graph_weaver do
         Object.const_get(name) if Object.const_defined?(name)
       end
 
-      dir = GraphWeaver::Testing.config.cassette_dir
+      # Testing.cassette_dir, not config.cassette_dir: the configured path is
+      # relative by default and rake runs from wherever it runs from
+      dir = GraphWeaver::Testing.cassette_dir
       checks = Dir[File.join(dir, "*.yml")].sort.map do |path|
         GraphWeaver::Testing::Cassette.new(path).check(modules)
       end
@@ -257,7 +259,7 @@ namespace :graph_weaver do
       require "graph_weaver/testing"
 
       schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
-      Dir[File.join(GraphWeaver::Testing.config.cassette_dir, "*.yml")].sort.each do |path|
+      Dir[File.join(GraphWeaver::Testing.cassette_dir, "*.yml")].sort.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
         puts "anonymized #{path}"
       end
