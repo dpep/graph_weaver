@@ -1,4 +1,13 @@
 ## Unreleased
+- **`@skip`/`@include` driven by a variable's declared default was ignored on a
+  boundary-crossing field**, so `query($show: Boolean = true) { … @include(if: $show) }`
+  called with no variables silently dropped the field. graphql-ruby applies an
+  operation's defaults; the local router read only what the caller passed.
+- **`Testing::FakeClient` raises a GraphQL validation error for an unknown
+  field**, as every other client in the slot does. It used to die with
+  `NoMethodError: undefined method 'type' for nil` from inside the fabricator —
+  undiagnosable, and the commonest mistake there is: a query drifting ahead of
+  the schema dump, or a typo in one written inside an example.
 - **The local test router plans a union or interface at a subgraph boundary.**
   `search { ... on Track { playCount } ... on Artist { upcomingEvents { … } } }`
   — a feed, a search page, any polymorphic list — used to be refused

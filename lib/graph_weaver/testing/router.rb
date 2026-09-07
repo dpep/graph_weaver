@@ -255,7 +255,11 @@ module GraphWeaver
       def run(plan, variables)
         errors = []
         data = {}
-        given = variables.to_h { |name, value| [name.to_s, value] }
+        # An operation's declared defaults are part of the variables, and
+        # graphql-ruby applies them — so @skip/@include has to see them too,
+        # or a field the caller never opted out of goes missing.
+        given = variable_defaults(plan.operation)
+          .merge(variables.to_h { |name, value| [name.to_s, value] })
 
         plan.steps.each do |step|
           result = fetch_step(step, plan.operation, given)
@@ -287,8 +291,18 @@ module GraphWeaver
       # Everything the plan applies at this level: one _entities fetch per
       # subgraph the level defers to (all nodes at once — _entities answers
       # in representation order), then the same again one level down.
-      # @skip/@include against the variables in hand. An unknown variable
-      # reads as absent, which is what graphql-ruby does with it too.
+      def variable_defaults(operation)
+        operation.variables.each_with_object({}) do |definition, defaults|
+          value = definition.default_value
+          next if value.nil? || value.is_a?(GraphQL::Language::Nodes::NullValue)
+
+          defaults[definition.name] = value
+        end
+      end
+
+      # @skip/@include against the variables in hand, defaults included. A
+      # variable with neither reads as absent, which excludes under @include
+      # and includes under @skip — the same way graphql-ruby resolves it.
       def included?(node, variables)
         node.directives.all? do |directive|
           next true unless %w[skip include].include?(directive.name)

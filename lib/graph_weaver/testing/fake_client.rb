@@ -83,6 +83,14 @@ class GraphWeaver::Testing::FakeClient
   # document holds one operation, so there is nothing to select between
   # (see Selection#load_operation).
   def execute(query, variables: {}, operation_name: nil)
+    # Validate first, as the other clients in the slot do: a field the schema
+    # doesn't have would otherwise walk into `get_field(...).type` on nil, and
+    # a NoMethodError from inside the fabricator is undiagnosable next to the
+    # "Did you mean" a real server gives. This is the commonest mistake there
+    # is — a query drifting ahead of the dump, or a typo in an ad-hoc one.
+    invalid = @schema.validate(GraphQL.parse(query))
+    return { "data" => nil, "errors" => invalid.map(&:to_h) } if invalid.any?
+
     operation = load_operation(query)
     root_type = operation_root_type(operation)
 
