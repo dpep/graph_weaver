@@ -75,7 +75,40 @@ describe "graph_weaver/rspec" do
 
     it "runs no resolvers — graphql_context has nothing to receive it", graphql: :fake do
       expect { graphql_context(current_user: "alice") }
-        .to raise_error(GraphWeaver::Error, /needs resolvers.*:in_process/m)
+        .to raise_error(GraphWeaver::Error, /needs resolvers.*:in_process.*graphql_fake\(overrides:/m)
+    end
+
+    # the second test anyone writes: fabricated data is fine until the
+    # example is ABOUT the data. The tag builds the client in a
+    # config.before(:each), which rspec runs ahead of any group hook, so
+    # options had nowhere to go — this is where they go.
+    describe "pinning what the example is about" do
+      it "takes overrides for this example", graphql: :fake do
+        graphql_fake(overrides: { "Draft.owner" => "ada", "Query.drafts" => [{}, {}] })
+
+        drafts = DraftsDemo::QUERY.execute!.drafts
+        expect(drafts.size).to eq 2
+        expect(drafts.map(&:owner)).to eq %w[ada ada]
+        expect(drafts.map(&:id)).to all(be_a(String)) # unpinned, still fabricated
+      end
+
+      # set in a before block, which is where setup belongs — and the case
+      # that silently fabricated random data before
+      describe "set in a before hook" do
+        before { graphql_fake(overrides: { "Draft.owner" => "ada" }) }
+
+        it "pins the owner" do
+          expect(DraftsDemo::QUERY.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+        end
+      end
+
+      it "hands back the client, so the request is assertable" do
+        fake = graphql_fake
+
+        DraftsDemo::QUERY.execute!
+        expect(fake.requests.size).to eq 1
+        expect(fake.requests.first[:query]).to include "drafts"
+      end
     end
   end
 
@@ -170,6 +203,13 @@ describe "graph_weaver/rspec" do
         .to raise_error(GraphWeaver::Error, /tag it graphql: :in_process/)
     end
 
+    # the beginner's first mistake is a forgotten tag, and "set
+    # GraphWeaver.client=" is advice for the wrong file
+    it "names the tag when nothing installed a client" do
+      expect { DraftsDemo::QUERY.execute! }
+        .to raise_error(GraphWeaver::Error, /no client configured — tag the example graphql: :fake/)
+    end
+
     context "with config.default_mode" do
       around do |example|
         app_client!(DraftsDemo::Schema)
@@ -181,17 +221,19 @@ describe "graph_weaver/rspec" do
         expect(GraphWeaver.client).to be_a GraphWeaver::Testing::FakeClient
       end
 
-      # a default sweeps in every untagged example, including the one that
-      # wires its own client — which is the case a default creates
-      it "opts out with graphql: false", graphql: false do
-        expect(GraphWeaver.client).to be_a GraphWeaver::Client # what the group installed
+      # A default sweeps in every untagged example, including the one that
+      # wires its own client — which is the case a default creates. Each
+      # asserts the baseline BEFORE building its own, so whichever runs
+      # second proves an opted-out example's client is restored too: it
+      # used not to be, which made "tag :fake, then throw the client away"
+      # the idiom for cleanup.
+      %w[1 2].each do |example|
+        it "opts out with graphql: false (#{example})", graphql: false do
+          expect(GraphWeaver.client).to be_a GraphWeaver::Client # what the group installed
 
-        GraphWeaver.client = GraphWeaver::InProcess.new(DraftsDemo::Schema, context: { current_user: "alice" })
-        expect(DraftsDemo::QUERY.execute!.drafts.map(&:id)).to eq %w[d1 d2] # no hook fighting it
-      end
-
-      it "opts out with graphql: :none too — same thing", graphql: :none do
-        expect(GraphWeaver.client).to be_a GraphWeaver::Client
+          GraphWeaver.client = GraphWeaver::InProcess.new(DraftsDemo::Schema, context: { current_user: "alice" })
+          expect(DraftsDemo::QUERY.execute!.drafts.map(&:id)).to eq %w[d1 d2] # no hook fighting it
+        end
       end
     end
   end
@@ -201,7 +243,7 @@ describe "graph_weaver/rspec" do
 
     it "names the modes when the tag isn't one" do
       expect { GraphWeaver::Testing::RSpecIntegration.mode_for({ graphql: :in_proces }) }
-        .to raise_error(GraphWeaver::Error, /:in_proces is not a mode.*:fake, :in_process, :router.*opt out/m)
+        .to raise_error(GraphWeaver::Error, /:in_proces is not a mode.*:fake, :in_process, :router.*false to opt out/m)
     end
 
     it "says why :router needs the supergraph named, when nothing on disk is one" do

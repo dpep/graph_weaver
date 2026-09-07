@@ -253,3 +253,35 @@ capability loss wearing simplicity's clothes.
 
 `coerce:` and `auto_coerce` both survive because they are one question at two
 scopes — a global default with a local override, the standard shape.
+
+## `config.schema` refuses a subgraph rather than splitting in two
+
+**Considered:** splitting the setting, since it serves two masters — the schema
+fakes are fabricated against, and the live class `:in_process` runs. In a
+federated app you can't have both, and setting one to make `:in_process` work
+silently repointed `:fake` at a fraction of the graph.
+
+**Rejected because** the split is a second knob plus a rule about which one
+applies, and it buys a capability nothing lost: `:router` runs a subgraph's
+real resolvers too, stitched. The two masters only want different objects in a
+federated app, so refusing a subgraph class is the smaller change that makes
+`config.schema` mean one thing again — and the refusal `:in_process` already
+raises ("a federated graph has no one schema class — tag those examples
+`graphql: :router`") becomes the whole story instead of half of it.
+
+## The `graphql:` tag names a mode; a client is built in the example
+
+**Considered:** letting the tag carry a client — `graphql: Failure.throttled`,
+or `graphql: FakeClient.new(overrides: …)` — which reads well and would make
+the tag's value a description rather than the cleanup marker it had become.
+
+**Rejected because** metadata is evaluated when the file loads: one client
+object would be shared by every example in the group, built before
+`Testing.configure` had run. Spooky at a distance, and stateful — `#requests`
+would accumulate across examples.
+
+What the reading was right about was the leak underneath, and that is fixed
+elsewhere: `GraphWeaver.client` is snapshotted and restored around *every*
+example, so the tag no longer earns its keep as a cleanup marker, and building
+a client is a plain assignment in a `before` block. `graphql_fake(**options)`
+exists only because a fake needs the schema derivation the tag was doing.

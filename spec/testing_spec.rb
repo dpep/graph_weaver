@@ -76,6 +76,76 @@ describe GraphWeaver::Testing do
       expect(fake.schema).to be Demo::Schema
     end
 
+    it "records every request, so a call count is assertable" do
+      PersonQuery.execute!(client: fake, id: "1")
+      fake.execute("query { nope }")
+
+      expect(fake.requests.map { |request| request[:variables] })
+        .to eq [{ "id" => "1" }, {}]
+      expect(fake.requests.last[:query]).to eq "query { nope }" # invalid, still sent
+    end
+
+    # the second test anyone writes: fabricated data is fine until the
+    # example is ABOUT the data. Pinning must not mean hand-writing the
+    # whole subtree in wire casing.
+    describe "pinning a subtree" do
+      def pets(overrides)
+        mod = GraphWeaver.parse(schema: Demo::Schema, name: "Pinned",
+          query: "query { person(id: 1) { name pets { name species } } }")
+        mod.execute!(client: GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, overrides:))
+          .person
+      end
+
+      it "pins a list's length and merges each element" do
+        person = pets("Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}])
+
+        expect(person&.name).to eq "Ada"
+        expect(person&.pets&.size).to eq 2
+        expect(person&.pets&.first&.name).to eq "Shelby"
+        expect(person&.pets&.last&.name).to be_a(String).and(satisfy { |name| name != "Shelby" })
+        expect(person&.pets&.map(&:species)).to all(be_truthy) # fabricated, still a real enum
+      end
+
+      it "refuses a key the query doesn't select, spellchecked" do
+        expect { pets("Person.pets" => [{ "speceis" => "DOG" }]) }
+          .to raise_error(GraphWeaver::Error,
+            /"Person\.pets" supplies "speceis" at person\.pets\.0.*did you mean "species".*response keys/m)
+      end
+
+      it "names the response keys when nothing is close" do
+        expect { pets("Person.pets" => [{ "id" => "1" }]) }
+          .to raise_error(GraphWeaver::Error, /doesn't select\. .*\(name, species\)/m)
+      end
+    end
+
+    it "picks a union member from the pinned __typename" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, name: "PinnedUnion",
+        query: 'query { search(term: "x") { __typename ... on Person { name } ... on Pet { species } } }')
+      pinned = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1,
+        overrides: { "Query.search" => [{ "__typename" => "Person", "name" => "Ada" }] })
+
+      result = mod.execute!(client: pinned).search
+      expect(result.map(&:__typename)).to eq %w[Person]
+      expect(result.first.name).to eq "Ada"
+    end
+
+    it "says to name __typename when the position is abstract" do
+      pinned = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1,
+        overrides: { "Query.search" => [{ "name" => "Ada" }] })
+
+      expect { pinned.execute('query { search(term: "x") { ... on Named { name } } }') }
+        .to raise_error(GraphWeaver::Error, /pins an object at search\.0.*Person or Pet.*__typename/m)
+    end
+
+    it "pins a field null" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, name: "PinnedNull",
+        query: "query { person(id: 1) { name email } }", client: fake)
+
+      expect(mod.execute!(client: GraphWeaver::Testing::FakeClient.new(
+        schema: Demo::Schema, overrides: { "Person.email" => nil },
+      )).person&.email).to be_nil
+    end
+
     describe "override key validation" do
       def fake_with(overrides)
         GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, overrides:)
@@ -245,6 +315,49 @@ describe GraphWeaver::Testing do
       ensure
         GraphWeaver.schema_path = nil
       end
+    end
+  end
+
+  describe "#schema=" do
+    # it serves two masters — the fakes' reference schema and the class
+    # :in_process runs — and only a federated app makes them want different
+    # objects. Setting a subgraph so :in_process had a live class silently
+    # repointed :fake at a fraction of the graph.
+    it "refuses a federation subgraph, and names the tag that runs one" do
+      require_relative "support/federation_router_graph"
+      # const_get, not the constant: schema classes are invisible to srb, and
+      # this file stays type-checked
+      subgraph = Object.const_get("RouterGraph::Reviews::Schema")
+
+      expect { described_class.config.schema = subgraph }
+        .to raise_error(GraphWeaver::ConfigurationError, /one federation subgraph.*graphql: :router/m)
+    end
+
+    it "takes an ordinary schema class" do
+      described_class.config.schema = Demo::Schema
+
+      expect(described_class.config.explicit_schema).to be Demo::Schema
+    end
+  end
+
+  describe "#router=" do
+    let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
+
+    # marking a remote subgraph :fake is the commonest federated config there
+    # is, and it used to refuse unless you also restated where the supergraph
+    # was — the case the docs call "no config at all"
+    it "takes subgraphs alone, deriving the supergraph from the dump" do
+      GraphWeaver.schema_path = supergraph
+      described_class.configure { |config| config.router = { subgraphs: { "reviews" => :fake } } }
+
+      expect(described_class.config.built_router.faked).to eq %w[reviews]
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+
+    it "says what it takes when it isn't the arguments to build one" do
+      expect { described_class.config.router = supergraph }
+        .to raise_error(ArgumentError, /supergraph: .*subgraphs: /m)
     end
   end
 

@@ -1,4 +1,53 @@
 ## Unreleased
+- **`Testing.config.router` takes `subgraphs:` without `supergraph:`.** It
+  raised — "must be the arguments to build one, e.g. `{ supergraph: … }`" —
+  even where the committed dump already is the supergraph, which is the case
+  the docs call "no config at all" and the single most likely config a
+  federated app writes (marking a remote subgraph `:fake`). Either key alone
+  is enough now; a missing `supergraph:` derives exactly as it does with no
+  `config.router` at all.
+- **`Testing.config.schema` refuses a federation subgraph class**, naming
+  `graphql: :router`. It is both the schema fakes are built from and the live
+  class `:in_process` runs, so setting a subgraph to make `:in_process` work
+  silently repointed `:fake` at a fraction of the graph. A federated graph has
+  no one schema class, which is what `:router` already said.
+- **`graphql_fake(**options)`** builds the example's fake where the example
+  can say what it needs — `graphql_fake(overrides: { "Reader.orders" => [{}, {}] })`
+  — and returns it, so `#requests` is in reach. `graphql: :fake` is this call
+  with no options. Options had nowhere to go before: the tag builds its client
+  in a `config.before(:each)`, which rspec runs ahead of every group hook, so
+  `Testing.config.overrides` set in a `before` block was always too late and
+  failed silently, as wrong data.
+- **`GraphWeaver.client` is snapshotted and restored around *every* example**,
+  not only a tagged one. `graphql: false` used not to restore while
+  `graphql: :fake` did, which made "tag `:fake`, then throw the client away"
+  the idiom for cleanup. Building your own client is now a plain assignment in
+  a `before` block. An example that deliberately leaked a client into later
+  examples no longer can.
+- **`graphql: :none` is gone** — a second spelling of `graphql: false`, which
+  stays. Change any `:none` tag to `false`.
+- **`GraphWeaver.client!` names the tag** when `graph_weaver/rspec` is loaded:
+  `no client configured — tag the example graphql: :fake (or :in_process /
+  :router), or build one with graphql_fake`. "Set `GraphWeaver.client=`" was
+  advice for the wrong file.
+- **An override pins a subtree by naming only the fields the test is about.**
+  `overrides: { "Reader.orders" => [{ "status" => "PAID" }, {}] }` pins the
+  list's length and merges each element onto fabricated data — the rest of the
+  selection is still generated. It used to *replace*, so pinning one nested
+  field meant hand-writing the whole selection set in wire casing, and
+  under-supplying died as `key not found: "book"` at cast time. A pinned key
+  the query doesn't select is now refused (spellchecked, and naming the
+  response keys it could have been), for the same reason a typo'd coordinate
+  is. At a union or interface, a pinned object names its `"__typename"` and
+  gets that member rather than a random one.
+- **An override of `nil` pins the field null.** It used to read as "no
+  override" and fabricate a value.
+- **`Testing::FakeClient#requests`** records every `execute` in order
+  (`{ query:, variables:, operation_name: }`) — "did we send the right
+  variables", and "did we call it at all", without a hand-rolled spy.
+- **`FakeClient`'s selection-walking internals are private** (`each_field`,
+  `gather`, `load_operation`, …). Nothing documented called them; if you did,
+  `Object.new.extend(GraphWeaver::Selection)` is the supported host.
 - **The local router refuses a `@requires` whose field set names another
   `@requires` field** (`chained_requires`). It used to answer: a prefetch sends
   the entity's own `@key` and nothing else, so the inner requirement never

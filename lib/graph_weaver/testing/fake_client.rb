@@ -30,6 +30,23 @@ require_relative "../parsing"
 #        "email" => -> { "test@example.com" },
 #      })
 #
+# An override pins a whole subtree as readily as a leaf, and **merges**
+# rather than replaces: name the fields the test is about and the rest of
+# the selection is still fabricated. A list pins its own length, so "two
+# orders, the first one paid" is the literal thing you write:
+#
+#      FakeClient.new(schema:, overrides: {
+#        "Reader.name" => "Ada",
+#        "Reader.orders" => [{ "status" => "PAID" }, {}],
+#      })
+#
+# Keys inside a pinned subtree are response keys — what comes back on the
+# wire, aliases included — and one the query doesn't select is refused,
+# for the same reason a typo'd coordinate is.
+#
+# requests: every execute, in order ({ query:, variables:, operation_name: })
+# — "did we send the right variables", and "did we call it at all".
+#
 # Partial failures: fail_at simulates a field-level error with
 # spec-correct null propagation — the field's error lands in the errors
 # array (with its concrete path), the field becomes null, and nulls
@@ -58,9 +75,20 @@ class GraphWeaver::Testing::FakeClient
   # sentinel: a simulated failure bubbling up to the nearest nullable spot
   NULL_BUBBLE = Object.new.freeze
 
+  # sentinel: no override here — distinct from an override OF nil, which
+  # pins the field null
+  UNPINNED = Object.new.freeze
+  private_constant :UNPINNED
+
   # the schema responses are fabricated against — the way to reach it from
   # a graphql: :fake spec, where GraphWeaver.client is one of these
   attr_reader :schema
+
+  # Every execute, in order: { query:, variables:, operation_name: }.
+  #
+  #      expect(fake.requests.size).to eq 1          # memoized, then
+  #      expect(fake.requests.last[:variables]).to eq({ "id" => "1" })
+  attr_reader :requests
 
   def initialize(schema: nil, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
     errors: nil, fail_at: nil, corrupt: nil)
@@ -77,12 +105,17 @@ class GraphWeaver::Testing::FakeClient
     @extra_errors = wrap(errors).map { |error| normalize_error(error) }
     @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }
     @corrupt = wrap(corrupt)
+    @requests = []
   end
 
   # operation_name: is accepted for contract parity and ignored — one
   # document holds one operation, so there is nothing to select between
   # (see Selection#load_operation).
   def execute(query, variables: {}, operation_name: nil)
+    # recorded before validation: "we never called it" and "we called it with
+    # a query that doesn't compile" are different failures
+    @requests << { query:, variables:, operation_name: }.freeze
+
     # Validate first, as the other clients in the slot do: a field the schema
     # doesn't have would otherwise walk into `get_field(...).type` on nil, and
     # a NoMethodError from inside the fabricator is undiagnosable next to the
@@ -122,6 +155,12 @@ class GraphWeaver::Testing::FakeClient
     value.equal?(NULL_BUBBLE) ? nil : value
   end
 
+  # The Selection mixin's walk is machinery, not interface: a developer who
+  # types `.methods` on a fake should find execute, schema, requests, object
+  # and parse, not the twelve steps behind them.
+  private :load_operation, :operation_root_type, :each_field, :gather,
+    :gather_conditional, :applies?, :conditional?
+
   private
 
   def rng = @values.rng
@@ -142,14 +181,24 @@ class GraphWeaver::Testing::FakeClient
     spec.is_a?(String) ? { "path" => spec } : JSON.parse(JSON.generate(spec))
   end
 
-  def object_value(type, selections)
-    result = {}
+  # pins: the response keys an override pinned at this object, merged in as
+  # the walk reaches them — everything it doesn't name is fabricated.
+  def object_value(type, selections, pins: nil, source: nil)
     # gather (not each_field) so a field selected twice — `a { x } a { y }` —
     # fabricates the MERGED shape codegen's struct expects, not last-writer-wins
-    gather(type, selections).each do |key, nodes|
+    fields = gather(type, selections)
+    check_pins!(fields, pins, source) if pins
+
+    result = {}
+    fields.each do |key, nodes|
       node = nodes.first
+      pin = (pins && pins.key?(key)) ? pins[key] : UNPINNED
       @path.push(key)
-      value = node.name == "__typename" ? type.graphql_name : field_value(type, node, nodes.flat_map(&:selections))
+      value = if node.name == "__typename"
+        type.graphql_name
+      else
+        field_value(type, node, nodes.flat_map(&:selections), pin, source)
+      end
       @path.pop
 
       if value.equal?(NULL_BUBBLE)
@@ -170,7 +219,7 @@ class GraphWeaver::Testing::FakeClient
     @schema.get_field(type.graphql_name, node.name).type.kind.name == "NON_NULL"
   end
 
-  def field_value(parent_type, node, selections)
+  def field_value(parent_type, node, selections, pin = UNPINNED, source = nil)
     if (spec = matching_failure)
       @failures << {
         "message" => spec["message"] || "simulated failure",
@@ -181,18 +230,91 @@ class GraphWeaver::Testing::FakeClient
       return NULL_BUBBLE
     end
 
-    override = @overrides.fetch("#{parent_type.graphql_name}.#{node.name}") do
-      @overrides[node.name]
+    coordinate = "#{parent_type.graphql_name}.#{node.name}"
+    if pin.equal?(UNPINNED)
+      # most specific key wins; #fetch (not #[]) so an override OF nil pins null
+      pin = @overrides.fetch(coordinate) { @overrides.fetch(node.name, UNPINNED) }
+      source = @overrides.key?(coordinate) ? coordinate : node.name unless pin.equal?(UNPINNED)
     end
-    return override.is_a?(Proc) ? override.call : override unless override.nil?
 
     field_type = @schema.get_field(parent_type.graphql_name, node.name).type
-    if @corrupt.include?("#{parent_type.graphql_name}.#{node.name}")
-      return corrupt_value(field_type)
-    end
+    return pinned_value(field_type, node, selections, pin, source) unless pin.equal?(UNPINNED)
+    return corrupt_value(field_type) if @corrupt.include?(coordinate)
 
     type_value(field_type, node, selections)
   end
+
+  # What an override pins here. A leaf takes the value outright; a composite
+  # MERGES — the keys it names are pinned and the rest of the selection is
+  # fabricated, so pinning one nested field never means hand-writing the
+  # subtree around it. A pinned list is exactly as long as it is written.
+  def pinned_value(type, node, selections, value, source)
+    value = value.call if value.is_a?(Proc)
+
+    case type.kind.name
+    when "NON_NULL" then pinned_value(type.of_type, node, selections, value, source)
+    when "LIST"
+      return value unless value.is_a?(Array)
+
+      value.each_with_index.map do |element, index|
+        @path.push(index)
+        begin
+          pinned_value(type.of_type, node, selections, element, source)
+        ensure
+          @path.pop
+        end
+      end
+    when "OBJECT", "UNION", "INTERFACE"
+      return value unless value.is_a?(Hash)
+
+      object_value(pinned_type(type, value, source), selections, pins: value, source:)
+    else
+      value
+    end
+  end
+
+  # The concrete type a pinned object is fabricated as. At a union or
+  # interface the pin has to say: picking a member at random would fabricate
+  # a shape the pinned keys don't fit, in whichever fraction of runs the
+  # seed lands there.
+  def pinned_type(type, value, source)
+    named = value["__typename"]
+    return type if named == type.graphql_name
+
+    members = (type.kind.name == "OBJECT") ? [type] : @schema.possible_types(type)
+    if named.nil?
+      return type if members.one?
+
+      raise GraphWeaver::Error, "override #{source.inspect} pins an object at #{location}, where " \
+        "the query can return #{members.map(&:graphql_name).sort.join(" or ")} — name the one you " \
+        "mean with \"__typename\"."
+    end
+
+    found = members.find { |member| member.graphql_name == named }
+    return found if found
+
+    raise GraphWeaver::Error, "override #{source.inspect} pins __typename #{named.inspect} at " \
+      "#{location}, where the query can only return #{members.map(&:graphql_name).sort.join(" or ")}"
+  end
+
+  # A pinned key the query doesn't select would fabricate the field anyway
+  # and quietly leave the pin unread — the same silent-green failure a typo'd
+  # coordinate is validated against, one level down.
+  def check_pins!(fields, pins, source)
+    # __typename in a pin names the type to fabricate (see #pinned_type); it
+    # is an instruction, not a field the query has to have selected
+    unknown = pins.keys.reject { |key| key == "__typename" || fields.key?(key) }
+    return if unknown.empty?
+
+    suggestion = GraphWeaver.did_you_mean(fields.keys, unknown.first.to_s)
+    hint = suggestion ? " — did you mean #{suggestion.inspect}?" : "."
+    raise GraphWeaver::Error, "override #{source.inspect} supplies #{unknown.first.inspect} at " \
+      "#{location}, which this query doesn't select#{hint} An override's keys are response keys, " \
+      "exactly as they arrive on the wire (#{fields.keys.join(", ")})."
+  end
+
+  # where the walk is, for a message: "reader.orders.0"
+  def location = @path.empty? ? "the root" : @path.join(".")
 
   # a value casting can't accept, derived from the field's own type — and
   # wrapped per list layer so the corruption lands on the element cast
