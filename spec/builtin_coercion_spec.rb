@@ -61,13 +61,25 @@ describe "built-in scalar coercion" do
     expect(float.coerce_type).to eq "T.any(Float, Integer, String)"
   end
 
+  it "coerce: true on one built-in is auto_coerce scoped to it" do
+    GraphWeaver.register_scalar("Int", Integer, coerce: true)
+
+    source = generate
+
+    expect(source).to include("count: T.any(Integer, Float, String)")
+    expect(source).to include('"count" => count.to_i,')
+    # the others are untouched — this is the per-scalar half of the switch
+    expect(source).to include("amount: Float,")
+    expect(source).not_to include("amount.to_f")
+  end
+
   it "widens the numeric sigs, and leaves String/ID strictly typed" do
     GraphWeaver.auto_coerce = true
 
     source = generate
 
-    # #to_s is a cast that can't fail, so auto-coercing it would only widen
-    # every String/ID kwarg to T.anything — the majority of real variables
+    # String/ID are pass-through: no conversion, no cast/serialize pair,
+    # nothing to coerce from
     expect(source).to include(
       "amount: T.any(Float, Integer, String), " \
       "count: T.any(Integer, Float, String), " \
@@ -80,12 +92,9 @@ describe "built-in scalar coercion" do
     expect(source).to include('"label" => label,')
   end
 
-  it "still takes an explicit coerce: :to_s" do
-    GraphWeaver.register_scalar("ID", String, coerce: :to_s)
-    source = generate
-
-    expect(source).to include("id: T.anything")
-    expect(source).to include('"id" => id.to_s,')
+  it "refuses coerce: true on a pass-through scalar" do
+    expect { GraphWeaver.register_scalar("ID", String, coerce: true) }
+      .to raise_error(ArgumentError, /nothing to coerce/)
   end
 
   it "coerces raw inputs end to end, sending native wire values" do
@@ -111,7 +120,9 @@ describe "built-in scalar coercion" do
     expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be true
   end
 
-  it "rejects a non-boolean, non-symbol coerce:" do
+  it "rejects a non-boolean coerce:" do
+    expect { GraphWeaver.register_scalar("X", "X", coerce: :to_s) }
+      .to raise_error(ArgumentError, /coerce:/)
     expect { GraphWeaver.register_scalar("X", "X", coerce: 42) }
       .to raise_error(ArgumentError, /coerce:/)
   end

@@ -46,14 +46,13 @@ class GraphWeaver::Codegen
         ->(type, expr) { "#{type}.dump(#{expr})" }),
     ].freeze
 
-    # Accepted kwarg types for Symbol (instance-method) coercion — the
-    # looser inputs the conversion sensibly handles. #to_s is defined on
-    # every object, so it accepts anything; #to_f/#to_i only make sense for
-    # numerics and strings.
-    CONVERT_INPUTS = {
-      to_f: "T.any(Float, Integer, String)",
-      to_i: "T.any(Integer, Float, String)",
-      to_s: "T.anything",
+    # How a built-in converts a loose variable input, and the widened kwarg
+    # it then accepts. Only the numerics can: a String/ID/Boolean input is
+    # already its own Ruby type, so there is nothing to convert.
+    Conversion = Struct.new(:via, :input_type)
+    CONVERSIONS = {
+      "Int" => Conversion.new(:to_i, "T.any(Integer, Float, String)"),
+      "Float" => Conversion.new(:to_f, "T.any(Float, Integer, String)"),
     }.freeze
 
     attr_reader :graphql_name, :type, :requires
@@ -73,51 +72,43 @@ class GraphWeaver::Codegen
       validate_coerce!
     end
 
-    # Conversions applied to the convertible built-ins when the global
-    # GraphWeaver.auto_coerce is on and no explicit coerce: given. ID and
-    # String are deliberately absent: #to_s is a cast that can't fail, not a
-    # coercion, so auto-coercing them would only widen every String/ID kwarg to
-    # T.anything — erasing static typing on the majority of real variables to
-    # buy nothing. `coerce: :to_s` per registration still opts in.
-    AUTO_CONVERSIONS = { "Int" => :to_i, "Float" => :to_f }.freeze
-
     def cast(expr) = @cast&.call(expr)
     def cast? = !@cast.nil?
     def serialize(expr) = @serialize&.call(expr)
     def serialize? = !@serialize.nil?
-    def coerce? = !!effective_coerce
+    def coerce? = !!coercion
 
-    # Explicit coerce: always wins (false means never). Left unset, the
-    # global GraphWeaver.auto_coerce decides — resolved HERE, at
-    # generation time, so registration order doesn't matter: convertible
-    # built-ins get their conversion, anything with a full cast/serialize
-    # pair gets parse-style coercion.
-    def effective_coerce
-      return @coerce unless @coerce.nil?
-      return false unless GraphWeaver.auto_coerce
+    # How this scalar coerces a variable input, or nil for not at all.
+    # coerce: says WHETHER (explicit always wins); left unset the global
+    # GraphWeaver.auto_coerce decides — resolved HERE, at generation time,
+    # so registration order doesn't matter. The scalar itself says HOW: a
+    # convertible built-in converts, anything with a full cast/serialize
+    # pair parses. Nothing left to try means it can't coerce.
+    def coercion
+      return if @coerce == false
+      return if @coerce.nil? && !GraphWeaver.auto_coerce
 
-      AUTO_CONVERSIONS.fetch(@graphql_name) { (cast? && serialize?) || nil }
+      CONVERSIONS[@graphql_name] || (:parse if cast? && serialize?)
     end
 
-    # The code that normalizes a variable input before it's serialized. Two
-    # shapes: coerce: true parses a raw value into the rich type via the cast
-    # (guarded so an already-typed value passes through); coerce: :to_f (a
-    # Symbol) calls that instance method, for built-ins where a plain
-    # conversion is the whole story (5, "5" -> 5.0). serialize still runs
-    # afterward, but is identity for the conversion built-ins, so the
-    # converted value goes on the wire natively (a Float, not "5.0").
+    # The code that normalizes a variable input before it's serialized.
+    # Parsing runs a raw value through the cast, guarded so an already-typed
+    # value passes through; a conversion just calls the method (5, "5" ->
+    # 5.0). serialize still runs afterward, but is identity for the
+    # convertible built-ins, so the converted value goes on the wire
+    # natively (a Float, not "5.0").
     def coerce_input(expr)
-      case effective_coerce
-      when true then "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
-      when Symbol then "#{expr}.#{effective_coerce}"
+      case (how = coercion)
+      when :parse then "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
+      when Conversion then "#{expr}.#{how.via}"
       end
     end
 
     # the accepted Sorbet type for a coercible variable kwarg
     def coerce_type
-      case effective_coerce
-      when true then "T.any(#{@type}, String)"
-      when Symbol then CONVERT_INPUTS.fetch(effective_coerce, "T.untyped")
+      case (how = coercion)
+      when :parse then "T.any(#{@type}, String)"
+      when Conversion then how.input_type
       end
     end
 
@@ -164,18 +155,19 @@ class GraphWeaver::Codegen
       GraphWeaver::Codegen.normalize_requires!(requires, load: !@klass.nil?)
     end
 
-    # coerce: true round-trips through cast+serialize, so it needs both; a
-    # Symbol is a self-contained conversion and needs neither.
+    # coerce: true asks for something the scalar has to know how to do, so
+    # refuse a pass-through one now rather than emit a silent no-op.
     def validate_coerce!
       case @coerce
-      when false, nil, Symbol then nil
+      when false, nil then nil
       when true
-        return if cast? && serialize?
+        return if coercion
 
         raise ArgumentError,
-          "coerce: true needs both a cast and a serialize (#{@graphql_name} is missing one)"
+          "coerce: true needs a cast and a serialize (#{@graphql_name} has neither, " \
+          "so there is nothing to coerce)"
       else
-        raise ArgumentError, "coerce: must be true, false, or a Symbol method name, got #{@coerce.inspect}"
+        raise ArgumentError, "coerce: must be true or false, got #{@coerce.inspect}"
       end
     end
   end
@@ -254,9 +246,8 @@ class GraphWeaver::Codegen
     # matches nothing and leaves them identity — which is exactly why we
     # can name them with the real class constants. Date deserializes via
     # ISO-8601 (it *does* define .parse, but we want iso8601 specifically,
-    # so it's explicit). Input coercion is a generation-time concern:
-    # GraphWeaver.auto_coerce gives the convertible built-ins their
-    # conversion (see ScalarType::AUTO_CONVERSIONS).
+    # so it's explicit). Whether a variable of one accepts loose input is a
+    # separate, generation-time question — see coercion.
     def register_builtin_scalars!
       register_scalar "ID", String
       register_scalar "String", String

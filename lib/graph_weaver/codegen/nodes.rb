@@ -56,9 +56,9 @@ class GraphWeaver::Codegen
       !@scalar.serialize?
     end
 
-    # coercion (opt-in per scalar): accept the value or its raw input and
-    # normalize before serializing — parse for a rich type (coerce: true),
-    # or a plain conversion for built-ins (coerce: :to_f). See ScalarType.
+    # coercion (coerce: per scalar, or GraphWeaver.auto_coerce for all):
+    # accept the value or its raw input and normalize before serializing.
+    # See ScalarType#coercion.
     def coerce? = @scalar.coerce?
     def coerce(expr) = @scalar.coerce_input(expr)
     def coerce_input_type = @scalar.coerce_type

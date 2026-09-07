@@ -474,16 +474,13 @@ module GraphWeaver
     end
     private :generation_plan
 
-    # Default input coercion for scalars that don't say coerce: themselves,
-    # resolved lazily at generation time (so set it any time before you
-    # generate — no reset_scalars! ordering dance):
+    # coerce: true for every scalar that doesn't say coerce: itself —
+    # the same switch at global scope, resolved lazily at generation time
+    # (so set it any time before you generate, no ordering dance):
     #
     #      GraphWeaver.auto_coerce = true
     #
-    # Convertible built-ins take their conversion (Int accepts 5/"5"),
-    # and any scalar with a full cast/serialize pair (Date, your Money)
-    # accepts its raw wire form. An explicit coerce: true/false/Symbol on
-    # a registration always wins.
+    # An explicit coerce: on a registration always wins.
     attr_accessor :auto_coerce
 
     # Whether generated modules/structs emit `extend T::Sig` (so `sig`
@@ -529,9 +526,10 @@ module GraphWeaver
     # (a String or Array) names files the generated code needs — validated,
     # and actually required to confirm it resolves when type: is a real class.
     # coerce: true makes a variable of this scalar accept the value OR its
-    # raw input (e.g. "12.00"), running the latter through the cast before
-    # serializing — it raises on bad input, so some safety survives. Built-in
-    # scalars are pre-registered the same way, so this also overrides them.
+    # raw input (e.g. "12.00"), normalizing the latter before serializing —
+    # it raises on bad input, so some safety survives; GraphWeaver.auto_coerce
+    # is the same switch for every scalar at once. Built-in scalars are
+    # pre-registered the same way, so this also overrides them.
     #
     # Pass a `Type.field` coordinate instead of a scalar name to override just
     # that one field — so the same scalar can deserialize as different Ruby
@@ -581,7 +579,7 @@ module GraphWeaver
 
     # Restore the built-in scalars, dropping every custom registration —
     # the clean slate to reach for between tests or to undo overrides.
-    # (Coercible built-ins are auto_coerce's job, not a reset flavor.)
+    # (Loose input for the built-ins is auto_coerce's job, not a reset flavor.)
     def reset_scalars!
       Codegen.reset_scalars!
     end

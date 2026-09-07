@@ -47,6 +47,27 @@
   to `docs/testing.md#the-in-process-router--graphql-router`, now
   `docs/federation.md#the-local-router`.
 
+### Scalar coercion is one switch (**breaking**)
+
+`coerce:` takes `true`/`false` only — the Symbol form is gone. It was a third
+way to ask one question (*may a variable of this scalar accept loose input?*)
+and the only one that also made you answer *how*, which the scalar already
+knows: `Int`/`Float` convert, anything with a `cast:`/`serialize:` pair parses,
+and a pass-through scalar can't.
+
+**What to do:**
+
+- `coerce: :to_i` / `coerce: :to_f` — write `coerce: true`. Generated output is
+  unchanged.
+- `coerce: :to_s` on `String`/`ID` — drop it and call `.to_s` at the call site.
+  Those have nothing to convert from, so `coerce: true` on one raises now
+  instead of emitting a no-op.
+- any other Symbol on a custom scalar — give the scalar a `cast:`/`serialize:`
+  pair and `coerce: true`.
+
+`GraphWeaver.auto_coerce` is unaffected, and `coerce: true` is now exactly what
+it turns on for one scalar instead of all of them.
+
 ### One shared module, not three (**breaking** — regenerate)
 
 `GraphQLInputs`, `GraphQLUnions` and `GraphQLEnums` are now one `GraphQLTypes`.

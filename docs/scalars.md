@@ -49,7 +49,7 @@ a real class (so the runtime is loaded), each path is also `require`d at
 registration — a typo fails now, not in the generated file.
 
 Pass `coerce: true` to let a variable of this scalar accept **either** the value
-object **or** its raw input, normalizing the latter through the cast:
+object **or** its raw input, normalizing the latter before it goes on the wire:
 
 ```ruby
 GraphWeaver.register_scalar("Money", Money, coerce: true)
@@ -58,25 +58,16 @@ StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the ho
 StoreQuery.execute(budget: Money.new(1200))  # passed straight through
 ```
 
-Bad input still explodes (the cast raises), and coercion needs both a cast and a
-serialize. Off by default — the strict typed kwarg is the norm.
+`GraphWeaver.auto_coerce = true` is the same switch for every scalar at once —
+set it any time before you generate; an explicit `coerce:` on a registration
+always wins. Off by default either way: the strict typed kwarg is the norm.
 
-`coerce:` also takes a **Symbol** naming a conversion method — `coerce: :to_f`
-makes a variable accept `5`/`"5"` and `.to_f` it, sending a native number (not
-`"5.0"`) on the wire. The convertible built-ins already know theirs
-(`Float`→`:to_f`, `Int`→`:to_i`), so rather than opting in each, flip the
-default:
-
-```ruby
-GraphWeaver.auto_coerce = true
-```
-
-Set it any time before you generate. It gives convertible built-ins their
-conversion and any scalar with a full cast/serialize pair (`Date`, your `Money`)
-parse-style coercion; an explicit `coerce:` on a registration always wins.
-`Boolean`, `String` and `ID` stay strict — `#to_s` never fails, so widening them
-would erase static typing on most real variables to buy nothing;
-`register_scalar("ID", String, coerce: :to_s)` opts in deliberately.
+*How* a scalar coerces isn't yours to pick — the scalar already knows. `Int` and
+`Float` convert (`"5"` → `5`, sent as a native number); anything with a full
+cast/serialize pair (`Date`, your `Money`) parses, and bad input still explodes
+because the cast raises. A pass-through scalar — `String`, `ID`, `Boolean` — has
+neither a conversion nor a codec pair, so it can't coerce at all: `coerce: true`
+on one raises rather than emitting a no-op.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later

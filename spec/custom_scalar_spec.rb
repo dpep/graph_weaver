@@ -281,9 +281,9 @@ describe "custom scalar deserialization" do
       expect(from_value.price.amount).to eq BigDecimal("12.00")
     end
 
-    it "requires both a cast and a serialize" do
+    it "refuses a scalar with no way to coerce" do
       expect { GraphWeaver.register_scalar("Money", String, coerce: true) } # String: no cast
-        .to raise_error(ArgumentError, /coerce:/)
+        .to raise_error(ArgumentError, /nothing to coerce/)
     end
   end
 
