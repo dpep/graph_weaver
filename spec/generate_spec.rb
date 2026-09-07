@@ -38,6 +38,21 @@ describe "GraphWeaver.generate!" do
     end
   end
 
+  # ...and a query path is a path too. schema: took a Pathname and query:
+  # didn't, which is the asymmetry, not the feature.
+  it "takes a Pathname where it takes a query path" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "pet.graphql")
+      File.write(path, "query { person(id: 1) { name } }\n")
+
+      mod = GraphWeaver.parse(schema: Demo::Schema, query: Pathname.new(path))
+
+      # named off the file rather than the anonymous operation, so the path
+      # was read as a path (each parse gets its own container, hence the suffix)
+      expect(mod.name).to end_with("PetQuery")
+    end
+  end
+
   it "brands an unparseable query file and names it" do
     queries = File.join(@dir, "queries")
     FileUtils.mkdir_p(queries)

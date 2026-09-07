@@ -45,13 +45,7 @@ module GraphWeaver
         # Names in `given` skip detection (:fake included); the rest are
         # derived, and both go through the same check.
         def resolve(table, given = nil, schemas: nil)
-          named = (given || {}).to_h { |name, schema| [name.to_s, schema] }
-          unknown = named.keys - table.subgraphs
-          if unknown.any?
-            raise GraphWeaver::ConfigurationError, "subgraphs: names #{unknown.join(", ")}, which " \
-              "this supergraph doesn't have (its subgraphs are #{table.subgraphs.join(", ")})"
-          end
-
+          named = table.named_subgraphs(given)
           searched = schemas || GraphWeaver::Schemas.loaded
           table.subgraphs.filter_map do |name|
             served = named.key?(name) ? check!(table, name, named[name]) : detect(table, name, searched)

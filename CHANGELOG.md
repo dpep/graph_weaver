@@ -6,6 +6,23 @@
   500 blaming its own resolver, and the error that was written to explain this
   was unreachable. Nothing to do; if you worked around it with
   `Testing.config.schema = MySchema`, that still works and still wins.
+- **`GraphWeaver.parse(query:)` accepts a `Pathname`.** `schema:` already did,
+  so `GraphWeaver.parse(schema: Rails.root.join("schema.graphql"), query:
+  Rails.root.join("app/graphql/queries/person.graphql"))` died on the query
+  argument with `undefined method 'end_with?'`. Same for `client.parse(path)`.
+- **`rake graph_weaver:cassettes:check` and `:anonymize` now find cassettes
+  from any working directory.** Both read `config.cassette_dir` raw, while
+  `Cassette.new` resolves it against `Rails.root` — so run from anywhere but
+  the app root, `check` aborted with "this checked nothing, so it proved
+  nothing" and `anonymize` silently did nothing, both while a spec run found
+  the same files fine. They now use the same resolution the recordings do.
+- **An `extend_type(alias:)` name a struct instance already answers to now
+  refuses** instead of silently overriding it. `alias: { hash: "…" }` emitted
+  `def hash`, which breaks every `Hash` and `Set` holding that struct;
+  `inspect`, `to_s`, `method` and `class` were the same story. A *wire field*
+  by any of those names was already refused, so this is the same rule reaching
+  the same case from the other side. **If generation now refuses an alias you
+  had**, rename it — the accessor it generated was overriding a Ruby method.
 
 ###  v0.5.0  (2026-09-07)
 - **`graphql_in_process(SomeSchema)`** runs one example against that schema

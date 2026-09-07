@@ -137,6 +137,15 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     expect { generate }.to raise_error(GraphWeaver::Error, /collides/)
   end
 
+  # an alias emits a plain instance method, so a name the struct already
+  # answers to is silently overridden rather than refused — and `hash` is
+  # the one that hurts: every Hash and Set holding the struct breaks. A
+  # wire field by that name is already refused, so an alias must be too.
+  it "rejects an accessor name a struct instance already answers to" do
+    GraphWeaver.extend_type("Widget", alias: { hash: "meta.tag" })
+    expect { generate }.to raise_error(GraphWeaver::Error, /collides/)
+  end
+
   it "rejects a path the query didn't select" do
     GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
     expect { generate("query W { widget { id } }") }

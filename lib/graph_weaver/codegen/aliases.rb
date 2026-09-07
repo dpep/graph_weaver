@@ -56,9 +56,14 @@ class GraphWeaver::Codegen
       "#{@module_name}: #{message}"
     end
 
+    # An alias emits a plain instance method, so it is held to the same bar
+    # as a wire field's prop: a name the struct already answers to would be
+    # silently overridden, and `hash` or `inspect` breaks the object rather
+    # than the file.
     def check_alias_name!(node, name)
       taken = node.fields.any? { |f| f.prop == name } ||
-        ALIAS_RESERVED.include?(name) || RUBY_KEYWORDS.include?(name)
+        STRUCT_METHODS.include?(name) || ALIAS_RESERVED.include?(name) ||
+        RUBY_KEYWORDS.include?(name)
       return unless taken
 
       raise GraphWeaver::Error,
@@ -70,9 +75,10 @@ class GraphWeaver::Codegen
       GraphWeaver::Codegen.type_registry[graphql_name]&.dig(:aliases) || {}
     end
 
-    # methods every generated struct already answers to; Ruby keywords are
-    # checked alongside (RUBY_KEYWORDS is defined by the class this mixes into)
-    ALIAS_RESERVED = %w[from_h serialize to_h].to_set.freeze
+    # The CLASS methods a generated struct defines; STRUCT_METHODS covers the
+    # instance side, and both are checked with RUBY_KEYWORDS alongside (all
+    # three are defined by the class this mixes into).
+    ALIAS_RESERVED = %w[from_h].to_set.freeze
     # list selectors — pick one element out of a list-typed hop, always nilable
     # (the list may be empty). Everything else is a field prop.
     LIST_SELECTORS = %w[first last].freeze

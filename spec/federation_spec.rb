@@ -550,6 +550,13 @@ describe "federation / _entities representations" do
       "Ghost { id }",
       /Ghost @key names "missing"/,
     ],
+    # a representation carries fields, so a field set that isn't plain
+    # fields has no wire shape to build — refuse rather than guess at one
+    "a @key field set holding anything but plain fields" => [
+      "type Boxed @key(fields: \"... on Boxed { id }\") { id: ID! }",
+      "Boxed { id }",
+      /field set holds plain fields only/,
+    ],
   }.each do |label, (types, condition, message)|
     it "refuses #{label}" do
       schema = GraphWeaver::SchemaLoader.load("type Query { anchor: String }\n#{types}")

@@ -146,12 +146,12 @@ module GraphWeaver
     # the object the SDL spells rather than as a flattened path; and a union
     # or interface at a boundary, planned per concrete type and bucketed on
     # the `__typename` the data comes back with.
-    # Everything it can't plan
-    # *faithfully* raises {Unplannable}, before any subgraph runs, so a
-    # refusal can never be a half-executed query. Apollo's planner is twenty
-    # thousand lines; a double that approximated the rest of it would let a
-    # test pass on an answer production disagrees with, which is the most
-    # expensive thing this library can produce.
+    #
+    # Everything it can't plan *faithfully* raises {Unplannable}, before any
+    # subgraph runs, so a refusal can never be a half-executed query. Apollo's
+    # planner is twenty thousand lines; a double that approximated the rest of
+    # it would let a test pass on an answer production disagrees with, which is
+    # the most expensive thing this library can produce.
     #
     # Introspection is answered from the composed API schema — never from a
     # subgraph, which would reply with its own slice. That is the one split a
@@ -224,6 +224,12 @@ module GraphWeaver
         end
       end
 
+      # one error in the shape a GraphQL response carries them — a class
+      # method because the Planner refuses documents before a Router exists
+      def self.graphql_error(message, code)
+        { "message" => message, "extensions" => { "code" => code } }
+      end
+
       # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
       # any of its entries) and the rest are derived from what each loaded
       # schema defines — see {Subgraphs}, which also checks the ones you name.
@@ -269,7 +275,7 @@ module GraphWeaver
         document = begin
           GraphQL.parse(query)
         rescue GraphQL::ParseError => e
-          return { "data" => nil, "errors" => [graphql_error(e.message, "GRAPHQL_PARSE_FAILED")] }
+          return { "data" => nil, "errors" => [Router.graphql_error(e.message, "GRAPHQL_PARSE_FAILED")] }
         end
 
         # validate the way a router does, so a stale query fails as it fails
@@ -341,9 +347,6 @@ module GraphWeaver
         response
       end
 
-      # Everything the plan applies at this level: one _entities fetch per
-      # subgraph the level defers to (all nodes at once — _entities answers
-      # in representation order), then the same again one level down.
       def variable_defaults(operation)
         operation.variables.each_with_object({}) do |definition, defaults|
           value = definition.default_value
@@ -368,6 +371,9 @@ module GraphWeaver
         end
       end
 
+      # Everything the plan applies at this level: one _entities fetch per
+      # subgraph the level defers to (all nodes at once — _entities answers
+      # in representation order), then the same again one level down.
       def stitch(step, nodes, operation, variables, errors)
         return if nodes.empty?
 
@@ -386,14 +392,14 @@ module GraphWeaver
 
         blocked = prefetch(step, nodes, operation, variables, errors)
 
-        # a @requires fetch and a plain one need different node sets, so they
-        # can't share a call even into the same subgraph — which is the split
-        # a real router makes too
         # A fetch for a selection the operation excluded is a fetch a real
         # router never makes, and `trace` is something specs assert on. The
         # plan is built once and reused, so only here are the variables known.
         wanted = step.deferrals.select { |d| included?(d.node, variables) }
 
+        # a @requires fetch and a plain one need different node sets, so they
+        # can't share a call even into the same subgraph — which is the split
+        # a real router makes too
         wanted.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
           fetched = chained ? nodes.reject { |(node, _)| blocked.include?(node.object_id) } : nodes
           tree = Router.field_tree(deferrals.flat_map(&:representation).uniq)
@@ -609,10 +615,6 @@ module GraphWeaver
         end
       end
 
-      def graphql_error(message, code)
-        { "message" => message, "extensions" => { "code" => code } }
-      end
-
       # ---- null propagation ---------------------------------------------
 
       # a position whose type forbids null but whose value is null: the
@@ -782,9 +784,8 @@ module GraphWeaver
 
         # the operation's validation errors, GraphQL-wire shaped
         def validate(document)
-          @schema.validate(document).map do |error|
-            { "message" => error.message, "extensions" => { "code" => "GRAPHQL_VALIDATION_FAILED" } }
-          end
+          @schema.validate(document)
+            .map { |error| Router.graphql_error(error.message, "GRAPHQL_VALIDATION_FAILED") }
         end
 
         def plan(document, operation_name: nil)
@@ -1206,13 +1207,7 @@ module GraphWeaver
         # Dotted paths back to the selection set they were parsed from — the
         # inverse of RoutingTable.parse_field_set, so a refusal spells the
         # field set the way the schema does and is greppable against it.
-        def field_set(paths)
-          tree = {}
-          paths.each do |path|
-            path.split(".").reduce(tree) { |node, segment| node[segment] ||= {} }
-          end
-          render_field_set(tree)
-        end
+        def field_set(paths) = render_field_set(Router.field_tree(paths))
 
         def render_field_set(tree)
           tree.map { |name, children|

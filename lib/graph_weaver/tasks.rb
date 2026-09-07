@@ -24,6 +24,20 @@
 #      rake graph_weaver:cassettes:check       # fail if a recording no longer casts
 require_relative "../graph_weaver"
 
+module GraphWeaver
+  # helpers the rake tasks share; not part of the library's API
+  module Tasks
+    # The composed supergraph a federation task reads: SUPERGRAPH=, else the
+    # conventional dump when that is what it is. Aborts naming the task, so
+    # the message says the command to retype.
+    def self.supergraph!(task)
+      ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path ||
+        abort("pass the composed supergraph: rake graph_weaver:federation:#{task} " \
+          "SUPERGRAPH=supergraph.graphql")
+    end
+  end
+end
+
 namespace :graph_weaver do
   # In Rails, boot the app first — initializers register scalars/enums/
   # helpers and they're baked into generated source. Rails defines
@@ -123,12 +137,7 @@ namespace :graph_weaver do
     task diff: :loaded do
       require "graph_weaver/federation"
 
-      supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
-      unless supergraph
-        abort "pass the composed supergraph: rake graph_weaver:federation:diff " \
-          "SUPERGRAPH=supergraph.graphql"
-      end
-
+      supergraph = GraphWeaver::Tasks.supergraph!("diff")
       drift = GraphWeaver::Federation::Drift.new(supergraph:)
       puts drift.report
 
@@ -152,11 +161,7 @@ namespace :graph_weaver do
     task subgraphs: :loaded do
       require "graph_weaver/testing"
 
-      supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
-      unless supergraph
-        abort "pass the composed supergraph: rake graph_weaver:federation:subgraphs " \
-          "SUPERGRAPH=supergraph.graphql"
-      end
+      supergraph = GraphWeaver::Tasks.supergraph!("subgraphs")
 
       # Testing::Router derives this map itself; this is for reading what
       # detection sees when it refuses, and for committing the map instead.
@@ -191,14 +196,8 @@ namespace :graph_weaver do
     task coverage: :loaded do
       require "graph_weaver/testing"
 
-      supergraph = ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path
-      unless supergraph
-        abort "pass the composed supergraph: rake graph_weaver:federation:coverage " \
-          "SUPERGRAPH=supergraph.graphql"
-      end
-
       puts GraphWeaver::Testing::Coverage.new(
-        supergraph:,
+        supergraph: GraphWeaver::Tasks.supergraph!("coverage"),
         queries: ENV["QUERIES"] || GraphWeaver.queries_paths,
       ).report
     rescue GraphWeaver::Error => e
@@ -227,7 +226,9 @@ namespace :graph_weaver do
         Object.const_get(name) if Object.const_defined?(name)
       end
 
-      dir = GraphWeaver::Testing.config.cassette_dir
+      # Testing.cassette_dir, not config.cassette_dir: the configured path is
+      # relative by default and rake runs from wherever it runs from
+      dir = GraphWeaver::Testing.cassette_dir
       checks = Dir[File.join(dir, "*.yml")].sort.map do |path|
         GraphWeaver::Testing::Cassette.new(path).check(modules)
       end
@@ -257,7 +258,7 @@ namespace :graph_weaver do
       require "graph_weaver/testing"
 
       schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
-      Dir[File.join(GraphWeaver::Testing.config.cassette_dir, "*.yml")].sort.each do |path|
+      Dir[File.join(GraphWeaver::Testing.cassette_dir, "*.yml")].sort.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
         puts "anonymized #{path}"
       end

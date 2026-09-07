@@ -938,6 +938,19 @@ module GraphWeaver::SchemaLoader
       owners(type_name, field_name)
     end
 
+    # A `subgraphs:` map with string keys, refusing a name this supergraph
+    # doesn't have — a typo'd key would otherwise silently configure nothing.
+    # Lives here so the test router and the drift check refuse identically:
+    # two copies of this drifted apart once already.
+    def named_subgraphs(given)
+      map = (given || {}).to_h { |name, schema| [name.to_s, schema] }
+      unknown = map.keys - subgraphs
+      return map if unknown.empty?
+
+      raise GraphWeaver::ConfigurationError, "subgraphs: names #{unknown.join(", ")}, which " \
+        "this supergraph doesn't have (its subgraphs are #{subgraphs.join(", ")})"
+    end
+
     # The @key field sets a subgraph will answer an `_entities` fetch on, each
     # as a list of dotted paths ("id organization { id }" => ["id",
     # "organization.id"]). A `resolvable: false` key declares a shape this

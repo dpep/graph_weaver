@@ -15,12 +15,14 @@ require "sorbet-runtime"
 # T::Enum), and typed variables (kwargs on execute). Subscriptions are
 # still open.
 #
-# Split across: codegen/scalar_type.rb (the scalar registry),
-# codegen/nodes.rb (the typed IR), codegen/aliases.rb (registered alias
-# paths), codegen/emit.rb (source emission); this file holds the public
-# API and the query walk.
+# Split across: codegen/scalar_type.rb and codegen/enum_type.rb (the leaf
+# registries), codegen/type_helpers.rb (extend_type and the alias/mixin
+# registry), codegen/nodes.rb (the typed IR), codegen/aliases.rb (resolving
+# registered alias paths against a node), codegen/emit.rb (source emission);
+# this file holds the public API and the query walk.
 require_relative "hints"
 require_relative "input_struct"
+require_relative "schema_loader"
 require_relative "representation"
 require_relative "inflect"
 require_relative "selection"
@@ -436,20 +438,13 @@ class GraphWeaver::Codegen
   end
 
   # A @key field set is a GraphQL selection set — "upc sku", or a nested
-  # "id organization { id }" — so parse it and flatten to the leaf paths the
-  # wire hash needs. Dotted, since a GraphQL name can't contain a dot.
+  # "id organization { id }" — flattened to the dotted leaf paths the wire
+  # hash needs. The same reading the routing table does of the same syntax,
+  # so a supergraph and a subgraph SDL can't disagree about one key.
   def key_paths(entity, fields)
-    selections = GraphQL.parse("{ #{fields} }").definitions.first.selections
-    leaf_paths(selections)
+    GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(fields)
   rescue GraphQL::ParseError => e
     raise GraphWeaver::Error, "#{entity.graphql_name} @key(fields: #{fields.inspect}) isn't a selection set: #{e.message}"
-  end
-
-  def leaf_paths(selections, prefix = [])
-    selections.flat_map do |node|
-      path = prefix + [node.name]
-      node.selections.empty? ? [path.join(".")] : leaf_paths(node.selections, path)
-    end
   end
 
   # The kwargs a builder takes: every key set's top-level field, once. Typed
@@ -926,7 +921,9 @@ class GraphWeaver::Codegen
     end
   end
 
-  # the input-side core kinds a variable (or input-object field) can have
+  # The node for a core type, reached from a variable, an input-object field
+  # or a result-side enum. All three share it so that one schema enum is one
+  # Ruby type wherever it appears — see object_node's ENUM branch.
   def variable_core(core)
     case core.kind.name
     when "SCALAR"

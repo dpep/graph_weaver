@@ -27,7 +27,7 @@ module GraphWeaver
     def parse(query, name: nil)
       # #schema is the mixin's one requirement of its includer, and a module
       # has no way to declare that short of an abstract interface
-      GraphWeaver.parse(schema: T.unsafe(self).schema, query:, name:, client: parse_client)
+      GraphWeaver.parse(schema: T.unsafe(self).schema, query:, name:, client: self)
     end
 
     # Parse every query in a directory (subdirectories included) into typed
@@ -55,13 +55,5 @@ module GraphWeaver
         namespace.const_set(name, parse(path))
       end
     end
-
-    private
-
-    # What a parsed module executes through: this object, which holds the
-    # schema and runs queries. Client is the one that overrides it — its own
-    # #execute is the one-shot parse-and-run, not the client contract, so it
-    # bakes the transport it wraps.
-    def parse_client = self
   end
 end
