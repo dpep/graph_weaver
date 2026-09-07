@@ -52,7 +52,7 @@ describe "GraphWeaver::Railtie" do
 
   # generated/person_query.rb defines ::PersonQuery, not the
   # Generated::PersonQuery Zeitwerk infers from the path — and the default
-  # generated_path is inside an autoload root, so eager loading (production)
+  # the generated directory is inside an autoload root, so eager loading (production)
   # raised until the loader was told to skip it.
   it "hides the generated directory from Zeitwerk, before it is set up" do
     initializers, ordering = {}, {}
@@ -76,14 +76,14 @@ describe "GraphWeaver::Railtie" do
     expect(initializers.keys).to eq %w[graph_weaver.ignore_generated graph_weaver.logger graph_weaver.load_generated]
 
     Dir.mktmpdir do |dir|
-      GraphWeaver.generated_path = dir
+      GraphWeaver.generated_paths = dir
       File.write(File.join(dir, "boot_probe_query.rb"), "module RailtieBootProbe; end")
 
       initializers["graph_weaver.load_generated"].call
 
       expect(defined?(RailtieBootProbe)).to be_truthy
     ensure
-      GraphWeaver.generated_path = nil
+      GraphWeaver.generated_paths = nil
       Object.send(:remove_const, :RailtieBootProbe) if Object.const_defined?(:RailtieBootProbe)
     end
   end
@@ -95,7 +95,7 @@ describe "GraphWeaver::Railtie" do
     load_railtie([], initializers)
 
     Dir.mktmpdir do |dir|
-      GraphWeaver.generated_path = dir
+      GraphWeaver.generated_paths = dir
       File.write(File.join(dir, "skipped_query.rb"), "module RailtieSkipProbe; end")
       GraphWeaver.skip_generated_load = true
 
@@ -104,7 +104,7 @@ describe "GraphWeaver::Railtie" do
       expect(defined?(RailtieSkipProbe)).to be_nil
     ensure
       GraphWeaver.skip_generated_load = false
-      GraphWeaver.generated_path = nil
+      GraphWeaver.generated_paths = nil
     end
   end
 
@@ -112,10 +112,10 @@ describe "GraphWeaver::Railtie" do
     initializers = {}
     load_railtie([], initializers)
 
-    GraphWeaver.generated_path = "no/such/dir"
+    GraphWeaver.generated_paths = "no/such/dir"
     expect { initializers["graph_weaver.load_generated"].call }.not_to raise_error
   ensure
-    GraphWeaver.generated_path = nil
+    GraphWeaver.generated_paths = nil
   end
 
   it "wires Rails.logger unless the app already chose one" do

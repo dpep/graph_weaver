@@ -373,7 +373,7 @@ $ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
   accounts 4, reviews 4, products+reviews 3, accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1
 ```
 
-`QUERIES=` picks the directory (default `GraphWeaver.queries_path`). Planning
+`QUERIES=` picks the directory (default `GraphWeaver.queries_paths`). Planning
 needs the supergraph and nothing else, so this runs in CI with the SDL alone —
 no subgraph has to be loadable. The second line says which subgraphs each query
 touches, so a graph whose queries all sit in one is visibly a different

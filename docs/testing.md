@@ -168,13 +168,21 @@ query on the fly? The client in play exposes it as
 `GraphWeaver.client.schema`, and `GraphWeaver::Testing.config.schema` reads
 back what `config.schema =` set, falling back to the committed dump.
 
-Test-only generated modules don't have to live in `app/` —
-`generated_paths` is an appendable list, so the same support file can
-register a spec-local set that `load_generated!` (and the Railtie) pick up:
+Test-only generated modules don't have to live in `app/` — `generated_paths` is
+an appendable list, so a support file can register a spec-local set:
 
 ```ruby
-GraphWeaver.generated_paths << "spec/support/graphql/generated"
+# spec/support/graph_weaver.rb
+GraphWeaver.generated_paths << "spec/graphql/generated"
+GraphWeaver.load_generated!   # the appended path needs this call
 ```
+
+Both lines matter. In Rails the Railtie loads generated modules during boot,
+which is finished before `spec/support/*.rb` runs — so a path appended here is
+never loaded unless you load it. And keep the directory *outside*
+`spec/support/`: rspec-rails requires every `spec/support/**/*.rb` itself, in
+sorted order, so a generated module gets required before the shared `types.rb`
+it needs and dies on `LoadError`.
 
 ## Simulating failures
 

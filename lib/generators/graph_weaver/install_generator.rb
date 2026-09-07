@@ -60,8 +60,8 @@ module GraphWeaver
       end
 
       def create_layout
-        create_file File.join(GraphWeaver.queries_path, ".keep"), ""
-        create_file File.join(GraphWeaver.generated_path, ".keep"), ""
+        create_file File.join(GraphWeaver.queries_paths.first, ".keep"), ""
+        create_file File.join(GraphWeaver.generated_paths.first, ".keep"), ""
       end
 
       # editor autocomplete + validation for .graphql files (docs/editors.md)
@@ -94,7 +94,7 @@ module GraphWeaver
       def next_steps
         say <<~TEXT
 
-          Write a query in #{GraphWeaver.queries_path}, then:
+          Write a query in #{GraphWeaver.queries_paths.first}, then:
 
               rake graph_weaver:generate
 
@@ -195,8 +195,8 @@ module GraphWeaver
           # https://github.com/dpep/graph_weaver/blob/main/docs/editors.md
           schema: #{schema_path}
           documents:
-            - #{GraphWeaver.queries_path}/**/*.{graphql,gql}
-            - #{GraphWeaver.fragments_path}/**/*.{graphql,gql}
+            - #{GraphWeaver.queries_paths.first}/**/*.{graphql,gql}
+            - #{GraphWeaver.fragments_paths.first}/**/*.{graphql,gql}
         YAML
       end
     end

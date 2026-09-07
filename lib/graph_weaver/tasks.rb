@@ -5,15 +5,15 @@
 #
 #      require "graph_weaver/tasks"
 #
-# The tasks use the conventional paths (GraphWeaver.queries_path /
-# generated_path / schema_path — override in your Rakefile or an
+# The tasks use the conventional paths (GraphWeaver.queries_paths /
+# generated_paths / schema_path — override in your Rakefile or an
 # initializer). Register custom scalars before the tasks run — they're
 # baked into generated source.
 #
 # Each task names its own subject — generated code, the schema dump, the
 # queries — so which question you're asking is the task name:
 #
-#      rake graph_weaver:generate        # queries_path -> generated_path
+#      rake graph_weaver:generate        # queries_paths -> generated_paths.first
 #      rake graph_weaver:verify          # fail if generated files are stale (CI)
 #      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
 #      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
@@ -41,7 +41,7 @@ namespace :graph_weaver do
     GraphWeaver.skip_generated_load = false
   end
 
-  desc "Generate typed query modules (#{GraphWeaver.queries_path} -> #{GraphWeaver.generated_path})"
+  desc "Generate typed query modules (#{GraphWeaver.queries_paths.first} -> #{GraphWeaver.generated_paths.first})"
   task generate: :environment do
     # schema auto-located at GraphWeaver.schema_path, any supported extension
     GraphWeaver.generate!.each { |path| puts "wrote #{path}" }
@@ -181,7 +181,7 @@ namespace :graph_weaver do
 
       puts GraphWeaver::Testing::Coverage.new(
         supergraph:,
-        queries: ENV["QUERIES"] || GraphWeaver.queries_path,
+        queries: ENV["QUERIES"] || GraphWeaver.queries_paths,
       ).report
     rescue GraphWeaver::Error => e
       # a supergraph the routing table can't read fully is itself the answer:

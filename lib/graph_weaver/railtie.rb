@@ -7,7 +7,7 @@
 #   rake_tasks block, so graph_weaver:* tasks appear with no Rakefile
 #   edit. (Outside Rails there is no task-discovery hook — add
 #   `require "graph_weaver/tasks"` to your Rakefile.)
-# - generated modules: required at boot when generated_path exists,
+# - generated modules: required at boot when a generated_paths entry exists,
 #   after config/initializers (registrations and GraphWeaver.client=
 #   run first — block-built type helpers must exist before the files
 #   that include them load). load_generated! stays idempotent, so

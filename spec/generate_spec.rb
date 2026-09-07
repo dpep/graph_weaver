@@ -124,7 +124,7 @@ describe "GraphWeaver.generate!" do
 
     begin
       GraphWeaver.generated_paths << output
-      expect(GraphWeaver.generated_path).to eq "app/graphql/generated" # default untouched
+      expect(GraphWeaver.generated_paths.first).to eq "app/graphql/generated" # default untouched
 
       GraphWeaver.load_generated!
       expect(defined?(::AppendedPeopleQuery)).to eq "constant"
@@ -141,8 +141,8 @@ describe "GraphWeaver.generate!" do
     File.write(File.join(queries, "loaded_people.graphql"), "query { people { name } }")
 
     begin
-      GraphWeaver.queries_path = queries
-      GraphWeaver.generated_path = output
+      GraphWeaver.queries_paths = queries
+      GraphWeaver.generated_paths = output
 
       written = GraphWeaver.generate!(schema: Demo::Schema, client: Demo::Schema)
       expect(written).to eq [File.join(output, "loaded_people_query.rb")]
@@ -152,8 +152,29 @@ describe "GraphWeaver.generate!" do
       expect(defined?(::LoadedPeopleQuery)).to eq "constant"
       expect(LoadedPeopleQuery.execute!.people.map(&:name)).to eq ["Daniel"]
     ensure
-      GraphWeaver.queries_path = nil
-      GraphWeaver.generated_path = nil
+      GraphWeaver.queries_paths = nil
+      GraphWeaver.generated_paths = nil
+    end
+  end
+
+  it "generates every queries_paths entry, and a String assigns as one" do
+    engine = File.join(@dir, "engine/queries")
+    app = File.join(@dir, "app/queries")
+    [engine, app].each { |dir| FileUtils.mkdir_p(dir) }
+    File.write(File.join(engine, "engine_people.graphql"), "query { people { name } }")
+    File.write(File.join(app, "app_people.graphql"), "query { people { name } }")
+
+    begin
+      GraphWeaver.queries_paths = app
+      expect(GraphWeaver.queries_paths).to eq [app] # a String is one entry
+
+      GraphWeaver.queries_paths << engine
+      written = GraphWeaver.generate!(schema: Demo::Schema, output: File.join(@dir, "generated"))
+
+      expect(written.map { |path| File.basename(path) })
+        .to eq %w[app_people_query.rb engine_people_query.rb]
+    ensure
+      GraphWeaver.queries_paths = nil
     end
   end
 

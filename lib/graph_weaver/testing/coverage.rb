@@ -34,7 +34,7 @@ module GraphWeaver
 
       attr_reader :results
 
-      def initialize(supergraph:, queries: GraphWeaver.queries_path, fragments: GraphWeaver.fragments_paths)
+      def initialize(supergraph:, queries: GraphWeaver.queries_paths, fragments: GraphWeaver.fragments_paths)
         source = supergraph.to_s
         table = GraphWeaver::SchemaLoader.routing_table(source)
         unless table.unsupported.empty?
@@ -49,9 +49,7 @@ module GraphWeaver
 
         @planner = Router::Planner.new(table:, schema: GraphWeaver::SchemaLoader.load(source))
         @shared = GraphWeaver::Codegen.load_fragments(fragments)
-        @results = Array(queries)
-          .flat_map { |dir| Dir[File.join(dir, GraphWeaver::Codegen::DOCUMENT_GLOB)].sort }
-          .map { |path| measure(path) }
+        @results = GraphWeaver.query_files(queries).map { |path| measure(path) }
       end
 
       def plannable = @results.count { |result| result.category.nil? }

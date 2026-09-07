@@ -127,18 +127,18 @@ describe GraphWeaver::Client do
       end
     end
 
-    it "load_queries! reads the configured queries_path — the one generate! reads" do
+    it "load_queries! reads the configured queries_paths — the ones generate! reads" do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
         namespace = Module.new
 
-        GraphWeaver.queries_path = dir
+        GraphWeaver.queries_paths = dir
         mods = GraphWeaver.new(url).load_queries!(namespace:)
 
         expect(mods.size).to eq 1
         expect(namespace::PersonQuery.execute!(id: "1").person&.name).to eq "Daniel"
       ensure
-        GraphWeaver.queries_path = nil
+        GraphWeaver.queries_paths = nil
       end
     end
 

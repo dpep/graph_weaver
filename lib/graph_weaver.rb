@@ -104,27 +104,27 @@ module GraphWeaver
       "Query" # unparseable: codegen brands the real error a moment later
     end
 
-    # Conventional locations. generated_paths and fragments_paths are LISTS,
-    # factory_bot-style, so extra locations (a test-only dir, an engine's) can
-    # be appended and every loader walks them all — entries may be glob
-    # patterns, and the generated default already matches per-schema layouts
-    # (app/graphql/github/generated):
+    # Conventional locations. Every directory setting is a LIST,
+    # factory_bot-style: extra locations (a test-only dir, an engine's) can be
+    # appended and every reader walks them all. Entries may be glob patterns,
+    # and the generated default already matches per-schema layouts
+    # (app/graphql/github/generated). Assigning a String wraps it, so pointing
+    # at one directory stays a one-liner:
     #
-    #      # e.g. in spec/support/graph_weaver.rb
-    #      GraphWeaver.generated_paths << "spec/support/graphql/generated"
+    #      GraphWeaver.queries_paths = "app/graphql/operations"
+    #      GraphWeaver.generated_paths << "spec/graphql/generated"
     #
-    # Queries are SINGULAR. One generate! run reads one directory against one
-    # schema, so a second one would produce modules at runtime that
-    # `rake graph_weaver:generate` never generates and `verify` never checks.
-    attr_writer :generated_paths, :schema_path, :fragments_paths
-    attr_accessor :queries_path
+    # schema_path is the exception, and singular on purpose: one generate! run
+    # reads ONE schema, so a second dump in a list is a file nothing would ever
+    # read. A second schema is a second generate! (schema: names it).
+    attr_writer :schema_path
 
     # Set by every graph_weaver rake task: those tasks WRITE the generated
     # files, so loading them first lets a stale one block its own repair.
     # None of them needs the modules loaded.
     attr_accessor :skip_generated_load
 
-    def queries_path = @queries_path ||= "app/graphql/queries"
+    def queries_paths = @queries_paths ||= ["app/graphql/queries"]
     def generated_paths = @generated_paths ||= ["app/graphql/generated", "app/graphql/*/generated"]
 
     # Reusable named fragments, defined once and available to every query —
@@ -132,16 +132,26 @@ module GraphWeaver
     # query stays self-contained.
     def fragments_paths = @fragments_paths ||= ["app/graphql/fragments"]
 
-    # the singular readers take the first entry — the default target for
-    # generate! and the rake tasks; assigning one replaces the list
-    def generated_path = generated_paths.first
-    def fragments_path = fragments_paths.first
+    # nil restores the default; a String is one entry, not a second spelling
+    def queries_paths=(paths)
+      @queries_paths = paths && Array(paths)
+    end
 
-    def generated_path=(path)
-      @generated_paths = path.nil? ? nil : [path]
+    def generated_paths=(paths)
+      @generated_paths = paths && Array(paths)
+    end
+
+    def fragments_paths=(paths)
+      @fragments_paths = paths && Array(paths)
     end
 
     def schema_path = @schema_path || "app/graphql/schema.json"
+
+    # Every query document under these directories, sorted — the files
+    # generate!, verify_generated!, check_queries and load_queries! all read.
+    def query_files(paths = queries_paths)
+      Array(paths).flat_map { |dir| Dir[File.join(dir, Codegen::DOCUMENT_GLOB)].sort }
+    end
 
     # The name of the shared module — the types that live once per schema
     # (input types, enums, unions hoisted from shared fragments) and are
@@ -159,13 +169,13 @@ module GraphWeaver
     # extension), and also takes a Client (its schema — the console object,
     # no dump needed):
     #
-    #      GraphWeaver.generate!   # queries_path -> generated_path
+    #      GraphWeaver.generate!   # queries_paths -> generated_paths.first
     #
     # person.graphql => person_query.rb defining PersonQuery. Returns the
     # written paths. Generated files the plan no longer produces are deleted
     # (see #orphaned), so renaming or dropping a .graphql leaves nothing
     # behind. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema: nil, queries: queries_path, output: generated_path, client: nil,
+    def generate!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
       types_module: nil)
       schema = schema ? schema_for(schema) : locate_schema!
 
@@ -216,7 +226,7 @@ module GraphWeaver
     #      it "generated queries are current" do
     #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema: nil, queries: queries_path, output: generated_path, client: nil,
+    def verify_generated!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
       types_module: nil)
       schema = schema ? schema_for(schema) : locate_schema!
       plan = generation_plan(queries:, schema:, client:, types_module:)
@@ -258,14 +268,14 @@ module GraphWeaver
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
     # graph_weaver:queries:check` prints this and exits non-zero.
-    def check_queries(schema: nil, queries: queries_path, fragments: fragments_paths)
+    def check_queries(schema: nil, queries: queries_paths, fragments: fragments_paths)
       # subgraph branding comes from the local supergraph dump, so a caller
       # supplying its own schema opts out of it
       table = schema ? nil : checked_routing_table
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
 
-      Dir[File.join(queries, Codegen::DOCUMENT_GLOB)].sort.each_with_object({}) do |path, failures|
+      query_files(queries).each_with_object({}) do |path, failures|
         errors = validation_errors(schema, File.read(path), shared, table)
         failures[path] = errors if errors.any?
       end
@@ -424,7 +434,7 @@ module GraphWeaver
 
       seen = {} # module name => the file that produced it, for the collision message
 
-      plan = Dir[File.join(queries, Codegen::DOCUMENT_GLOB)].sort.map do |path|
+      plan = query_files(queries).map do |path|
         base = File.basename(path, File.extname(path))
         source = File.read(path)
         suffix = operation_suffix(source)

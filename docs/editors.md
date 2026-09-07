@@ -19,7 +19,7 @@ documents:
 ```
 
 That's the whole setup. The paths are graph_weaver's conventions
-(`GraphWeaver.schema_path`, `queries_path`, `fragments_paths`) — if you moved
+(`GraphWeaver.schema_path`, `queries_paths`, `fragments_paths`) — if you moved
 them, move these to match. Include the fragments directory: an editor
 validating a query that spreads a shared fragment reports `Unknown fragment`
 unless the fragment files are in `documents` too.

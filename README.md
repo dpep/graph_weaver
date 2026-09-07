@@ -117,7 +117,7 @@ carry the client's transport, no global wiring needed:
 PersonQuery = api.parse("queries/person.graphql")
 PersonQuery.execute(id: "1")
 
-# or every query file at once (queries_path convention), named like generation would
+# or every query file at once (queries_paths convention), named like generation would
 api.load_queries!
 
 # or one-shot, no module at all — variables are plain kwargs

@@ -41,7 +41,7 @@ module GraphWeaver
     # Reloadable (constants are replaced), so it suits consoles and dev.
     # Returns the modules.
     def load_queries!(dir = nil, namespace: Object)
-      Dir[File.join(dir || GraphWeaver.queries_path, GraphWeaver::Codegen::DOCUMENT_GLOB)].sort.map do |path|
+      GraphWeaver.query_files(dir || GraphWeaver.queries_paths).map do |path|
         name = GraphWeaver.module_name(path, File.read(path))
         if namespace.const_defined?(name, false)
           # the constant moves, its instances don't — a struct built before the
