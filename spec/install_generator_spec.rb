@@ -7,58 +7,61 @@ require "yaml"
 # it. Thor invokes a generator's public instance methods in definition
 # order, which is what run_generator reproduces.
 describe "GraphWeaver::Generators::InstallGenerator" do
+  # Loaded ONCE — reloading a file resets Ruby's per-file coverage counters,
+  # so loading per example left only the last example's execution measured
+  # (see railtie_spec/rake_tasks_spec). The base class below doesn't depend
+  # on anything test-local, so nothing here needs a fresh copy per example.
+  #
   # records what the generator asks Thor to do, and nothing else: the
   # stub has no way to write to disk, so a write that bypassed create_file
   # would fail here rather than silently overwrite a real file
-  def generator_class
-    base = Class.new do
-      def self.desc(*); end
+  INSTALL_GENERATOR_BASE = Class.new do
+    def self.desc(*); end
 
-      def self.class_options = @class_options ||= {}
+    def self.class_options = @class_options ||= {}
 
-      def self.class_option(name, **opts) = class_options[name] = opts
+    def self.class_option(name, **opts) = class_options[name] = opts
 
-      # Thor exposes a declared argument as a reader on the instance
-      def self.argument(name, **) = attr_reader(name)
+    # Thor exposes a declared argument as a reader on the instance
+    def self.argument(name, **) = attr_reader(name)
 
-      # Thor::Group collects its commands in method_added, in definition
-      # order — reflection order isn't guaranteed, so mirror that rather
-      # than reading it back off the class
-      def self.commands = @commands ||= []
+    # Thor::Group collects its commands in method_added, in definition
+    # order — reflection order isn't guaranteed, so mirror that rather
+    # than reading it back off the class
+    def self.commands = @commands ||= []
 
-      def self.method_added(name)
-        super
-        commands << name if name != :initialize && public_method_defined?(name)
-      end
-
-      attr_reader :options, :actions
-
-      def initialize(source, options = {})
-        defaults = self.class.class_options.to_h { |name, opts| [name, opts[:default]] }
-        @source = source
-        @options = defaults.merge(options)
-        @actions = []
-      end
-
-      def create_file(*args) = @actions << [:create_file, *args]
-
-      def say_status(*args) = @actions << [:say_status, *args]
-
-      def say(*args) = @actions << [:say, *args]
+    def self.method_added(name)
+      super
+      commands << name if name != :initialize && public_method_defined?(name)
     end
 
-    stub_const("Rails::Generators::Base", base)
-    load File.expand_path("../lib/generators/graph_weaver/install_generator.rb", __dir__)
-    GraphWeaver::Generators::InstallGenerator
+    attr_reader :options, :actions
+
+    def initialize(source, options = {})
+      defaults = self.class.class_options.to_h { |name, opts| [name, opts[:default]] }
+      @source = source
+      @options = defaults.merge(options)
+      @actions = []
+    end
+
+    def create_file(*args) = @actions << [:create_file, *args]
+
+    def say_status(*args) = @actions << [:say_status, *args]
+
+    def say(*args) = @actions << [:say, *args]
   end
 
+  module Rails; end unless defined?(Rails)
+  Rails.const_set(:Generators, Module.new) unless Rails.const_defined?(:Generators, false)
+  Rails::Generators.const_set(:Base, INSTALL_GENERATOR_BASE)
+
+  load File.expand_path("../lib/generators/graph_weaver/install_generator.rb", __dir__)
+  INSTALL_GENERATOR_CLASS = GraphWeaver::Generators::InstallGenerator
+
   def run_generator(source = URL, **options)
-    klass = generator_class
-    generator = klass.new(source, options)
-    klass.commands.each { |name| generator.public_send(name) }
+    generator = INSTALL_GENERATOR_CLASS.new(source, options)
+    INSTALL_GENERATOR_CLASS.commands.each { |name| generator.public_send(name) }
     generator.actions
-  ensure
-    GraphWeaver.send(:remove_const, :Generators) if GraphWeaver.const_defined?(:Generators, false)
   end
 
   def created(actions)

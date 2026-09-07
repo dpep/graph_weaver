@@ -135,10 +135,23 @@ describe GraphWeaver::Federation::Drift do
   end
 
   describe "rake graph_weaver:federation:diff" do
+    # Shared with every other spec file that exercises these tasks (see
+    # rake_tasks_spec's header comment on TASKS for why this must be a
+    # single process-wide load rather than one per file).
+    unless defined?(TASKS)
+      TASKS = Rake::Application.new
+      begin
+        previous, Rake.application = Rake.application, TASKS
+        require "graph_weaver/tasks"
+      ensure
+        Rake.application = previous
+      end
+    end
+
     def run_task(**env)
       original = Rake.application
-      Rake.application = Rake::Application.new
-      load "graph_weaver/tasks.rb"
+      Rake.application = TASKS
+      TASKS.tasks.each(&:reenable) # rake runs a task once per process otherwise
       env.each { |name, value| ENV[name.to_s] = value }
 
       capture = StringIO.new

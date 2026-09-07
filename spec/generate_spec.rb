@@ -287,6 +287,20 @@ describe "the shared module name" do
 end
 
 describe "GraphWeaver.verify_generated!" do
+  # Shared with every other spec file that exercises these tasks (see
+  # rake_tasks_spec's header comment on TASKS for why this must be a single
+  # process-wide load rather than one per file).
+  require "rake"
+  unless defined?(TASKS)
+    TASKS = Rake::Application.new
+    begin
+      previous, Rake.application = Rake.application, TASKS
+      require "graph_weaver/tasks"
+    ensure
+      Rake.application = previous
+    end
+  end
+
   let(:root) { File.expand_path("..", __dir__) }
 
   it "passes when generated files are current (our own fixtures)" do
@@ -355,12 +369,13 @@ describe "GraphWeaver.verify_generated!" do
   end
 
   it "ships rake tasks for generate and verify" do
-    require "rake"
-    Rake::Task.tasks.each(&:clear) if Rake::Task.tasks.any?
-    load File.join(root, "lib/graph_weaver/tasks.rb")
+    original = Rake.application
+    Rake.application = TASKS
 
     expect(Rake::Task.task_defined?("graph_weaver:generate")).to be true
     expect(Rake::Task.task_defined?("graph_weaver:verify")).to be true
+  ensure
+    Rake.application = original
   end
 end
 

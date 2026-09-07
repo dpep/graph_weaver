@@ -145,17 +145,27 @@ describe "GraphWeaver.check_queries" do
 end
 
 describe "rake graph_weaver:queries:check" do
-  before(:context) do
-    require "rake"
-    Rake::Task.tasks.each(&:clear) if Rake::Task.tasks.any?
-    load File.expand_path("../lib/graph_weaver/tasks.rb", __dir__)
+  # Shared with every other spec file that exercises these tasks (see
+  # rake_tasks_spec's header comment on TASKS for why this must be a single
+  # process-wide load rather than one per file/context).
+  require "rake"
+  unless defined?(TASKS)
+    TASKS = Rake::Application.new
+    begin
+      previous, Rake.application = Rake.application, TASKS
+      require "graph_weaver/tasks"
+    ensure
+      Rake.application = previous
+    end
   end
 
   # rake refuses to run a task twice, and abort's SystemExit must not
   # escape into the suite — so run the task by hand and report both
   # streams plus the exit status the shell would see
   def run_task
-    Rake::Task["graph_weaver:queries:check"].reenable
+    original = Rake.application
+    Rake.application = TASKS
+    TASKS.tasks.each(&:reenable) # rake runs a task once per process otherwise
     out, err = StringIO.new, StringIO.new
     $stdout, $stderr = out, err
     status = 0
@@ -167,6 +177,7 @@ describe "rake graph_weaver:queries:check" do
     [out.string, err.string, status]
   ensure
     $stdout, $stderr = STDOUT, STDERR
+    Rake.application = original
   end
 
   it "prints file, position, and message, then exits non-zero" do
