@@ -616,7 +616,7 @@ module GraphWeaver
       end
       query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 
-      Codegen.parse(schema:, query:, module_name: name, client:)
+      Codegen.parse(schema:, query:, module_name: name, client:, path:)
     end
 
     # One-shot dynamic execution — a throwaway client, no build step:

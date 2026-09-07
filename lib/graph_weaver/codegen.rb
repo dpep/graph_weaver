@@ -101,10 +101,11 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
-  def self.parse(schema:, query:, module_name: nil, client: nil)
+  def self.parse(schema:, query:, module_name: nil, client: nil, path: nil)
     client_const = client_const(client)
 
-    codegen = new(schema:, query:, module_name:, client: client_const, default_module_name: "Query")
+    codegen = new(schema:, query:, module_name:, client: client_const, path:,
+      default_module_name: "Query")
     source = codegen.generate
 
     container = Module.new
@@ -234,7 +235,16 @@ class GraphWeaver::Codegen
   def validate_module_name!(subject)
     return if @module_name&.match?(CONSTANT_NAME)
 
-    raise ArgumentError, "#{subject} must be a constant name, got #{@module_name.inspect}"
+    problem = "#{subject} must be a constant name, got #{@module_name.inspect}"
+    # An explicit module_name: is an argument wrong on its face. A derived one
+    # is a verdict on a FILE — a numeric prefix (01_home.graphql) is the usual
+    # way in — so it names the file, says the fix is a rename, and brands so
+    # `rake graph_weaver:generate` aborts on it instead of burying it under a
+    # backtrace through codegen.
+    raise ArgumentError, problem unless @path
+
+    raise GraphWeaver::Error, "#{@path}: #{problem} — it comes from the file name, so rename the " \
+      "file to one a constant can spell (a letter first, then letters, digits or underscores)"
   end
   private :validate_module_name!
 

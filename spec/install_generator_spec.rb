@@ -188,6 +188,18 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       expect(YAML.safe_load(created(actions)["graphql.config.yml"])["schema"]).to eq "db/schema.graphql"
       expect(GraphWeaver::SchemaLoader).not_to have_received(:refresh!)
       expect(GraphWeaver::SchemaLoader).not_to have_received(:introspect)
+      expect(initializer(actions)).to include "Point the app default at whatever serves this API"
+    end
+
+    # the install run is the one moment a user is guaranteed to be reading,
+    # and a composed supergraph changes what the next steps are
+    it "says what a composed supergraph means, rather than treating it as any dump" do
+      actions = run_generator(RouterGraph::SUPERGRAPH)
+      told = actions.filter_map { |kind, text| text if kind == :say }.join("\n")
+
+      expect(initializer(actions)).to include "A composed supergraph", "graphql: :router"
+      expect(told).to include "3 subgraphs: accounts, products, reviews"
+      expect(told).to include "rake graph_weaver:federation:diff", "graphql: :router"
     end
   end
 

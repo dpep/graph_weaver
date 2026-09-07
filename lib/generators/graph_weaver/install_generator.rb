@@ -100,9 +100,45 @@ module GraphWeaver
 
           Docs: https://github.com/dpep/graph_weaver/blob/main/docs/getting_started.md
         TEXT
+
+        say federated_steps if subgraphs
       end
 
       private
+
+      # This install run is the one moment the user is guaranteed to be
+      # reading, and a composed supergraph changes what the next steps are:
+      # the test client is the interesting one, and there's a CI gate to add.
+      def federated_steps
+        <<~TEXT
+
+          #{source} is a composed supergraph (#{subgraphs.size} subgraphs: #{subgraphs.join(", ")}), so:
+
+              rake graph_weaver:federation:diff       # CI gate: a subgraph changed, nobody recomposed
+              rake graph_weaver:federation:subgraphs  # which schema here serves which subgraph
+
+          and specs run against your real resolvers across all of them, in-process:
+
+              describe "checkout", graphql: :router do ... end   # require "graph_weaver/rspec"
+
+          Docs: https://github.com/dpep/graph_weaver/blob/main/docs/federation.md
+        TEXT
+      end
+
+      # The subgraph names this source composes, or nil when it isn't a
+      # composed supergraph. Read off the routing table rather than guessed —
+      # the same reader Testing::Router and federation:diff use.
+      def subgraphs
+        return @subgraphs if defined?(@subgraphs)
+
+        @subgraphs =
+          begin
+            (GraphWeaver::SchemaLoader.routing_table(source).subgraphs if form == :path)
+          rescue StandardError
+            # not a supergraph, or not readable — nothing to say either way
+            nil
+          end
+      end
 
       # Which of GraphWeaver.new's source forms this is — the url test is
       # its own, so the generator and the client can't disagree about what
@@ -179,15 +215,30 @@ module GraphWeaver
               GraphWeaver.client = GraphWeaver.new(#{source})
             end
           RUBY
-        else
-          <<~RUBY
-            GraphWeaver.schema_path = "#{source}"
+        when :path
+          if subgraphs
+            <<~RUBY
+              GraphWeaver.schema_path = "#{source}"
 
-            # A dump is type information only — it has no resolvers, so it can't
-            # execute. Point the app default at whatever serves this API:
-            #
-            #   GraphWeaver.client = GraphWeaver.new("https://api.example.com/graphql")
-          RUBY
+              # A composed supergraph: your queries are generated against the whole
+              # graph, and a router serves it. Point the app default at the gateway:
+              #
+              #   GraphWeaver.client = GraphWeaver.new("https://gateway.example.com/graphql")
+              #
+              # Specs don't need one — `graphql: :router` plans against this
+              # supergraph and runs your own subgraph resolvers in-process
+              # (docs/federation.md).
+            RUBY
+          else
+            <<~RUBY
+              GraphWeaver.schema_path = "#{source}"
+
+              # A dump is type information only — it has no resolvers, so it can't
+              # execute. Point the app default at whatever serves this API:
+              #
+              #   GraphWeaver.client = GraphWeaver.new("https://api.example.com/graphql")
+            RUBY
+          end
         end
       end
 

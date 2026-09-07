@@ -1,4 +1,16 @@
 ## Unreleased
+- **A query file whose name can't spell a constant now names the file.**
+  `01_home_featured.graphql` reported `module_name: must be a constant name,
+  got "01HomeFeaturedQuery"` and left you to find which of thirty files it
+  meant; it now names the path and says the fix is a rename. It's a
+  `GraphWeaver::Error` too, so `rake graph_weaver:generate` aborts on it
+  instead of burying it under a backtrace — rescue `ArgumentError` for this
+  and you must change it. An explicit `module_name:` argument still raises
+  `ArgumentError`.
+- **`rails g graph_weaver:install <supergraph>` recognises a composed
+  supergraph** and says what changes because of it: the `federation:*` tasks,
+  and that `graphql: :router` runs specs against your real subgraph resolvers.
+  The initializer it writes says so too.
 - **Every `rake graph_weaver:federation:*` task was a silent no-op in a stock
   Rails app.** Rails defaults `config.rake_eager_load` to false, and subgraph
   detection only sees *loaded* schema classes — so `federation:subgraphs`
