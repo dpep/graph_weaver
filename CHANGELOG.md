@@ -1,4 +1,27 @@
 ## Unreleased
+### Ruby-keyword field names now generate
+
+A result key that underscores to a Ruby keyword — `pageInfo { next }`,
+`filter { in }` — no longer refuses to generate. A prop is only ever read off
+a receiver, so `const :next` is fine; the one bare read, an `alias:`
+delegator's first hop, now spells `self.next`. Output props keep only the ban
+the input side already had: names every `T::Struct` already answers to
+(`class`, `hash`, `serialize`). If you aliased a query around this, you can
+drop the alias and regenerate. `GraphWeaver::Codegen::RESERVED_PROPS` is gone
+— `STRUCT_METHODS` is the whole rule now.
+
+- `optional: true` on an `alias:` no longer hides a path segment the schema has
+  no field for. It still skips a field this query didn't select — that is what
+  it is for — but a typo, or the classic `findPets` where the path is the Ruby
+  prop chain, now raises and says which of the two it looks like. If an
+  optional alias resolved only through a query-level rename (`{ renamed: meta }`),
+  it will now raise on queries that don't select that key.
+- **New:** `GraphWeaver.reset_enums!`, `GraphWeaver.reset_type_helpers!` and
+  `GraphWeaver.reset_registrations!` — the registry resets scalars already had.
+  `reset_registrations!` is the clean slate to reach for between tests.
+- An alias error no longer names the same type twice when a query module and
+  its root type share a name.
+
 ### Testing::Router now plans a real query, not just a single-subgraph one
 
 `GraphWeaver::Testing::Router` used to hand one operation to one subgraph
