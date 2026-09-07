@@ -318,7 +318,7 @@ describe "graph_weaver rake tasks" do
       )
 
       expect(result.status).to eq 0
-      expect(result.out.lines.first).to eq "17/17 queries plannable locally (100%)\n"
+      expect(result.out.lines.first).to eq "17/17 queries plannable locally (100%), 17 servable here\n"
     end
 
     # with the routing table incomplete every number it would print is a

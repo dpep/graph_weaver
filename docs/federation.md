@@ -420,18 +420,35 @@ rather than guess:
 
 ```
 $ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
-17/17 queries plannable locally (100%)
+17/17 queries plannable locally (100%), 17 servable here
   accounts 4, reviews 4, products+reviews 3, accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1
 ```
 
+**Two numbers, because they answer different questions.** *Plannable* is about
+the graph — could the router split this query faithfully at all. *Servable
+here* is what your suite actually gets: every subgraph that plan reaches is one
+this process serves. In a [partly-local supergraph](#a-supergraph-only-partly-local)
+they differ, and the plannable number alone reads optimistically:
+
+```
+5/5 queries plannable locally (100%), 2 servable here
+  accounts 1, billing 1, reviews 1, reviews+shipping 1, shipping 1
+
+plannable, but nothing here serves what they reach (3) — name a schema for those subgraphs, fake them (subgraphs: { "shipping" => :fake }), or run these against a real router:
+  invoices.graphql         billing
+  shipping_quotes.graphql  shipping
+  tracking.graphql         shipping
+```
+
 `QUERIES=` picks the directory (default `GraphWeaver.queries_paths`). Planning
-needs the supergraph and nothing else, so this runs in CI with the SDL alone —
-no subgraph has to be loadable. The second line says which subgraphs each query
-touches, so a graph whose queries all sit in one is visibly a different
-situation from one that stitches everywhere. Anything refused is listed after
-it, grouped by category, so one glance says whether the gap is one construct or
-many. The run above is against the demo graph in `spec/support/federation`, not
-a real app's mix.
+needs the supergraph and nothing else, so this still runs in CI with the SDL
+alone — no subgraph has to be loadable, and with none loaded the report drops
+the second number and says it counted planning only. The subgraph line says
+which subgraphs each query touches, so a graph whose queries all sit in one is
+visibly a different situation from one that stitches everywhere. Anything
+refused is listed after it, grouped by category, so one glance says whether the
+gap is one construct or many. The runs above are against the demo graph in
+`spec/support/federation`, not a real app's mix.
 
 ### How the refusals are kept honest
 

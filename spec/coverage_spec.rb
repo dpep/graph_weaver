@@ -18,10 +18,10 @@ describe GraphWeaver::Testing::Coverage do
   end
 
   # everything is read in the constructor, so the directory can go
-  def coverage_of(queries)
+  def coverage_of(queries, supergraph: RouterGraph::SUPERGRAPH)
     Dir.mktmpdir do |dir|
       queries.each { |name, source| File.write(File.join(dir, name), source) }
-      return described_class.new(supergraph: RouterGraph::SUPERGRAPH, queries: dir, fragments: [])
+      return described_class.new(supergraph:, queries: dir, fragments: [])
     end
   end
 
@@ -29,7 +29,8 @@ describe GraphWeaver::Testing::Coverage do
     expect(coverage.plannable).to eq 17
     expect(coverage.results.size).to eq 17
     expect(coverage.percent).to eq 100
-    expect(coverage.report.lines.first).to eq "17/17 queries plannable locally (100%)\n"
+    expect(coverage.servable).to eq 17
+    expect(coverage.report.lines.first).to eq "17/17 queries plannable locally (100%), 17 servable here\n"
     # a query that stitches names every subgraph it touches
     expect(coverage.report.lines[1]).to eq "  accounts 4, reviews 4, products+reviews 3, " \
       "accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1"
@@ -52,17 +53,58 @@ describe GraphWeaver::Testing::Coverage do
   # the reason column is the product: which construct is left decides
   # whether closing the rest of the gap is worth it
   it "groups the refusals by what stopped them, largest first" do
-    report = coverage_of(
+    report = coverage_of({
       "shadowed.graphql" => "{ me { id: username reviews { body } } }",
       "aliased.graphql" => "{ me { id: username reviews { id } } }",
       "mixed.graphql" => "{ __schema { queryType { name } } me { id } }",
-    )
+    })
 
     expect(report.refused.map(&:category).tally).to eq({ shadowed_key: 2, mixed_introspection: 1 })
     expect(report.report).to include "  an alias shadowing an injected @key (2)"
     expect(report.report).to include "    shadowed.graphql", "aliases username"
     expect(report.report.index("an alias shadowing an injected @key"))
       .to be < report.report.index("introspection mixed with data")
+  end
+
+  # "Is it worth wiring up? Measure." is answered by what a suite can
+  # actually *run*, and the partly-local graph the docs call the usual
+  # migration shape is exactly where that differs from what plans.
+  describe "a supergraph only partly served here" do
+    subject(:partial) do
+      coverage_of({
+        "profile.graphql" => "{ me { username } }",
+        "tracking.graphql" => "{ reviews { body shipment { carrier } } }",
+      }, supergraph: RouterGraph::PARTIAL_SUPERGRAPH)
+    end
+
+    it "counts the plannable ones a suite can run, and names what the rest need" do
+      expect(partial.plannable).to eq 2
+      expect(partial.servable).to eq 1
+      expect(partial.report.lines.first)
+        .to eq "2/2 queries plannable locally (100%), 1 servable here\n"
+      expect(partial.report).to include "tracking.graphql  shipping"
+    end
+  end
+
+  # The SDL-alone CI run: nothing is loaded, so servability isn't a number
+  # this can report — and saying so beats printing a zero that reads as a gap.
+  it "says planning is all it counted when nothing here serves the graph" do
+    alone = coverage_of({ "widgets.graphql" => "{ widgets { id } }" }, supergraph: <<~SDL)
+      schema @link(url: "https://specs.apollo.dev/link/v1.0")
+        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+      { query: Query }
+      directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
+      directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+      directive @join__type(graph: join__Graph!) repeatable on OBJECT
+      enum join__Graph { X @join__graph(name: "x", url: "http://x") }
+      type Query @join__type(graph: X) { widgets: [Widget!]! @join__field(graph: X) }
+      type Widget @join__type(graph: X) { id: ID! @join__field(graph: X) }
+    SDL
+
+    expect(alone.plannable).to eq 1
+    expect(alone.report.lines.first).to eq "1/1 query plannable locally (100%)\n"
+    expect(alone.report).to include "nothing here serves any of this supergraph's subgraphs (x), " \
+      "so this counts planning only"
   end
 
   it "plans without any subgraph being loadable" do
@@ -73,7 +115,7 @@ describe GraphWeaver::Testing::Coverage do
 
   describe "a query set it can't read" do
     it "reports a query that no longer validates, rather than crashing on it" do
-      report = coverage_of("stale.graphql" => "{ me { nosuch } }", "ok.graphql" => "{ me { id } }")
+      report = coverage_of({ "stale.graphql" => "{ me { nosuch } }", "ok.graphql" => "{ me { id } }" })
 
       expect(report.plannable).to eq 1
       expect(report.refused.first.category).to eq :invalid

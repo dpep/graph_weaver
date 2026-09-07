@@ -1215,6 +1215,16 @@ next to what a generated struct looks like. **Update any bookmark to
 - `docs/federation.md`'s refusal table now lists **every** `Unplannable`
   category, and a spec keeps it that way. Five were missing, `chained_requires`
   and `conditional_fragment` among them.
+- **`federation:coverage` counts what your suite can *run*, not only what
+  plans.** `5/5 queries plannable locally (100%)` was optimistic in exactly the
+  partly-local shape the docs call the usual migration one: a query resolving
+  in a subgraph another service serves plans fine and a spec still can't run
+  it. The headline now reads `…, 2 servable here`, and the queries reaching
+  past what's loaded are listed with the subgraph each needs. Plan-only is
+  still the design — with no subgraph loaded (the SDL-alone CI run) the second
+  number is dropped and the report says it counted planning only.
+  `Coverage#servable` and `#elsewhere` are the programmatic side, and
+  `Coverage::Result` gained `absent` / `servable?`.
 
 ###  v0.4.6  (2026-07-30)
 Bug fixes from a full-library review (all with regression coverage):
