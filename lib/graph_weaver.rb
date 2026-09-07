@@ -38,8 +38,23 @@ module GraphWeaver
     # The first argument is a url or any schema source (a live schema
     # class, or a path/SDL/introspection dump).
     def new(source, **options, &middleware)
+      check_source!(source)
       Client.new(source, **options, &middleware)
     end
+
+    # Anything already speaking the client contract — InProcess, Retry, a
+    # transport, a fake, the test router — carries no schema to generate
+    # from, so it can't stand in as the schema source. Without this it is
+    # handed to SchemaLoader and fails as `undefined method 'lstrip'`.
+    def check_source!(source)
+      # a graphql-ruby schema class executes too, and *is* a schema source
+      return if source.is_a?(Module) || !source.respond_to?(:execute)
+
+      raise Error, "#{source.class} is a client, not a schema source — pass the schema, and this " \
+        "as its transport: GraphWeaver.new(schema, transport: client). For a live schema class " \
+        "with a context: GraphWeaver.new(schema, context: { ... })."
+    end
+    private :check_source!
 
     # The app's default client — how generated modules find their server:
     #
@@ -580,7 +595,7 @@ module GraphWeaver
     # Response envelope, execute! the typed result, raising QueryError on
     # top-level errors.
     def execute(source, query, **variables)
-      client = source.is_a?(Client) ? source : Client.new(source)
+      client = source.is_a?(Client) ? source : new(source)
       client.execute(query, **variables)
     end
 
