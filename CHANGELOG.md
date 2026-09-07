@@ -46,6 +46,15 @@
   covers what a federated graph does. No behaviour change — update any bookmark
   to `docs/testing.md#the-in-process-router--graphql-router`, now
   `docs/federation.md#the-local-router`.
+- **`graphql: :in_process` no longer hunts for the live schema class.** It runs
+  against `GraphWeaver::Testing.config.schema`, or the schema class your client
+  already runs in-process — one sentence, no heuristic. The third fallback
+  (`Testing::LiveSchema`, which searched every loaded `GraphQL::Schema` for one
+  defining everything the reference schema declares) is **deleted**. It only
+  ever applied to an app whose client points at a *different* API, and under
+  Zeitwerk it failed on the first `:in_process` example anyway, since an
+  autoloaded schema isn't loaded until something names it. Such an app now sets
+  `config.schema = MySchema`; when neither source is there, the error says so.
 
 ### One shared module, not three (**breaking** — regenerate)
 

@@ -168,10 +168,15 @@ module GraphWeaver
       end
 
       # The live schema class :in_process runs against: the one you named,
-      # the one the client already runs in-process, else derived from what
-      # the loaded schema classes define (LiveSchema).
+      # else the one the client already runs in-process. Only a live class
+      # has resolvers, so there's nothing to fall back to — a dump is type
+      # information.
       def live_schema
-        @live_schema ||= @schema || GraphWeaver.live_schema || LiveSchema.detect(reference_schema!)
+        @live_schema ||= @schema || GraphWeaver.live_schema ||
+          raise(GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
+            "GraphQL::Schema class — and GraphWeaver.client isn't running one in-process to " \
+            "borrow. Set GraphWeaver::Testing.config.schema = MySchema. (A federated graph has " \
+            "no one schema class — tag those examples graphql: :router.)")
       end
 
       # The schema everything else derives from: the one you set, else the
@@ -284,5 +289,4 @@ require_relative "testing/fake_subgraph"
 require_relative "testing/failure"
 require_relative "testing/cassette"
 require_relative "testing/router"
-require_relative "testing/live_schema"
 require_relative "testing/coverage"

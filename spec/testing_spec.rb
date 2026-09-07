@@ -255,6 +255,34 @@ describe GraphWeaver::Testing do
     end
   end
 
+  describe "#live_schema" do
+    around do |example|
+      prior = GraphWeaver.client
+      example.run
+    ensure
+      GraphWeaver.client = prior
+    end
+
+    it "takes the configured schema" do
+      described_class.configure { |config| config.schema = Demo::Schema }
+
+      expect(described_class.config.live_schema).to be Demo::Schema
+    end
+
+    it "borrows the class the client already runs in-process" do
+      GraphWeaver.client = GraphWeaver::InProcess.new(Demo::Schema)
+
+      expect(described_class.config.live_schema).to be Demo::Schema
+    end
+
+    it "names the fix when there's no live class to run against" do
+      GraphWeaver.client = nil
+
+      expect { described_class.config.live_schema }
+        .to raise_error(GraphWeaver::Error, /config\.schema = MySchema/)
+    end
+  end
+
   describe ".configure" do
     it "applies config defaults to new executors" do
       described_class.configure do |config|
