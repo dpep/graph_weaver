@@ -19,6 +19,8 @@ require_relative "testing"
 #      :fake        fabricated, schema-correct data; no resolvers run
 #      :in_process  your resolvers, one live schema class, in-process
 #      :router      your resolvers, across a federated graph
+#      false/:none  opt out — GraphWeaver.client is left exactly as it is,
+#                   even under config.default_mode
 #
 # `rspec --tag graphql:router` runs one mode's examples.
 #
@@ -42,7 +44,8 @@ require_relative "testing"
 #     fake data along with test order
 #   - a client per example, from the tag (or config.default_mode for an
 #     untagged one; nil, the default, leaves GraphWeaver.client alone).
-#     The prior client is restored afterwards.
+#     The prior client is restored afterwards — an example that installed
+#     none, opted out or not, keeps whatever it set itself.
 #   - graphql_context — the GraphQL context resolvers see, merged onto
 #     config.context and reset between examples.
 #
@@ -91,11 +94,15 @@ module GraphWeaver
         tagged = metadata[TAG]
         return config.default_mode if tagged.nil?
 
-        mode = tagged.to_s.to_sym
+        # false and :none are one opt-out under two spellings, both of them a
+        # natural guess: no client is installed, and a configured
+        # default_mode doesn't sweep this example up
+        mode = (tagged == false) ? :none : tagged.to_s.to_sym
+        return if mode == :none
         return mode if CLIENT_MODES.include?(mode)
 
         raise GraphWeaver::Error, "#{TAG}: #{tagged.inspect} is not a mode — " \
-          "#{CLIENT_MODES.map(&:inspect).join(", ")}"
+          "#{CLIENT_MODES.map(&:inspect).join(", ")} (or false / :none to opt out)"
       end
 
       # the client an example in this mode runs against

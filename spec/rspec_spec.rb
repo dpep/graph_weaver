@@ -110,6 +110,19 @@ describe "graph_weaver/rspec" do
       expect(graphql_context).to eq({ current_user: "bob", tenant: "acme" })
     end
 
+    # context is setup, so it belongs in a before block — the per-example
+    # reset is a config-level before(:each), which rspec runs ahead of any
+    # group hook, so each example re-applies this from the same baseline
+    describe "set in a before block", graphql: :in_process do
+      before { graphql_context(current_user: "alice") }
+
+      %w[1 2].each do |example|
+        it "applies to every example in the group (#{example})" do
+          expect(DraftsDemo::QUERY.execute!.drafts.map(&:owner).uniq).to eq %w[alice]
+        end
+      end
+    end
+
     it "scopes a context to a block", graphql: :in_process do
       owners = graphql_context(current_user: "alice") do
         DraftsDemo::QUERY.execute!.drafts.map(&:owner).uniq
@@ -165,6 +178,19 @@ describe "graph_weaver/rspec" do
       it "runs against the default" do
         expect(GraphWeaver.client).to be_a GraphWeaver::Testing::FakeClient
       end
+
+      # a default sweeps in every untagged example, including the one that
+      # wires its own client — which is the case a default creates
+      it "opts out with graphql: false", graphql: false do
+        expect(GraphWeaver.client).to be_a GraphWeaver::Client # what the group installed
+
+        GraphWeaver.client = GraphWeaver::InProcess.new(DraftsDemo::Schema, context: { current_user: "alice" })
+        expect(DraftsDemo::QUERY.execute!.drafts.map(&:id)).to eq %w[d1 d2] # no hook fighting it
+      end
+
+      it "opts out with graphql: :none too — same thing", graphql: :none do
+        expect(GraphWeaver.client).to be_a GraphWeaver::Client
+      end
     end
   end
 
@@ -173,7 +199,7 @@ describe "graph_weaver/rspec" do
 
     it "names the modes when the tag isn't one" do
       expect { GraphWeaver::Testing::RSpecIntegration.mode_for({ graphql: :in_proces }) }
-        .to raise_error(GraphWeaver::Error, /:in_proces is not a mode.*:fake, :in_process, :router/m)
+        .to raise_error(GraphWeaver::Error, /:in_proces is not a mode.*:fake, :in_process, :router.*opt out/m)
     end
 
     it "says why :router needs the supergraph named, when nothing on disk is one" do

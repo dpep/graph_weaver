@@ -30,7 +30,9 @@ restores the previous one after, so generated modules run against it with
 zero per-test setup. (Generate them *without* a baked `client:` — a module
 that has one never consults `GraphWeaver.client`.) `rspec --tag
 graphql:router` runs one mode's examples; an untagged example is left
-alone unless you set `config.default_mode`.
+alone unless you set `config.default_mode`. **`graphql: false` (or
+`graphql: :none`) opts one example back out** of that default — nothing is
+installed, so the example is free to wire its own client.
 
 Everything here is a *client* — the one interface queries run through:
 anything with `execute(query, variables:, operation_name:)` returning
@@ -77,6 +79,7 @@ GraphWeaver::Testing.configure do |config|
   # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
   # config.context = { tenant: }     # baseline context every example starts from
   # config.default_mode = :fake      # what an UNtagged example runs against
+  #                                  # (graphql: false opts one back out)
   # config.mode = :faker             # or :literal (plain typed values); nil = auto
   # config.overrides = { "Person.name" => "Daniel" }
   # config.list_size = 1..3
@@ -89,7 +92,26 @@ end
 `graphql_context` is available in every example. It **merges** onto
 `config.context` — the baseline survives unless you override a key — and is
 **reset before the next example**, so one example running as somebody else
-can't leak into the one after it:
+can't leak into the one after it.
+
+Context is setup, so it usually belongs in a `before` block — a group of
+examples sharing one identity says who they are once:
+
+```ruby
+describe "as the owner", graphql: :in_process do
+  before { graphql_context(current_user: alice) }
+
+  it "shows the drafts" do
+    expect(DraftsQuery.execute!.drafts.size).to eq 2
+  end
+
+  it "counts them" do … end
+end
+```
+
+The reset runs ahead of any group hook, so each example re-applies that
+`before` from the same baseline rather than stacking onto the last one's
+context. Set it inline for the one-off:
 
 ```ruby
 it "shows the owner's drafts", graphql: :in_process do
