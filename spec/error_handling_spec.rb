@@ -30,7 +30,6 @@ describe "error handling" do
       resp = run("data" => person_data, "extensions" => { "cost" => { "actualQueryCost" => 5 } })
 
       expect(resp.errors?).to be false
-      expect(resp.ok?).to be true
       expect(resp.success?).to be true
       expect(resp.extensions.dig("cost", "actualQueryCost")).to eq 5
       expect(resp.data!.person&.name).to eq "Daniel"
@@ -40,7 +39,7 @@ describe "error handling" do
       resp = run("data" => person_data, "errors" => [{ "message" => "pets unavailable" }])
 
       expect(resp.errors?).to be true
-      expect(resp.ok?).to be false # partial data is still not a success
+      expect(resp.success?).to be false # partial data is still not a success
       expect(resp.data&.person&.name).to eq "Daniel" # partial data still typed
       expect { resp.data! }.to raise_error(GraphWeaver::QueryError)
     end

@@ -44,11 +44,12 @@ module GraphWeaver
     sig { returns(T::Boolean) }
     def errors? = !errors.empty?
 
-    # the same question asked the other way round — people reach for the
-    # positive, and a NoMethodError is a poor answer
+    # The same question the other way round — people reach for the positive,
+    # and a NoMethodError is a poor answer. Spelled `success?` after
+    # Process::Status and Faraday::Response; `ok?` would read as HTTP 200,
+    # which a GraphQL response carrying errors also is.
     sig { returns(T::Boolean) }
-    def ok? = errors.empty?
-    alias_method :success?, :ok?
+    def success? = errors.empty?
 
     # The typed result, or raise QueryError if the response carried top-level
     # errors (partial data and extensions ride along on the error).

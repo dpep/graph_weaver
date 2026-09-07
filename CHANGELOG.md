@@ -55,6 +55,13 @@
   Zeitwerk it failed on the first `:in_process` example anyway, since an
   autoloaded schema isn't loaded until something names it. Such an app now sets
   `config.schema = MySchema`; when neither source is there, the error says so.
+- **One positive predicate on `Response`, not two.** `#ok?` is gone; `#success?`
+  is the survivor, so the pair is `errors?` / `success?`. `success?` is what
+  `Process::Status` and `Faraday::Response` call it, and `ok?` reads as HTTP
+  200 — which a GraphQL response carrying errors also is. Semantics unchanged:
+  partial data alongside top-level errors is **not** a success.
+- **`Testing::Config#auto_fake` is gone** — it was the pre-tag spelling of
+  `config.default_mode = :fake`. Use that.
 
 ### One shared module, not three (**breaking** — regenerate)
 

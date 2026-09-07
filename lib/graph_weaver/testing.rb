@@ -115,12 +115,6 @@ module GraphWeaver
         @default_mode = mode
       end
 
-      # the pre-tag spelling of default_mode = :fake
-      def auto_fake = @default_mode == :fake
-      def auto_fake=(on)
-        self.default_mode = (on ? :fake : nil)
-      end
-
       # Router arguments, for a supergraph derivation can't find: `{
       # supergraph: "supergraph.graphql" }` is enough — subgraphs are
       # derived from what each loaded schema defines. Naming one is for

@@ -200,13 +200,6 @@ describe GraphWeaver::Testing do
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)
     end
 
-    it "accepts auto_fake, the pre-tag spelling" do
-      GraphWeaver::Testing.configure { |config| config.auto_fake = true }
-
-      expect(GraphWeaver::Testing.config.default_mode).to eq :fake
-      expect(GraphWeaver::Testing.config.auto_fake).to be true
-    end
-
     # spec/support/federation_router_graph.rb composes it; naming the path
     # rather than its constant keeps this file type-checked
     let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
