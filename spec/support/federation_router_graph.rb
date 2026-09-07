@@ -12,8 +12,8 @@ require "apollo-federation"
 #
 # Bigger than FederationDemo's users/pets pair on purpose — it carries the
 # shapes a router actually has to think about (@requires, @provides, an
-# entity reached from two directions, a union inside one subgraph), so the
-# local router's boundary can be tested where it really falls.
+# entity reached from two directions, a union and an interface whose members
+# cross), so the local router's boundary can be tested where it really falls.
 #
 # spec/support/federation/supergraph.graphql is these three composed by
 # Apollo; spec/integration/router_spec.rb re-composes and fails if it drifts.
@@ -43,6 +43,10 @@ module RouterGraph
     # something to do
     "p4" => { upc: "p4", name: "Piano", price: 4200, weight: OVERWEIGHT = 1000 },
   }.freeze
+
+  # the second Purchasable, so the interface has an implementation whose whole
+  # selection stays in products while Product's crosses into reviews
+  BUNDLES = { "b1" => { upc: "b1", name: "Living room", items: %w[p1 p3] } }.freeze
 
   REVIEWS = [
     { id: "r1", body: "Love it", author_id: "1", upc: "p1" },
@@ -90,8 +94,25 @@ module RouterGraph
   end
 
   module Products
+    # An interface at a subgraph boundary: `upc`/`name` resolve here for every
+    # implementation, Product's shippingEstimate resolves in reviews, and
+    # Bundle's whole selection stays here — so one implementation crosses and
+    # the other doesn't.
+    module Purchasable
+      include GraphQL::Schema::Interface
+      graphql_name "Purchasable"
+
+      field :upc, String, null: false
+      field :name, String, null: false
+
+      definition_methods do
+        def resolve_type(object, _context) = object.key?(:items) ? Bundle : Product
+      end
+    end
+
     class Product < RouterGraph::BaseObject
       graphql_name "Product"
+      implements Purchasable
       key fields: :upc
 
       field :upc, String, null: false
@@ -104,6 +125,20 @@ module RouterGraph
       end
     end
 
+    class Bundle < RouterGraph::BaseObject
+      graphql_name "Bundle"
+      implements Purchasable
+      key fields: :upc
+
+      field :items, [Product], null: false
+
+      def items = object[:items].map { |upc| PRODUCTS.fetch(upc) }
+
+      def self.resolve_reference(reference, _context)
+        BUNDLES[(reference[:upc] || reference["upc"]).to_s]
+      end
+    end
+
     class Query < RouterGraph::BaseObject
       graphql_name "Query"
 
@@ -113,14 +148,19 @@ module RouterGraph
       field :product, Product, null: true do
         argument :upc, String, required: true
       end
+      # p4 is the OVERWEIGHT one, so an interface branch can fail where the
+      # composed schema says Int!
+      field :purchasables, [Purchasable], null: false
 
       def top_products(first:) = PRODUCTS.values.first(first)
       def product(upc:) = PRODUCTS[upc.to_s]
+      def purchasables = [PRODUCTS["p1"], PRODUCTS["p4"], BUNDLES["b1"]]
     end
 
     class Schema < GraphQL::Schema
       include ApolloFederation::Schema
       query Query
+      orphan_types Bundle
     end
   end
 
@@ -181,9 +221,13 @@ module RouterGraph
       # query asking only for that never leaves this subgraph
       field :author, User, null: false, provides: { fields: "username" }
       field :product, Product, null: false
+      # an abstract type UNDER a boundary: reaching it from Query.me crosses
+      # accounts -> reviews before any of its branches cross again
+      field :subject, "RouterGraph::Reviews::SearchHit", null: false
 
       def author = { id: object[:author_id], username: USERS.fetch(object[:author_id])[:username] }
       def product = { upc: object[:upc] }
+      def subject = { upc: object[:upc] }
 
       def self.resolve_reference(reference, _context)
         REVIEWS.find { |review| review[:id] == (reference[:id] || reference["id"]).to_s }
@@ -196,14 +240,29 @@ module RouterGraph
       field :headline, String, null: false
     end
 
-    # a union entirely inside ONE subgraph — nothing crosses a boundary, so
-    # there is nothing here for a router to refuse
+    # a union entirely inside ONE subgraph, so it travels as written — the
+    # counterpart to SearchHit below, whose members cross
     class FeedItem < GraphQL::Schema::Union
       graphql_name "FeedItem"
       possible_types Review, Announcement
 
       def self.resolve_type(object, _context)
         object.key?(:headline) ? Announcement : Review
+      end
+    end
+
+    # A union whose members resolve in THREE subgraphs: User in accounts,
+    # Product in products, Review and Announcement here — and Announcement has
+    # no @key, so it is a member nothing could refetch.
+    class SearchHit < GraphQL::Schema::Union
+      graphql_name "SearchHit"
+      possible_types Announcement, Product, Review, User
+
+      def self.resolve_type(object, _context)
+        return Announcement if object.key?(:headline)
+        return Review if object.key?(:body)
+
+        object.key?(:upc) ? Product : User
       end
     end
 
@@ -216,8 +275,23 @@ module RouterGraph
       field :review, Review, null: true do
         argument :id, ID, required: true
       end
+      field :search, [SearchHit], null: false do
+        argument :term, String, required: true
+      end
 
       def feed = [REVIEWS.first, { headline: "New in stock" }]
+
+      # each term is a shape the bucketing has to survive: every member type
+      # at once, one concrete type, none at all, and an entity no subgraph
+      # resolves
+      def search(term:)
+        case term
+        when "all" then [USERS["1"], PRODUCTS["p1"], REVIEWS.first, { headline: "New in stock" }]
+        when "users" then USERS.values
+        when "gone" then [{ upc: "gone" }]
+        else []
+        end
+      end
       def reviews = REVIEWS
       def orphan_reviews = ORPHAN_REVIEWS
       def review(id:) = REVIEWS.find { |r| r[:id] == id.to_s }

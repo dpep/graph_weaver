@@ -19,11 +19,11 @@ describe GraphWeaver::Testing::Subgraphs do
 
   it "judges a schema on the types and fields the supergraph says it resolves" do
     expect(described_class.expected(table, "products"))
-      .to eq ["Product", "Product.name", "Product.price", "Product.weight", "Query", "Query.product",
-        "Query.topProducts"]
+      .to eq ["Bundle", "Product", "Product.name", "Product.price", "Product.weight", "Purchasable",
+        "Query", "Query.product", "Query.purchasables", "Query.topProducts"]
     expect(described_class.missing(table, "products", RouterGraph::Accounts::Schema))
-      .to eq ["Product", "Product.name", "Product.price", "Product.weight", "Query.product",
-        "Query.topProducts"]
+      .to eq ["Bundle", "Product", "Product.name", "Product.price", "Product.weight", "Purchasable",
+        "Query.product", "Query.purchasables", "Query.topProducts"]
   end
 
   it "refuses when two schemas fit, naming both" do

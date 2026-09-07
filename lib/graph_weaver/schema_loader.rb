@@ -865,9 +865,12 @@ module GraphWeaver::SchemaLoader
       @keys = {}         # "User" => { "accounts" => [["id"]] }
       @fields = {}       # "User" => { "reviews" => Field }
       @field_names = {}  # "User" => Set["id", "username"]
+      @abstract = {}     # "FeedItem" => ["Announcement", "Review"]
+      @possible = {}     # "FeedItem" => { "reviews" => ["Announcement", "Review"] }
       @unsupported = []
 
       read_graphs
+      read_abstracts
       read_types
       @subgraphs = @names.values.freeze
     end
@@ -935,6 +938,25 @@ module GraphWeaver::SchemaLoader
     # whether any subgraph will resolve this type from a key
     def entity?(type_name) = (@keys[type_name] || {}).each_value.any?(&:any?)
 
+    # The concrete types `subgraph` can answer an abstract type with — a
+    # union's members there, an interface's implementations there. Only these
+    # may be named in a fetch to it: a subgraph rejects an `... on T` its own
+    # schema doesn't place in the abstract type.
+    #
+    # nil when the supergraph doesn't say, which a caller has to treat as
+    # unknown rather than empty. @join__unionMember / @join__implements record
+    # it; a supergraph composed before those existed carries neither, and then
+    # only a type declared in ONE subgraph is answerable — everything it can
+    # possibly return is that subgraph's.
+    def possible_types(type_name, subgraph)
+      all = @abstract[type_name] or return
+
+      per_graph = @possible[type_name]
+      return per_graph[subgraph] || [] if per_graph
+
+      all if declared_in(type_name).one?
+    end
+
     def inspect = "#<#{self.class.name} subgraphs=#{@subgraphs.inspect}>"
     alias to_s inspect
 
@@ -975,6 +997,41 @@ module GraphWeaver::SchemaLoader
       end
     end
 
+    # What each abstract type can be, from the SDL alone — a union's members,
+    # and the objects that name an interface in their `implements`. The
+    # per-subgraph split comes from @join__ directives in read_types; this is
+    # the whole of it, which is all a single-subgraph abstract type needs.
+    def read_abstracts
+      @document.definitions.each do |defn|
+        case defn
+        when GraphQL::Language::Nodes::UnionTypeDefinition
+          @abstract[defn.name] = defn.types.map(&:name)
+        when GraphQL::Language::Nodes::InterfaceTypeDefinition
+          @abstract[defn.name] ||= []
+        when GraphQL::Language::Nodes::ObjectTypeDefinition
+          defn.interfaces.each { |iface| (@abstract[iface.name] ||= []) << defn.name }
+        end
+      end
+    end
+
+    # An interface implemented by another interface isn't a possible type —
+    # only the objects underneath it are, and each names the interface itself.
+    def read_possible(defn)
+      defn.directives.each do |directive|
+        name = subgraph(directive) or next
+        case directive.name
+        when "join__unionMember"
+          member = argument(directive, "member") or next
+          ((@possible[defn.name] ||= {})[name] ||= []) << member
+        when "join__implements"
+          next unless defn.is_a?(GraphQL::Language::Nodes::ObjectTypeDefinition)
+
+          iface = argument(directive, "interface") or next
+          ((@possible[iface] ||= {})[name] ||= []) << defn.name
+        end
+      end
+    end
+
     def read_types
       @document.definitions.each do |defn|
         note_unknown(defn, defn.respond_to?(:name) ? defn.name : "schema")
@@ -984,6 +1041,7 @@ module GraphWeaver::SchemaLoader
         joins = defn.directives.select { |d| d.name == "join__type" }
         @declared_in[defn.name] = joins.filter_map { |d| subgraph(d) }.uniq
         @keys[defn.name] = read_keys(joins)
+        read_possible(defn)
 
         if joins.any? { |d| argument(d, "isInterfaceObject") == true }
           @unsupported << "#{defn.name} is an @interfaceObject — one subgraph resolves a whole " \

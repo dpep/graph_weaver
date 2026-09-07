@@ -26,6 +26,15 @@ type Announcement
   headline: String!
 }
 
+type Bundle implements Purchasable
+  @join__implements(graph: PRODUCTS, interface: "Purchasable")
+  @join__type(graph: PRODUCTS, key: "upc")
+{
+  items: [Product!]!
+  name: String!
+  upc: String!
+}
+
 union FeedItem
   @join__type(graph: REVIEWS)
   @join__unionMember(graph: REVIEWS, member: "Announcement")
@@ -60,7 +69,8 @@ type Mutation
   addReview(body: String!, upc: String!): Review!
 }
 
-type Product
+type Product implements Purchasable
+  @join__implements(graph: PRODUCTS, interface: "Purchasable")
   @join__type(graph: PRODUCTS, key: "upc")
   @join__type(graph: REVIEWS, key: "upc", extension: true)
 {
@@ -72,6 +82,13 @@ type Product
   shippingEstimate: Int! @join__field(graph: REVIEWS, requires: "price weight")
 }
 
+interface Purchasable
+  @join__type(graph: PRODUCTS)
+{
+  name: String!
+  upc: String!
+}
+
 type Query
   @join__type(graph: ACCOUNTS)
   @join__type(graph: PRODUCTS)
@@ -81,11 +98,13 @@ type Query
   user(id: ID!): User @join__field(graph: ACCOUNTS)
   users: [User!]! @join__field(graph: ACCOUNTS)
   product(upc: String!): Product @join__field(graph: PRODUCTS)
+  purchasables: [Purchasable!]! @join__field(graph: PRODUCTS)
   topProducts(first: Int = 3): [Product!]! @join__field(graph: PRODUCTS)
   feed: [FeedItem!]! @join__field(graph: REVIEWS)
   orphanReviews: [Review!]! @join__field(graph: REVIEWS)
   review(id: ID!): Review @join__field(graph: REVIEWS)
   reviews: [Review!]! @join__field(graph: REVIEWS)
+  search(term: String!): [SearchHit!]! @join__field(graph: REVIEWS)
 }
 
 type Review
@@ -95,7 +114,16 @@ type Review
   body: String!
   id: ID!
   product: Product!
+  subject: SearchHit!
 }
+
+union SearchHit
+  @join__type(graph: REVIEWS)
+  @join__unionMember(graph: REVIEWS, member: "Announcement")
+  @join__unionMember(graph: REVIEWS, member: "Product")
+  @join__unionMember(graph: REVIEWS, member: "Review")
+  @join__unionMember(graph: REVIEWS, member: "User")
+ = Announcement | Product | Review | User
 
 type User
   @join__type(graph: ACCOUNTS, key: "id")

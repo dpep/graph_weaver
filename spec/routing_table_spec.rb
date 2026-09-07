@@ -48,6 +48,15 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(table.entity?("Announcement")).to be false
   end
 
+  # a fetch may only name an `... on T` the subgraph's own schema places in
+  # the abstract type, so this is what bounds one
+  it "reads the concrete types each subgraph answers an abstract type with" do
+    expect(table.possible_types("SearchHit", "reviews")).to eq %w[Announcement Product Review User]
+    expect(table.possible_types("SearchHit", "accounts")).to be_empty
+    expect(table.possible_types("Purchasable", "products")).to eq %w[Bundle Product]
+    expect(table.possible_types("Review", "reviews")).to be_nil
+  end
+
   it "knows nothing about a type or field the supergraph never mentions" do
     expect(table.owners("Nope", "nope")).to be_empty
     expect(table.field("Query", "nope")).to be_nil
@@ -120,6 +129,24 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(built.declared_in("Thing")).to eq %w[a b]
     expect(built.keys("Thing", "a")).to eq [["id"]]
     expect(built.keys("Thing", "b")).to be_empty
+  end
+
+  # @join__unionMember and @join__implements are how a supergraph records the
+  # split; without them the answer is only knowable when one subgraph declares
+  # the whole abstract type
+  it "says it doesn't know an abstract type's split when the supergraph doesn't record one" do
+    built = supergraph(<<~SDL)
+      type Query @join__type(graph: A) @join__type(graph: B) {
+        here: Here @join__field(graph: A)
+        both: Both @join__field(graph: A)
+      }
+      union Here @join__type(graph: A) = Thing
+      union Both @join__type(graph: A) @join__type(graph: B) = Thing
+      type Thing @join__type(graph: A) @join__type(graph: B) { id: ID! }
+    SDL
+
+    expect(built.possible_types("Here", "a")).to eq %w[Thing]
+    expect(built.possible_types("Both", "a")).to be_nil
   end
 
   # the maintenance tail, bounded: a construct the table has not been taught
