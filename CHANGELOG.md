@@ -1,4 +1,22 @@
 ## Unreleased
+- **An override pins a subtree by naming only the fields the test is about.**
+  `overrides: { "Reader.orders" => [{ "status" => "PAID" }, {}] }` pins the
+  list's length and merges each element onto fabricated data — the rest of the
+  selection is still generated. It used to *replace*, so pinning one nested
+  field meant hand-writing the whole selection set in wire casing, and
+  under-supplying died as `key not found: "book"` at cast time. A pinned key
+  the query doesn't select is now refused (spellchecked, and naming the
+  response keys it could have been), for the same reason a typo'd coordinate
+  is. At a union or interface, a pinned object names its `"__typename"` and
+  gets that member rather than a random one.
+- **An override of `nil` pins the field null.** It used to read as "no
+  override" and fabricate a value.
+- **`Testing::FakeClient#requests`** records every `execute` in order
+  (`{ query:, variables:, operation_name: }`) — "did we send the right
+  variables", and "did we call it at all", without a hand-rolled spy.
+- **`FakeClient`'s selection-walking internals are private** (`each_field`,
+  `gather`, `load_operation`, …). Nothing documented called them; if you did,
+  `Object.new.extend(GraphWeaver::Selection)` is the supported host.
 - **The local router refuses a `@requires` whose field set names another
   `@requires` field** (`chained_requires`). It used to answer: a prefetch sends
   the entity's own `@key` and nothing else, so the inner requirement never
