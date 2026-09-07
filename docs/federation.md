@@ -85,6 +85,7 @@ table.owners("Product", "shippingEstimate")    # => ["reviews"]
 table.owners("User", "username")               # => ["accounts"] — the @external copy isn't an owner
 table.keys("User", "accounts")                 # => [["id"]]
 table.field("Product", "shippingEstimate").requires  # => "price weight"
+table.possible_types("Purchasable", "products")      # => ["Bundle", "Product"]
 ```
 
 Subgraphs are named the way `@join__graph(name:)` names them — the strings a
@@ -92,7 +93,10 @@ router config and `rover` use, not the SDL's uppercase enum spelling. A `@key`
 field set comes back as dotted paths (`"id organization { id }"` → `["id",
 "organization.id"]`), so a nested one is recognizable by its shape. A field
 with no `@join__field` at all lives wherever its type does; that omission is
-how the composer says "everywhere".
+how the composer says "everywhere". `possible_types` answers the abstract
+side — the concrete types one subgraph can answer a union or interface with,
+from `@join__unionMember`/`@join__implements` — and `nil` where the supergraph
+doesn't say, which is a different fact from "none".
 
 A `@join__` directive the table hasn't been taught lands in `#unsupported`
 rather than being skipped — a table that silently ignores half a spec version
@@ -329,6 +333,22 @@ in the representation, and only then asks for the estimate. One hop only: the
 key for the first fetch has to come from the subgraph already in hand, so a
 chain can't grow a chain.
 
+A **union or interface at a boundary** — a feed, a search page, any
+polymorphic list — is planned per concrete type, because a representation names
+one concrete `__typename` and which one an object has isn't in the query:
+
+```ruby
+router.execute("{ purchasables { name ... on Product { reviews { body } } } }")
+router.trace.map { _1[:subgraph] }   # => ["products", "reviews"]
+```
+
+The plan holds a branch per type the supergraph says that subgraph can answer
+with; the fetch asks for `__typename` under a reserved alias, and the objects
+that come back are bucketed by it — one `_entities` fetch per concrete type,
+none for a bucket nothing lands in. A fragment whose condition can't hold there
+(`... on Note` where that subgraph's union has no Note) never matches, so it is
+dropped, which is the answer a real router gives too.
+
 Three things it does that a naive merge doesn't, and that being wrong about
 would be worse than refusing:
 
@@ -360,7 +380,7 @@ What it refuses, and why:
 | Refusal | Why |
 |---|---|
 | an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
-| an abstract type at a boundary | a representation names one concrete `__typename`, and the router doesn't resolve a type per object to build one |
+| an abstract type the supergraph doesn't break down | bucketing needs the concrete types a subgraph answers a union or interface with, and `@join__unionMember`/`@join__implements` is where a supergraph records that. A composition old enough to carry neither leaves nothing but a guess |
 | a nested `@key`/`@requires` field set | representations are built from flat field sets only |
 | no usable `@key` | nothing to build a representation from |
 | a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them across subgraphs would run them in whatever order the plan happened to. Sharing one subgraph they're fine, stitching below them and all — that's an ordinary read afterwards. Query roots are independent, so those are always fine |

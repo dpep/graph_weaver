@@ -1,4 +1,22 @@
 ## Unreleased
+- **The local test router plans a union or interface at a subgraph boundary.**
+  `search { ... on Track { playCount } ... on Artist { upcomingEvents { … } } }`
+  — a feed, a search page, any polymorphic list — used to be refused
+  (`abstract_boundary`), because a representation names one concrete
+  `__typename` and the planner runs before any data exists. It now plans one
+  branch per concrete type the supergraph says the subgraph can answer with,
+  asks the fetch for `__typename`, and buckets the returned objects by it at
+  execution time — one `_entities` fetch per concrete type, which is what a
+  real router does. Nothing to change; queries that were refused now run.
+  - The `crosses_subgraph` refusal category is **gone**, and
+    `abstract_boundary` now means only one thing: the supergraph doesn't record
+    which concrete types a subgraph answers an abstract type with (no
+    `@join__unionMember`/`@join__implements`, and the type in more than one
+    subgraph). Match on `Unplannable#category` for either of those and you must
+    change it.
+  - A fragment whose type condition can't hold at a position is now dropped
+    rather than refused — `... on Note` under a field whose subgraph has no
+    Note in that union never matches, and a real router answers `{}` there too.
 - **A query file whose name can't spell a constant now names the file.**
   `01_home_featured.graphql` reported `module_name: must be a constant name,
   got "01HomeFeaturedQuery"` and left you to find which of thirty files it

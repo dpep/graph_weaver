@@ -128,9 +128,11 @@ module GraphWeaver
     # It plans the shapes a router spends its life on: an operation that
     # resolves in one subgraph, handed over verbatim; one that crosses a
     # boundary — split at the crossing, refetched from the owning subgraph
-    # through `_entities(representations:)`, and stitched back; and a
-    # `@requires` field set, fetched from the subgraph that holds it and
-    # handed back in the representation. Everything it can't plan
+    # through `_entities(representations:)`, and stitched back; a `@requires`
+    # field set, fetched from the subgraph that holds it and handed back in
+    # the representation; and a union or interface at a boundary, planned per
+    # concrete type and bucketed on the `__typename` the data comes back with.
+    # Everything it can't plan
     # *faithfully* raises {Unplannable}, before any subgraph runs, so a
     # refusal can never be a half-executed query. Apollo's planner is twenty
     # thousand lines; a double that approximated the rest of it would let a

@@ -141,6 +141,29 @@ query file whose name can't spell a constant are verdicts; `cast:` not being a
 Symbol is not. A rule with a stated boundary beats a uniform one that lies
 about half its cases.
 
+## An abstract type is bucketed on `__typename`, not planned away
+
+**Considered:** keeping the `abstract_boundary` refusal, on the reasoning that a
+representation needs one concrete `__typename` and the planner — which takes no
+variables and runs before any fetch — cannot know it.
+
+**Rejected because** the planner doesn't have to know it. It only has to plan
+*every* possibility: the supergraph says which concrete types a subgraph can
+answer a union or interface with, so the plan carries a branch per type and
+execution picks the one the data came back as. Deciding at execution is the
+existing precedent — `@skip`/`@include` already filter deferrals against the
+variables in hand for exactly the same reason.
+
+The corollary is smaller and sharper than the rule it replaced. A fragment
+whose condition can't hold at a position — `... on Note` where the answering
+subgraph's union holds no Note — is **dropped**, not refused, even though
+"refuse rather than guess" pulls the other way. It isn't a guess: the fragment
+can never match, so `{}` is the only answer, and a real `@apollo/gateway`
+returns exactly that. What still refuses is the case where the supergraph
+genuinely doesn't say — no `@join__unionMember`/`@join__implements`, and the
+type in more than one subgraph — because then the branch list itself would be
+invented.
+
 ## The in-process router refuses rather than approximates
 
 **Considered:** planning every query shape, falling back to a best-effort answer

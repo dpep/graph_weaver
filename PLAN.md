@@ -70,8 +70,13 @@ cost of moving each boundary, if a real query mix ever demands it:
 
 - **`@requires` needing a chain** — the prefetch's own key must come from the
   subgraph in hand; needs a real dependency DAG.
-- **Abstract type at a boundary** — needs per-possible-type planning to build
-  representations from a runtime `__typename`.
+- **An abstract type the supergraph doesn't break down** — a union or interface
+  at a boundary now plans, one branch per concrete type, bucketed on
+  `__typename` at execution. What is left is the supergraph that doesn't say
+  which concrete types a subgraph answers it with — no
+  `@join__unionMember`/`@join__implements`, and the type in more than one
+  subgraph. Closing it means reading a join version that predates those
+  directives; a modern composition always carries them.
 - **Nested `@key`/`@requires` field sets** — representations are flat; mostly
   plumbing, ~30 lines.
 - **Mutation root fields spanning subgraphs** — root mutation fields run in
