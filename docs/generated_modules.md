@@ -406,6 +406,8 @@ The name is a function of that field's own position and nothing else, which is
 the property that matters when generated code is checked in and referenced from
 app code: **adding, removing, or reordering an unrelated selection can never
 rename a struct you already use.**
+[`spec/naming_spec.rb`](../spec/naming_spec.rb) asserts each of those three
+edits leaves the name alone.
 
 The key is used verbatim — no pluralization heuristics, so a list field `pets`
 generates `Pets`, not `Pet`. To choose the name yourself, alias the field in the
@@ -514,6 +516,9 @@ since no selection could ever satisfy it.
 For anything beyond a passthrough projection — real logic, still typed — reopen
 the generated struct in your own file and add sig'd methods; Sorbet merges the
 bodies.
+
+Every form above, and every error it raises, is a named example in
+[`spec/aliases_spec.rb`](../spec/aliases_spec.rb).
 
 ## Clients
 
