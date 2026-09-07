@@ -250,8 +250,10 @@ schemas define**: a schema serves subgraph `s` when it defines every type and
 field the routing table says `s` resolves. That's evidence rather than a guess
 — matching on class names would be one (`Accounts::Schema`, `AccountsSchema`,
 `Subgraphs::Accounts`), and a wrong guess points a suite at the wrong resolvers
-and still passes. So exactly one match is used, and anything else refuses,
-naming the candidates or what it looked for.
+and still passes. So exactly one match is used, and **two** matches refuse,
+naming both — both fit the evidence, so picking either would be a coin flip.
+**No** match isn't a refusal: that subgraph is simply served somewhere else
+(next section).
 
 Name them yourself when you'd rather have the wiring committed, or when
 detection can't settle it — including partially, with the rest derived:
@@ -271,8 +273,8 @@ says accounts resolves them. Did two entries get swapped?
 ```
 
 Detection only sees what's **loaded**, and in Rails an autoloaded schema isn't
-until something references it — so the not-found message says so. To see what
-detection sees (and get a map to paste):
+until something references it — which is why an unmatched subgraph reads as
+absent. To see what detection sees (and get a map to paste):
 
 ```
 $ rake graph_weaver:federation:subgraphs SUPERGRAPH=supergraph.graphql
@@ -287,6 +289,81 @@ Fakes fabricate plausible data; this runs your actual resolvers, with your
 actual `context`, against the schema the router serves. `router.trace` records
 the fetches one `execute` made, in order (subgraph, query, variables) — the same
 lines go to `GraphWeaver.logger` at `:debug`.
+
+### A supergraph only partly local
+
+The usual migration shape: the supergraph is composed from several services and
+only **some** of them run in your process. The rest are routed over the network,
+so there is no Ruby schema here to serve them — and requiring one would refuse
+the whole suite over fields most of your queries never touch.
+
+So a subgraph nothing here defines is **absent**, and the router builds and runs
+anyway. Absence costs you exactly the queries that reach into it:
+
+```ruby
+router = GraphWeaver::Testing::Router.new(supergraph: "supergraph.graphql")
+router.absent                                    # => ["shipping"]
+
+router.execute("{ me { username reviews { body } } }")   # real data, as always
+router.execute("{ shipments { carrier } }")              # GraphWeaver::Testing::Unplannable
+```
+
+The refusal is a plan-time one like every other, so nothing has executed when it
+raises, and it names the subgraph, the field that reached for it, and both ways
+out:
+
+```
+Query.shipments resolves in "shipping", which no schema here serves — name it
+with subgraphs: { "shipping" => YourSchema }, or fake it with subgraphs: {
+"shipping" => :fake } — a query that never reaches an absent subgraph's fields
+still runs, so nothing else has to change. (Detection only sees loaded schemas —
+an autoloaded one isn't loaded until something references it.)
+```
+
+That second sentence is the other half of the story. If the subgraph *is* here
+and detection just couldn't see it — a Rails schema class nothing has referenced
+yet — name it and the refusal goes away.
+
+#### Faking one — `=> :fake`
+
+Mid-migration it's often useful to let an absent subgraph answer with
+schema-correct fabricated data instead of refusing, so the rest of a query still
+gets exercised. That's opt-in, per subgraph, in the map you're already passing:
+
+```ruby
+GraphWeaver::Testing::Router.new(
+  supergraph: "supergraph.graphql",
+  subgraphs: { "shipping" => :fake },   # billing, being absent, still refuses
+)
+```
+
+Erroring stays the default, and the opt-in is per subgraph on purpose: silently
+substituting invented data is the failure mode this library keeps designing
+against, and one vocabulary covers both answers — *this* service is faked, *that*
+one still isn't here.
+
+A fake speaks the whole subgraph contract, `_entities(representations:)`
+included, so it works under a stitched fetch as well as at a root field — each
+representation names its own `__typename`, and the entity comes back as that
+type.
+
+Because a green test against invented data is worse than a red one, faking is
+**loud**: every faked fetch is marked in the trace, and logged at `:warn`.
+
+```ruby
+router.execute("{ reviews { body shipment { carrier } } }")
+router.trace
+# => [{ subgraph: "reviews",  query: "…", variables: {} },
+#     { subgraph: "shipping", query: "…", variables: {…}, faked: true }]
+```
+
+```
+WARN -- : router -> shipping FAKED: fabricated data, not shipping's
+```
+
+`router.faked` lists them, and `router.inspect` shows what's served, faked, and
+absent. Values come from the same engine as `graphql: :fake`, so
+`config.seed`, `config.overrides` and the rest apply.
 
 ### What it plans
 
@@ -360,10 +437,11 @@ What's left, and why:
 | a nested `@key`/`@requires` field set | representations are built from flat field sets only |
 | no usable `@key` | nothing to build a representation from |
 | a mutation whose root fields span subgraphs | root mutation fields run in series, and splitting them would run them in whatever order the plan happened to (query roots are independent, so those are fine) |
+| a subgraph nothing here serves | it's served by another process, so there is nothing here to ask — unless you fake it (above) |
 
 It also refuses at construction, before a single query, a supergraph carrying
 a `@join__*` construct the routing table hasn't been taught — an incomplete
-table makes every answer a guess — and any subgraph map it can't settle
+table makes every answer a guess — and a subgraph two loaded schemas both fit
 (above).
 
 Introspection is answered from the composed API schema, never from a subgraph,
