@@ -1,4 +1,11 @@
 ## Unreleased
+- **`#parse` on anything that holds a schema**, not just `Client`:
+  `GraphWeaver::InProcess`, `Testing::FakeClient` and `Testing::Router` gain it
+  (and `#load_queries!`) from the new `GraphWeaver::Parsing` mixin. Replace
+  `GraphWeaver.parse(schema: router.schema, client: router, query: q)` with
+  `router.parse(q)`. `Retry` holds no schema and has no `#parse` — parse from
+  what it wraps. Nothing changes for `Client`, and the client contract is
+  untouched: a bare `GraphQL::Schema` class still fills the client slot.
 - `examples/federation.rb` — a runnable federated-testing example, and the first
   one that needs no network: three real subgraphs, a boundary-crossing query
   through a generated module, `router.trace`, and a plan-time refusal. Guarded

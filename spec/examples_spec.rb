@@ -33,8 +33,8 @@ RSpec.describe "checked-in examples" do
   end
 
   # federation.rb is the one example that needs no network, so the guard can
-  # be the real thing: run it. A subprocess, because it installs its own
-  # GraphWeaver.client and parses modules into the top-level namespace.
+  # be the real thing: run it. A subprocess, because it parses modules into
+  # the top-level namespace.
   it "run the federation example end to end" do
     out, status = Open3.capture2e(RbConfig.ruby, "#{EXAMPLES}/federation.rb")
 

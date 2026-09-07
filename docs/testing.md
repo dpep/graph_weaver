@@ -37,7 +37,15 @@ anything with `execute(query, variables:, operation_name:)` returning
 `{"data" => ..., "errors" => ...}` (see [transports](transports.md)). Fakes,
 the router, failures, and cassettes all slot in wherever a real transport
 would, so they work outside rspec too (`require "graph_weaver/testing"` —
-never from production code).
+never from production code). Outside the tags there's no `GraphWeaver.client`
+to lean on, so parse from the fake or the router itself — anything holding a
+schema parses against it, and the module runs on what parsed it:
+
+```ruby
+router = GraphWeaver::Testing::Router.new(supergraph: "app/graphql/supergraph.graphql")
+DashboardQuery = router.parse("query Dashboard { me { username } }")
+DashboardQuery.execute!.me.username
+```
 
 All three modes, tagged and running end to end, are
 [`spec/rspec_spec.rb`](../spec/rspec_spec.rb) — the reference for anything

@@ -7,6 +7,13 @@ A *client* is anything with `execute(query, variables:, operation_name:)` whose 
 typed access to your own app's API, no socket), a [FakeClient](testing.md), or
 anything you write. Every slot that takes a client accepts any of them.
 
+**Anything holding a schema parses against it.** `client.parse(query)`, and
+the same on `InProcess`, `FakeClient` and `Testing::Router` — a typed module
+bound to that schema, running on that object, without naming either. It sits
+on top of the contract rather than in it: `Retry` wraps a client and holds no
+schema, so it has no `parse`, and a bare schema class fills the client slot
+without one. `load_queries!` is the same rule over a directory.
+
 A *transport* is the network end of that contract — GraphQL-over-HTTP. The bundled
 two — `Transport::HTTP` (net/http, zero dependencies, loaded by default)
 and `Transport::Faraday` (opt-in) — subclass `GraphWeaver::Transport`,

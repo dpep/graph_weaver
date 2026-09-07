@@ -25,12 +25,11 @@ require_relative "../spec/support/federation_router_graph"
 # Only the supergraph is needed: which Ruby schema serves each subgraph is
 # derived from what each loaded schema defines.
 router = GraphWeaver::Testing::Router.new(supergraph: RouterGraph::SUPERGRAPH)
-GraphWeaver.client = router
 puts router.inspect
 
-# me → accounts, reviews → reviews, product → products. Generated the way an
-# app's code is — no client baked in, so it runs against GraphWeaver.client.
-DashboardQuery = GraphWeaver.parse(schema: router.schema, name: "DashboardQuery", query: <<~GRAPHQL)
+# me → accounts, reviews → reviews, product → products. The router holds the
+# supergraph, so it parses against it — and the module runs on the router.
+DashboardQuery = router.parse(<<~GRAPHQL, name: "DashboardQuery")
   query Dashboard {
     me {
       username
