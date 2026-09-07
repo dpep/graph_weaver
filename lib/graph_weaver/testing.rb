@@ -62,6 +62,9 @@ module GraphWeaver
         @mode = nil # auto
         @schema = nil
         @located = nil # the committed dump, once located
+        # not under spec/fixtures: `fixtures :all` globs that path for
+        # `{**,*}/*.yml` and would try to load cassettes as ActiveRecord
+        # fixtures, a subdirectory included
         @cassette_dir = "spec/cassettes"
         # what an example with no `graphql:` tag runs against. nil leaves
         # GraphWeaver.client alone: swapping every example onto something
@@ -222,7 +225,19 @@ module GraphWeaver
       def cassette_path(name)
         return name if name.include?("/") || name.end_with?(".yml", ".yaml")
 
-        File.join(config.cassette_dir, "#{name}.yml")
+        File.join(cassette_dir, "#{name}.yml")
+      end
+
+      # The configured directory, against Rails.root when there is one — a rake
+      # task runs from wherever it runs from; the cassettes don't move.
+      # const_get rather than a bare Rails: sorbet can't resolve a constant the
+      # gem doesn't depend on.
+      def cassette_dir
+        dir = config.cassette_dir
+        root = (Object.const_get(:Rails).root if Object.const_defined?(:Rails))
+        root ? File.join(root.to_s, dir) : dir
+      rescue NoMethodError
+        dir # something else named Rails
       end
 
       private

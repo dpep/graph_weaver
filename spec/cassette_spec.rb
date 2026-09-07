@@ -273,3 +273,18 @@ describe GraphWeaver::Testing::Cassette do
     end
   end
 end
+
+RSpec.describe "#{GraphWeaver::Testing}.cassette_path" do
+  it "resolves the configured directory against Rails.root" do
+    # a rake task runs from wherever it runs from; the cassettes don't move
+    stub_const("Rails", Module.new do
+      def self.root = Pathname.new("/srv/myapp")
+    end)
+
+    expect(GraphWeaver::Testing.cassette_path("github")).to eq "/srv/myapp/spec/cassettes/github.yml"
+  end
+
+  it "leaves an explicit path alone" do
+    expect(GraphWeaver::Testing.cassette_path("other/dir/x.yml")).to eq "other/dir/x.yml"
+  end
+end
