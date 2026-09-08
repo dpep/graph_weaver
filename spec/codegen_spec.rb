@@ -467,6 +467,17 @@ describe GraphWeaver::Codegen do
         .to be_a(mod::Result::Named)
     end
 
+    it "refuses to narrow beside a __typename that may or may not arrive" do
+      # a guarded __typename still comes back for the member narrowing means to
+      # filter out, so the object isn't empty and the miss reads as a match
+      expect {
+        GraphWeaver.parse(
+          schema: Demo::Schema,
+          query: 'query($d: Boolean!) { search(term: "el") { __typename @include(if: $d) ... on Pet { name } } }',
+        )
+      }.to raise_error(ArgumentError, /not under @skip\/@include/)
+    end
+
     it "doesn't narrow when a fragment on the abstract type asks for shared fields" do
       # `... on Named { name }` is the same selection as a bare `name` — every
       # member answers it — so narrowing to Pet would drop what the server sent

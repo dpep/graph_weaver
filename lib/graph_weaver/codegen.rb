@@ -878,7 +878,12 @@ class GraphWeaver::Codegen
   # would narrow the field away and drop what the server sent for every other
   # member. `__typename` is excluded — it's the dispatch tag, not a field.
   def abstract_level_fields(core, selections)
-    gather_conditional(core, selections).keys - ["__typename"]
+    keys = gather_conditional(core, selections).keys
+    # __typename is the dispatch tag rather than a field — but only where it can
+    # actually be read. One behind @skip/@include still arrives for the member a
+    # narrowing means to filter out, and then the object isn't empty and
+    # "empty means no match" casts a Review into an Announcement.
+    dispatchable_typename?(core, selections) ? keys - ["__typename"] : keys
   end
 
   # The fragment name when a selection is exactly one bare fragment spread
