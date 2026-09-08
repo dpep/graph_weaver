@@ -12,7 +12,7 @@ module GraphWeaver
   # all. #message is the human-friendly side; #to_h is the machine side —
   # a JSON-ready Hash (string keys) for logging, agents, or surfacing
   # structured failures to users. One subclass per failure site —
-  # {TransportError} (never reached the server), {ServerError} (non-2xx),
+  # {TransportError} (no response came back), {ServerError} (non-2xx),
   # {QueryError} (GraphQL-level errors), {TypeError} (response wouldn't
   # cast), {InputError} (bad variables), {ValidationError} (build time),
   # {ConfigurationError} (setup judged against your schema) — each merging
@@ -34,9 +34,11 @@ module GraphWeaver
     end
   end
 
-  # The request never reached the server: connection refused, DNS failure,
-  # TLS handshake, timeout. The original exception is preserved as #cause.
-  # Generally retriable.
+  # No response came back: connection refused, DNS failure, TLS handshake,
+  # timeout, a socket that died mid-body. The original exception is preserved
+  # as #cause. Retriable — though a *read* timeout says nothing about whether
+  # the server applied the request, which is why Retry gives a mutation one
+  # attempt.
   class TransportError < Error
     extend T::Sig
 
