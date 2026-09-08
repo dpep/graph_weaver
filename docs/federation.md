@@ -1,75 +1,59 @@
 # Federation
 
-Feed weaver any federation artifact: a supergraph, an API schema, a subgraph
-SDL, or the live router. It recognizes which it got — `SchemaLoader.load` (and
-`Client.new(path_or_sdl)`) take each as an SDL file or an introspection dump.
+For an app that is a client of a federated graph, a subgraph in one, or both.
+Two halves: **generating** against a composed supergraph (which mostly means
+"point it at the file and forget"), and the **local router**, which runs a
+stitched query against your own resolvers in-process so specs need no gateway.
 
-## Pointing weaver at a supergraph
+GraphWeaver takes any federation artifact — a supergraph, an API schema, a
+subgraph SDL, or a live router — and recognizes which it got.
+`SchemaLoader.load` (and `Client.new(path_or_sdl)`) accept each as an SDL file
+or an introspection dump.
 
-A supergraph SDL works as-is. When `SchemaLoader` recognizes a composed graph it
-strips the composition machinery before building the schema — the synthetic
-`join__*`/`link__*` types and directive definitions, and every `@join__*`/`@link`
-application on the real types — so what codegen sees is the merged graph's
-ordinary type shapes, with no federation plumbing leaking into `schema.types`.
-(A pure AST rewrite of the SDL; plain schemas pass through untouched.) Field
-shapes — nullability, args, enums, inputs — are identical to the API schema, so
-your generated structs are correct.
+## Generating against a supergraph
+
+A supergraph SDL works as-is. On load, GraphWeaver strips the composition
+machinery — the synthetic `join__*`/`link__*` types and directive definitions,
+and every `@join__*`/`@link` application on the real types — so codegen sees the
+merged graph's ordinary type shapes with no federation plumbing in
+`schema.types`. Field shapes (nullability, args, enums, inputs) are identical to
+the API schema, so your generated structs are correct.
 
 **Which names count as machinery is read off the schema**, not a fixed list.
 Federation namespaces itself through [`@link`](https://specs.apollo.dev/link/v1.0/)
-(v2) or [`@core`](https://specs.apollo.dev/core/v0.2/) (v1), and weaver applies
-those declarations as written: a spec URL's name segment gives the namespace
-(`https://specs.apollo.dev/join/v0.3` → `join__`), `as:` renames it, and
-`import:` binds names into the root namespace, `{name: "@key", as: "@myKey"}`
-renames included. So a graph on fed 2.5+ auth strips its `@requiresScopes` /
-`@policy` / `@context` machinery (`federation__Scope`, `context__ContextFieldValue`,
-…) the same way `join__` goes, and a renamed `@inaccessible` still hides what it
-marks. A schema that declares nothing still gets the `join__`/`link__`/`core__`
-floor.
-
-Federation **v1** supergraphs (`@core` + `@join__owner`/`@join__type`) load the
-same way — the older spelling of the same machinery is stripped too.
-
-A supergraph is a **superset** of the API schema — it carries elements the
-public API hides, marked `@inaccessible`. Weaver removes those on load (below),
-so the schema it generates against is the API schema, not the superset.
+(v2) or [`@core`](https://specs.apollo.dev/core/v0.2/) (v1), and those
+declarations are applied as written: the spec URL's name segment gives the
+namespace (`https://specs.apollo.dev/join/v0.3` → `join__`), `as:` renames it,
+`import:` binds names into the root namespace. So a fed 2.5+ graph's
+`@requiresScopes` / `@policy` / `@context` machinery strips the same way
+`join__` does, a renamed `@inaccessible` still hides what it marks, and v1
+supergraphs (`@core` + `@join__owner`) load identically. A schema that declares
+nothing still gets the `join__`/`link__`/`core__` floor.
 
 ### `@inaccessible`
 
-A federation-v2 directive marking an element as *present in the federated graph
-but removed from the public API schema*. You'll meet it rolling out a change to
-a **shared type**: add the field to one subgraph marked `@inaccessible` (so
-composition doesn't require every subgraph to have it yet), roll it out to the
-rest, then drop the directive to publish it. (Apollo contracts also pair `@tag`
-+ `@inaccessible` to build filtered API variants.)
+A supergraph is a **superset** of the API schema: it carries elements the public
+API hides, marked `@inaccessible`. You'll meet the directive rolling out a change
+to a **shared type** — add the field to one subgraph marked `@inaccessible` so
+composition doesn't require every subgraph to have it yet, roll it out, then drop
+the directive to publish it. (Apollo contracts also pair `@tag` + `@inaccessible`
+to build filtered API variants.)
 
-Weaver derives the API schema from the supergraph for you: loading strips every
-`@inaccessible` element and cascades — a field/argument/union-member/interface
-referencing a removed type goes too, and a type left empty is removed in turn.
-So codegen validates against what clients can query, with no need for Apollo's
-JS tooling (`@apollo/federation-internals`) to subtract the API schema first;
-feed weaver the raw supergraph and you get the router's contract. (A pure SDL
-rewrite at load time — see
-[`SchemaLoader`](../lib/graph_weaver/schema_loader.rb).)
+Loading strips every `@inaccessible` element and cascades: a
+field/argument/union-member/interface referencing a removed type goes too, and a
+type left empty is removed in turn. So codegen validates against what clients can
+actually query, with no need for Apollo's JS tooling to subtract the API schema
+first — feed it the raw supergraph and you get the router's contract. The
+derivation is diffed against Apollo's own `composeServices` + `toAPISchema()` in
+[`spec/integration/api_schema_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/integration/api_schema_spec.rb).
 
-The directive is matched by the **local name it was linked under**, so
-`@link(url: "…/federation/v2.5", import: [{name: "@inaccessible", as: "@private"}])`
-subtracts what `@private` marks.
-
-**Only on the supergraph path.** The subtraction runs when weaver recognizes a
-composed supergraph. Plain SDL and subgraph SDL are taken at face value:
-`@inaccessible` there is left as a directive and its fields stay queryable.
-
-Other federation directives hide nothing from the schema, so weaver keeps the
-field and ignores the directive: `@requiresScopes` / `@policy` / `@authenticated`
-enforce access at runtime; `@tag` / `@requires` / `@provides` / `@external` are
-metadata.
-
-The derivation is diffed against Apollo's own `composeServices` +
-`toAPISchema()` in
-[`spec/integration/api_schema_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/integration/api_schema_spec.rb),
-over composed supergraphs carrying `@interfaceObject`, `@join__unionMember`,
-`@join__enumValue` and an aliased `@inaccessible` — identical in each.
+Two bounds. The directive is matched by the **local name it was linked under**, so
+an `import:` alias subtracts what that alias marks. And the subtraction runs
+**only on the supergraph path** — plain and subgraph SDL are taken at face value,
+where `@inaccessible` stays a directive and its fields stay queryable. Directives
+that hide nothing keep their field and are ignored: `@requiresScopes` / `@policy`
+/ `@authenticated` enforce at runtime, `@tag` / `@requires` / `@provides` /
+`@external` are metadata.
 
 ### The routing table
 
@@ -99,21 +83,17 @@ from `@join__unionMember`/`@join__implements` — and `nil` where the supergraph
 doesn't say, which is a different fact from "none".
 
 A `@join__` directive the table hasn't been taught lands in `#unsupported`
-rather than being skipped — a table that silently ignores half a spec version
-answers confidently and wrongly. Callers refuse on a non-empty list; that is
-what bounds the maintenance tail across federation spec versions.
+rather than being skipped, and callers refuse on a non-empty list: a table that
+silently ignores half a spec version answers confidently and wrongly.
 `#interface_objects` is the one construct kept out of that list
 (`{"Media" => ["catalog"]}`), because it's a fact about one *type* rather than
-about the table: the router refuses the queries that reach it and plans the
-rest.
+about the table — the router refuses the queries that reach it and plans the rest.
 
-The table is what [`Testing::Router`](#the-local-router)
-plans against, and it's a reasonable read on its own — "which subgraph owns
-this field" is the sentence a good error message wants.
-
-Weaver says it where it has the coordinate to say it about. When the schema
-dump is a composed supergraph, `rake graph_weaver:queries:check` brands each
-validation error with the subgraphs behind the type it names:
+The table is what [`Testing::Router`](#the-local-router) plans against, and it's
+a reasonable read on its own — "which subgraph owns this field" is the sentence a
+good error message wants. So when the schema dump is a composed supergraph,
+`rake graph_weaver:queries:check` brands each validation error with the subgraphs
+behind the type it names:
 
 ```
 app/graphql/queries/product.graphql
@@ -160,34 +140,25 @@ not checked — answered with fabricated data:
 
 Both directions, because they mean opposite things: **stale** is "recompose",
 **not composed in** is "publish the subgraph". The stale side names the
-subgraph the supergraph blames, which is the sentence you want — whose code to
-look at, whose team to talk to.
-
-"Defines" is deliberately looser than field-set equality: a subgraph carries
-federation plumbing (`_entities`, `_service`) no supergraph has, and a field can
+subgraph the supergraph blames — whose code to look at, whose team to talk to.
+"Defines" is deliberately looser than field-set equality, since a subgraph
+carries plumbing (`_entities`, `_service`) no supergraph has and a field can
 legitimately sit in more than one subgraph (`@external` copies, `@shareable`).
-So a coordinate is compared only against the schemas that could *be* the
-subgraph the supergraph attributes it to, the uncomposed side reports only a
-field the supergraph's type doesn't carry **at all**, and underscore-prefixed
-fields never count.
 
 **A supergraph is routinely only partly local**, so the report names three
 states rather than two: checked, not here (running elsewhere — or the type is
 gone), and [faked](#the-local-router). A clean report that quietly checked one
 subgraph of three would be actively misleading, so the headline counts them and
 the sections name them. Only drift fails the task; absence is a supported
-setup, not a failure.
+setup. Checking **none** of them fails too — "checked 0 of 4" attached to exit 0
+is a gate that passes whatever the subgraphs say. (Under Rails it won't come up:
+the `federation:*` tasks eager-load the app, because `config.rake_eager_load`
+defaults to false and detection only sees loaded classes.)
 
-Checking **none** of them is a failure, though — "checked 0 of 4" attached to
-exit 0 is a gate that passes whatever the subgraphs say, so the task exits
-non-zero and says so. Under Rails it won't come up: the `federation:*` tasks
-eager-load the app, because `config.rake_eager_load` defaults to false and
-detection only sees loaded classes.
-
-Detection is what drift breaks — a schema is recognized by what it defines,
-and a subgraph whose *types* are gone stops being recognizable — so the same
-`subgraphs:` map [`Testing::Router`](#the-local-router)
-takes is accepted here, and a named schema skips detection:
+Detection is what drift breaks — a schema is recognized by what it defines, and
+a subgraph whose *types* are gone stops being recognizable — so the same
+`subgraphs:` map [`Testing::Router`](#the-local-router) takes is accepted here,
+and a named schema skips detection:
 
 ```ruby
 GraphWeaver::Federation::Drift.new(
@@ -392,8 +363,6 @@ answer production disagrees with, which is the most expensive thing this library
 can produce. Each refusal names the coordinate that stopped it and what to do —
 `examples/federation.rb` prints one.
 
-What it refuses, and why:
-
 Every category, spelled as `Unplannable#category` reports it:
 
 | Refusal | Why |
@@ -416,8 +385,19 @@ Every category, spelled as `Unplannable#category` reports it:
 | nested deeper than the router walks | past the walk's depth limit, which validation would have rejected first |
 
 A subgraph two loaded schemas both fit refuses at construction too, as a
-`ConfigurationError` rather than an `Unplannable` (above) — it's a wiring
-mistake, not a query the router declines.
+`ConfigurationError` rather than an `Unplannable` — it's a wiring mistake, not a
+query the router declines.
+
+A double that quietly answered *differently* from the router would be worse than
+no double at all, so
+[`spec/integration/router_parity_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/integration/router_parity_spec.rb)
+serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
+supergraph, and runs the whole corpus through both — plus boundary probes and
+queries where a subgraph deliberately **fails**, which are the cases where a
+merge that doesn't re-propagate hands back a populated tree while the real router
+answers `data: null`. Three outcomes, one of them a defect: match, refuse, or
+answer differently, and the spec fails on the third. `make integration` runs it
+(node required).
 
 ### Is it worth wiring up? Measure.
 
@@ -449,44 +429,22 @@ plannable, but nothing here serves what they reach (3) — name a schema for tho
 ```
 
 `QUERIES=` picks the directory (default `GraphWeaver.queries_paths`). Planning
-needs the supergraph and nothing else, so this still runs in CI with the SDL
-alone — no subgraph has to be loadable, and with none loaded the report drops
-the second number and says it counted planning only. The subgraph line says
-which subgraphs each query touches, so a graph whose queries all sit in one is
-visibly a different situation from one that stitches everywhere. Anything
-refused is listed after it, grouped by category, so one glance says whether the
-gap is one construct or many. The first run above is the demo graph in
-`spec/support/federation`, not a real app's mix.
+needs the supergraph and nothing else, so this runs in CI with the SDL alone —
+with no subgraph loaded the report drops the second number and says it counted
+planning only. The subgraph line says which subgraphs each query touches, and
+anything refused is listed after it grouped by category, so one glance says
+whether the gap is one construct or many. (The first run above is the demo graph
+in `spec/support/federation`, not a real app's mix.)
 
-### How the refusals are kept honest
-
-A double that quietly answered *differently* from the router would be worse
-than no double at all, so
-[`spec/integration/router_parity_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/integration/router_parity_spec.rb)
-serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
-supergraph, and runs the whole corpus through both. Three outcomes, one of them
-a defect: match, refuse, or answer differently — and the spec fails on the
-third. It also checks that the gateway answers every refusal cleanly, so each
-refusal is a capability gap rather than a broken query. `make integration` runs
-it (node required).
-
-Alongside the corpus it runs boundary probes and a handful of queries where a
-subgraph deliberately **fails** — a resolver erroring under a stitched fetch, an
-entity nothing can resolve, a `@requires` fetch that comes back empty. Those are
-the ones that matter most: each is a case where a merge that doesn't
-re-propagate hands back a populated tree while the real router answers
-`data: null`, so it's checked against the real thing rather than against an
-expectation someone wrote down.
-
-## Pointing weaver at a subgraph
+## Generating against a subgraph
 
 A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the
 `.graphql` in a service repo — loads too. It applies `@key`/`@external`/
 `@shareable`/… without declaring them (federation v1 leaves them implicit, v2
 imports them via `@link`, including under a namespace as
-`@federation__key`), so weaver supplies the missing definitions on load;
-anything the file declares itself wins. The federation directives themselves
-generate no code — codegen is query-driven.
+`@federation__key`), so the missing definitions are supplied on load; anything
+the file declares itself wins. The federation directives themselves generate no
+code — codegen is query-driven.
 
 Reach for this when the subgraph is what you have, or to type an `_entities`
 query (below). But a subgraph is one service's slice of the graph, and its
@@ -499,10 +457,10 @@ graph, feed the composed artifact.
 Every subgraph serves the entity resolver
 `_entities(representations: [_Any!]!): [_Entity]!`, and **no subgraph SDL
 contains it**: `_service { sdl }` and `rover subgraph fetch` print the
-*published* schema, where the plumbing is implicit. So weaver supplies it on the
+*published* schema, where the plumbing is implicit. So it's supplied on the
 subgraph path — `_Any`, `_Service`, and an `_Entity` union over the file's own
-`@key`'d types — the same way it supplies the `@key`/`@external` definitions. A
-file that declares its own keeps it.
+`@key`'d types — the same way the `@key`/`@external` definitions are. A file
+that declares its own keeps it.
 
 The read side is a normal union selection; `alias:` turns the
 single-entity case into a clean accessor (see
@@ -537,15 +495,19 @@ Key field sets are selection sets, so they're parsed as such:
 A type with one `@key` types its fields as **required kwargs**, so an
 incomplete representation is an `srb tc` error rather than a round trip. What a
 sig can't say is checked at runtime and raises `GraphWeaver::InputError` naming
-the type and the field: which of two alternative keys you meant to supply, and
-whether a nested sub-hash carries the fields the key set declares. Only the
-declared key fields reach the wire — an extra key in a nested hash is dropped.
+the type and the field:
 
-Two bounds worth knowing. Builders are emitted **only for the entities a
-query's `_entities` selection reaches** — codegen is query-driven, so a
-subgraph with fifty entities emits nothing for the forty-nine you didn't name.
-And a `@key(..., resolvable: false)` declares a key this subgraph does *not*
-answer for, so it builds nothing. Key fields typed as scalars get their
-registered Ruby type; anything else (a nested selection) is an open `Hash` the
-runtime narrows. Every shape above is a named example in
+```
+Variant representation satisfies none of its @keys — supply "id", or "serial"
+Listing representation is missing @key "organization.id"
+```
+
+Only the declared key fields reach the wire — an extra key in a nested hash is
+dropped. Builders are emitted **only for the entities a query's `_entities`
+selection reaches** (codegen is query-driven, so a subgraph with fifty entities
+emits nothing for the forty-nine you didn't name), and a
+`@key(..., resolvable: false)` declares a key this subgraph does *not* answer
+for, so it builds nothing. Key fields typed as scalars get their registered Ruby
+type; anything else (a nested selection) is an open `Hash` the runtime narrows.
+Every shape above is a named example in
 [`spec/federation_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/federation_spec.rb).
