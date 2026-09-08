@@ -15,9 +15,9 @@ step for CI. Runtime deps: `graphql` + `sorbet-runtime`, nothing else.
 
 ## State
 
-`0.4.6` on RubyGems. `main` carries a large unreleased body of work headed for
-**0.5.0** — see `## Unreleased` in the CHANGELOG, which is long and has a real
-upgrade story to tell.
+`0.5.1` on RubyGems. `main` carries the launch-hardening sweep — see
+`## Unreleased` in the CHANGELOG: every entry marked **Regenerate** changes
+emitted code, so the next release is at least a minor.
 
 Green gate is in `CLAUDE.md`; `make check` runs the core of it.
 
