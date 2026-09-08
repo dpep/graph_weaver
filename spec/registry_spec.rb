@@ -69,7 +69,8 @@ describe "the registration registry" do
       species = client.run!(query).person&.pets&.map(&:species)
       expect(species).to eq [CatsOnly::Cat, CatsOnly::Cat] # DOG absorbed
 
-      expect { client.run!(mutation, species: "DOG") }.to raise_error(KeyError)
+      expect { client.run!(mutation, species: "DOG") }
+        .to raise_error(GraphWeaver::InputError, /not a valid CatsOnly — expected one of: CAT/)
     end
 
     it "names the map: keyword when a value map is passed positionally" do

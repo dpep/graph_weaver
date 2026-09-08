@@ -205,7 +205,7 @@ class GraphWeaver::Codegen
     def coerce? = true
 
     def coerce(expr)
-      "(#{expr}.is_a?(#{class_name}) ? #{expr} : #{class_name}.deserialize(#{expr}))"
+      "GraphWeaver::InputStruct.enum(#{class_name}, #{expr})"
     end
 
     def coerce_input_type = "T.any(#{class_name}, String)"
@@ -250,7 +250,7 @@ class GraphWeaver::Codegen
     def coerce? = true
 
     def coerce(expr)
-      "(#{expr}.is_a?(#{@type_name}) ? #{expr} : #{const_prefix}_FROM_WIRE.fetch(#{expr}))"
+      "GraphWeaver::InputStruct.mapped_enum(#{@type_name}, #{const_prefix}_FROM_WIRE, #{expr})"
     end
 
     def coerce_input_type = "T.any(#{@type_name}, String)"

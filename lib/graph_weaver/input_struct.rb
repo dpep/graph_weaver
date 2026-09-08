@@ -21,6 +21,34 @@ module GraphWeaver
     # means identity (the wire value passes through untouched)
     Field = Struct.new(:prop, :wire, :required, :serializer, :coercer)
 
+    # An enum reaching the library as input — an execute kwarg or an input
+    # field — as the member or its wire value. Generated code calls these
+    # rather than T::Enum.deserialize / the wire table directly: both raise a
+    # bare KeyError naming an anonymous module and none of the values they
+    # would have taken, and a kwarg's KeyError escapes the umbrella entirely
+    # (nothing wraps it the way #coerce wraps an input field's).
+    def self.enum(type, value)
+      return value if value.is_a?(type)
+
+      type.try_deserialize(value) || invalid_enum!(type, value, type.values.map(&:serialize))
+    end
+
+    # the same, for an enum mapped onto an app-owned T::Enum (register_enum),
+    # where the wire table rather than the type knows the accepted values
+    def self.mapped_enum(type, table, value)
+      return value if value.is_a?(type)
+
+      table.fetch(value) { invalid_enum!(type, value, table.keys) }
+    end
+
+    def self.invalid_enum!(type, value, values)
+      raise GraphWeaver::InputError.new(
+        "#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}",
+        struct: type,
+      )
+    end
+    private_class_method :invalid_enum!
+
     def self.included(base)
       base.extend(ClassMethods)
     end
@@ -69,10 +97,23 @@ module GraphWeaver
         GraphWeaver::Hints.validate_keys!(self, value)
 
         fields = T.unsafe(self).const_get(:FIELDS)
-        T.unsafe(self).new(**fields.to_h do |field|
+        supplied = fields.to_h do |field|
           raw = value.key?(field.prop) ? value[field.prop] : value[field.prop.to_s]
           [field.prop, raw.nil? || field.coercer.nil? ? raw : field.coercer.call(raw)]
-        end)
+        end
+
+        # FIELDS knows which are required, so say what is missing — sorbet's
+        # own complaint describes the symptom ("Can't set .name to nil") and
+        # names only the first one it reaches
+        missing = fields.select { |field| field.required && supplied[field.prop].nil? }.map(&:prop)
+        unless missing.empty?
+          raise GraphWeaver::InputError.new(
+            "missing required key(s) for #{self}: #{missing.join(", ")}",
+            field: missing.join(", "), struct: self,
+          )
+        end
+
+        T.unsafe(self).new(**supplied)
       rescue GraphWeaver::InputError
         raise # already contextualized by a nested input / enum coercion
       rescue ::TypeError, ::ArgumentError, KeyError => e

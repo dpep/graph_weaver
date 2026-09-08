@@ -18,7 +18,7 @@ module GraphQLTypes
       GraphWeaver::InputStruct::Field.new(:birthday, "birthday", false, ->(v) { v.iso8601 }, nil),
       GraphWeaver::InputStruct::Field.new(:name, "name", true, nil, nil),
       GraphWeaver::InputStruct::Field.new(:nickname, "nickname", false, nil, nil),
-      GraphWeaver::InputStruct::Field.new(:species, "species", true, ->(v) { v.serialize }, ->(v) { (v.is_a?(Species) ? v : Species.deserialize(v)) }),
+      GraphWeaver::InputStruct::Field.new(:species, "species", true, ->(v) { v.serialize }, ->(v) { GraphWeaver::InputStruct.enum(Species, v) }),
     ].freeze, T::Array[GraphWeaver::InputStruct::Field])
   end
 end

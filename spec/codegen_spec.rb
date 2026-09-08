@@ -697,6 +697,18 @@ describe GraphWeaver::Codegen do
         .to raise_error(GraphWeaver::InputError, /PetFilter.*speces/m)
     end
 
+    it "names the missing keys, not the first prop sorbet tripped over" do
+      expect { AdoptMutation::AdoptionInput.coerce({}) }
+        .to raise_error(GraphWeaver::InputError, /missing required key\(s\).*: name, species/)
+    end
+
+    it "names the accepted values when an enum kwarg gets a wire value the schema hasn't" do
+      # the same mistake inside an input object already said this; a top-level
+      # variable used to escape the umbrella as a bare KeyError
+      expect { AddPetMutation.execute(name: "Rex", species: "BIRD") }
+        .to raise_error(GraphWeaver::InputError, /"BIRD" is not a valid .*Species — expected one of: CAT, DOG/)
+    end
+
     it "supports recursive input types (Hasura-style bool_exp filters)" do
       schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
         type Query { pokemon(where: pokemon_bool_exp): [pokemon!]! }
