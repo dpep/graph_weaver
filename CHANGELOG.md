@@ -1,4 +1,19 @@
 ## Unreleased
+- **Three generated types disagreed with the schema.** `srb tc` proves the
+  generated code is self-consistent, not that it is true, so each of these was a
+  lie the typechecker endorsed. **Regenerate** to pick them up:
+  - A field reached only through a `@skip`/`@include`-guarded occurrence, where
+    the same key is also selected unguarded, was typed as guaranteed. The server
+    legitimately omits it, so `from_h` raised `key not found` on a valid
+    response — and a union whose `__typename` arrived that way crashed its own
+    dispatch. Those children are nilable now, and the `__typename` case refuses
+    at generation as it already did for the plainer spelling.
+  - A narrowed abstract inside a non-null list made the *list* nilable
+    (`[Thing!]!` with `... on Widget` → `T.nilable(T::Array[…])`). Only the
+    elements can be nil; the array is always there.
+  - An input field the schema gives a default is optional, but a non-null one
+    emitted `const :x, String, default: nil` — so `x.upcase` typechecked and
+    was a `NoMethodError`.
 - **`rake graph_weaver:federation:coverage` no longer counts a subgraph as
   served here when two loaded schemas fit it.** `Router.new` refuses that case
   — picking either would be a coin flip — so the report was promising a run

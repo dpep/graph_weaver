@@ -548,8 +548,13 @@ class GraphWeaver::Codegen
         out << ""
       end
       node.fields.each do |field|
+        # A schema default makes the field optional here, so the prop has to
+        # admit the nil that omitting it leaves behind — the same widening
+        # execute's kwargs already get.
+        type = field.node.prop_type
+        type = "T.nilable(#{type})" if !field.required && field.node.non_null? && type != "T.untyped"
         default = field.required ? "" : ", default: nil"
-        out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}#{default}"
+        out << "#{pad}  const :#{field.prop}, #{type}#{default}"
       end
       out << ""
       out << "#{pad}  # (prop, wire, required, serializer, coercer) per field"

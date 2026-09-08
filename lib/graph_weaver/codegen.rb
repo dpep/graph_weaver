@@ -634,6 +634,29 @@ class GraphWeaver::Codegen
     end
   end
 
+  # The @include/@skip a fragment carries applies to what it guards, so it has
+  # to travel with the selections into the child rather than being spent on the
+  # key. Re-wrapping in a guarded inline fragment says that in the vocabulary
+  # the walk already speaks, which is what keeps dispatchable_typename? and the
+  # __typename refusal honest for free.
+  GUARDED = [GraphQL::Language::Nodes::Directive.new(name: "include")].freeze
+  private_constant :GUARDED
+
+  # A key's merged sub-selections, keeping the conditionality of the occurrence
+  # each child came from: `pets @include(if:) { name } pets { species }` answers
+  # with `name` only when that occurrence ran, so those children have to admit
+  # nil. One occurrence needs none of this — the key is there exactly when it
+  # ran, and its own prop already says so.
+  def merged_selections(occurrences)
+    return occurrences.first.first.selections if occurrences.one?
+
+    occurrences.flat_map do |node, conditional|
+      next node.selections unless conditional || conditional?(node)
+
+      [GraphQL::Language::Nodes::InlineFragment.new(type: nil, directives: GUARDED, selections: node.selections)]
+    end
+  end
+
   def object_node(type, selections, class_name)
     node = ObjectNode.new(class_name)
     node.graphql_type = type.graphql_name
@@ -655,7 +678,7 @@ class GraphWeaver::Codegen
         NonNull.new(scalar_node("String"))
       else
         field_type = @schema.get_field(type.graphql_name, field_name).type
-        sub_selections = field_nodes.flat_map(&:selections)
+        sub_selections = merged_selections(occurrences)
 
         case (core = field_type.unwrap).kind.name
         when "OBJECT"
@@ -824,7 +847,10 @@ class GraphWeaver::Codegen
   def nilable_type_ref(type, &core)
     case type.kind.name
     when "NON_NULL"
-      nilable_type_ref(type.of_type, &core)
+      # only the NON_NULL around the narrowed member itself drops — `[Thing!]!`
+      # narrowed is a guaranteed array of nilable members, not a nilable array
+      inner = nilable_type_ref(type.of_type, &core)
+      inner.is_a?(List) ? NonNull.new(inner) : inner
     when "LIST"
       List.new(nilable_type_ref(type.of_type, &core))
     else
