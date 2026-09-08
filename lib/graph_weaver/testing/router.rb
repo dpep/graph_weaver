@@ -473,6 +473,11 @@ module GraphWeaver
       def prefetch(step, nodes, operation, variables, errors)
         blocked = []
         step.prefetches.each do |prefetch|
+          # the field it feeds was excluded, so this is a fetch a real router
+          # never makes — and a test double that runs a resolver production
+          # wouldn't is answering a different question
+          next unless included?(prefetch.node, variables)
+
           key = Router.field_tree(prefetch.key)
           representations = nodes.map { |(node, _)| representation(node, key, step.type_name) }
           selections = Router.injected_selections(prefetch.paths)
@@ -764,7 +769,9 @@ module GraphWeaver
         # A @requires field set the router has to supply: fetch those fields
         # from the subgraph that holds them, into hidden keys on the object,
         # before the fetch whose representation carries them.
-        Prefetch = Struct.new(:subgraph, :key, :paths, keyword_init: true)
+        # `node` is the selection whose @requires this feeds — the fetch is
+        # only made when that selection survives @skip/@include.
+        Prefetch = Struct.new(:subgraph, :key, :paths, :node, keyword_init: true)
 
         # A field this subgraph can't resolve: refetch the parent entity from
         # `subgraph` and read it there.
@@ -1164,7 +1171,7 @@ module GraphWeaver
           paths.group_by { |path| requires_holder(type_name, node, path) }.each do |holder, held|
             key = usable_key(type_name, node, subgraph, holder)
             key.each { |path| inject(step, path) }
-            step.prefetches << Prefetch.new(subgraph: holder, key:, paths: held)
+            step.prefetches << Prefetch.new(subgraph: holder, key:, paths: held, node:)
           end
         end
 

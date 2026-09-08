@@ -256,6 +256,16 @@ describe GraphWeaver::Testing::Router do
         .to eq({ "me" => { "username" => "dpep" } })
     end
 
+    # the deferral is filtered by @skip; the prefetch feeding it has to be too,
+    # or the router runs a resolver production never reaches
+    it "skips the prefetch feeding a skipped @requires" do
+      query = "query($hide: Boolean!) { reviews { id product { crateSize @skip(if: $hide) } } }"
+
+      expect(router.execute(query, variables: { "hide" => true }).dig("data", "reviews", 0))
+        .to eq({ "id" => "r1", "product" => {} })
+      expect(router).to have_fetched_subgraphs "reviews"
+    end
+
     # A stitched fetch can put a null where the composed schema says non-null,
     # and nothing re-applies GraphQL's propagation rules over a merged tree
     # unless the router does: without it this comes back populated, with a
