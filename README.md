@@ -88,17 +88,30 @@ then one tag says what an example runs against:
 it "shows the profile", graphql: :fake do
   person = PersonQuery.execute!(id: "1").person
 
-  person.name       # fabricated from your schema
-  person.birthday   # a real Date — custom scalars included
-  person.pets       # a list of them, each schema-correct
+  person.name       # => "Shakita Stark"      fabricated from your schema
+  person.birthday   # => #<Date: 2024-12-16>  custom scalars included
+  person.pets.size  # => 2
 end
 ```
 
 No fixture, no stub, no HTTP — and the values are seeded from rspec's own seed, so
-`--seed 4242` hands back that same person and a failure reproduces. The tag also
-picks a *real* client when you want one: `:in_process` runs your resolvers,
-`:router` runs them across a federated graph. Field-level failure simulation and
-record/replay cassettes with anonymization are in [testing](docs/testing.md).
+`--seed 4242` hands back that same person and a failure reproduces.
+
+Random data answers "does this render". When the example is *about* the data, pin
+the fields it's about and let the rest stay fabricated:
+
+```ruby
+graphql_fake(overrides: { "Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}] })
+
+person.name                 # => "Ada"
+person.pets.map(&:name)     # => ["Shelby", "Mrs. Fermin Predovic"]
+```
+
+Keys are schema coordinates, checked and spellchecked, so a typo raises instead of
+leaving the example green against random data. The tag also picks a *real* client
+when you want one: `:in_process` runs your resolvers, `:router` runs them across a
+federated graph. Field-level failure simulation and record/replay cassettes with
+anonymization are in [testing](docs/testing.md).
 
 ## Federation without a gateway
 
@@ -131,6 +144,10 @@ server has drifted, `queries:check` names the queries that drift broke and where
 and `verify` fails when the checked-in Ruby is stale. Generation is deterministic
 — same schema and queries, byte-identical files — so regenerating never shows a
 diff you didn't earn. See [getting started](docs/getting_started.md#5-verify-in-ci).
+
+**Any release can change what codegen emits**, patch releases included — fixing a
+generated type is a byte change. So `rake graph_weaver:generate` is part of every
+upgrade, and `verify` is what tells you when you've skipped it.
 
 #### Also in the box
 
