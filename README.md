@@ -132,8 +132,8 @@ fetches:
 The trace is the query plan: every node at a level goes in one `_entities` call,
 so two products cost one fetch. Anything it can't answer *faithfully* it refuses
 at plan time rather than guessing — and it's diffed against a real
-`@apollo/gateway` over the same supergraph, currently 72 queries identical, 2
-refused, 0 wrong
+`@apollo/gateway` over the same supergraph:
+currently 72 queries identical, 2 refused, 0 wrong
 ([`spec/integration/router_parity_spec.rb`](spec/integration/router_parity_spec.rb)).
 See [federation](docs/federation.md).
 
