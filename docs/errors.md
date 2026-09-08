@@ -1,6 +1,10 @@
 # Errors
 
-Two generated names travel together, and they're close enough to trip on:
+What comes back when something goes wrong, and what to rescue. Read it when you
+write the first `rescue` around a query, or when you need to tell "the network
+broke" apart from "the server said no" apart from "the response didn't fit".
+
+Two names travel together here, and they're close enough to trip on:
 
 - **`Result`** — the struct holding *this* query's data, e.g. `PersonQuery::Result`.
 - **`Response`** — the **envelope** around it, `GraphWeaver::Response[Result]`,

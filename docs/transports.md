@@ -1,5 +1,10 @@
 # Transports
 
+Where queries actually go: what fills the client slot, how to build and tune the
+bundled HTTP transports, and how a generated module decides which one to use.
+Read it when the default one-liner isn't enough — custom headers, mTLS, Faraday
+middleware, retries, or connection pooling under load.
+
 A *client* is anything with `execute(query, variables:, operation_name:)` whose result
 `to_h`s into `{"data" => ..., "errors" => ...}` — from a full
 `GraphWeaver::Client` down to a schema class
@@ -173,7 +178,8 @@ takes a `Client` or any bare transport/fake):
 3. baked constant: `Codegen.generate(..., client: MyApi::CLIENT)`
 4. the app default: `GraphWeaver.client=`
 
-Nothing set anywhere raises with a message saying which knobs exist.
+Nothing set anywhere raises, naming the two you'd usually reach for:
+`no client configured — set GraphWeaver.client= or pass a client`.
 
 ## Retries
 
