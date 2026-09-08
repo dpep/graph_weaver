@@ -1,4 +1,96 @@
 ## Unreleased
+- **A Rails app whose generated code includes an autoloaded helper now
+  boots.** `extend_type("Pet", PetHelpers)` and `register_enum("Species",
+  PetKind)` name constants your app autoloads, so the library tells you to
+  register them from a `to_prepare` block — but the railtie required the
+  generated files before Zeitwerk was set up and before `to_prepare` ran, so
+  the `include PetHelpers` those registrations emit raised `NameError` at every
+  boot, in every environment. They now load from a `to_prepare` block of their
+  own: after the autoloader, after your registrations, before eager loading.
+- **A named fragment now crosses a subgraph boundary.** A stitched fetch is
+  built from selections alone, so a spread that survived into one named a
+  fragment the subgraph had never seen and the whole subtree came back
+  `Fragment X was used, but not defined`. Every spread a fetch carries is now
+  spelled as the inline fragment it is.
+- **A fake's value for a custom scalar comes from what you registered it
+  as.** It was picked off the schema's *name* for the scalar, so a `Timestamp`
+  registered as `Time` got `"Timestamp-1"` and every fake response touching it
+  died inside the codec codegen had emitted for it. A scalar registered as
+  `Time` now gets iso8601, one registered as `Integer` an Integer; an
+  unregistered one keeps its placeholder. Cassette anonymization runs through
+  the same engine and had the same hole, which made `cassettes:check` fail on
+  a cassette the anonymizer had just written. **Re-run
+  `rake graph_weaver:cassettes:anonymize`** on a cassette holding a registered
+  custom scalar.
+- **A mutation is no longer retried.** A read timeout, a 502 or a reset socket
+  does not say whether the server applied the request, and a second `charge`
+  is worse than a failed one — so `Retry` gives a mutation one attempt and says
+  so on the logger. Pass `retry_mutations: true` for an API whose mutations are
+  idempotent. Each retry now logs the wait and the attempt number.
+- **A connection that dies mid-body is a dropped connection.** net/http's
+  `ignore_eof` default handed back the bytes that arrived when a socket closed
+  short of its `Content-Length`, so a half-sent response reached you as a 200
+  with a truncated body — a permanent `ServerError` that `Retry` would not
+  retry. It now raises the retriable `TransportError` it is.
+- **An in-process query gets its own context.** graphql-ruby writes a
+  resolver's `context[...] =` into the hash it is handed, and one `InProcess`
+  is normally the whole app's client — so a flag set by one request was still
+  there for the next, and racing between them under Puma.
+- **A response that carries neither `data` nor `errors` is refused.** A client
+  returning `nil`, one keying the envelope by symbol, one that typo'd `"dat"`:
+  each produced a `Response` reporting `success?` with `data` nil.
+  `from_response` is documented public API and symbolized keys are the
+  likeliest mistake at that seam, so it now brands, naming the keys it found.
+- **`@skip`/`@include` are evaluated by the fake against the variables you
+  passed**, declared defaults included — the way a server and
+  `Testing::Router` already did, so one query no longer carries a key under
+  `graphql: :fake` and not under `graphql: :router`. A faked subgraph does the
+  same for directives inside its `_entities` selection. A `first:`/`last:`
+  arriving as a variable caps the fabricated list like a literal, a cap below
+  zero reads as a page of none, and `null_chance` reaches list positions.
+- **An alias spelling a response key the router carries a `@key` under is
+  refused.** The router injects the `@key` it crosses on under a reserved key
+  and strips it from the answer, so `_gw_weight: weight` came back without
+  `_gw_weight` at all. It joins the `shadowed_key` refusal, which already
+  covered Apollo's half of the same collision.
+- **A `@requires` field set excluded by `@skip`/`@include` no longer
+  prefetches.** The router ran a subgraph fetch a real router never makes —
+  which matters for a test double, where a resolver that runs is one your
+  example can observe.
+- **`verify_generated!` fails over zero query documents**, and `generate!`
+  warns. A mistyped `queries_paths` left `verify` returning true having
+  compared nothing, so a CI gate stayed green forever.
+- **`rake graph_weaver:generate` says what it pruned, and where it looked when
+  there was nothing to generate.** Deleting a `.graphql` deletes the checked-in
+  file it produced, and the task printed nothing and exited 0; so did a run
+  with no queries, the state every install starts in.
+- **`Failure.server` takes the headers a backoff branches on.**
+  `ServerError#retry_after` and `#throttled?` read `Retry-After`, and there was
+  no way to set one: `Failure.server(status: 429, headers: { "retry-after" =>
+  "2" })`. `Failure.transport`'s message now names the class it caught, the
+  way the bundled transports do.
+- **Cassette recording is safe across threads.** `record` was
+  read-modify-write; two threads recording through one cassette each saved a
+  snapshot missing the other's entry.
+- **A `.json` schema dump that isn't JSON says which file and what it holds.**
+  A truncated download or a login page saved over the dump raised a bare
+  `JSON::ParserError`, outside `GraphWeaver::Error` and naming neither.
+  `rake graph_weaver:schema:refresh` — the fix — no longer trips over it.
+- **Setup mistakes say what to do.** A schema source that looks like a url
+  (`localhost:4000/graphql` included) gets the url advice first; a non-token
+  `auth:`, a `retries:` that is neither true nor a Hash, a url
+  `Transport::HTTP` cannot POST to, a `parse` path without a `.graphql`
+  extension, a cache directory that can't be written, `schema:refresh URL=`
+  with a file path, and `schema:diff` with no dump all name the fix. A
+  `ServerError` carries the advice its status implies: a 3xx names where the
+  server pointed (redirects are not followed) and a 401/403 names `auth:`. A
+  spec with a `graphql:` tag but no `graph_weaver/rspec` is told to require
+  it, a misspelled tag reports one failure instead of two, `InputError` no
+  longer prints sorbet's `Caller:` frame, a generated file whose registered
+  constant is gone names the registration, and `rails g graph_weaver:install`
+  names a retry that works when introspection fails.
+- **The GitHub example's checked-in modules were regenerated**, and a spec now
+  keeps them in step with the emitter.
 - **A cold process no longer introspects once per in-flight thread.** A
   url-built client fetches its schema lazily, and Puma serves its first
   requests concurrently — so eight threads arriving together meant eight full
