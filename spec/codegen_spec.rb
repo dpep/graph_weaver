@@ -1161,6 +1161,50 @@ describe GraphWeaver::Codegen do
       expect(item).to be_a(mod::Result::Feed::Other)
       expect(item.__typename).to eq "Video"
     end
+
+    it "keeps interface fields on the catch-all when a union grows a member" do
+      v1 = <<~GRAPHQL
+        interface Named { name: String! }
+        union Thing = Dog | Cat
+        type Dog implements Named { name: String! bark: String! }
+        type Cat implements Named { name: String! }
+        type Query { thing: Thing }
+      GRAPHQL
+      mod = GraphWeaver.parse(
+        schema: GraphQL::Schema.from_definition(v1),
+        query: "query Q { thing { __typename ... on Named { name } ... on Dog { bark } } }",
+      )
+
+      # upstream added `Toy` to the union — it implements Named, so the server
+      # answers the `... on Named` selection for it
+      thing = mod.from_response!(
+        "data" => { "thing" => { "__typename" => "Toy", "name" => "Ball" } },
+      ).thing
+
+      expect(thing).to be_a(mod::Result::Thing::Other)
+      expect(thing.name).to eq "Ball"
+    end
+
+    it "keeps a second interface's fields on the catch-all" do
+      v1 = <<~GRAPHQL
+        interface Node { id: ID! }
+        interface Named { name: String! }
+        type Dog implements Node & Named { id: ID! name: String! }
+        type Query { node: Node }
+      GRAPHQL
+      mod = GraphWeaver.parse(
+        schema: GraphQL::Schema.from_definition(v1),
+        query: "query Q { node { __typename id ... on Named { name } } }",
+      )
+
+      node = mod.from_response!(
+        "data" => { "node" => { "__typename" => "Robot", "id" => "r1", "name" => "Beep" } },
+      ).node
+
+      expect(node).to be_a(mod::Result::Node::Other)
+      expect(node.id).to eq "r1"
+      expect(node.name).to eq "Beep"
+    end
   end
 
   describe "union member-type dedup" do

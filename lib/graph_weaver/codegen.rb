@@ -892,11 +892,58 @@ class GraphWeaver::Codegen
 
   # The one struct everything else deserializes into: a member the query didn't
   # name, and — the point — a member the schema grows AFTER this file was
-  # generated. It carries only what the abstract type itself guarantees (an
-  # interface's selected interface-level fields; for a union, just __typename),
-  # so a new upstream member bends the result rather than breaking it.
+  # generated, so a new upstream member bends the result rather than breaking
+  # it. It carries what the abstract type itself guarantees, plus anything a
+  # `... on SomeInterface` asked for, since an unnamed member may implement it.
   def catch_all_member(type, selections, members)
-    object_node(type, selections, catch_all_name(members))
+    node = object_node(type, selections, catch_all_name(members))
+    taken = node.fields.map(&:key)
+
+    # These are nilable whatever the schema promises: the member that arrives
+    # need not implement the interface, and then the server sends nothing.
+    sibling_conditions(type, selections).each do |condition, sub_selections|
+      object_node(condition, sub_selections, node.class_name).fields.each do |field|
+        next if taken.include?(field.key)
+
+        taken << field.key
+        child = field.node
+        node.fields << ObjectNode::Field.new(field.prop, field.key, child.is_a?(NonNull) ? child.of : child)
+      end
+    end
+
+    node.aliases = resolve_aliases(node)
+    node
+  end
+
+  # The abstract type conditions inside an abstract selection that a member the
+  # query never NAMED could still satisfy — `... on Named` under a union, or
+  # under a different interface. Returns condition => merged selections, so the
+  # same interface spread twice types once; concrete conditions are excluded,
+  # since a member they'd match already has a struct of its own.
+  def sibling_conditions(type, selections, visiting = Set.new, out = {})
+    selections.each do |selection|
+      case selection
+      when GraphQL::Language::Nodes::InlineFragment
+        sibling_condition(type, selection.type&.name, selection.selections, visiting, out)
+      when GraphQL::Language::Nodes::FragmentSpread
+        next if visiting.include?(selection.name)
+
+        fragment = @fragments.fetch(selection.name)
+        sibling_condition(type, fragment.type.name, fragment.selections, visiting | [selection.name], out)
+      end
+    end
+    out
+  end
+
+  def sibling_condition(type, name, selections, visiting, out)
+    condition = name ? @schema.get_type(name) : type
+    return unless condition
+    # same type condition restated — keep descending at this level
+    return sibling_conditions(type, selections, visiting, out) if condition.graphql_name == type.graphql_name
+    return unless condition.kind.abstract?
+
+    (out[condition] ||= []).concat(selections)
+    sibling_conditions(condition, selections, visiting, out)
   end
 
   # "Other", unless a real member already claims that name.

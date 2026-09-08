@@ -92,11 +92,13 @@ module SearchQuery
         include GraphWeaver::Hints
 
         const :__typename, String
+        const :name, T.nilable(String)
 
         sig { params(data: T::Hash[String, T.untyped]).returns(Other) }
         def self.from_h(data)
           new(
             __typename: data.fetch("__typename"),
+            name: data["name"],
           )
         rescue GraphWeaver::Error
           raise # already branded by a nested struct — keep the innermost context

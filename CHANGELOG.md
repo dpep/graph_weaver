@@ -1,4 +1,11 @@
 ## Unreleased
+- **A union's catch-all struct keeps the fields an interface fragment asked
+  for.** `... on Named { name }` under a union types `name` on every member the
+  query named, but the catch-all — the member it didn't name, including one the
+  schema grows later — carried only `__typename`, so a `name` the server
+  actually sent was dropped on the floor. Those fields are `T.nilable`: the
+  member that arrives needn't implement the interface. **Regenerate** to pick
+  it up.
 - **`schema_stale?` now recognises the drift a graphql-ruby server reports.**
   It matched Apollo's one flat code plus a message pattern, but graphql-ruby —
   which this library ships as its in-process client — names the rule that fired
