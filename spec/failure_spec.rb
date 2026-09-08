@@ -13,6 +13,9 @@ describe "failure simulation" do
         PersonQuery.execute(client: failure.transport, id: "1")
       }.to raise_error(GraphWeaver::TransportError) do |e|
         expect(e.cause).to be_a SocketError
+        # the bundled transports name the class they caught; a fake that
+        # didn't would answer a message assertion differently from the real one
+        expect(e.message).to eq "SocketError: simulated network failure"
       end
     end
 
@@ -21,6 +24,18 @@ describe "failure simulation" do
         PersonQuery.execute(client: failure.server(status: 502, body: "bad gateway"), id: "1")
       }.to raise_error(GraphWeaver::ServerError) do |e|
         expect(e.status).to eq 502
+      end
+    end
+
+    # a backoff reads Retry-After off the error, so a simulated 429 without
+    # headers exercises everything about the rescue except the part that
+    # decides how long to wait
+    it "carries the headers a backoff branches on" do
+      expect {
+        PersonQuery.execute(client: failure.server(status: 429, headers: { "retry-after" => "2" }), id: "1")
+      }.to raise_error(GraphWeaver::ServerError) do |e|
+        expect(e.retry_after).to eq 2.0
+        expect(e).to be_throttled
       end
     end
 

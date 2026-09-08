@@ -22,19 +22,23 @@ module GraphWeaver
       include Kernel # for sorbet
       module_function
 
-      # the request never reaches the server — cause preserved, like the
-      # bundled transports do
+      # the request never reaches the server — cause preserved, and the
+      # message shaped as the bundled transports shape it
       def transport(message = "simulated network failure", cause: SocketError)
         FailureClient.new do
           raise cause, message
         rescue cause => e
-          raise GraphWeaver::TransportError, e.message
+          raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
         end
       end
 
-      # the server answered non-2xx
-      def server(status: 500, body: "simulated server error")
-        FailureClient.new { raise GraphWeaver::ServerError.new(status:, body:) }
+      # The server answered non-2xx. headers: is where the answer to "wait,
+      # then" lives — ServerError#retry_after and #throttled? read it, so a
+      # backoff is only exercised by a failure that carries one:
+      #
+      #      Failure.server(status: 429, headers: { "retry-after" => "2" })
+      def server(status: 500, body: "simulated server error", headers: {})
+        FailureClient.new { raise GraphWeaver::ServerError.new(status:, body:, headers:) }
       end
 
       # top-level GraphQL errors: strings, or hashes with message/path/
