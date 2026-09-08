@@ -220,7 +220,7 @@ module GraphWeaver
       def save
         yaml = YAML.dump(@entries)
         FileUtils.mkdir_p(File.dirname(@path))
-        File.write(@path, yaml)
+        GraphWeaver.atomic_write(@path, yaml)
         flag_credentials(yaml)
       end
 

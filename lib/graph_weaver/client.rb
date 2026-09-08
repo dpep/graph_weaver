@@ -80,6 +80,7 @@ class GraphWeaver::Client
 
     @cache = cache
     @ttl = ttl
+    @schema_lock = Mutex.new
   end
 
   # The transport queries run through: a url-built transport, an
@@ -96,8 +97,14 @@ class GraphWeaver::Client
 
   # The schema, introspecting through the transport on first use (cached
   # per the client's cache:/ttl:) unless one was given up front.
+  #
+  # Locked because a cold Puma process serves its first requests
+  # concurrently: a bare ||= there is one full introspection round trip per
+  # in-flight thread, each of them also writing the cache file.
   def schema
-    @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
+    @schema_lock.synchronize do
+      @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
+    end
   end
 
   # The client contract, same as every transport: a query and its

@@ -627,7 +627,7 @@ module GraphWeaver::SchemaLoader
         header = meta && "# graph_weaver: #{JSON.generate(meta)}\n\n"
         "#{header}#{schema.to_definition}"
       end
-      File.write(cache, content)
+      GraphWeaver.atomic_write(cache, content)
       GraphWeaver.log(:info) { "wrote schema cache: #{cache} (#{content.bytesize} bytes)" }
     end
 

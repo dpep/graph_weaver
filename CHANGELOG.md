@@ -1,3 +1,20 @@
+## Unreleased
+- **A cold process no longer introspects once per in-flight thread.** A
+  url-built client fetches its schema lazily, and Puma serves its first
+  requests concurrently — so eight threads arriving together meant eight full
+  introspection round trips, each of them also writing the schema cache. One
+  now, whoever asks first.
+- **The schema cache and cassettes are written atomically.** `File.write`
+  truncates before it writes, so an interrupted run — or a second writer, a
+  rake task beside a running app — could leave a half-written file where a
+  committed artifact used to be. Both now write beside the target and rename,
+  which is atomic: a reader sees the old file or the new one.
+- **The connection pool keeps its ceiling under an interrupt.** An async raise
+  landing between taking a permit and the `ensure` that returns it would have
+  leaked one for the life of the process, and `Rack::Timeout` raises exactly
+  that way; the gap is closed. Its saturation warning is also once now rather
+  than once per racing thread.
+
 ###  v0.5.1  (2026-09-07)
 - **A union's catch-all struct keeps the fields an interface fragment asked
   for.** `... on Named { name }` under a union types `name` on every member the

@@ -89,6 +89,20 @@ module GraphWeaver
       )
     end
 
+    # Internal: replace a file's contents in one step. The schema dump and a
+    # cassette are artifacts people commit, and File.write truncates before it
+    # writes — so an interrupted run, or a second writer (a rake task beside a
+    # running app, two Puma workers), can leave a half-written file that no
+    # longer parses. A rename is atomic on POSIX: a reader sees the old file
+    # or the new one, never a prefix of it.
+    def atomic_write(path, content)
+      tmp = File.join(File.dirname(path), ".#{File.basename(path)}.#{Process.pid}.#{Thread.current.object_id}.tmp")
+      File.write(tmp, content)
+      File.rename(tmp, path)
+    ensure
+      File.unlink(tmp) if tmp && File.exist?(tmp)
+    end
+
     def check_envelope!(raw, struct)
       unless raw.is_a?(Hash)
         raise GraphWeaver::TypeError.new(struct:, message: "response must be an object, got #{raw.class}")

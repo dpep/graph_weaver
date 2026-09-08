@@ -63,7 +63,7 @@ module GraphWeaver
         # live connections, LIFO — a warm socket beats opening a cold one,
         # so a single-threaded caller keeps reusing the same one
         @idle = []
-        @idle_lock = Mutex.new
+        @lock = Mutex.new # guards @idle and @saturated
       end
 
       private
@@ -84,12 +84,14 @@ module GraphWeaver
       # is the concurrency ceiling.
       def with_connection
         acquire_permit
-        http = nil
-
+        # nothing between acquiring the permit and the ensure that returns it:
+        # an async interrupt (Rack::Timeout, a fiber cancel) landing in that
+        # gap would leak a permit, shrinking the pool for the process's life
         begin
-          http = @idle_lock.synchronize { @idle.pop } || connect
+          http = nil
+          http = @lock.synchronize { @idle.pop } || connect
           result = yield http
-          @idle_lock.synchronize { @idle.push(http) }
+          @lock.synchronize { @idle.push(http) }
           result
         rescue Exception
           # socket state is unknown — drop it, leaving the slot empty so
@@ -129,8 +131,7 @@ module GraphWeaver
         @permits.pop
         waited = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
 
-        first = !@saturated
-        @saturated = true
+        first = @lock.synchronize { !@saturated && (@saturated = true) }
         GraphWeaver.log(first ? :warn : :debug) do
           "connection pool saturated: waited #{waited}ms for 1 of #{@pool_size} connections to " \
             "#{@uri.hostname} — raise pool_size: to this process's concurrency"
