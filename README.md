@@ -104,7 +104,8 @@ the fields it's about and let the rest stay fabricated:
 graphql_fake(overrides: { "Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}] })
 
 person.name                 # => "Ada"
-person.pets.map(&:name)     # => ["Shelby", "Mrs. Fermin Predovic"]
+person.pets.first.name      # => "Shelby"  — the second pet is still fabricated
+person.pets.size            # => 2         — a pinned list is as long as you write it
 ```
 
 Keys are schema coordinates, checked and spellchecked, so a typo raises instead of
