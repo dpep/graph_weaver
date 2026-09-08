@@ -115,6 +115,19 @@ describe "GraphWeaver::Railtie" do
     expect(ignored).to eq GraphWeaver.generated_paths.map { |path| "/app/#{path}" }
   end
 
+  # The initializer only registers; the to_prepare block it hands back is what
+  # loads. Returns the registered blocks.
+  def register_generated_load
+    prepared = []
+    config = Object.new
+    config.define_singleton_method(:to_prepare) { |&block| prepared << block }
+    app = Object.new
+    app.define_singleton_method(:config) { config }
+
+    RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call(app)
+    prepared
+  end
+
   it "loads generated modules at boot when the directory exists" do
     expect(RAILTIE_INITIALIZERS.keys).to eq %w[graph_weaver.ignore_generated graph_weaver.logger graph_weaver.load_generated]
 
@@ -122,12 +135,36 @@ describe "GraphWeaver::Railtie" do
       GraphWeaver.generated_paths = dir
       File.write(File.join(dir, "boot_probe_query.rb"), "module RailtieBootProbe; end")
 
-      RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call
+      register_generated_load.each(&:call)
 
       expect(defined?(RailtieBootProbe)).to be_truthy
     ensure
       GraphWeaver.generated_paths = nil
       Object.send(:remove_const, :RailtieBootProbe) if Object.const_defined?(:RailtieBootProbe)
+    end
+  end
+
+  # A generated file includes the type helper it was generated with, and
+  # Zeitwerk's setup and the app's own to_prepare registrations both happen
+  # after config/initializers — so loading from the initializer body raised
+  # NameError at every boot. `after:` a finisher initializer isn't the fix
+  # either: tsort hoists whichever one is named ahead of the app's own
+  # config/initializers.
+  it "loads generated modules from a to_prepare block, not from the initializer" do
+    expect(RAILTIE_INITIALIZER_OPTIONS["graph_weaver.load_generated"]).to eq(after: :load_config_initializers)
+
+    Dir.mktmpdir do |dir|
+      GraphWeaver.generated_paths = dir
+      File.write(File.join(dir, "deferred_query.rb"), "module RailtieDeferProbe; end")
+
+      prepared = register_generated_load
+      expect(defined?(RailtieDeferProbe)).to be_nil
+
+      prepared.each(&:call)
+      expect(defined?(RailtieDeferProbe)).to be_truthy
+    ensure
+      GraphWeaver.generated_paths = nil
+      Object.send(:remove_const, :RailtieDeferProbe) if Object.const_defined?(:RailtieDeferProbe)
     end
   end
 
@@ -139,7 +176,7 @@ describe "GraphWeaver::Railtie" do
       File.write(File.join(dir, "skipped_query.rb"), "module RailtieSkipProbe; end")
       GraphWeaver.skip_generated_load = true
 
-      RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call
+      register_generated_load.each(&:call)
 
       expect(defined?(RailtieSkipProbe)).to be_nil
     ensure
@@ -150,7 +187,7 @@ describe "GraphWeaver::Railtie" do
 
   it "boots quietly when there is nothing generated" do
     GraphWeaver.generated_paths = "no/such/dir"
-    expect { RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call }.not_to raise_error
+    expect { register_generated_load.each(&:call) }.not_to raise_error
   ensure
     GraphWeaver.generated_paths = nil
   end

@@ -7,11 +7,11 @@
 #   rake_tasks block, so graph_weaver:* tasks appear with no Rakefile
 #   edit. (Outside Rails there is no task-discovery hook — add
 #   `require "graph_weaver/tasks"` to your Rakefile.)
-# - generated modules: required at boot when a generated_paths entry exists,
-#   after config/initializers (registrations and GraphWeaver.client=
-#   run first — block-built type helpers must exist before the files
-#   that include them load). load_generated! stays idempotent, so
-#   calling it yourself too is harmless.
+# - generated modules: required at boot once every registration has run —
+#   both the initializer kind and the to_prepare kind, since a generated
+#   file `include`s the type helper it was generated with and that
+#   constant must resolve. load_generated! stays idempotent, so calling
+#   it yourself too is harmless.
 # - Zeitwerk: the generated directory is hidden from it, since the
 #   default one lives under app/ and its files define top-level
 #   constants.
@@ -39,14 +39,24 @@ class GraphWeaver::Railtie < Rails::Railtie
     GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
   end
 
-  initializer "graph_weaver.load_generated", after: :load_config_initializers do
-    # The graph_weaver tasks write these files and need none of them loaded.
-    # Loading them would let a stale one block its own repair: a dropped
-    # extend_type leaves a dangling include, and generate depends on
-    # :environment, so boot failed before the task that would regenerate it.
-    next if GraphWeaver.skip_generated_load
+  # A generated file `include`s the type helper it was generated with, so it
+  # can't load until that constant resolves — and both Zeitwerk's setup and
+  # the app's own to_prepare blocks (where extend_type/register_enum are told
+  # to register, Codegen::AUTOLOAD_HINT) happen after config/initializers.
+  # to_prepare, not `after:` a finisher initializer: naming one there makes
+  # tsort hoist it ahead of the app's own config/initializers. Re-running on
+  # each dev reload is free — require is idempotent — and picks up a module
+  # generated since boot.
+  initializer "graph_weaver.load_generated", after: :load_config_initializers do |app|
+    app.config.to_prepare do
+      # The graph_weaver tasks write these files and need none of them loaded.
+      # Loading them would let a stale one block its own repair: a dropped
+      # extend_type leaves a dangling include, and generate depends on
+      # :environment, so boot failed before the task that would regenerate it.
+      next if GraphWeaver.skip_generated_load
 
-    # entries may be globs, so Dir[] rather than Dir.exist?
-    GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir[path].any? }
+      # entries may be globs, so Dir[] rather than Dir.exist?
+      GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir[path].any? }
+    end
   end
 end
