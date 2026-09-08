@@ -525,6 +525,20 @@ describe GraphWeaver::SchemaLoader do
   end
 end
 
+RSpec.describe "#{GraphWeaver::SchemaLoader} federation directive lists" do
+  # SUBGRAPH_MARKERS is the subset of SUBGRAPH_DIRECTIVE_DEFS unambiguous
+  # enough to identify a subgraph — the rest (@tag, @link, @inaccessible…)
+  # appear in supergraphs and plain SDL too. Only the subset rule is a
+  # judgement; membership is not, and the two lists sit 15 lines apart, so a
+  # rename in the definitions has to reach the markers.
+  it "recognizes only directives it can also define" do
+    loader = GraphWeaver::SchemaLoader
+    defined = loader::SUBGRAPH_DIRECTIVE_DEFS.keys.map { |name| name.delete_prefix("@") }
+
+    expect(loader::SUBGRAPH_MARKERS - defined).to be_empty
+  end
+end
+
 RSpec.describe "#{GraphWeaver::SchemaLoader} auth provenance" do
   # `--auth MY_TOKEN` used to give an app that authenticated and rake tasks
   # that 401'd: the generator wrote ENV["MY_TOKEN"] into the initializer

@@ -486,4 +486,15 @@ describe GraphWeaver::Testing do
       expect(fake.execute("query { people { name } }").dig("data", "people").size).to eq 3
     end
   end
+
+  # Both lists are refusals with a spellcheck-free message — "must be one of
+  # [...]" prints the constant — so a mode added here reaches the user as a
+  # valid answer the moment it exists, and docs/testing.md is where they'd
+  # look for it.
+  it "documents every mode a suite can name" do
+    docs = File.read(File.expand_path("../docs/testing.md", __dir__))
+
+    expect(described_class::CLIENT_MODES.reject { |mode| docs.include?("graphql: :#{mode}") }).to be_empty
+    expect(described_class::MODES.reject { |mode| docs.include?(mode.inspect) }).to be_empty
+  end
 end

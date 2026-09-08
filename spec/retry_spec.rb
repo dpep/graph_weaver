@@ -164,4 +164,14 @@ describe GraphWeaver::Retry do
     response = PersonQuery.execute(client: exhausted, id: "1")
     expect(response).to have_graphql_error(code: "THROTTLED") # last response returned
   end
+
+  # A retry policy nobody can read is a retry policy nobody trusts, so
+  # docs/transports.md spells the default out — which puts the same two
+  # statuses and the same backoff names in a second file.
+  it "documents the policy it defaults to" do
+    docs = File.read(File.expand_path("../docs/transports.md", __dir__))
+
+    expect(described_class::RETRIABLE_CLIENT_STATUSES.reject { |s| docs.include?(s.to_s) }).to be_empty
+    expect(described_class::BACKOFFS.keys.reject { |name| docs.include?(":#{name}") }).to be_empty
+  end
 end

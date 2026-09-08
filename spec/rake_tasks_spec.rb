@@ -25,6 +25,20 @@ describe "graph_weaver rake tasks" do
 
   Ran = Struct.new(:out, :err, :status)
 
+  # A desc IS the claim that a task is for users — it is what `rake -T` shows —
+  # so a desc'd task nobody documented is a feature shipped in the dark, and a
+  # documented one that no longer exists is a command that fails when typed.
+  # (`graph_weaver:environment` and `federation:loaded` carry no desc: they are
+  # plumbing other tasks depend on.)
+  it "documents every task rake -T lists, and lists every task documented" do
+    prose = (Dir[File.expand_path("../docs/*.md", __dir__)] + [File.expand_path("../README.md", __dir__)])
+      .map { |path| File.read(path) }.join
+
+    described = TASKS.tasks.select(&:comment).map(&:name)
+    expect(described.reject { |name| prose.include?(name) }).to be_empty
+    expect(prose.scan(/rake (graph_weaver:[\w:]+)/).flatten.uniq - described).to be_empty
+  end
+
   # Runs the task the way rake would, and reports both streams plus the exit
   # status — `abort` raises SystemExit, which must not escape into the suite.
   def invoke(name, out: StringIO.new, err: StringIO.new, **env)

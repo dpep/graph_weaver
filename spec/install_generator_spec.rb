@@ -101,6 +101,17 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     ]
   end
 
+  # docs/editors.md exists to be copy-pasted by someone who never runs the
+  # generator, so it prints this file — every conventional path in one block,
+  # and the one place they'd notice a default had moved.
+  it "writes what docs/editors.md tells you to write" do
+    written = created(run_generator)["graphql.config.yml"]
+    docs = File.read(File.expand_path("../docs/editors.md", __dir__))
+    printed = docs[/```yaml\n(.*?)```/m, 1] or raise "docs/editors.md no longer prints the config"
+
+    expect(YAML.safe_load(printed)).to eq YAML.safe_load(written)
+  end
+
   it "leaves conflicts to Thor rather than forcing them" do
     # create_file prompts with a diff on a re-run — unless it's handed
     # force:, which would silently clobber an edited initializer

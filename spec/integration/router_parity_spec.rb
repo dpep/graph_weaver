@@ -27,6 +27,12 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
   PARITY_HARNESS = File.expand_path("../support/federation", __dir__)
   QUERY_DIR = File.expand_path("../support/federation/queries", __dir__)
 
+  # the tally the README publishes — the one measurement this file makes that
+  # anyone outside the repo reads, so the run below has to reproduce it
+  README_TALLY = File.read(File.expand_path("../../README.md", __dir__))
+    .match(/(\d+) queries identical, (\d+) refused, (\d+) wrong/)
+    &.captures&.map(&:to_i) or raise "the README no longer states a parity tally"
+
   # the variables the corpus's declared ones need; every other query takes none
   VARIABLES = {
     "catalog.graphql" => { "first" => 2 },
@@ -240,6 +246,8 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
 
     expect(wrong).to be_empty
     expect(tally[:match]).to be > 0
+    # the number the README quotes is this run's, or it is fiction
+    expect([tally[:match], tally[:refused], tally[:wrong]]).to eq README_TALLY
   end
 
   it "refuses only queries the gateway can actually answer" do
@@ -271,4 +279,20 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     recent_reviews.graphql review_bylines.graphql review_detail.graphql user_directory.graphql
     user_lookup.graphql
   ].freeze
+
+end
+
+# The README publishes the parity result as three numbers, which is the honest
+# way to state it — but producing them needs node, so nothing compared the two
+# and the figure sat 31 cases out of date. The run above asserts the split
+# exactly; this asserts what needs no node: whatever the split, the counts have
+# to add up to the cases the run diffs, so a probe added without a fresh
+# measurement fails in the ordinary suite.
+describe "the router-parity figure in the README" do
+  it "counts every case the parity run diffs" do
+    identical, refused, wrong = README_TALLY
+
+    expect(identical + refused + wrong)
+      .to eq Dir[File.join(QUERY_DIR, "*.graphql")].size + PROBES.size + FAULTS.size
+  end
 end

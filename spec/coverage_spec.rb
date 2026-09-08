@@ -37,6 +37,15 @@ describe GraphWeaver::Testing::Coverage do
     expect(coverage.refused).to be_empty
   end
 
+  # docs/federation.md prints this exact run as the worked example for reading
+  # a coverage report — the corpus is checked in, so the doc can be held to it
+  # rather than kept in step by hand.
+  it "prints what docs/federation.md shows" do
+    docs = File.read(File.expand_path("../docs/federation.md", __dir__))
+
+    expect(docs).to include(*coverage.report.lines.first(2).map(&:chomp))
+  end
+
   # The planner replaced a pass-through with a stitcher, and what must not
   # have cost anything is a query the pass-through already answered: each of
   # these still resolves in the one subgraph it always did.

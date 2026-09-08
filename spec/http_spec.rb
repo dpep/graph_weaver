@@ -272,4 +272,17 @@ describe GraphWeaver::Transport::HTTP do
     expect(secretive.to_s).not_to include("s3cret")
     expect(secretive.inspect).to include(url)
   end
+
+  # What goes on the wire and how long we wait for it are the two things a
+  # reader checks docs/transports.md for, and it quotes them verbatim — the
+  # timeouts in four places, each header value in full.
+  it "sends and waits for what docs/transports.md says" do
+    docs = File.read(File.expand_path("../docs/transports.md", __dir__))
+    stated = GraphWeaver::Transport::DEFAULT_HEADERS.values +
+      [GraphWeaver::Transport::DEFAULT_OPEN_TIMEOUT, GraphWeaver::Transport::DEFAULT_READ_TIMEOUT]
+
+    # the User-Agent carries the version, which the doc writes as <version>
+    expect(stated.reject { |value| docs.include?(value.to_s.sub(GraphWeaver::VERSION, "<version>")) })
+      .to be_empty
+  end
 end
