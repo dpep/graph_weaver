@@ -226,6 +226,25 @@ describe GraphWeaver::Testing do
         GraphWeaver::Testing.configure { |config| config.mode = :chaos }
       }.to raise_error(ArgumentError, /:faker, :literal/)
     end
+
+    # the two knobs are one word apart and answer different questions, so
+    # each refusal has to name its own list rather than the other's
+    it "keeps config.mode and config.default_mode apart" do
+      expect {
+        GraphWeaver::Testing.configure { |config| config.default_mode = :faker }
+      }.to raise_error(ArgumentError, /default_mode: must be one of \[:fake, :in_process, :router\]/)
+    end
+
+    it "applies config.mode to what a fake fabricates" do
+      GraphWeaver::Testing.configure do |config|
+        config.schema = Demo::Schema
+        config.mode = :literal
+      end
+
+      email = GraphWeaver::Testing::FakeClient.new.execute("{ people { email } }")
+        .dig("data", "people", 0, "email")
+      expect(email).to match(/\Aemail-\d+\z/)
+    end
   end
 
   describe "rspec integration" do
@@ -293,6 +312,15 @@ describe GraphWeaver::Testing do
       expect(GraphWeaver.client).to be router
       expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
       run([:after, :each])
+    end
+
+    # the refusal names the modes, and is the one thing that says what to
+    # fix — a NameError out of the cleanup reports a second failure over it
+    it "cleans up after a tag it refused" do
+      allow(RSpec).to receive(:current_example).and_return(double(metadata: { graphql: :fkae }))
+
+      expect { run([:before, :each]) }.to raise_error(GraphWeaver::Error, /:fkae is not a mode/)
+      expect { run([:after, :each]) }.not_to raise_error
     end
 
     it "defaults OFF — an untagged example keeps the app's client" do

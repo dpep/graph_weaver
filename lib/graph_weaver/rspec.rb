@@ -99,7 +99,10 @@ module GraphWeaver
 
           GraphWeaver.client = @__graph_weaver_prior_client
           remove_instance_variable(:@__graph_weaver_prior_client)
-          remove_instance_variable(:@__graph_weaver_mode)
+          # a refused tag raises before the mode is ever set, and its message
+          # is the one thing that says what to fix — a NameError out of the
+          # cleanup would report a second failure on top of it
+          remove_instance_variable(:@__graph_weaver_mode) if defined?(@__graph_weaver_mode)
         end
       end
 

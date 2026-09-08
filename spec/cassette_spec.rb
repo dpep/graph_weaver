@@ -287,6 +287,67 @@ describe GraphWeaver::Testing::Cassette do
       expect(person.keys).to contain_exactly("id", "name", "email")
     end
 
+    # docs/cassettes.md lists what anonymization preserves, because that is
+    # what leaves a scrubbed recording worth replaying — a __typename the
+    # union dispatch reads, and a boolean a branch turns on.
+    it "preserves __typename, booleans, and the member an abstract resolved to" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Person { name: String! verified: Boolean! }
+        type Pet { name: String! }
+        union Result = Person | Pet
+        type Query { hit: Result }
+      GRAPHQL
+      union = "query { hit { __typename ... on Person { name verified } } }"
+      cassette = described_class.new(path)
+      cassette.record(union, {}, { "data" => { "hit" => {
+        "__typename" => "Person", "name" => "Real Customer", "verified" => true,
+      } } })
+      cassette.anonymize!(schema:, seed: 5)
+
+      hit = described_class.new(path).lookup(union, {}).dig("response", "data", "hit")
+      expect(hit["__typename"]).to eq "Person"
+      expect(hit["verified"]).to be true
+      expect(hit["name"]).not_to eq "Real Customer"
+    end
+
+    # an error routinely quotes a number as readily as a name — an attempt
+    # count, an account id, a balance
+    it "replaces the numbers under errors and extensions, not just the strings" do
+      failed = response.merge("errors" => [{
+        "message" => "over 3 attempts", "path" => ["person"],
+        "extensions" => { "code" => "THROTTLED", "retryAfter" => 30, "load" => 0.75, "fatal" => false },
+      }])
+      cassette = described_class.new(path)
+      cassette.record(query, { "id" => "42" }, failed)
+      cassette.anonymize!(schema: Demo::Schema, seed: 5)
+
+      error = described_class.new(path).lookup(query, { "id" => "42" }).dig("response", "errors", 0)
+      expect(error.dig("extensions", "retryAfter")).not_to eq 30
+      expect(error.dig("extensions", "load")).not_to eq 0.75
+      expect(error.dig("extensions", "fatal")).to be false      # a boolean carries no data
+      expect(error.dig("extensions", "code")).to eq "THROTTLED"  # call sites branch on it
+      expect(error["path"]).to eq ["person"]
+    end
+
+    # "Anonymization preserves shape, so an anonymized cassette still passes
+    # cassettes:check" — it didn't for a registered custom scalar, whose
+    # iso8601 string came back as "Timestamp-1" and no longer read.
+    it "keeps a registered custom scalar castable" do
+      GraphWeaver.register_scalar("Timestamp", Time, cast: :iso8601, serialize: :iso8601, requires: "time")
+      schema = GraphQL::Schema.from_definition("scalar Timestamp type Query { at: Timestamp }")
+      mod = GraphWeaver.parse(schema:, name: "At", query: "query At { at }")
+
+      cassette = described_class.new(path)
+      cassette.record(mod::QUERY, {}, { "data" => { "at" => "2024-01-02T03:04:05Z" } })
+      cassette.anonymize!(schema:, seed: 5)
+
+      check = described_class.new(path).check([mod])
+      expect(check.checked).to eq 1
+      expect(check).to be_ok, -> { check.report.join("\n") }
+    ensure
+      GraphWeaver::Codegen.reset_scalars!
+    end
+
     it "anonymized cassettes still cast through generated modules" do
       GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" },

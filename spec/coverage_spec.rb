@@ -148,6 +148,14 @@ describe GraphWeaver::Testing::Coverage do
       expect(report.report).to include "Field 'nosuch' doesn't exist on type 'User'"
     end
 
+    # a half-edited file in the directory shouldn't take the whole report down
+    it "reports a query that doesn't parse, rather than crashing on it" do
+      report = coverage_of({ "broken.graphql" => "{ me {", "ok.graphql" => "{ me { id } }" })
+
+      expect(report.plannable).to eq 1
+      expect(report.refused.first.category).to eq :invalid
+    end
+
     it "says so when there are no queries" do
       expect(coverage_of({}).report).to eq "no queries found"
     end

@@ -107,6 +107,24 @@ describe "failure simulation" do
       end
     end
 
+    # the derived value has to be one casting REFUSES, and an enum's is the
+    # one that could plausibly have slipped through as an unknown member
+    it "corrupts an enum and a number into values casting refuses" do
+      pets = GraphWeaver.parse(schema: Demo::Schema, name: "CorruptEnum",
+        query: "query CorruptEnum { people { pets { species } } }")
+      expect {
+        pets.execute!(client: GraphWeaver::Testing::FakeClient.new(
+          schema: Demo::Schema, seed: 1, corrupt: "Pet.species",
+        ))
+      }.to raise_error(GraphWeaver::TypeError)
+
+      schema = GraphQL::Schema.from_definition("type Query { total: Int! }")
+      totals = GraphWeaver.parse(schema:, name: "CorruptInt", query: "query CorruptInt { total }")
+      expect {
+        totals.execute!(client: GraphWeaver::Testing::FakeClient.new(schema:, seed: 1, corrupt: "Query.total"))
+      }.to raise_error(GraphWeaver::TypeError)
+    end
+
     it "overrides remain the manual escape hatch for exact corrupt values" do
       executor = GraphWeaver::Testing::FakeClient.new(
         schema: Demo::Schema,
@@ -142,6 +160,19 @@ describe "failure simulation" do
       expect(person&.birthday).to be_nil
       expect(person&.name).not_to be_nil # the rest of the response survives
       expect(response.errors_at("person.birthday")).to have_graphql_error(code: "PRIVATE")
+    end
+
+    # only a NON-null element bubbles the list (below); a nullable one takes
+    # the null itself and its siblings survive, as a real server's would
+    it "fail_at nulls one nullable list element and keeps the list" do
+      schema = GraphQL::Schema.from_definition("type Query { pets: [Pet] } type Pet { name: String! }")
+      fake = GraphWeaver::Testing::FakeClient.new(schema:, seed: 1, list_size: 3, fail_at: "pets.name")
+
+      pets = fake.execute("{ pets { name } }")
+
+      expect(pets.dig("data", "pets").size).to eq 3
+      expect(pets.dig("data", "pets").count(nil)).to eq 1
+      expect(pets.dig("errors", 0, "path")).to eq ["pets", 0, "name"]
     end
 
     it "fail_at bubbles past non-null positions to the nearest nullable ancestor" do
