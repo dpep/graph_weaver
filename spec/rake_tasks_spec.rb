@@ -381,6 +381,24 @@ describe "graph_weaver rake tasks" do
       expect(name).not_to eq "Daniel Pepper"
     end
 
+    # every sibling task locates the dump (schema_path, else the first sibling
+    # extension that exists) rather than opening schema_path itself — this one
+    # opened it, so an app whose committed dump is SDL got Errno::ENOENT
+    it "finds a dump whose extension isn't schema_path's" do
+      GraphWeaver.schema_path = File.join(@root, "schema.json")
+      File.write(File.join(@root, "schema.graphql"), Demo::Schema.to_definition)
+      GraphWeaver::Testing.config.cassette_dir = File.join(@root, "cassettes")
+      FileUtils.mkdir_p(GraphWeaver::Testing.config.cassette_dir)
+      path = File.join(GraphWeaver::Testing.config.cassette_dir, "person.yml")
+      File.write(path, [{
+        "query" => "query Person($id: ID!) { person(id: $id) { name } }",
+        "variables" => { "id" => "1" },
+        "response" => { "data" => { "person" => { "name" => "Daniel Pepper" } } },
+      }].to_yaml)
+
+      expect(invoke("cassettes:anonymize")).to have_attributes(status: 0, out: "anonymized #{path}\n")
+    end
+
     # config.cassette_dir is relative by default and rake runs from wherever
     # it runs from — Testing.cassette_dir resolves it against Rails.root for
     # exactly that reason, and Cassette.new already goes through it. A task

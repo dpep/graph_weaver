@@ -1,4 +1,9 @@
 ## Unreleased
+- **`rake graph_weaver:cassettes:anonymize` now finds an SDL schema dump.** It
+  opened `GraphWeaver.schema_path` directly instead of locating the dump the
+  way every sibling task does, so an app whose committed dump is
+  `schema.graphql` (what the generator writes for a supergraph) got a raw
+  `Errno::ENOENT`. A missing dump now says so.
 - **`rake graph_weaver:queries:check` now authenticates with the token your
   app uses.** It re-introspects the url the dump records, but read
   `GRAPHWEAVER_AUTH` rather than the ENV var the dump named — so an app

@@ -78,8 +78,9 @@ module GraphWeaver
       def initialize(supergraph: nil, subgraphs: nil, schemas: nil)
         source = (supergraph || GraphWeaver::SchemaLoader.locate_path).to_s
         @table = GraphWeaver::SchemaLoader.routing_table(source)
-        # SDL passed as content has no name to print
-        @source = source.include?("\n") ? "the supergraph" : source
+        # SDL passed as content has no name to print — asked the way the
+        # loader asks it, which a one-line supergraph doesn't fool
+        @source = GraphWeaver::SchemaLoader.sdl_content?(source) ? "the supergraph" : source
         @given = @table.named_subgraphs(subgraphs)
         @schemas = schemas || GraphWeaver::Schemas.loaded
         @stale = {}

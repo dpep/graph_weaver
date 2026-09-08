@@ -257,7 +257,9 @@ namespace :graph_weaver do
     task anonymize: :environment do
       require "graph_weaver/testing"
 
-      schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
+      # locate, not schema_path: the dump is whichever supported extension is
+      # actually on disk, and every sibling task asks the same way
+      schema = GraphWeaver::SchemaLoader.locate or abort "no schema dump at #{GraphWeaver.schema_path}"
       Dir[File.join(GraphWeaver::Testing.cassette_dir, "*.yml")].sort.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
         puts "anonymized #{path}"

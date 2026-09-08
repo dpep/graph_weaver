@@ -44,7 +44,6 @@ module GraphWeaver::SchemaLoader
   def self.sdl_content?(source)
     source.match?(SDL_CONTENT)
   end
-  private_class_method :sdl_content?
 
   def self.load_path(path)
     case File.extname(path)
