@@ -1,8 +1,8 @@
 # Getting started: the production path (Rails)
 
-The setup that ships: queries live as `.graphql` files, generation writes
-`# typed: strict` Ruby you check in, and CI fails when anything drifts.
-In Rails one generator does the setup. (Exploring an API from a console
+The setup that ships, end to end: queries live as `.graphql` files, generation
+writes `# typed: strict` Ruby you check in, and CI fails when anything drifts.
+Follow it once when you add the gem to an app. (Exploring an API from a console
 instead? Start with [dynamic mode](real_world.md) — no build step.)
 
 Rails is assumed below; the [non-Rails note](#not-rails) at the bottom
@@ -126,7 +126,8 @@ PetQuery.execute!(client:, id: "1").pet.owner   # => the context's user
 dump at `GraphWeaver.schema_path`, never the live class — that's what
 makes `rake graph_weaver:verify` a deterministic CI check. The generator
 writes the first dump; after that it's an artifact derived from code in
-your own repo, so rebuild it with graphql-ruby's own rake task:
+your own repo, so rebuild it with graphql-ruby's own rake task, ahead of
+`verify` in CI:
 
 ```ruby
 # lib/tasks/graphql.rake
@@ -140,13 +141,10 @@ rake graphql:schema:json     # rewrites app/graphql/schema.json
 rake graph_weaver:generate
 ```
 
-Run the dump step ahead of `rake graph_weaver:verify` in CI — that check
-compares committed Ruby against the committed dump, so a stale dump makes
-it fail on a query that is fine. `rake graph_weaver:queries:check` is
-unaffected: when `GraphWeaver.client` runs in-process it validates
-against the live class, not the dump. (`graph_weaver:schema:diff` and
-`:refresh` are for servers you *don't* own; a dump taken from a schema
-class records no url, and they say so.)
+A stale dump makes `verify` fail on a query that is fine. `queries:check` is
+unaffected: running in-process it validates against the live class, not the
+dump. (`schema:diff` and `:refresh` are for servers you *don't* own; a dump
+taken from a schema class records no url, and they say so.)
 
 ### A schema dump you already have
 
@@ -174,14 +172,14 @@ query($id: ID!) {
 rake graph_weaver:generate   # writes app/graphql/generated/person_query.rb
 ```
 
-Commit the schema dump and the generated files. Generated code is
-reviewed like any other code — and never edited by hand.
-
 ```ruby
 PersonQuery.execute!(id: "1").person&.name   # typed, via GraphWeaver.client
 ```
 
-### Autocomplete while you write the query
+Commit the schema dump and the generated files. Generated code is reviewed like
+any other code — and never edited by hand. The module name comes from the file
+name; the full set of naming rules is in
+[generated modules](generated_modules.md#naming).
 
 `graphql.config.yml` is already there, so VS Code and RubyMine validate the
 `.graphql` files as you type, with schema autocomplete and hover docs — see
@@ -205,29 +203,10 @@ Fragment files hold only fragments (no operations), and names are unique across
 them. Point elsewhere with `GraphWeaver.fragments_paths` (an appendable list,
 default `app/graphql/fragments`).
 
-### Shared unions
-
-When a shared fragment *is* the whole selection on a union field, its type is
-hoisted once into the shared `GraphQLTypes` module and every query that spreads
-it aliases the same type — so a `union` selected across many queries becomes one
-Ruby type family, and you write one exhaustive `case … when … T.absurd` that
-works everywhere:
-
-```graphql
-# app/graphql/fragments/feed_item.graphql
-fragment FeedItemFields on FeedItem {
-  __typename
-  ... on Post { title }
-  ... on Photo { url }
-}
-
-# any query
-query { feed { ...FeedItemFields } }   # feed : T::Array[FeedItemFields::Type]
-```
-
-There's no flag: hoisting triggers when the union field's selection is exactly
-that one spread. Mix in other fields, or shadow the fragment with a query-local
-one of the same name, and the union stays inlined in that query — see
+One payoff worth knowing about: when a shared fragment *is* the whole selection
+on a union field, its type is hoisted once into `GraphQLTypes` and every query
+that spreads it gets the same Ruby type — so one exhaustive `case … T.absurd`
+works everywhere. See
 [abstract types](generated_modules.md#abstract-types).
 
 ## 4. Test against fakes
@@ -241,47 +220,43 @@ require "graph_weaver/rspec"
 it "renders the empty state", graphql: :fake do … end   # or tag the describe
 ```
 
+The tag installs a seeded, schema-correct `FakeClient` for that example — no
+server, no stubs, and `rspec --seed 1234` reproduces the fake data along with
+test order. The schema it fabricates from is derived (the committed dump, or
+your client's), so there's nothing to configure. Tag `graphql: :in_process`
+instead and the same example runs against your real resolvers. Pinning values,
+simulating failures, and the federated `graphql: :router` are in
+[testing](testing.md).
+
 A fresh `rails g rspec:install` leaves the `spec/support` glob commented
 out in `spec/rails_helper.rb`, so uncomment it — or put the require in
 `rails_helper.rb` itself. Nothing warns you that a support file went
 unread.
 
-The tag installs a seeded, schema-correct `FakeClient` for that example —
-no server, no stubs, and `rspec --seed 1234` reproduces the fake data along
-with test order. The schema it fabricates from is derived (the committed
-dump, or your client's), so there's nothing to configure. Tag
-`graphql: :in_process` instead and the same example runs against your real
-resolvers; pin values with `overrides:`, simulate failures with `Failure.*`
-— see [testing](testing.md).
-
 ## 5. Verify in CI
 
-```sh
-rake graph_weaver:verify         # generated code fresh? fails on any drift
-rake graph_weaver:schema:diff    # server drifted? re-introspects and compares
-rake graph_weaver:queries:check  # did that drift break any of your queries?
-```
+Four questions, four tasks — the last only on a federated graph:
 
-Three different questions — four on a federated graph, where
-`rake graph_weaver:federation:diff` asks whether anyone changed a subgraph
-without recomposing the supergraph you committed. It needs no network
-either, so it belongs in the same PR run; see
-[federation](federation.md#has-the-supergraph-been-recomposed).
+| ask | task | needs network |
+|---|---|---|
+| is the checked-in Ruby fresh? | `rake graph_weaver:verify` | no |
+| has the server's schema drifted from the dump? | `rake graph_weaver:schema:diff` | yes |
+| did that drift break any of my queries? | `rake graph_weaver:queries:check` | yes |
+| did a subgraph change without a recompose? | `rake graph_weaver:federation:diff` | no |
 
-`graph_weaver:verify` compares the committed generated files against what the
-current schema + queries + registrations would produce. No network — run it in
-every CI build.
+`verify` compares the committed generated files against what the current
+schema + queries + registrations would produce, so it belongs in every CI
+build. `schema:diff` needs a dump with a recorded source url (introspected
+dumps have one) and `GRAPHWEAVER_AUTH` for private APIs — run it on a
+schedule and repair with `rake graph_weaver:schema:refresh`.
+`federation:diff` needs no network either, so it goes in the same PR run;
+see [federation](federation.md#has-the-supergraph-been-recomposed).
 
-`graph_weaver:schema:diff` asks whether the *server* has moved since the
-dump was taken. It needs network, a dump with a recorded source url
-(introspected dumps have one), and `GRAPHWEAVER_AUTH` for private APIs;
-run it on a schedule and refresh with `rake graph_weaver:schema:refresh`.
-
-`graph_weaver:queries:check` answers the question that actually matters
-when it *has* moved: **which of your queries no longer validate, and
-why.** It re-introspects the recorded url (without rewriting the dump) and
-validates every `.graphql` file against the schema as it is right now,
-naming each error's line and column:
+`queries:check` answers the question that actually matters when the schema
+*has* moved: **which of your queries no longer validate, and why.** It
+re-introspects the recorded url (without rewriting the dump) and validates
+every `.graphql` file against the schema as it is right now, naming each
+error's line and column, and exits non-zero:
 
 ```
 app/graphql/queries/person.graphql
@@ -289,9 +264,6 @@ app/graphql/queries/person.graphql
 
 1 invalid query
 ```
-
-It exits non-zero when anything fails, so it drops straight into CI or a
-scheduled job.
 
 The Ruby behind it returns the same thing as data, so you can wire it into
 whatever you already have (a spec, a Slack ping, an issue):
@@ -303,18 +275,17 @@ GraphWeaver.check_queries
 #         "line" => 4, "column" => 5 }] }
 ```
 
-Empty means everything validates. Pass `schema:` a loaded schema and nothing
-touches the network — handy for checking a *proposed* schema (a subgraph about
-to ship) before it's live:
+Empty means everything validates. Pass `schema:` a *loaded* schema (not a path)
+and nothing touches the network — handy for checking a proposed subgraph before
+it's live:
 
 ```ruby
 GraphWeaver.check_queries(schema: GraphWeaver::SchemaLoader.load("proposed.graphql"))
 ```
 
-It wants the loaded schema, not the path. Left off, it re-introspects the url
-the dump records — and when that dump is a composed supergraph, each error also
-names the subgraphs behind the type it points at
-([federation](federation.md#the-routing-table)).
+Left off, it re-introspects the url the dump records — and when that dump is a
+composed supergraph, each error also names the subgraphs behind the type it
+points at ([federation](federation.md#the-routing-table)).
 
 ## Sorbet, with or without
 

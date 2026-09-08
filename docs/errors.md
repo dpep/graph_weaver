@@ -1,8 +1,14 @@
 # Errors
 
-`execute` returns a typed **`Response` envelope** rather than raising on GraphQL
-errors — so partial data and top-level `extensions` (cost, throttle) survive.
-`execute!` is the shortcut when you just want the result:
+Two generated names travel together, and they're close enough to trip on:
+
+- **`Result`** — the struct holding *this* query's data, e.g. `PersonQuery::Result`.
+- **`Response`** — the **envelope** around it, `GraphWeaver::Response[Result]`,
+  carrying `data`, `errors` and `extensions`.
+
+`execute` returns the envelope rather than raising on GraphQL errors, so partial
+data and top-level `extensions` (cost, throttle) survive. `execute!` is the
+shortcut to the result:
 
 ```ruby
 PersonQuery.execute!(id: "1")   # => Result, or raises QueryError  (== execute(...).data!)
