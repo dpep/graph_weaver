@@ -147,6 +147,15 @@ class GraphWeaver::Transport
     query[OPERATION_NAME_PATTERN, 1]
   end
 
+  # Whether this document's operation writes — what Retry asks before
+  # repeating a request. Line-anchored rather than parsed: it runs on every
+  # request, and the only way to be wrong (a field literally named
+  # `mutation` opening a line) errs toward not retrying.
+  MUTATION_PATTERN = /^[ \t]*mutation\b/
+  def self.mutation?(query)
+    MUTATION_PATTERN.match?(query)
+  end
+
   # "[req 3 FilteredPokemon]" — a per-process request id plus the
   # operation name, when there is one
   REQUEST_MUTEX = Mutex.new

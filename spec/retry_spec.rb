@@ -1,4 +1,5 @@
 require "graph_weaver/testing"
+require_relative "generated/adopt_mutation"
 require_relative "generated/person_query"
 require_relative "generated/search_query"
 
@@ -138,6 +139,51 @@ describe GraphWeaver::Retry do
 
     expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
     expect(slept).to eq [3.0]
+  end
+
+  # A read timeout, a 502 from a proxy, a reset socket: the request may
+  # already have been applied, and a second `charge` is worse than a failure.
+  describe "mutations" do
+    let(:attempts) { [] }
+
+    def counting
+      Class.new do
+        define_method(:initialize) { |attempts| @attempts = attempts }
+        define_method(:execute) do |query, variables: {}, operation_name: nil|
+          @attempts << query
+          raise GraphWeaver::TransportError, "Net::ReadTimeout: execution expired"
+        end
+      end.new(attempts)
+    end
+
+    it "does not retry a mutation" do
+      executor = described_class.new(counting, tries: 3, sleeper:)
+
+      expect { AdoptMutation.execute(client: executor, input: { name: "Rex", species: "DOG" }) }
+        .to raise_error(GraphWeaver::TransportError)
+      expect(attempts.size).to eq 1
+      expect(slept).to be_empty
+    end
+
+    it "retries one when the caller says it is idempotent" do
+      executor = described_class.new(counting, tries: 3, retry_mutations: true, sleeper:)
+
+      expect { AdoptMutation.execute(client: executor, input: { name: "Rex", species: "DOG" }) }
+        .to raise_error(GraphWeaver::TransportError)
+      expect(attempts.size).to eq 3
+    end
+
+    it "says why it stopped at one attempt" do
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+
+      expect { described_class.new(counting, tries: 3, sleeper:).execute("mutation { adopt { id } }") }
+        .to raise_error(GraphWeaver::TransportError)
+
+      expect(io.string).to include("retry_mutations: true")
+    ensure
+      GraphWeaver.logger = nil
+    end
   end
 
   it "honors a custom retry_if and error list" do
