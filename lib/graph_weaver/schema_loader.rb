@@ -718,8 +718,10 @@ module GraphWeaver::SchemaLoader
   end
   private_class_method :refresh_hint
 
-  # a transport to the dump's recorded url, authenticated from whichever
-  # ENV var the dump named (else GRAPHWEAVER_AUTH)
+  # A transport to the dump's recorded url, authenticated from whichever ENV
+  # var the dump named (else DEFAULT_AUTH_ENV). The single way to reach a
+  # dump's own server — building one at a call site is how `--auth MY_TOKEN`
+  # ends up honoured in some places and not others.
   def self.source_transport(path)
     meta = provenance(path)
     unless meta&.key?("url")
@@ -730,7 +732,6 @@ module GraphWeaver::SchemaLoader
 
     GraphWeaver.new(meta["url"], auth: ENV[auth_env(path)]).transport
   end
-  private_class_method :source_transport
 
   # Where a dump came from, recorded into the file so it can be
   # re-verified later — a parsable header comment in SDL, a

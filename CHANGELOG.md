@@ -1,4 +1,10 @@
 ## Unreleased
+- **`rake graph_weaver:queries:check` now authenticates with the token your
+  app uses.** It re-introspects the url the dump records, but read
+  `GRAPHWEAVER_AUTH` rather than the ENV var the dump named — so an app
+  installed with `--auth MY_TOKEN` reached its private API while the check
+  401'd. Every re-introspection now goes through `SchemaLoader.source_transport`,
+  which is also now public.
 - **A `graphql: :router` example now starts from the same fabricated data
   whether it runs alone or after two hundred others.** The router is built once
   for the suite, and a faked subgraph kept fabricating from wherever the last

@@ -130,6 +130,29 @@ describe "GraphWeaver.check_queries" do
       .to eq [{ "message" => "Field 'dimensions' doesn't exist on type 'Product'", "line" => 1, "column" => 23 }]
   end
 
+  # `--auth MY_TOKEN` wrote ENV["MY_TOKEN"] into the initializer while this
+  # path read GRAPHWEAVER_AUTH — the app authenticated and the check 401'd.
+  # SchemaLoader is what knows; every re-introspection goes through it.
+  it "authenticates from the ENV var the dump recorded" do
+    path = File.join(@dir, "dump", "schema.json")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, JSON.generate(
+      "data" => { "__schema" => {} },
+      "graph_weaver" => { "url" => "https://api.example.com/graphql", "auth_env" => "MY_TOKEN" },
+    ))
+    GraphWeaver.schema_path = path
+    ENV["MY_TOKEN"] = "s3cret"
+
+    transport = nil
+    allow(GraphWeaver::SchemaLoader).to receive(:introspect) { |built| transport = built and v1 }
+    GraphWeaver.check_queries(queries: @queries, fragments: [])
+
+    expect(transport.instance_variable_get(:@headers)).to include "Authorization" => "Bearer s3cret"
+  ensure
+    GraphWeaver.schema_path = nil
+    ENV.delete("MY_TOKEN")
+  end
+
   it "falls back to the local dump when it records no source url" do
     path = File.join(@dir, "dump", "schema.graphql")
     FileUtils.mkdir_p(File.dirname(path))

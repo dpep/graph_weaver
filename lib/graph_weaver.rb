@@ -324,10 +324,11 @@ module GraphWeaver
 
       # locate_schema! raises the conventional "no schema dump" message
       path = SchemaLoader.locate_path or locate_schema!
-      meta = SchemaLoader.provenance(path)
-      return SchemaLoader.load(path) unless meta&.key?("url")
+      return SchemaLoader.load(path) unless SchemaLoader.provenance(path)&.key?("url")
 
-      SchemaLoader.introspect(new(meta["url"], auth: ENV["GRAPHWEAVER_AUTH"]).transport)
+      # source_transport rather than one built here: it reads the auth ENV var
+      # the dump named, so `--auth MY_TOKEN` reaches this path too
+      SchemaLoader.introspect(SchemaLoader.source_transport(path))
     end
     private :refreshed_schema
 
