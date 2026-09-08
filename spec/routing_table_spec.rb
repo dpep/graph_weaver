@@ -1,6 +1,8 @@
 # typed: ignore — the subgraph classes are graphql-ruby DSL, invisible to srb
 # frozen_string_literal: true
 
+require "graph_weaver/testing"
+
 # The supergraph read as a routing table rather than as a schema: who
 # resolves what, which keys they answer on, and what the table admits it
 # cannot describe.
@@ -181,6 +183,23 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
 
     expect(built.interface_objects).to eq({ "Media" => ["b"] })
     expect(built.unsupported).to be_empty
+  end
+
+  # Everything here reads the join spec's default names, and @link lets a
+  # supergraph rename it — a shape federation_sdl? deliberately recognizes.
+  # Renamed, the table used to come back with no subgraphs and nothing
+  # unsupported: "this composed graph has none" rather than "I can't read it".
+  it "reports a supergraph whose join spec is renamed rather than reading none" do
+    renamed = File.read(RouterGraph::SUPERGRAPH)
+      .gsub("join__", "j__")
+      .sub(%r{url: "https://specs\.apollo\.dev/join/v[\d.]+"}) { %(#{_1}, as: "j") }
+    table = GraphWeaver::SchemaLoader.routing_table(renamed)
+
+    expect(table.subgraphs).to be_empty
+    expect(table.unsupported).to contain_exactly(/no join__Graph enum/)
+    # so the doubles built on it refuse at construction rather than serving nothing
+    expect { GraphWeaver::Testing::Router.new(supergraph: renamed) }
+      .to raise_error(GraphWeaver::Testing::Unplannable, /doesn't read/)
   end
 
   it "refuses a schema that carries no routing table" do

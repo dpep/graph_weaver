@@ -1,4 +1,10 @@
 ## Unreleased
+- **A supergraph that renamed the join spec is now refused instead of read as
+  empty.** `@link(url: ".../join/v0.3", as: "j")` spells every marker `j__`,
+  which the routing table doesn't follow — so it reported a composed graph with
+  *no subgraphs* and nothing unsupported, and `Testing::Router` built happily on
+  top of that. It now lands in `unsupported`, so the router and
+  `federation:coverage` refuse at construction and say why.
 - **`rake graph_weaver:cassettes:anonymize` now finds an SDL schema dump.** It
   opened `GraphWeaver.schema_path` directly instead of locating the dump the
   way every sibling task does, so an app whose committed dump is

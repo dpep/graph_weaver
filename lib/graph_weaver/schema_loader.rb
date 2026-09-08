@@ -1007,16 +1007,27 @@ module GraphWeaver::SchemaLoader
 
     # join__Graph's enum values ARE the subgraphs: ACCOUNTS
     # @join__graph(name: "accounts", url: "...").
+    #
+    # This table reads the join spec under its default name, and only that —
+    # a supergraph that renamed it (`@link(url: ".../join/v0.3", as: "j")`)
+    # spells every marker `j__` and lands here with nothing found. Being told
+    # a composed graph has no subgraphs is worse than being refused, so an
+    # empty read is `unsupported` rather than an answer.
     def read_graphs
       enum = @document.definitions.find do |defn|
         defn.is_a?(GraphQL::Language::Nodes::EnumTypeDefinition) && defn.name == "join__Graph"
       end
-      return unless enum
 
-      enum.values.each do |value|
+      enum&.values&.each do |value|
         name = argument(value.directives.find { |d| d.name == "join__graph" }, "name")
         @names[value.name] = name if name
       end
+
+      return if @names.any?
+
+      @unsupported << "no join__Graph enum names the subgraphs — this schema declares a " \
+        "composition spec, so either it merged nothing, or it renamed the join spec " \
+        "(@link(url: \".../join/v0.3\", as: \"...\")), which this table doesn't follow"
     end
 
     # What each abstract type can be, from the SDL alone — a union's members,
