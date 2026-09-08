@@ -1,4 +1,21 @@
-# Upgrading to 0.5.0
+# Upgrading
+
+## Regenerate on every upgrade
+
+**Any release can change what codegen emits.** Patch releases included — most of
+them are fixes to a generated type, and a fix to a type is a change to the bytes.
+0.5.1 was a patch and moved three of them.
+
+So `rake graph_weaver:generate` is part of upgrading the gem, every time, and
+`rake graph_weaver:verify` is the detector: it fails when the checked-in Ruby
+isn't what this version would write. Nothing beyond that is promised — there is
+no "generated output is stable within a minor" rule to lean on. What each release
+changed, and whether it needs a regenerate, is in the changelog.
+
+Generation is deterministic, so the diff is exactly what the new version emits
+differently and nothing else — worth reading rather than rubber-stamping.
+
+## Upgrading to 0.5.0
 
 0.5.0 is one large breaking release. Almost all of it is caught mechanically,
 in this order:
@@ -6,7 +23,7 @@ in this order:
 ```sh
 # 1. rename the path settings first — generate won't load without them
 #    (queries_path -> queries_paths, generated_path -> generated_paths,
-#     fragments_path -> fragments_paths; see "One plurality rule" below)
+#     fragments_path -> fragments_paths; see "Path settings are lists" below)
 
 bundle exec tapioca gem graph_weaver   # 2. regenerate the RBI
 rake graph_weaver:generate             # 3. the emitted call shape changed
@@ -23,7 +40,7 @@ Regenerate the RBI and what remains is only your own call sites.
 Generated code is `# typed: strict`, so step 4 finds those for you. The rest of
 this page is what a typechecker can't see.
 
-## `execute` means one thing now
+### `execute` means one thing now
 
 Every client answers the same call — `execute(query, variables:, operation_name:)`,
 returning the raw response hash. `Client` used to spell something else under
@@ -55,7 +72,7 @@ PersonQuery.execute(client: some_client, id: "1")  # after
 
 `GraphWeaver.resolve_transport` is gone; nothing needs unwrapping any more.
 
-## Path settings are lists
+### Path settings are lists
 
 `queries_paths`, `generated_paths`, `fragments_paths` — every entry is read.
 Assigning a String still works, so the change is the name:
@@ -67,7 +84,7 @@ GraphWeaver.queries_paths = "app/graphql/queries"   # after
 
 `schema_path` stays singular: one run reads one schema.
 
-## One reset
+### One reset
 
 `GraphWeaver.reset_registrations!` is the clean slate between tests. The four
 narrow ones moved to where they live:
@@ -78,7 +95,7 @@ GraphWeaver::Codegen.reset_scalars!   # after   (also reset_enums!, clear_scalar
                                       #          reset_type_helpers!)
 ```
 
-## Smaller renames
+### Smaller renames
 
 | before | after |
 |---|---|
@@ -103,7 +120,7 @@ graphql_in_process(MySchema)                     # in the example
 GraphWeaver::Testing.config.schema = MySchema    # or once, for the whole suite
 ```
 
-## Registering from Rails
+### Registering from Rails
 
 A registration naming one of your own constants belongs in a `to_prepare` block
 — the same place the in-process client goes, and for the same reason:
@@ -119,7 +136,7 @@ end
 Generation depends on `:environment`, which runs `to_prepare` too, so the
 registration is in place before it emits.
 
-## If you use the federation router
+### If you use the federation router
 
 Detection only sees *loaded* schema classes, and Rails does not eager load for
 rake or in the default test environment. Both are one line:

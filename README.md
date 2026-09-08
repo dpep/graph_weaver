@@ -169,6 +169,7 @@ upgrade, and `verify` is what tells you when you've skipped it.
 - **[Editor support](docs/editors.md)** — five lines of YAML for schema autocomplete in `.graphql` files, no JS project
 - **[Against a real API](docs/real_world.md)** — introspecting a live endpoint, GitHub end to end
 - **[Logging](docs/logging.md)** — point `GraphWeaver.logger` at any Logger
+- **[Upgrading](docs/upgrading.md)** — regenerate on every bump, and what 0.5.0 moved
 
 ----
 ## Development
