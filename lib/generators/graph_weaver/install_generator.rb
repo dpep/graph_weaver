@@ -31,16 +31,13 @@ module GraphWeaver
       argument :source, type: :string, banner: "SOURCE",
         desc: "what you'd pass to GraphWeaver.new: an endpoint url, a graphql-ruby schema class, or a schema dump path"
 
+      # the default is SchemaLoader's, not one restated here — an --auth the
+      # generator omits from the dump is one the schema tasks then can't find
       class_option :auth, type: :string,
-        desc: "name of the ENV var holding the auth token (url only) — default GRAPHWEAVER_AUTH"
+        desc: "name of the ENV var holding the auth token (url only) — " \
+          "default #{GraphWeaver::SchemaLoader::DEFAULT_AUTH_ENV}"
       class_option :schema, type: :boolean, default: true,
         desc: "write the schema dump codegen reads"
-
-      # a Ruby constant path names a schema class; anything that is neither
-      # this nor a url is taken as a path to a dump
-      CONSTANT = /\A[A-Z]\w*(::[A-Z]\w*)*\z/
-
-      DEFAULT_AUTH = "GRAPHWEAVER_AUTH"
 
       # Before anything is written: a mistyped source or a flag that doesn't
       # apply to it is a mistake in the command just typed, so say so there
@@ -140,14 +137,16 @@ module GraphWeaver
           end
       end
 
-      # Which of GraphWeaver.new's source forms this is — the url test is
-      # its own, so the generator and the client can't disagree about what
-      # counts as one.
+      # Which of GraphWeaver.new's source forms this is. Neither test is its
+      # own — a url is whatever the client calls one, a constant path whatever
+      # codegen will spell — so the generator can't disagree with either about
+      # what it just wrote an initializer for. Anything that is neither is
+      # taken as a path to a dump.
       def form
         @form ||=
           if source.match?(GraphWeaver::Client::URL)
             :url
-          elsif source.match?(CONSTANT)
+          elsif source.match?(GraphWeaver::Codegen::CONSTANT_NAME)
             :schema_class
           else
             :path
@@ -174,7 +173,7 @@ module GraphWeaver
       # writes the conventional one.
       def schema_path = (form == :path) ? source : GraphWeaver.schema_path
 
-      def auth_var = options[:auth] || DEFAULT_AUTH
+      def auth_var = options[:auth] || GraphWeaver::SchemaLoader::DEFAULT_AUTH_ENV
 
       def refresh_command
         (form == :url) ? "rake graph_weaver:schema:refresh" : "rails g graph_weaver:install #{source}"
