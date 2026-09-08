@@ -112,6 +112,10 @@ module GraphWeaver
         @path = Testing.cassette_path(path)
         @entries = File.exist?(@path) ? YAML.safe_load_file(@path, aliases: true) : []
         @flagged = []
+        # record is read-modify-write; two threads recording through one
+        # cassette (a parallel spec run) would each save a snapshot missing
+        # the other's entry — atomic_write keeps the file whole, not complete
+        @lock = Mutex.new
       end
 
       def exist? = File.exist?(@path)
@@ -138,9 +142,11 @@ module GraphWeaver
         entry["response"] = response
 
         wanted = self.class.key(query, variables, operation_name)
-        @entries.reject! { |existing| self.class.entry_key(existing) == wanted }
-        @entries << entry
-        save
+        @lock.synchronize do
+          @entries.reject! { |existing| self.class.entry_key(existing) == wanted }
+          @entries << entry
+          save
+        end
       end
 
       # Replay every recording through `modules` — the generated query

@@ -105,6 +105,16 @@ describe GraphWeaver::Testing::Cassette do
       expect(File.read(path)).not_to include("key:") # one representation of the request, not two
     end
 
+    it "keeps every entry when recordings arrive from several threads" do
+      cassette = described_class.new(path)
+      threads = 20.times.map do |n|
+        Thread.new { cassette.record("query { person(id: \"#{n}\") { name } }", {}, { "data" => {} }) }
+      end
+      threads.each(&:join)
+
+      expect(described_class.new(path).size).to eq 20
+    end
+
     it "resolves bare names against config.cassette_dir" do
       GraphWeaver::Testing.configure { |config| config.cassette_dir = @dir }
 
