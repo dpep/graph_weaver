@@ -91,8 +91,11 @@ module GraphWeaver
 
       def next_steps
         # generation reads the dump, so without one the step below can't run —
-        # say that next to it rather than leaving the red line above to be scrolled past
-        say "\nThere's no schema dump yet, so `rake graph_weaver:generate` has nothing to read." if @schema_failed
+        # say that next to it rather than leaving the red line above to be
+        # scrolled past. A re-run that already has a dump is not blocked.
+        if @schema_failed && !GraphWeaver::SchemaLoader.locate_path
+          say "\nThere's no schema dump yet, so `rake graph_weaver:generate` has nothing to read."
+        end
 
         say <<~TEXT
 
