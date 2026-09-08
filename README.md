@@ -42,14 +42,41 @@ result.person&.nmae
 isn't defensive, it's the schema talking. A field you misspelled, or never
 selected, is a typecheck error rather than a `NoMethodError` in production.
 
-Typed structs are the part every generator gets right. What decides whether you're
-still happy six months in is everything around them.
+## Start here
+
+```ruby
+# Gemfile
+gem "graph_weaver"
+```
+
+In Rails, setup is one command:
+
+```sh
+rails g graph_weaver:install https://api.example.com/graphql
+```
+
+which writes the initializer, the `app/graphql` layout, the editor config and the
+schema dump. **[Getting started](docs/getting_started.md)** walks the production
+setup end to end. Or skip the build step and poke at an API from a console —
+anything holding a schema parses, and the module runs on what parsed it:
+
+```ruby
+api = GraphWeaver.new("https://countries.trevorblades.com/")
+CountryQuery = api.parse("queries/country.graphql")   # a path or a raw string
+CountryQuery.execute!(code: "JP").country&.capital    # => "Tokyo"
+
+api.run!("query { continents { name } }").continents  # or no module at all
+```
+
+The **[examples](examples/)** run that path for real, smallest first: a public API
+in 30 lines, a paginated search, the production path against GitHub, and the
+federated graph below.
 
 ## Precise types are expensive to fake, so it fakes them for you
 
 Generation makes result types exact, which makes them tedious to build by hand —
 and most generators stop there and leave you the fixtures. GraphWeaver ships the
-fabricator. One line in the spec helper:
+fakes. One line in the spec helper:
 
 ```ruby
 require "graph_weaver/rspec"
@@ -61,9 +88,9 @@ then one tag says what an example runs against:
 it "shows the profile", graphql: :fake do
   person = PersonQuery.execute!(id: "1").person
 
-  person.name       # => "Shakita Stark"      fabricated from your schema
-  person.birthday   # => #<Date: 2024-12-16>  custom scalars included
-  person.pets.size  # => 2
+  person.name       # fabricated from your schema
+  person.birthday   # a real Date — custom scalars included
+  person.pets       # a list of them, each schema-correct
 end
 ```
 
@@ -78,26 +105,21 @@ record/replay cassettes with anonymization are in [testing](docs/testing.md).
 When your app is both a GraphQL client and a subgraph, the local router plans a
 query across the composed supergraph and runs your **real resolvers** over the
 boundary — no gateway process, no node, no sockets. That's
-[`examples/federation.rb`](examples/federation.rb), the example that needs no network:
+[`examples/federation.rb`](examples/federation.rb), the example that needs no
+network, and this is the trace it prints:
 
 ```
-$ bundle exec examples/federation.rb
-#<GraphWeaver::Testing::Router subgraphs=["accounts", "products", "reviews"]>
-
-dpep reviewed 2 products:
-  Table ($899) — Love it
-  Couch ($1299) — Too expensive
-
 fetches:
   → accounts  root fields
   → reviews   _entities × 1 User
   → products  _entities × 2 Product
 ```
 
-The trace is the query plan: every node at a level in one `_entities` call, so two
-products cost one fetch. Anything it can't answer *faithfully* it refuses at plan
-time rather than guessing — and it's diffed against a real `@apollo/gateway` over
-the same supergraph, currently 72 queries identical, 2 refused, 0 wrong
+The trace is the query plan: every node at a level goes in one `_entities` call,
+so two products cost one fetch. Anything it can't answer *faithfully* it refuses
+at plan time rather than guessing — and it's diffed against a real
+`@apollo/gateway` over the same supergraph, currently 72 queries identical, 2
+refused, 0 wrong
 ([`spec/integration/router_parity_spec.rb`](spec/integration/router_parity_spec.rb)).
 See [federation](docs/federation.md).
 
@@ -109,36 +131,6 @@ server has drifted, `queries:check` names the queries that drift broke and where
 and `verify` fails when the checked-in Ruby is stale. Generation is deterministic
 — same schema and queries, byte-identical files — so regenerating never shows a
 diff you didn't earn. See [getting started](docs/getting_started.md#5-verify-in-ci).
-
-## Start here
-
-```ruby
-# Gemfile
-gem "graph_weaver"
-```
-
-In Rails, setup is then one command:
-
-```sh
-rails g graph_weaver:install https://api.example.com/graphql
-```
-
-which writes the initializer, the `app/graphql` layout, the editor config and the
-schema dump. **[Getting started](docs/getting_started.md)** walks the production
-setup end to end. Or skip the build step entirely and poke at an API from a
-console — anything holding a schema parses, and the module runs on what parsed it:
-
-```ruby
-api = GraphWeaver.new("https://countries.trevorblades.com/")
-CountryQuery = api.parse("queries/country.graphql")   # a path or a raw string
-CountryQuery.execute!(code: "JP").country&.capital    # => "Tokyo"
-
-api.run!("query { continents { name } }").continents  # or no module at all
-```
-
-The **[examples](examples/)** run that path for real, smallest first: a public API
-in 30 lines, a paginated search, the production path against GitHub, and the
-federated graph above.
 
 #### Also in the box
 
