@@ -110,6 +110,30 @@ describe "graph_weaver rake tasks" do
       expect(generated("person_query.rb")).to include "module PersonQuery"
     end
 
+    # deleting the .graphql prunes the generated file — checked-in code, so a
+    # run that removed one and printed nothing left the diff to be discovered
+    it "names the file it pruned when a query is gone" do
+      write_schema
+      write_query("person.graphql", "query Person { person(id: \"1\") { name } }")
+      invoke("generate")
+      File.delete(File.join(@root, "queries", "person.graphql"))
+
+      result = invoke("generate")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "pruned #{@root}/generated/person_query.rb"
+    end
+
+    # the state every install starts in: silence and exit 0 read as "done"
+    it "says where it looked when there are no queries" do
+      write_schema
+
+      result = invoke("generate")
+
+      expect(result.status).to eq 0
+      expect(result.out).to eq "no queries in #{@root}/queries\n"
+    end
+
     # a typo'd query is a user error: the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
     it "names the file and position for a bad query, and exits non-zero" do
@@ -180,11 +204,14 @@ describe "graph_weaver rake tasks" do
   end
 
   describe "graph_weaver:schema:diff" do
-    it "names the path it looked at when there is no dump" do
+    # its sibling :refresh already said which task takes a dump; this one
+    # stopped at "there isn't one", leaving the reader to find the other task
+    it "names the path it looked at, and the task that takes a dump" do
       result = invoke("schema:diff")
 
       expect(result.status).to eq 1
-      expect(result.err).to eq "no schema dump at #{GraphWeaver.schema_path}\n"
+      expect(result.err).to include "no schema dump at #{GraphWeaver.schema_path}",
+        "rake graph_weaver:schema:refresh URL="
     end
 
     it "says the dump matches, and exits zero" do
@@ -235,6 +262,15 @@ describe "graph_weaver rake tasks" do
       invoke("schema:refresh", URL: "https://x/graphql")
 
       expect(GraphWeaver::SchemaLoader).to have_received(:refresh!).with(url: "https://x/graphql")
+    end
+
+    # a path or SDL in URL= reaches introspection as a schema source, and the
+    # error it fails with is about file extensions rather than the flag typed
+    it "refuses a URL= that isn't an endpoint" do
+      result = invoke("schema:refresh", URL: "db/schema.graphql")
+
+      expect(result.status).to eq 1
+      expect(result.err).to include "URL= takes an endpoint"
     end
 
     # with no dump and no URL=, the only useful answer is how to supply one
@@ -371,6 +407,57 @@ describe "graph_weaver rake tasks" do
         expect(result.err.lines.size).to eq 1
         expect(result.out).to be_empty
       end
+    end
+  end
+
+  # The one check that reads a recording from someone else's server, so it is
+  # also the one that reads the generated modules a recording is checked against.
+  describe "graph_weaver:cassettes:check" do
+    def record(query, response)
+      dir = GraphWeaver::Testing.config.cassette_dir = File.join(@root, "cassettes")
+      FileUtils.mkdir_p(dir)
+      File.write(File.join(dir, "recording.yml"),
+        [{ "query" => query, "variables" => {}, "response" => response }].to_yaml)
+    end
+
+    # each example's module name has to be its own: load_generated! requires,
+    # so a second file defining the same constant would collide
+    def generate_module(name)
+      write_schema
+      write_query("#{name}.graphql", "query { person(id: \"1\") { name } }")
+      invoke("generate")
+      GraphWeaver.load_generated!
+      Object.const_get("#{name.split("_").map(&:capitalize).join}Query")
+    end
+
+    it "says so when every recording still casts" do
+      mod = generate_module("cassette_fresh")
+      record(mod::QUERY, { "data" => { "person" => { "name" => "Daniel" } } })
+
+      expect(invoke("cassettes:check")).to have_attributes(status: 0, out: end_with("every recording still casts\n"))
+    end
+
+    # the failure this exists to move: without it the cast error surfaces
+    # mid-spec naming a struct and a sorbet frame, and nothing points here
+    it "names how many recordings went stale, and exits non-zero" do
+      mod = generate_module("cassette_stale")
+      record(mod::QUERY, { "data" => { "person" => {} } })
+
+      result = invoke("cassettes:check")
+
+      expect(result.status).to eq 1
+      expect(result.err).to include "1 stale recording", "GRAPHWEAVER_RECORD=1"
+    end
+
+    # a green run that compared nothing would pass whatever the recordings said
+    it "refuses when no recording carries a query any module sends" do
+      generate_module("cassette_unmatched")
+      record("query Other { person(id: \"2\") { name } }", { "data" => { "person" => { "name" => "x" } } })
+
+      result = invoke("cassettes:check")
+
+      expect(result.status).to eq 1
+      expect(result.err).to include "this checked nothing"
     end
   end
 

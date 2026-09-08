@@ -35,6 +35,13 @@ module GraphWeaver
         abort("pass the composed supergraph: rake graph_weaver:federation:#{task} " \
           "SUPERGRAPH=supergraph.graphql")
     end
+
+    # Neither task that needs the committed dump can take one itself, so both
+    # say which task can — the same sentence SchemaLoader gives on refresh.
+    def self.no_dump
+      "no schema dump at #{GraphWeaver.schema_path} — take one: " \
+        "rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+    end
   end
 end
 
@@ -59,8 +66,16 @@ namespace :graph_weaver do
 
   desc "Generate typed query modules (#{GraphWeaver.queries_paths.first} -> #{GraphWeaver.generated_paths.first})"
   task generate: :environment do
+    output = GraphWeaver.generated_paths.first
+    before = Dir[File.join(output, "**/*.rb")]
+
     # schema auto-located at GraphWeaver.schema_path, any supported extension
-    GraphWeaver.generate!.each { |path| puts "wrote #{path}" }
+    written = GraphWeaver.generate!
+    written.each { |path| puts "wrote #{path}" }
+    # generated files are checked in, so a delete this task made is a diff the
+    # user is about to find; a run that printed nothing at all had done both
+    (before - Dir[File.join(output, "**/*.rb")]).each { |path| puts "pruned #{path}" }
+    puts "no queries in #{GraphWeaver.queries_paths.join(", ")}" if written.empty?
   rescue GraphWeaver::Error => e
     # a typo'd query is a user error — the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
@@ -81,7 +96,7 @@ namespace :graph_weaver do
 
     desc "Fail when the server's schema has drifted from the local dump"
     task diff: :environment do
-      path = GraphWeaver::SchemaLoader.locate_path or abort "no schema dump at #{GraphWeaver.schema_path}"
+      path = GraphWeaver::SchemaLoader.locate_path or abort GraphWeaver::Tasks.no_dump
       if GraphWeaver::SchemaLoader.stale?(path)
         abort "#{path} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
       end
@@ -94,6 +109,12 @@ namespace :graph_weaver do
 
     desc "Re-introspect and rewrite the local dump (URL= to bootstrap the first one)"
     task refresh: :environment do
+      # anything else in URL= reaches introspection as a schema *source*, and
+      # fails talking about file extensions rather than the flag just typed
+      if ENV["URL"] && !ENV["URL"].match?(GraphWeaver::Client::URL)
+        abort "URL= takes an endpoint: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+      end
+
       path, url = GraphWeaver::SchemaLoader.refresh!(url: ENV["URL"])
       puts "refreshed #{path} from #{url}"
     rescue GraphWeaver::Error => e
@@ -259,7 +280,7 @@ namespace :graph_weaver do
 
       # locate, not schema_path: the dump is whichever supported extension is
       # actually on disk, and every sibling task asks the same way
-      schema = GraphWeaver::SchemaLoader.locate or abort "no schema dump at #{GraphWeaver.schema_path}"
+      schema = GraphWeaver::SchemaLoader.locate or abort GraphWeaver::Tasks.no_dump
       Dir[File.join(GraphWeaver::Testing.cassette_dir, "*.yml")].sort.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
         puts "anonymized #{path}"
