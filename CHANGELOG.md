@@ -7,6 +7,34 @@
   the `include PetHelpers` those registrations emit raised `NameError` at every
   boot, in every environment. They now load from a `to_prepare` block of their
   own: after the autoloader, after your registrations, before eager loading.
+- **A fragment on the abstract type no longer narrows the field away.**
+  `named { __typename ... on Named { name } ... on Pet { species } }` read the
+  `Named` fragment as a type condition and narrowed to Pet, so a Person came
+  back as `nil` and the `name` the server sent went on the floor — while the
+  same selection spelled bare dispatched correctly. Two ways of writing one
+  query disagreed, and the fragment is how anyone shares interface fields.
+  **Regenerate** to pick it up.
+- **A `Float` field reads the whole number a JSON encoder writes.** JSON has
+  one number type, so `1.0` reaches Ruby as an `Integer` from graphql-js and
+  Go's `encoding/json` alike, and `const :amount, Float` refused a response the
+  spec calls legal. Widened with `Kernel#Float`, which still refuses what
+  `.to_f` would quietly turn into `0.0`. **Regenerate** to pick it up.
+- **A guarded `__typename` no longer makes a narrowing miss look like a
+  match.** Narrowing without a readable tag decides on emptiness, but a
+  `__typename` behind `@skip`/`@include` still arrives for the member narrowing
+  means to filter, so the wrong member was cast. That query now refuses at
+  generation, with the message that already names the fix.
+- **Generation refuses what Ruby would misread.** A result key that would
+  shadow a constant the file uses (`date` beside a `Date` scalar nested a
+  `class Date < T::Struct` and typed the scalar prop as that struct) is refused
+  naming both keys; so is an enum value that camelizes to nothing (`_`), which
+  emitted a file that died at load with a syntax error.
+- **A bad enum value in a variable says what the enum accepts**, as an
+  `InputError` — it raised a bare `KeyError` naming an anonymous module as a
+  top-level variable while the same mistake inside an input object was already
+  branded. A missing required input field now lists every missing key instead
+  of sorbet's symptom for the first prop it reached. **Regenerate** to pick up
+  the new emitted coercion.
 - **A named fragment now crosses a subgraph boundary.** A stitched fetch is
   built from selections alone, so a spread that survived into one named a
   fragment the subgraph had never seen and the whole subtree came back
@@ -40,7 +68,9 @@
   returning `nil`, one keying the envelope by symbol, one that typo'd `"dat"`:
   each produced a `Response` reporting `success?` with `data` nil.
   `from_response` is documented public API and symbolized keys are the
-  likeliest mistake at that seam, so it now brands, naming the keys it found.
+  likeliest mistake at that seam, so it now brands, naming the keys it found;
+  a client answering with a String brands too, instead of dying on `#to_h`.
+  **Regenerate** to pick that up.
 - **`@skip`/`@include` are evaluated by the fake against the variables you
   passed**, declared defaults included — the way a server and
   `Testing::Router` already did, so one query no longer carries a key under
