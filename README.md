@@ -120,7 +120,7 @@ When your app is both a GraphQL client and a subgraph, the local router plans a
 query across the composed supergraph and runs your **real resolvers** over the
 boundary — no gateway process, no node, no sockets. That's
 [`examples/federation.rb`](examples/federation.rb), the example that needs no
-network, and this is the trace it prints:
+network. Part of what it prints:
 
 ```
 fetches:
@@ -131,7 +131,8 @@ fetches:
 
 The trace is the query plan: every node at a level goes in one `_entities` call,
 so two products cost one fetch. Anything it can't answer *faithfully* it refuses
-at plan time rather than guessing — and it's diffed against a real
+at plan time rather than guessing — the example prints one of those too, naming
+the coordinate that stopped it and what to rename. And it's diffed against a real
 `@apollo/gateway` over the same supergraph:
 currently 72 queries identical, 2 refused, 0 wrong
 ([`spec/integration/router_parity_spec.rb`](spec/integration/router_parity_spec.rb)).

@@ -71,7 +71,8 @@ GraphWeaver — do not edit.` header are ever deleted, so hand-written files
 in the output directory are safe.
 
 In Rails, loading is automatic — the Railtie requires every generated file at
-boot, after your initializers (so registrations run first). Elsewhere it's
+boot from a `to_prepare` block, after your initializers and after any
+registrations of your own in one (so a helper a file names is already there). Elsewhere it's
 explicit, factory_bot-style:
 
 ```ruby
@@ -220,6 +221,11 @@ Two kinds of name don't come from a key, both equally position-determined:
   the struct it nests in (`pet { pet { ... } }`) takes a numeric suffix
   (`Pet2`), since a bare `Pet` inside `class Pet` would resolve to the child.
 
+A generated name that would shadow a constant the file *uses* is refused
+instead — a key `date` beside a `Date` scalar prop turns `Date.iso8601` into a
+`NoMethodError` in a file that typechecks. The message names both; alias either
+one in the query.
+
 ## Variables become typed kwargs
 
 ```graphql
@@ -232,7 +238,9 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 
 - required vs optional falls out of nullability and defaults: nullable or
   defaulted variables become optional kwargs (nil is omitted from the wire,
-  so server-side defaults apply)
+  so server-side defaults apply). A nullable variable passed `nil` is
+  omitted rather than sent as `null`, so a mutation meaning "clear this
+  field" can't say so today — a known gap
 - enum variables accept the enum or its wire value (`species: Species::Dog`
   or `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
@@ -296,6 +304,10 @@ So a value read out of one query hands straight back into another's variable,
 `case`/`T.absurd` is exhaustive across your app, and the class a field gets
 doesn't depend on what else the query happened to reference.
 
+An enum value that camelizes to nothing — `_` and `__` are both legal GraphQL —
+is refused at generation: there is no constant to name it. Map the enum onto one
+of yours instead.
+
 `register_enum` replaces the generated `T::Enum` with your own app enum — see
 [scalars.md](scalars.md#enums-map-onto-your-own-tenum). Dynamic `parse` emits
 the enums into the query module itself; there's no cross-query set to share
@@ -337,12 +349,16 @@ member upstream is a non-breaking change, and it stays one here.
 
 Two selections have nothing to dispatch between, so they skip the module and
 become the struct directly: **no conditions at all** (interface-level fields
-only) → one shared struct; **exactly one condition** → that type's struct,
-always nilable, since a non-matching runtime type comes back as `nil` — so
-narrowing doubles as filtering. Narrowing reads the match off `__typename` when
-the selection carries it and off "the object came back empty" when it doesn't,
-which is why an all-`@skip`/`@include` narrowed fragment without a `__typename`
-is refused: a match would be indistinguishable from a miss.
+only) → one shared struct; **exactly one condition and nothing else** → that
+type's struct, always nilable, since a non-matching runtime type comes back as
+`nil` — so narrowing doubles as filtering. "Nothing else" is what keeps the miss
+legible: a field every member answers — spelled bare, or inside a fragment on
+the abstract type itself, which is the same selection — puts the field back on
+the dispatch path, so the other members keep what they sent. Narrowing reads the
+match off `__typename` when the selection carries one unaliased and unguarded,
+and off "the object came back empty" when it doesn't — so an
+all-`@skip`/`@include` narrowed fragment, or one whose `__typename` is itself
+guarded, is refused: a match would be indistinguishable from a miss.
 
 When a whole union field is selected as one named *shared* fragment
 (`{ ...FeedItemFields }`), that type is hoisted once into `GraphQLTypes` — named
@@ -407,7 +423,10 @@ pet.name           # => "Shelby" — the wire value stays honest
 
 The methods live on the struct, so they see its wire fields at runtime and
 fakes/cassettes get the behavior automatically; registrations are additive
-(repeated ones stack). For quick decoration, build the mixin inline — the block
+(repeated ones stack). Generated files are `require`d once per boot, so
+editing a mixin in development needs a restart — a reload hands the constant
+a new module object, and the `include` that took the old one doesn't run
+again. For quick decoration, build the mixin inline — the block
 is `module_eval`'d into a fresh module auto-named under
 `GraphWeaver::TypeHelpers`:
 

@@ -51,6 +51,12 @@ tagged one:
 before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
 ```
 
+Both at once and the assignment wins: the tag installs its client from a
+suite-level `before`, which rspec runs ahead of any group hook. So a tagged
+example with a `before` of its own runs against the client the `before`
+built — tag the group for the mode, override the one example that needs
+something else.
+
 Everything here is a *client* — the one interface queries run through (the
 contract is in [transports](transports.md)). Fakes, the router, failures and
 cassettes all slot in wherever a real transport would, so they work outside
@@ -113,9 +119,12 @@ back what `config.schema =` set, falling back to the committed dump.
 ## Fabricated data — `graphql: :fake`
 
 `FakeClient` fabricates schema-correct responses for whatever query
-arrives: real enum values, valid `__typename` members, iso8601 date scalars
-— every fake casts cleanly through your generated structs. `rspec --seed
-1234` reproduces the values along with test order. `config.mode` picks how
+arrives: real enum values, valid `__typename` members, and — for a custom
+scalar — a value the Ruby type you registered it as can hold, so every fake
+casts cleanly through your generated structs. `@skip`/`@include` are
+evaluated against the variables you passed (defaults included), so a field
+the server would leave out is left out. `rspec --seed 1234` reproduces the
+values along with test order. `config.mode` picks how
 they're built: `:faker` (semantic, matched on the field name — raises if the
 gem is missing), `:literal` (plain type-derived), or nil to auto-detect faker.
 
@@ -287,6 +296,9 @@ PersonQuery.execute(client: Failure.server(status: 502), id: "1")  # raises Serv
 PersonQuery.execute(client: Failure.throttled, id: "1")            # errors.first.code => "THROTTLED"
 PersonQuery.execute(client: Failure.stale_schema, id: "1")         # schema_stale? => true
 PersonQuery.execute(client: Failure.graphql("boom"), id: "1")      # partial failure
+
+# a throttling server, with the header a backoff reads
+PersonQuery.execute(client: Failure.server(status: 429, headers: { "retry-after" => "2" }), id: "1")
 
 # retries: clients run in sequence (the last repeats) — here, two
 # transport failures and then a FakeClient serving good responses

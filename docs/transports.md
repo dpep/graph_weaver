@@ -195,15 +195,22 @@ GraphWeaver::Retry.new(
   on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
   retry_if: ->(error) { ... },     # fine-grain within on:
   retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
+  retry_mutations: false,          # true if your mutations are idempotent
 )
 ```
 
-Defaults: transport failures always retry (the request never arrived);
-`ServerError` on 5xx plus **408 and 429** — the rest of 4xx is a bug in
-the request, retrying won't fix it. `retry_codes:` re-inspects response
-envelopes so GraphQL-level throttling can retry too (off by default —
-pass the codes your API uses). Exhausting `tries:` re-raises the last
-error (or returns the last code-matched response).
+Defaults: transport failures always retry; `ServerError` on 5xx plus
+**408 and 429** — the rest of 4xx is a bug in the request, retrying
+won't fix it. `retry_codes:` re-inspects response envelopes so
+GraphQL-level throttling can retry too (off by default — pass the codes
+your API uses). Exhausting `tries:` re-raises the last error (or returns
+the last code-matched response).
+
+**A mutation gets one attempt.** A failure with no answer — a read
+timeout, a 502, a reset socket — does not say whether the server applied
+it, and a second `charge` is worse than a failed one.
+`retry_mutations: true` opts an idempotent API back in; the skipped
+retry says so on the logger.
 
 **`Retry-After` wins over the backoff.** When the server names a delay
 (seconds or an HTTP-date), that's the wait — the server is the only

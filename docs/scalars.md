@@ -71,7 +71,9 @@ on one raises rather than emitting a no-op.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
-`register_scalar` overrides them.
+`register_scalar` overrides them. On the way back, `Float` accepts the whole
+number JSON encoders write for it (`1` for `1.0`) — JSON has one number type,
+so that isn't the server being loose.
 
 `GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
 scalars restored, enum mappings and type helpers dropped. To reset one registry

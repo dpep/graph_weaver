@@ -89,8 +89,9 @@ What it wrote:
 
 Rake needs no wiring either: in Rails the `graph_weaver:*` tasks register
 themselves (a Railtie) and depend on `:environment`, so your initializer —
-and its registrations — runs first. The generated modules load at boot the
-same way, after `config/initializers`.
+and its registrations — runs first. The generated modules load at boot from
+a `to_prepare` block, so a helper or enum you registered in one is already
+in place when the file that names it loads.
 
 ### Your app's own schema, in-process
 
@@ -145,6 +146,11 @@ A stale dump makes `verify` fail on a query that is fine. `queries:check` is
 unaffected: running in-process it validates against the live class, not the
 dump. (`schema:diff` and `:refresh` are for servers you *don't* own; a dump
 taken from a schema class records no url, and they say so.)
+
+**Scaffolding the app too?** On a `rails new --skip-active-record`,
+`rails g graphql:install` writes `config.active_record.query_log_tags` lines
+into `config/application.rb` that an app without ActiveRecord can't boot
+with — a graphql-ruby bug. Delete them.
 
 ### A schema dump you already have
 

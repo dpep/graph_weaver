@@ -134,7 +134,8 @@ end
 ```
 
 Generation depends on `:environment`, which runs `to_prepare` too, so the
-registration is in place before it emits.
+registration is in place before it emits — and at boot the generated files
+load from a `to_prepare` block of their own, after yours.
 
 ### If you use the federation router
 

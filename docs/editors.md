@@ -22,7 +22,9 @@ That's the whole setup. The paths are graph_weaver's conventions
 (`GraphWeaver.schema_path`, `queries_paths`, `fragments_paths`) — if you moved
 them, move these to match. Include the fragments directory: an editor
 validating a query that spreads a shared fragment reports `Unknown fragment`
-unless the fragment files are in `documents` too.
+unless the fragment files are in `documents` too. The generator writes that
+line whether or not you have fragments yet — the directory it names doesn't
+exist until you add one, and a glob matching nothing is fine.
 
 An SDL dump works just as well if you took one (`cache: :graphql`):
 

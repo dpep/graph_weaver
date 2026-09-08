@@ -40,7 +40,7 @@ subclass says where it failed:
 
 | Class | When |
 |-------|------|
-| `TransportError` | never reached the server — DNS, connection refused, TLS, timeout |
+| `TransportError` | no response came back — DNS, connection refused, TLS, timeout, a socket that died mid-body |
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
@@ -80,15 +80,21 @@ Or skip the hand-rolling: [`Retry`](transports.md#retries) wraps any client and
 already defaults to exactly the policy above — transport failures always,
 `ServerError` on 5xx plus 408/429, and GraphQL error codes you name.
 
+**A status with an obvious next step says it.** A 3xx appends "redirects are
+not followed" and the `Location` to repoint the client at — replaying a POST,
+with its `Authorization` header, at a host the server named isn't the
+library's call. A 401 or 403 appends "check `auth:` — the token, and its
+scopes".
+
 **Top-level scalar variables** fail like any Ruby method call, *outside* the
 hierarchy on purpose — passing the wrong Ruby type for a scalar kwarg is a
 programming bug, not caller input: a wrong-typed one raises sorbet-runtime's
 `TypeError` ("Parameter 'page': Expected type T.nilable(Integer), got type
 String"), a missing required one a plain `ArgumentError` ("missing keyword: :id").
 
-**Input-object variables** are the caller-input case, so they're *inside* the
-hierarchy. When you pass an input object as a hash (or struct) it's built
-through the generated `coerce`, and anything wrong in there raises
+**What's inside an input object** is the caller-input case, so that's *inside*
+the hierarchy. Pass one as a hash (or struct) and it's built through the
+generated `coerce`, and anything wrong in there raises
 `GraphWeaver::InputError` — one rescue point for turning invalid input into a
 422:
 
@@ -102,7 +108,10 @@ end
 ```
 
 A nested filter reports the innermost input type, so the error points at the
-input that actually held the bad field.
+input that actually held the bad field. Passing something that is neither —
+a bare `String` where the input goes — is the scalar case again: the generated
+sig rejects it as sorbet's `TypeError`, which is what gives the call site its
+static check.
 
 Business/validation failures returned *as data* (Shopify-style `userErrors { field
 message code }`) aren't errors here — they're just fields you selected, so they

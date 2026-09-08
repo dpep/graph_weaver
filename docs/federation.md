@@ -373,7 +373,7 @@ Every category, spelled as `Unplannable#category` reports it:
 | a `@requires` whose field set names another `@requires` field | the router satisfies a `@requires` with one fetch, so it can't first satisfy that field's own requirement |
 | a nested field set no one fetch can build | a nested field set crosses as one object, so one fetch has to answer the whole of it. Nesting itself is fine — this is the set whose fields are split across subgraphs, so the object would arrive half-built from each |
 | `@skip`/`@include` on both a fragment and its field | one selection can't carry two conditions of the same name. Spell the condition once |
-| an alias shadowing an injected `@key` | Apollo's router lets its injected key win over your alias and a spec-conformant server doesn't — there is no one answer to agree with |
+| an alias shadowing an injected `@key` | a fetch carries the `@key` it crosses on under a response key — Apollo under the field's own name, the local router under a reserved one — and an alias spelling either claims a key the fetch needs |
 | a mutation's root fields span subgraphs | root mutation fields run in series, and splitting them across subgraphs would run them in whatever order the plan happened to. Sharing one subgraph they're fine, stitching below them and all — that's an ordinary read afterwards. Query roots are independent, so those are always fine |
 | the routing table names no subgraph | nothing can route a field the supergraph doesn't place |
 | a subgraph nothing here serves | it's served by another process, so there is nothing here to ask — unless you fake it (above) |
