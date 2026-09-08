@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.5.1  (2026-09-07)
 - **A union's catch-all struct keeps the fields an interface fragment asked
   for.** `... on Named { name }` under a union types `name` on every member the
   query named, but the catch-all — the member it didn't name, including one the
