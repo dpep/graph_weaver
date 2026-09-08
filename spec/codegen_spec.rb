@@ -466,6 +466,20 @@ describe GraphWeaver::Codegen do
       expect(mod.from_response!("data" => { "named" => { "__typename" => "Pet", "species" => "DOG" } }).named)
         .to be_a(mod::Result::Named)
     end
+
+    it "doesn't narrow when a fragment on the abstract type asks for shared fields" do
+      # `... on Named { name }` is the same selection as a bare `name` — every
+      # member answers it — so narrowing to Pet would drop what the server sent
+      # for a Person
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: "query { named(name: \"x\") { __typename ... on Named { name } ... on Pet { species } } }",
+      )
+
+      named = mod.from_response!("data" => { "named" => { "__typename" => "Person", "name" => "Daniel" } }).named
+      expect(named).to be_a(mod::Result::Named::Other)
+      expect(named.name).to eq "Daniel"
+    end
   end
 
   describe "interface-typed fields" do

@@ -686,7 +686,7 @@ class GraphWeaver::Codegen
           type_ref(field_type) { object_node(core, sub_selections, name) }
         when "UNION", "INTERFACE"
           conditions = concrete_conditions(core, sub_selections)
-          bare = bare_fields(sub_selections) - ["__typename"]
+          shared = abstract_level_fields(core, sub_selections)
 
           if conditions.empty?
             # abstract-level fields only — every member shares them, so one
@@ -694,7 +694,7 @@ class GraphWeaver::Codegen
             # union that selection can only be __typename)
             name = pick_name(key, taken)
             type_ref(field_type) { object_node(core, sub_selections, name) }
-          elsif conditions.size == 1 && bare.empty? &&
+          elsif conditions.size == 1 && shared.empty? &&
               (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
             # a single `... on X` condition: narrow to X's struct — nil
             # when the runtime type doesn't match (narrowing filters).
@@ -806,9 +806,14 @@ class GraphWeaver::Codegen
     end.compact.uniq - [core.graphql_name]
   end
 
-  # result keys selected as plain fields (outside any type condition)
-  def bare_fields(selections)
-    selections.grep(GraphQL::Language::Nodes::Field).map { |field| field.alias || field.name }
+  # Result keys the abstract type itself answers — every member carries them,
+  # so their presence rules out narrowing to one. Walked as the type sees it,
+  # not read off the top level: `... on Named { name }` under a Named field is
+  # the same selection as a bare `name`, and treating it as a type condition
+  # would narrow the field away and drop what the server sent for every other
+  # member. `__typename` is excluded — it's the dispatch tag, not a field.
+  def abstract_level_fields(core, selections)
+    gather_conditional(core, selections).keys - ["__typename"]
   end
 
   # The fragment name when a selection is exactly one bare fragment spread
