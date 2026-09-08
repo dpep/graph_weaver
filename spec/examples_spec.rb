@@ -33,6 +33,19 @@ RSpec.describe "checked-in examples" do
   end
 
   # the tour in examples/README.md is only useful while its links resolve
+  # The from_response body is schema-independent, so a fixture bin/generate
+  # does refresh can stand in for the modules it can't reach. It has drifted
+  # before: two releases of emitter changes went unnoticed here.
+  it "carry the from_response the current emitter writes" do
+    body = ->(source) { source[/  def self\.from_response\(response\).*?\n  end\n/m] }
+    current = body.call(File.read(File.expand_path("generated/person_query.rb", __dir__)))
+    expect(current).not_to be_nil
+
+    Dir["#{EXAMPLES}/github/generated/*.rb"].each do |path|
+      expect(body.call(File.read(path))).to eq(current), path
+    end
+  end
+
   it "link only to example files that exist" do
     links = File.read("#{EXAMPLES}/README.md").scan(/\]\((?!https?:)([^)#]+)\)/).flatten.uniq
 
