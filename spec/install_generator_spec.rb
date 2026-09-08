@@ -153,12 +153,17 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       expect(GraphWeaver::SchemaLoader).not_to have_received(:refresh!)
     end
 
-    it "keeps the scaffolded files when introspection fails" do
+    # `rake graph_weaver:schema:refresh` was the retry it named, and with no
+    # dump written that task has no url to read — so the advice failed too,
+    # while the next steps still pointed at a generate that can't run either
+    it "keeps the scaffolded files when introspection fails, and names a retry that works" do
       allow(GraphWeaver::SchemaLoader).to receive(:refresh!).and_raise(GraphWeaver::Error, "401 Unauthorized")
-      actions = run_generator
+      actions = run_generator(URL, auth: "MY_TOKEN")
 
       expect(created(actions).keys).to include "config/initializers/graph_weaver.rb"
-      expect(actions.flatten.join).to include "401 Unauthorized", "rake graph_weaver:schema:refresh"
+      expect(actions.flatten.join).to include "401 Unauthorized",
+        "rails g graph_weaver:install #{URL} --auth MY_TOKEN",
+        "no schema dump yet"
     end
   end
 

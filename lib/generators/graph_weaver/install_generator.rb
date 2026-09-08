@@ -85,10 +85,15 @@ module GraphWeaver
       rescue StandardError => e
         # the files above are the valuable part — don't lose them to a bad
         # token or an unreachable host
+        @schema_failed = true
         say_status :failed, "#{e.message} — retry with `#{refresh_command}`", :red
       end
 
       def next_steps
+        # generation reads the dump, so without one the step below can't run —
+        # say that next to it rather than leaving the red line above to be scrolled past
+        say "\nThere's no schema dump yet, so `rake graph_weaver:generate` has nothing to read." if @schema_failed
+
         say <<~TEXT
 
           Write a query in #{GraphWeaver.queries_paths.first}, then:
@@ -175,8 +180,12 @@ module GraphWeaver
 
       def auth_var = options[:auth] || GraphWeaver::SchemaLoader::DEFAULT_AUTH_ENV
 
+      # The command just typed, retyped. One rule for every source form, and
+      # the only one that always works: the files already written come back
+      # "identical", and --auth rides along — where schema:refresh has no flag
+      # for it, and with no dump written has no url to read either.
       def refresh_command
-        (form == :url) ? "rake graph_weaver:schema:refresh" : "rails g graph_weaver:install #{source}"
+        "rails g graph_weaver:install #{source}#{" --auth #{options[:auth]}" if options[:auth]}"
       end
 
       def initializer
