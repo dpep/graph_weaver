@@ -123,6 +123,60 @@ decision, not a feature:
   fixes a bug rather than working around one: offset pagination over a shifting
   dataset duplicates and skips rows, which is *why* cursors exist.
 
+### Walking a skeleton, not the real query
+
+The walk to page N does not have to fetch what the real query fetches. A
+stripped copy — same connection, same arguments, same variables, but selecting
+only what is needed to advance — is far cheaper per page:
+
+```graphql
+# the real query, per page: every field, every nested object
+{ products(first: 25, after: $c) { edges { node { id title price
+    reviews(first: 5) { edges { node { body author { name } } } } } } } }
+
+# the skeleton, per page: enough to know where the next page starts
+{ products(first: 25, after: $c) { edges { cursor } pageInfo { hasNextPage } } }
+```
+
+Then walk the skeleton to page N and run the **real** query once, with the
+cursor the walk landed on. `N` cheap requests plus one expensive one, instead of
+`N` expensive ones.
+
+**And `edges { cursor }` makes it better than page-at-a-time.** Every edge
+carries its own cursor, so the skeleton can walk in strides the *server* allows
+rather than strides the *UI* wants — `first: 100` to reach item 1000 is 10
+requests, not the 40 that `first: 25` would take, and the cursor for item 1000
+is sitting in the tenth response. The measurement supports leaning on this:
+`nodes` without `edges` never occurred in 716 connection types, so `edges` is
+reliably available even where `nodes` isn't (Saleor is `edges`-only, 38/38).
+
+**Be precise about what this fixes.** It cuts bandwidth and, usually,
+server-side resolution work — the skeleton doesn't make the server load nested
+objects. It does **not** cut latency: page 40 is still 10+ round trips, so an
+app whose complaint is "deep pages are slow" is not rescued. Say that plainly
+rather than letting the optimisation read as making random access cheap.
+
+Two assumptions it rests on, both worth stating:
+
+- **The skeleton must order and filter identically to the real query**, which
+  holds when every argument and variable is copied verbatim. A server whose
+  ordering depends on which fields were selected would break this, and would be
+  pathological.
+- **Server-side savings are not guaranteed.** A resolver that loads whole
+  records before serializing pays the same either way; the bandwidth saving is
+  real regardless.
+
+Cost to build: synthesising a second document per paginated query — keep the
+path to the target connection, replace its selection set, carry the same
+variable definitions. Mechanical, but it is new codegen machinery and a second
+emitted artifact, and it should not gate the basic iterator.
+
+**This changes the `page(n)` calculus.** The objection below was that a helper
+quietly costing N requests is silently-expensive. Skeleton walking makes those N
+requests small and lets them be fewer — which is a different, more defensible
+trade. Whether that is enough to ship `page(n)` is still the open question, but
+it should be judged against the skeleton cost, not the naive one.
+
 Open question for review: should a `page(n, per_page:)` helper exist at all, or
 does shipping it legitimise the expensive path? Argument for: apps with SEO or
 deep-link requirements genuinely need it, and doing it themselves gets the
