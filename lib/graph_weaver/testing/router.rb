@@ -60,8 +60,9 @@ module GraphWeaver
         ],
         shadowed_key: [
           "an alias shadowing an injected @key",
-          "Apollo's router resolves that collision in favour of its own injected key and a " \
-            "spec-conformant server doesn't, so there is no one answer to agree with. Rename the alias.",
+          "the local router injects the @key it crosses on under a reserved response key and " \
+            "Apollo injects it under the field's own name, so either way this alias claims a key " \
+            "the fetch needs. Rename the alias.",
         ],
         root_fields_span: [
           "a mutation's root fields span subgraphs",
@@ -1040,7 +1041,22 @@ module GraphWeaver
           here.selections.concat(Router.injected_selections(here.keys))
           here.injected = (here.keys + here.prefetches.flat_map(&:paths))
             .map { |path| Router::PREFIX + path.split(".").first }.uniq
+          check_reserved!(type_name, selections, here.injected)
           here
+        end
+
+        # The keys a fetch injects are stripped from the answer, so a caller's
+        # alias spelling one is stripped with it — silently, since the two are
+        # then indistinguishable. Asked of what this fetch actually injects
+        # rather than of the prefix, so an alias that collides with nothing
+        # still runs.
+        def check_reserved!(type_name, selections, injected)
+          clash = selections.select { |node| injected.include?(node.alias) }
+          return if clash.empty?
+
+          refuse :shadowed_key, "#{type_name} crosses on a field set the router carries under " \
+            "#{injected.map(&:inspect).join(", ")}, and this selection aliases " \
+            "#{clash.map { |node| "#{node.name} as #{node.alias.inspect}" }.join(", ")} over it"
         end
 
         # A subtree that goes over as written may still hold a fragment spread

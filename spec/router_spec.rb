@@ -444,9 +444,9 @@ describe GraphWeaver::Testing::Router do
       expect { router.execute("{ me { id: username reviews { body } } }") }
         .to raise_error(GraphWeaver::Error) do |error|
           expect(error.to_h).to include("category" => "shadowed_key")
-          expect(error.message).to eq "#{error.detail} — Apollo's router resolves that collision " \
-            "in favour of its own injected key and a spec-conformant server doesn't, so there is " \
-            "no one answer to agree with. Rename the alias."
+          expect(error.message).to eq "#{error.detail} — the local router injects the @key it " \
+            "crosses on under a reserved response key and Apollo injects it under the field's " \
+            "own name, so either way this alias claims a key the fetch needs. Rename the alias."
         end
     end
 
@@ -457,6 +457,17 @@ describe GraphWeaver::Testing::Router do
       expect { router.execute("{ me { id: username reviews { body } } }") }
         .to refuse_to_plan(:shadowed_key).with_detail(
           'User.reviews is fetched on User\'s "id", and this selection aliases username as "id" over it',
+        )
+    end
+
+    # The other half of the same collision: an alias spelling the reserved key
+    # itself. The fetch strips that key, taking the caller's field with it —
+    # and silently, since by then the two are one response key.
+    it "names an alias spelling the response key a @key is carried under" do
+      expect { router.execute("{ topProducts(first: 1) { _gw_weight: name shippingEstimate } }") }
+        .to refuse_to_plan(:shadowed_key).with_detail(
+          'Product crosses on a field set the router carries under "_gw_upc", "_gw_price", ' \
+          '"_gw_weight", and this selection aliases name as "_gw_weight" over it',
         )
     end
 
