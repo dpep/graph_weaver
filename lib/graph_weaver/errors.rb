@@ -100,7 +100,23 @@ module GraphWeaver
       @body = body
       @headers = headers
       snippet = body.to_s.empty? ? "" : ": #{body.to_s[0, 500]}"
-      super("HTTP #{status}#{snippet}")
+      super("HTTP #{status}#{snippet}#{" — #{hint}" if hint}")
+    end
+
+    # What to do about this status, where the status says it. A redirect is
+    # not followed — replaying a POST, with its Authorization header, at a
+    # host the server named is not ours to decide — so the destination has to
+    # reach whoever configured the url.
+    REDIRECTS = [301, 302, 303, 307, 308].freeze
+
+    sig { returns(T.nilable(String)) }
+    def hint
+      if REDIRECTS.include?(status)
+        location = headers["location"]
+        "redirects are not followed#{" — point the client at #{location}" if location}"
+      elsif [401, 403].include?(status)
+        "the server rejected the credentials — check auth: (the token, and its scopes)"
+      end
     end
 
     # Seconds to wait per the server's Retry-After, which is either a

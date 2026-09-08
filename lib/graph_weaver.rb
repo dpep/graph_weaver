@@ -120,6 +120,15 @@ module GraphWeaver
         raise GraphWeaver::TypeError.new(struct:, message: "response \"errors\" must be an array of objects")
       end
 
+      # A response with neither key isn't a GraphQL response at all — a client
+      # that returned nil (to_h'd to {}), or one keying the envelope by symbol.
+      # Both otherwise pass as a success carrying no data.
+      unless raw.key?("data") || raw.key?("errors")
+        symbols = " — the keys must be strings" if raw.key?(:data) || raw.key?(:errors)
+        raise GraphWeaver::TypeError.new(struct:, message:
+          "response carried neither \"data\" nor \"errors\"#{symbols}")
+      end
+
       raw
     end
 

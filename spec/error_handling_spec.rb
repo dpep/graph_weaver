@@ -128,6 +128,16 @@ describe "error handling" do
       expect([seconds, date, junk].map(&:throttled?)).to eq [true, true, true]
       expect(GraphWeaver::ServerError.new(status: 503)).not_to be_throttled
     end
+
+    # "HTTP 301" with an empty body is the first thing a url pointed at
+    # http:// (or at the wrong path) produces, and it names nothing
+    it "says what to do about a redirect and a rejected token" do
+      moved = GraphWeaver::ServerError.new(status: 301, headers: { "location" => "https://api.example.com/graphql" })
+      expect(moved.message).to include("not followed").and include("https://api.example.com/graphql")
+
+      expect(GraphWeaver::ServerError.new(status: 403).message).to include("auth:")
+      expect(GraphWeaver::ServerError.new(status: 500, body: "kaboom").message).not_to include("—")
+    end
   end
 
   describe "throttling" do
@@ -399,6 +409,14 @@ describe "error handling" do
 
     it "raises QueryError (not a bare TypeError) when data! sees null data and no errors" do
       expect { run("data" => nil).data! }.to raise_error(GraphWeaver::QueryError)
+    end
+
+    # both used to arrive as a Response reporting success with no data
+    it "refuses a response carrying neither data nor errors" do
+      expect { run(nil) }.to raise_error(GraphWeaver::TypeError, /neither "data" nor "errors"/)
+
+      expect { run(data: person_data) }
+        .to raise_error(GraphWeaver::TypeError, /keys must be strings/)
     end
 
     it "raises InputError when an input struct is coerced from a non-Hash" do
