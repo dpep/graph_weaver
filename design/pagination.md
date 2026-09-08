@@ -171,6 +171,16 @@ path to the target connection, replace its selection set, carry the same
 variable definitions. Mechanical, but it is new codegen machinery and a second
 emitted artifact, and it should not gate the basic iterator.
 
+**When to build it.** Not with the iterator. The technique is sound — it is what
+a query planner does, and the skeleton is *derived* from the real query rather
+than maintained beside it, so it cannot drift the way a hand-kept copy would.
+But it optimises deep page-number access, which the corpus says is the rare
+need, and it costs a second emitted document per paginated query. Ship the
+iterator, find out whether anyone actually asks for page N, and keep this as the
+answer if they do. Building it first would be gating a real cost on an assumed
+demand — the mistake the measurement at the top of this document exists to
+prevent.
+
 **This changes the `page(n)` calculus.** The objection below was that a helper
 quietly costing N requests is silently-expensive. Skeleton walking makes those N
 requests small and lets them be fewer — which is a different, more defensible
