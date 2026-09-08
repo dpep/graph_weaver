@@ -32,6 +32,34 @@ class GraphWeaver::Testing::Values
     /(^|_)year$/ => ->(rng) { rng.rand(1970..2030) },
   }.freeze
 
+  # The Ruby shape a fabricated value has to take, keyed by the class the
+  # scalar registry says the scalar deserializes into. That registry is what
+  # codegen emitted the prop and its cast from, so a scalar registered as
+  # Time needs an iso8601 string whatever the schema happens to call it.
+  REGISTERED_SHAPES = {
+    "String" => :string,
+    "Integer" => :integer,
+    "Float" => :float,
+    "T::Boolean" => :boolean,
+    "Date" => :date,
+    "Time" => :time,
+    "DateTime" => :time,
+  }.freeze
+
+  # The fallback, for a scalar nobody registered: its prop is T.untyped, so
+  # anything holds and a plausible shape beats a placeholder.
+  NAMED_SHAPES = {
+    "ID" => :id,
+    "String" => :string,
+    "Int" => :integer,
+    "Float" => :float,
+    "Boolean" => :boolean,
+    "Date" => :date,
+    "DateTime" => :time,
+    "Time" => :time,
+    "ISO8601DateTime" => :time,
+  }.freeze
+
   attr_reader :rng
 
   def initialize(seed: nil, mode: nil)
@@ -40,36 +68,38 @@ class GraphWeaver::Testing::Values
     @mode = resolve_mode(mode || config.mode)
     @sequence = 0
     @id_map = {}
+    @shapes = {}
   end
 
   def scalar(type_name, field_name)
     prop = underscore(field_name)
+    shape = shape_of(type_name)
 
     if @mode == :faker
       # rebind per call: several Values instances may interleave (e.g. two
       # seeded fakes), and faker's rng is global
       ::Faker::Config.random = @rng
-      case type_name
-      when "String"
+      case shape
+      when :string
         STRING_SEMANTICS.each { |pattern, faker| return faker.call if pattern.match?(prop) }
-      when "Int", "Float"
+      when :integer, :float
         NUMBER_SEMANTICS.each do |pattern, gen|
           next unless pattern.match?(prop)
 
           value = gen.call(@rng)
-          return type_name == "Int" ? value.to_i : value.to_f
+          return (shape == :integer) ? value.to_i : value.to_f
         end
       end
     end
 
-    case type_name
-    when "ID" then (@sequence += 1).to_s
-    when "String" then "#{field_name}-#{@sequence += 1}"
-    when "Int" then @rng.rand(0..1_000)
-    when "Float" then @rng.rand(0.0..1_000.0).round(2)
-    when "Boolean" then [true, false].sample(random: @rng)
-    when "Date" then (Date.new(2020, 1, 1) + @rng.rand(0..2_000)).iso8601
-    when "DateTime", "Time", "ISO8601DateTime" then Time.at(1_600_000_000 + @rng.rand(0..100_000_000)).utc.iso8601
+    case shape
+    when :id then (@sequence += 1).to_s
+    when :string then "#{field_name}-#{@sequence += 1}"
+    when :integer then @rng.rand(0..1_000)
+    when :float then @rng.rand(0.0..1_000.0).round(2)
+    when :boolean then [true, false].sample(random: @rng)
+    when :date then (Date.new(2020, 1, 1) + @rng.rand(0..2_000)).iso8601
+    when :time then Time.at(1_600_000_000 + @rng.rand(0..100_000_000)).utc.iso8601
     else "#{type_name}-#{@sequence += 1}" # unknown custom scalar: override it
     end
   end
@@ -80,6 +110,16 @@ class GraphWeaver::Testing::Values
   end
 
   private
+
+  # ID asks by name rather than by class: it registers as String, and an id
+  # repeated across a list breaks a `find` or `group_by` in the code under test.
+  def shape_of(type_name)
+    @shapes[type_name] ||= if type_name == "ID"
+      :id
+    else
+      REGISTERED_SHAPES[GraphWeaver::Codegen.scalar(type_name).type] || NAMED_SHAPES[type_name] || :unknown
+    end
+  end
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto
   # (nil) quietly falls back to :literal

@@ -99,6 +99,30 @@ describe GraphWeaver::Testing::Values do
     end
   end
 
+  # A custom scalar is registered so codegen emits a codec for it, and the
+  # fake's value has to survive that codec. Keyed off the name alone, a
+  # `Timestamp` registered as Time got "Timestamp-1" and every fake response
+  # touching it died in Time.iso8601 — the one promise the harness makes.
+  describe "a registered custom scalar" do
+    subject(:values) { described_class.new(seed: 3, mode: :literal) }
+
+    after { GraphWeaver::Codegen.reset_scalars! }
+
+    it "fabricates for the Ruby type it deserializes into, not its name" do
+      GraphWeaver.register_scalar("Timestamp", Time, cast: :iso8601, serialize: :iso8601, requires: "time")
+      GraphWeaver.register_scalar("Ticks", Integer)
+      GraphWeaver.register_scalar("Slug", String)
+
+      expect(Time.iso8601(values.scalar("Timestamp", "at"))).to be_a Time
+      expect(values.scalar("Ticks", "n")).to be_an Integer
+      expect(values.scalar("Slug", "handle")).to be_a String
+    end
+
+    it "still names the type when nothing registered one" do
+      expect(values.scalar("Money", "price")).to match(/\AMoney-\d+\z/)
+    end
+  end
+
   describe "mode" do
     it "asks for the gem by name when :faker was requested and isn't there" do
       hide_const("Faker")

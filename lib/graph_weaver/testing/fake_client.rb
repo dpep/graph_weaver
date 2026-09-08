@@ -106,6 +106,7 @@ class GraphWeaver::Testing::FakeClient
     @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }
     @corrupt = wrap(corrupt)
     @requests = []
+    @variables = {}
   end
 
   # operation_name: is accepted for contract parity and ignored — one
@@ -126,6 +127,7 @@ class GraphWeaver::Testing::FakeClient
 
     operation = load_operation(query)
     root_type = operation_root_type(operation)
+    @variables = variable_values(operation, variables)
 
     @path = []
     @failures = []
@@ -144,11 +146,12 @@ class GraphWeaver::Testing::FakeClient
   # {FakeSubgraph} answers a federation `_entities` fetch through, where the
   # representation names the type and the document only ever reached it
   # through an inline fragment.
-  def object(type_name, selections, fragments: {})
+  def object(type_name, selections, fragments: {}, variables: {})
     type = @schema.get_type(type_name) or
       raise GraphWeaver::Error, "#{type_name} is not a type of this schema"
 
     @fragments = fragments
+    @variables = variables.to_h { |name, value| [name.to_s, value] }
     @path = []
     @failures = []
     value = object_value(type, selections)
@@ -164,6 +167,42 @@ class GraphWeaver::Testing::FakeClient
   private
 
   def rng = @values.rng
+
+  # Codegen has to type a @skip/@include field as maybe-absent because it
+  # can't know the variable; a fake was handed it, so it can answer the way
+  # the server would — and the way {Router} already does, or one query would
+  # carry a key under :fake and not under :router. Selection's walk recurses
+  # through this method, so filtering here filters at every depth.
+  def each_field(type, selections, visiting = Set.new, conditional: false, &block)
+    super(type, selections.reject { |selection| omitted?(selection) }, visiting, conditional:, &block)
+  end
+
+  # A variable with neither a value nor a declared default reads as absent,
+  # which excludes under @include and includes under @skip — as graphql-ruby
+  # resolves it.
+  def omitted?(selection)
+    selection.directives.any? do |directive|
+      next false unless GraphWeaver::Selection::CONDITIONAL_DIRECTIVES.include?(directive.name)
+
+      argument = directive.arguments.find { |arg| arg.name == "if" } or next false
+      value = argument_value(argument)
+      (directive.name == "skip") ? !!value : value.nil? || value == false
+    end
+  end
+
+  def argument_value(argument)
+    value = argument.value
+    value.is_a?(GraphQL::Language::Nodes::VariableIdentifier) ? @variables[value.name] : value
+  end
+
+  # An operation's declared defaults are part of the variables graphql-ruby
+  # runs with, so @skip/@include and a `first:` have to see them too.
+  def variable_values(operation, variables)
+    defaults = (operation&.variables || []).each_with_object({}) do |definition, out|
+      out[definition.name] = definition.default_value unless definition.default_value.nil?
+    end
+    defaults.merge(variables.to_h { |name, value| [name.to_s, value] })
+  end
 
   def wrap(value)
     case value
@@ -340,20 +379,26 @@ class GraphWeaver::Testing::FakeClient
     @fail_at.find { |spec| !spec["triggered"] && spec["path"] == chain }
   end
 
-  # honor pagination-ish arg semantics: first/last/limit with a literal
-  # int caps the fabricated list length
+  # honor pagination-ish arg semantics: first/last/limit caps the fabricated
+  # list length, whether it arrives as a literal or as a variable
   def list_length(node)
     argument = node.arguments.find { |arg| %w[first last limit].include?(arg.name) }
-    return argument.value if argument && argument.value.is_a?(Integer)
+    capped = argument && argument_value(argument)
+    # Array.new(-1) is "negative array size" out of the fabricator's guts; a
+    # cap below zero asks for nothing, which is what a page of none is
+    return [capped, 0].max if capped.is_a?(Integer)
 
     # an Integer list_size means exactly that many; a Range randomizes within it
     @list_size.is_a?(Range) ? rng.rand(@list_size) : @list_size
   end
 
   def type_value(type, node, selections, non_null: false)
+    return type_value(type.of_type, node, selections, non_null: true) if type.kind.name == "NON_NULL"
+    # every nullable position, a list included — null_chance is about the
+    # nilable props codegen emitted, and it emits one for `[Thing!]` too
+    return if !non_null && rng.rand < @null_chance
+
     case type.kind.name
-    when "NON_NULL"
-      type_value(type.of_type, node, selections, non_null: true)
     when "LIST"
       elements = Array.new(list_length(node)) do |index|
         @path.push(index)
@@ -370,8 +415,6 @@ class GraphWeaver::Testing::FakeClient
       end
       elements
     else
-      return if !non_null && rng.rand < @null_chance
-
       core_value(type, node, selections)
     end
   end
