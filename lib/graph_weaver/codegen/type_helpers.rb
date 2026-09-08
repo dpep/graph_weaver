@@ -54,9 +54,7 @@ class GraphWeaver::Codegen
         # won't resolve yet — see EnumType for why that's a Rails initializer
         if mixin.is_a?(String)
           raise ArgumentError, "type helpers are the modules themselves, not their names — " \
-            "extend_type(#{graphql_name.to_s.inspect}, #{mixin}). An autoloaded constant isn't " \
-            "resolvable while config/initializers run; register from a " \
-            "Rails.application.config.to_prepare block, which generation also runs first."
+            "extend_type(#{graphql_name.to_s.inspect}, #{mixin}). #{GraphWeaver::Codegen::AUTOLOAD_HINT}"
         end
         unless mixin.is_a?(Module) && mixin.name
           raise ArgumentError, "type helpers must be named modules, got #{mixin.inspect}"

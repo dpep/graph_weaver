@@ -6,6 +6,7 @@ require "json"
 
 require_relative "../parsing"
 require_relative "../schema_loader"
+require_relative "../selection"
 require_relative "../transport"
 require_relative "subgraphs"
 
@@ -115,6 +116,21 @@ module GraphWeaver
 
       # the short label a report groups this refusal under
       def label = CATEGORIES.fetch(category).first
+
+      # Refuse a supergraph the routing table couldn't read whole. An unread
+      # @join__ construct leaves the table incomplete, so every answer drawn
+      # from it is a guess — including which schema serves which subgraph, so
+      # this comes before resolving those. Router and Coverage both refuse at
+      # construction, before any query, and say it the same way.
+      def self.unsupported!(table)
+        return if table.unsupported.empty?
+
+        raise new(
+          "this supergraph uses federation constructs the local router doesn't read: " +
+            table.unsupported.join("; "),
+          category: :unsupported_federation,
+        )
+      end
 
       def to_h = super.merge("category" => category.to_s, "detail" => detail)
     end
@@ -242,17 +258,7 @@ module GraphWeaver
         @context = context
         @trace = []
 
-        # refuse at construction, not per query: an unread @join__ construct
-        # means the routing table is incomplete, and every answer it gives
-        # about this supergraph is a guess — including which schema serves
-        # which subgraph, so this comes before resolving those
-        unless @table.unsupported.empty?
-          raise Unplannable.new(
-            "this supergraph uses federation constructs the local router doesn't read: " +
-              @table.unsupported.join("; "),
-            category: :unsupported_federation,
-          )
-        end
+        Unplannable.unsupported!(@table)
 
         served = Subgraphs.resolve(@table, subgraphs)
         @faked = served.select { |_name, schema| schema == Subgraphs::FAKE }.keys.freeze
@@ -378,7 +384,7 @@ module GraphWeaver
       # and includes under @skip — the same way graphql-ruby resolves it.
       def included?(node, variables)
         node.directives.all? do |directive|
-          next true unless %w[skip include].include?(directive.name)
+          next true unless GraphWeaver::Selection::CONDITIONAL_DIRECTIVES.include?(directive.name)
 
           argument = directive.arguments.find { |arg| arg.name == "if" } or next true
           value = argument.value

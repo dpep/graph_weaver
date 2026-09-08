@@ -41,15 +41,8 @@ module GraphWeaver
       def initialize(supergraph:, queries: GraphWeaver.queries_paths, fragments: GraphWeaver.fragments_paths)
         source = supergraph.to_s
         table = GraphWeaver::SchemaLoader.routing_table(source)
-        unless table.unsupported.empty?
-          # the same refusal the Router makes at construction: with the table
-          # incomplete, every number this would report is a guess
-          raise Unplannable.new(
-            "this supergraph uses federation constructs the local router doesn't read: " +
-              table.unsupported.join("; "),
-            category: :unsupported_federation,
-          )
-        end
+        # with the table incomplete, every number this would report is a guess
+        Unplannable.unsupported!(table)
 
         # Planning still runs with `absent` empty — a query is plannable or
         # not whoever is serving. Which subgraphs are *here* is asked

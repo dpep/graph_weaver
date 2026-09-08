@@ -51,8 +51,10 @@ module GraphWeaver
       end
 
       def throttled
-        # array-wrapped so the hash can't parse as kwargs
-        graphql([{ message: "rate limited", extensions: { code: "THROTTLED" } }])
+        # a code from the list #throttled? recognizes, not one spelled here —
+        # a fake that doesn't trip the predicate it exists to exercise is worse
+        # than no fake. (array-wrapped so the hash can't parse as kwargs)
+        graphql([{ message: "rate limited", extensions: { code: GraphWeaver::GraphQLError::THROTTLE_CODES.first } }])
       end
 
       # A validation-shaped rejection — trips schema_stale? and its

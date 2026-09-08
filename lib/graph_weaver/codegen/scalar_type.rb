@@ -171,10 +171,6 @@ class GraphWeaver::Codegen
     end
   end
 
-  # Pre-registered rather than user intent (see register_builtin_scalars!), so
-  # generation doesn't hold a schema to them.
-  BUILTIN_SCALARS = %w[ID String Int Float Boolean Date].freeze
-
   class << self
     # requires: is a require path or list of them; each must be a non-empty
     # String (it is emitted verbatim as `require "..."` atop the generated
@@ -258,4 +254,9 @@ class GraphWeaver::Codegen
   end
 
   register_builtin_scalars!
+
+  # Pre-registered rather than user intent, so generation doesn't hold a schema
+  # to them (validate_registration! skips these). Read off the registry the line
+  # above just filled: a seventh built-in shouldn't have to be named twice.
+  BUILTIN_SCALARS = scalar_registry.keys.freeze
 end

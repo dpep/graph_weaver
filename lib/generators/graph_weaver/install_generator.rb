@@ -242,15 +242,16 @@ module GraphWeaver
       end
 
       # fragments are in documents: too — without them an editor reports
-      # `Unknown fragment` on any query that spreads a shared one
+      # `Unknown fragment` on any query that spreads a shared one. The glob is
+      # codegen's, so the editor validates exactly the files codegen reads.
       def editor_config
         <<~YAML
           # Autocomplete and validation for .graphql files in VS Code / RubyMine.
           # https://github.com/dpep/graph_weaver/blob/main/docs/editors.md
           schema: #{schema_path}
           documents:
-            - #{GraphWeaver.queries_paths.first}/**/*.{graphql,gql}
-            - #{GraphWeaver.fragments_paths.first}/**/*.{graphql,gql}
+            - #{File.join(GraphWeaver.queries_paths.first, GraphWeaver::Codegen::DOCUMENT_GLOB)}
+            - #{File.join(GraphWeaver.fragments_paths.first, GraphWeaver::Codegen::DOCUMENT_GLOB)}
         YAML
       end
     end

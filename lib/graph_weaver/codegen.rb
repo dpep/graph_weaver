@@ -43,6 +43,13 @@ class GraphWeaver::Codegen
   # how anyone with sixty queries organizes them.
   DOCUMENT_GLOB = "**/*.{graphql,gql}"
 
+  # Why every registration takes the constant and never its name. register_enum
+  # and extend_type refuse a String for the same reason, so they say it in the
+  # same words — a reword has to reach both or one starts giving worse advice.
+  AUTOLOAD_HINT = "An autoloaded constant isn't resolvable while config/initializers " \
+    "run; register from a Rails.application.config.to_prepare block, which generation " \
+    "also runs first."
+
   attr_reader :module_name
 
   # A client is anything responding to `execute(query, variables:)`
