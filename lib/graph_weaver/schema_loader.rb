@@ -25,7 +25,7 @@ module GraphWeaver::SchemaLoader
     source = source.to_path if source.respond_to?(:to_path)
 
     if source.lstrip.start_with?("{") # introspection JSON content
-      build_introspection(JSON.parse(source))
+      build_introspection(parse_json(source, "the schema content"))
     elsif sdl_content?(source) # SDL content, one line or many
       build_sdl(source)
     elsif source.include?("\n") # content, but nothing we recognize
@@ -48,7 +48,7 @@ module GraphWeaver::SchemaLoader
   def self.load_path(path)
     case File.extname(path)
     when ".json"
-      build_introspection(JSON.parse(read_schema(path)))
+      build_introspection(parse_json(read_schema(path), path))
     when ".graphql", ".gql"
       build_sdl(read_schema(path))
     else
@@ -65,6 +65,19 @@ module GraphWeaver::SchemaLoader
     raise GraphWeaver::Error, "can't read the schema at #{path}: #{e.message}"
   end
   private_class_method :read_schema
+
+  # A .json that isn't JSON is the corrupt-dump case — a truncated download,
+  # an interrupted write, a login page saved over it. JSON::ParserError names
+  # neither the file nor what it holds, and isn't under the Error umbrella.
+  def self.parse_json(text, source)
+    JSON.parse(text)
+  rescue JSON::ParserError => e
+    holds = text.strip.empty? ? "it is empty" : "it starts #{text.lstrip[0, 60].inspect}"
+    raise GraphWeaver::Error,
+      "#{source} isn't JSON (#{e.message}) — an introspection dump is the whole envelope, " \
+      "{\"data\": {\"__schema\": …}}, and #{holds}"
+  end
+  private_class_method :parse_json
 
   # A bare host is the near miss worth naming: "unsupported schema format"
   # sends you looking at the filesystem when the cause is the missing scheme.
@@ -660,6 +673,9 @@ module GraphWeaver::SchemaLoader
   # The provenance recorded in a dump ({"url" => ..., "introspected_at"
   # => ..., "auth_env" => ...}), whichever format holds it; nil for
   # local/unannotated dumps.
+  # A corrupt dump records nothing readable, which is what nil says — and
+  # `schema:refresh` is the fix for one, so it must not be the thing that
+  # trips over it.
   def self.provenance(path)
     content = File.read(path)
     if path.end_with?(".json")
@@ -667,6 +683,8 @@ module GraphWeaver::SchemaLoader
     elsif (meta = content[/\A# graph_weaver: (\{.*\})$/, 1])
       JSON.parse(meta)
     end
+  rescue JSON::ParserError
+    nil
   end
 
   # The ENV var a dump's token lives in — whichever the generator recorded,

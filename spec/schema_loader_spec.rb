@@ -56,6 +56,29 @@ describe GraphWeaver::SchemaLoader do
       .to raise_error(GraphWeaver::Error, %r{can't read the schema at no/such/schema.graphql})
   end
 
+  # A .json that isn't JSON is the corrupt-dump case — a truncated download,
+  # an interrupted write, a login page saved over it. JSON::ParserError names
+  # neither the file nor what it holds, and escapes the Error umbrella.
+  it "names the file when a .json dump isn't JSON" do
+    login = File.join(@dir, "schema.json")
+    File.write(login, "<!DOCTYPE html>\n<html><body>Sign in</body></html>\n")
+    expect { described_class.load(login) }
+      .to raise_error(GraphWeaver::Error, /#{Regexp.escape(login)} isn't JSON.*Sign in|isn't JSON/m)
+
+    truncated = File.join(@dir, "half.json")
+    File.write(truncated, '{"data": {"__sch')
+    expect { described_class.load(truncated) }
+      .to raise_error(GraphWeaver::Error, /#{Regexp.escape(truncated)} isn't JSON/)
+
+    File.write(File.join(@dir, "empty.json"), "")
+    expect { described_class.load(File.join(@dir, "empty.json")) }
+      .to raise_error(GraphWeaver::Error, /isn't JSON/)
+
+    # the same content handed over directly, with no file to name
+    expect { described_class.load('{"data": {"__sch') }
+      .to raise_error(GraphWeaver::Error, /the schema content isn't JSON/)
+  end
+
   # the near miss worth naming: the cause is the missing scheme, not the format
   it "points a bare host at the url it meant" do
     expect { described_class.load("graphql.anilist.co") }
