@@ -155,6 +155,21 @@ describe "GraphWeaver.generate!" do
       .to raise_error(GraphWeaver::Error, /extend_type\("Ghost"\).*rake graph_weaver:generate/m)
   end
 
+  it "names the fix when a generated file expects an app constant that is gone" do
+    generated = File.join(@dir, "generated")
+    FileUtils.mkdir_p(generated)
+    File.write(File.join(generated, "stale_query.rb"), <<~RUBY)
+      module StaleQuery
+        class Result
+          include PetHelpersGone # registered for Pet
+        end
+      end
+    RUBY
+
+    expect { GraphWeaver.load_generated!(generated) }
+      .to raise_error(GraphWeaver::Error, /PetHelpersGone.*extend_type or register_enum.*rake graph_weaver:generate/m)
+  end
+
   it "loads appended generated_paths — the spec-support pattern" do
     queries = File.join(@dir, "support/graphql/queries")
     output = File.join(@dir, "support/graphql/generated")
