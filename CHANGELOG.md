@@ -1,4 +1,9 @@
 ## Unreleased
+- **`rake graph_weaver:federation:coverage` no longer counts a subgraph as
+  served here when two loaded schemas fit it.** `Router.new` refuses that case
+  — picking either would be a coin flip — so the report was promising a run
+  the suite can't have. It now lands in the "nothing here serves what they
+  reach" list, whose advice (name a schema for those subgraphs) is the fix.
 - **A supergraph that renamed the join spec is now refused instead of read as
   empty.** `@link(url: ".../join/v0.3", as: "j")` spells every marker `j__`,
   which the routing table doesn't follow — so it reported a composed graph with

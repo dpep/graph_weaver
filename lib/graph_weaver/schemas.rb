@@ -12,8 +12,10 @@ module GraphWeaver
   # Two features ask exactly these two questions, and match a schema on the
   # coordinates it defines rather than on its class name: {Testing::Subgraphs}
   # (which schema serves which subgraph) and {Federation::Drift} (has a
-  # subgraph changed without a recompose). They share the answers so the two
-  # can't drift apart.
+  # subgraph changed without a recompose). What they share is this evidence,
+  # not the verdict: Subgraphs wants every type AND field, Drift only the
+  # types — a schema that lost a field is not a candidate to run against, but
+  # is exactly the one Drift has to recognize to report the loss.
   module Schemas
     class << self
       # Every named GraphQL::Schema in the process. An anonymous one is

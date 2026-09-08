@@ -75,6 +75,16 @@ module GraphWeaver
           expected(table, name).reject { |coordinate| GraphWeaver::Schemas.defines?(schema, coordinate) }
         end
 
+        # Is this subgraph served in this process? Exactly one candidate is
+        # what that means: none is somebody else's service, and several is a
+        # question only the caller can answer, so neither is something a suite
+        # can run against. `detect` turns the several into a refusal at
+        # construction; a report counts it as not served here, which is the
+        # same verdict phrased for something that never raises.
+        def served?(table, name, schemas = GraphWeaver::Schemas.loaded)
+          candidates(table, name, schemas).one?
+        end
+
         private
 
         # The schema serving `name`, or nil when nothing here does — the

@@ -75,6 +75,22 @@ describe GraphWeaver::Testing::Coverage do
       .to be < report.report.index("introspection mixed with data")
   end
 
+  # "servable here" has to mean the same thing to the report as to the router
+  # it reports on: two loaded schemas fitting one subgraph is a refusal at
+  # Router.new, so counting it as served would promise a run that can't happen.
+  it "counts a subgraph two loaded schemas fit as not served here" do
+    report = coverage_of(
+      { "annotate.graphql" => "mutation { annotate { id } }" },
+      supergraph: SplitGraph::SUPERGRAPH,
+    )
+
+    expect { GraphWeaver::Testing::Router.new(supergraph: SplitGraph::SUPERGRAPH) }
+      .to raise_error(GraphWeaver::ConfigurationError)
+    expect(report.results.flat_map(&:absent)).to include "b"
+    expect(report.servable).to eq 0
+    expect(report.plannable).to eq 1 # the graph is fine; the process isn't
+  end
+
   # "Is it worth wiring up? Measure." is answered by what a suite can
   # actually *run*, and the partly-local graph the docs call the usual
   # migration shape is exactly where that differs from what plans.
