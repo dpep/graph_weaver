@@ -7,7 +7,12 @@ Gem::Specification.new do |s|
   s.description = "Your .graphql files, compiled into Sorbet types — and the fakes to test them."
   # ".yardopts" explicitly: `git ls-files *` skips dotfiles, and
   # rubydoc.info needs it shipped to render docstrings as markdown
-  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' ':!:examples'`.split("\n") + [".yardopts"]
+  # CLAUDE.md/PLAN.md/REVIEW.md/NOTES.md/DECISIONS.md are written for whoever
+  # works on the gem, not whoever installs it — and REVIEW.md carries examples
+  # from before the API it describes was rewritten
+  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' ':!:examples' \
+                     ':!:CLAUDE.md' ':!:PLAN.md' ':!:REVIEW.md' ':!:NOTES.md' \
+                     ':!:DECISIONS.md' ':!:Makefile'`.split("\n") + [".yardopts"]
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"

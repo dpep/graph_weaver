@@ -67,7 +67,7 @@ metadata.
 
 The derivation is diffed against Apollo's own `composeServices` +
 `toAPISchema()` in
-[`spec/integration/api_schema_spec.rb`](../spec/integration/api_schema_spec.rb),
+[`spec/integration/api_schema_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/integration/api_schema_spec.rb),
 over composed supergraphs carrying `@interfaceObject`, `@join__unionMember`,
 `@join__enumValue` and an aliased `@inaccessible` — identical in each.
 
@@ -224,10 +224,10 @@ is which subgraphs a code path touched and a service object rarely runs one
 query. The rspec tag resets it before each example; outside rspec call
 `router.reset_trace` around the code path you're measuring.
 
-**[`examples/federation.rb`](../examples/federation.rb)** is the whole shape
+**[`examples/federation.rb`](https://github.com/dpep/graph_weaver/blob/main/examples/federation.rb)** is the whole shape
 in one runnable file, and the only example that needs no network: three real
 subgraphs, a boundary-crossing query through a generated module, the trace,
-and a refusal. [`spec/router_spec.rb`](../spec/router_spec.rb) is the
+and a refusal. [`spec/router_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/router_spec.rb) is the
 exhaustive reference — every plan shape, every refusal, the partly-local
 graph and the `:fake` opt-in, each as a named example.
 
@@ -461,7 +461,7 @@ gap is one construct or many. The runs above are against the demo graph in
 
 A double that quietly answered *differently* from the router would be worse
 than no double at all, so
-[`spec/integration/router_parity_spec.rb`](../spec/integration/router_parity_spec.rb)
+[`spec/integration/router_parity_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/integration/router_parity_spec.rb)
 serves the demo subgraphs over HTTP, boots a real `@apollo/gateway` on the same
 supergraph, and runs the whole corpus through both. Three outcomes, one of them
 a defect: match, refuse, or answer differently — and the spec fails on the
@@ -547,4 +547,4 @@ And a `@key(..., resolvable: false)` declares a key this subgraph does *not*
 answer for, so it builds nothing. Key fields typed as scalars get their
 registered Ruby type; anything else (a nested selection) is an open `Hash` the
 runtime narrows. Every shape above is a named example in
-[`spec/federation_spec.rb`](../spec/federation_spec.rb).
+[`spec/federation_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/federation_spec.rb).

@@ -62,7 +62,7 @@ DashboardQuery.execute!.me.username
 ```
 
 All three modes, tagged and running end to end, are
-[`spec/rspec_spec.rb`](../spec/rspec_spec.rb) — the reference for anything
+[`spec/rspec_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/rspec_spec.rb) — the reference for anything
 this page leaves out.
 
 ## Nothing to configure
