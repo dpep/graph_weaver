@@ -94,6 +94,16 @@ describe GraphWeaver::Testing::FakeClient do
 
       expect(keys(query)).to eq %w[name]
     end
+
+    # #object is the _entities seam, and the router has already decided the
+    # directive for the fetch it is sending — reading an unpassed variable
+    # as absent there drops the field it just asked for
+    it "leaves them alone at the object seam, where no variables were passed" do
+      selections = GraphQL.parse('{ person { name email @include(if: $show) } }')
+        .definitions.first.selections.first.selections
+
+      expect(pets.object("Person", selections).keys).to eq %w[name email]
+    end
   end
 
   describe "list length" do

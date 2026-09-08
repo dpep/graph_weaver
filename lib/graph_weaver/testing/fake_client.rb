@@ -106,7 +106,7 @@ class GraphWeaver::Testing::FakeClient
     @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }
     @corrupt = wrap(corrupt)
     @requests = []
-    @variables = {}
+    @variables = nil # unknown until an execute says; see #object
   end
 
   # operation_name: is accepted for contract parity and ignored — one
@@ -146,12 +146,17 @@ class GraphWeaver::Testing::FakeClient
   # {FakeSubgraph} answers a federation `_entities` fetch through, where the
   # representation names the type and the document only ever reached it
   # through an inline fragment.
-  def object(type_name, selections, fragments: {}, variables: {})
+  #
+  # variables: are what @skip/@include read. Left unsaid they are *unknown*,
+  # not empty, and the directives go unevaluated: the router has already
+  # decided them for the fetch it is sending, and reading an unpassed
+  # variable as absent would drop the field it just asked for.
+  def object(type_name, selections, fragments: {}, variables: nil)
     type = @schema.get_type(type_name) or
       raise GraphWeaver::Error, "#{type_name} is not a type of this schema"
 
     @fragments = fragments
-    @variables = variables.to_h { |name, value| [name.to_s, value] }
+    @variables = variables&.to_h { |name, value| [name.to_s, value] }
     @path = []
     @failures = []
     value = object_value(type, selections)
@@ -174,7 +179,8 @@ class GraphWeaver::Testing::FakeClient
   # carry a key under :fake and not under :router. Selection's walk recurses
   # through this method, so filtering here filters at every depth.
   def each_field(type, selections, visiting = Set.new, conditional: false, &block)
-    super(type, selections.reject { |selection| omitted?(selection) }, visiting, conditional:, &block)
+    selections = selections.reject { |selection| omitted?(selection) } if @variables
+    super(type, selections, visiting, conditional:, &block)
   end
 
   # A variable with neither a value nor a declared default reads as absent,
@@ -192,7 +198,7 @@ class GraphWeaver::Testing::FakeClient
 
   def argument_value(argument)
     value = argument.value
-    value.is_a?(GraphQL::Language::Nodes::VariableIdentifier) ? @variables[value.name] : value
+    value.is_a?(GraphQL::Language::Nodes::VariableIdentifier) ? @variables&.[](value.name) : value
   end
 
   # An operation's declared defaults are part of the variables graphql-ruby
