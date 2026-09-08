@@ -161,7 +161,7 @@ module SearchQuery
   # "errors" => ..., "extensions" => ...} with wire-cased string keys.
   sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.from_response(response)
-    raw = GraphWeaver.check_envelope!(response.to_h, Result)
+    raw = GraphWeaver.check_envelope!(response, Result)
     errors = (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) }
     GraphWeaver::Response[Result].new(
       data: (GraphWeaver.cast_data(Result, raw["data"], errors) if raw["data"]),

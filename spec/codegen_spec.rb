@@ -306,6 +306,13 @@ describe GraphWeaver::Codegen do
       expect(PersonQuery.from_response(wrapped).data!.person&.name).to eq "Daniel"
     end
 
+    it "brands a client that answered with something that isn't a response" do
+      client = Object.new.tap { |o| o.define_singleton_method(:execute) { |*, **| "<html>502</html>" } }
+
+      expect { PersonQuery.execute(id: "1", client:) }
+        .to raise_error(GraphWeaver::TypeError, /response must be an object, got String/)
+    end
+
     it "carries top-level errors into the envelope" do
       response = PersonQuery.from_response("errors" => [{ "message" => "boom" }])
       expect(response.errors?).to be true

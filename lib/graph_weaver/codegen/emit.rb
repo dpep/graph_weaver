@@ -499,7 +499,7 @@ class GraphWeaver::Codegen
       out << "  # \"errors\" => ..., \"extensions\" => ...} with wire-cased string keys."
       out << "  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.from_response(response)"
-      out << "    raw = GraphWeaver.check_envelope!(response.to_h, Result)"
+      out << "    raw = GraphWeaver.check_envelope!(response, Result)"
       # errors first: a cast failure is usually a field the server nulled for
       # a reason it stated, and that reason belongs in the raised error
       out << "    errors = (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) }"
