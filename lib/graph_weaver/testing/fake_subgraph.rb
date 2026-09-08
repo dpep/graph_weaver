@@ -46,17 +46,17 @@ module GraphWeaver
       # resolvers here to receive one.
       def execute(query, variables: {}, operation_name: nil, context: nil)
         document = GraphQL.parse(query)
-        entities = entities_field(document)
+        operation = document.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
+        entities = entities_field(operation)
         return @client.execute(query, variables:, operation_name:) unless entities
 
-        { "data" => { "_entities" => entities_value(entities, document, variables) } }
+        { "data" => { "_entities" => entities_value(entities, document, operation, variables) } }
       end
 
       private
 
       # the router sends _entities as the operation's only root field
-      def entities_field(document)
-        operation = document.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
+      def entities_field(operation)
         operation&.selections&.find do |node|
           node.is_a?(GraphQL::Language::Nodes::Field) && node.name == "_entities"
         end
@@ -64,7 +64,7 @@ module GraphWeaver
 
       # one object per representation, in order and as the type it names —
       # which is the contract _entities answers on
-      def entities_value(field, document, variables)
+      def entities_value(field, document, operation, variables)
         fragments = document.definitions
           .grep(GraphQL::Language::Nodes::FragmentDefinition).to_h { |node| [node.name, node] }
 
@@ -72,7 +72,7 @@ module GraphWeaver
           type_name = representation["__typename"] or raise GraphWeaver::Error,
             "a representation sent to #{@name} carries no __typename: #{representation.inspect}"
 
-          @client.object(type_name, field.selections, fragments:)
+          @client.object(type_name, field.selections, fragments:, variables:, operation:)
         end
       end
 

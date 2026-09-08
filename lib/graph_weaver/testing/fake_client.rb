@@ -151,12 +151,15 @@ class GraphWeaver::Testing::FakeClient
   # not empty, and the directives go unevaluated: the router has already
   # decided them for the fetch it is sending, and reading an unpassed
   # variable as absent would drop the field it just asked for.
-  def object(type_name, selections, fragments: {}, variables: nil)
+  # operation: is the definition the selections came from — a faked subgraph
+  # passes it so @skip/@include see the defaults it declares, as graphql-ruby
+  # would. Without it, or variables:, directives stay unevaluated.
+  def object(type_name, selections, fragments: {}, variables: nil, operation: nil)
     type = @schema.get_type(type_name) or
       raise GraphWeaver::Error, "#{type_name} is not a type of this schema"
 
     @fragments = fragments
-    @variables = variables&.to_h { |name, value| [name.to_s, value] }
+    @variables = variables && variable_values(operation, variables)
     @path = []
     @failures = []
     value = object_value(type, selections)

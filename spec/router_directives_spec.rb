@@ -30,3 +30,26 @@ describe GraphWeaver::Testing::Router do
       .to eq({ "data" => { "me" => { "username" => "dpep" } } })
   end
 end
+
+# a faked subgraph answers _entities without ever seeing the operation the
+# router sent — so the defaults it declared have to travel with the selections
+describe GraphWeaver::Testing::FakeSubgraph do
+  subject(:router) do
+    GraphWeaver::Testing::Router.new(
+      supergraph: RouterGraph::SUPERGRAPH,
+      subgraphs: RouterGraph::SUBGRAPHS.merge("reviews" => :fake),
+    )
+  end
+
+  let(:query) { 'query($show: Boolean = true) { me { username reviews { id body @include(if: $show) } } }' }
+
+  it "evaluates a directive inside the faked selection from the declared default" do
+    review = router.execute(query, variables: {}).dig("data", "me", "reviews", 0)
+    expect(review.keys).to eq %w[id body]
+  end
+
+  it "leaves out what the caller's variables exclude" do
+    review = router.execute(query, variables: { "show" => false }).dig("data", "me", "reviews", 0)
+    expect(review.keys).to eq %w[id]
+  end
+end
