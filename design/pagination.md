@@ -152,11 +152,39 @@ on the question. Reading verbs on the answer are fine — `result.products.edges
 is already there and nobody is confused by it — but they must not look like they
 can change what was fetched.
 
-Proposed line:
+### The missing middle is an Enumerator
 
-- on the module (future tense, controls fetching): `pages`, `each_node`,
-  and possibly `each_batch` as an alias for page-at-a-time iteration
-- on the result (past tense, reads only): nothing new
+The module/result split has a gap, and the gap is where ActiveRecord actually
+lives. An AR relation is neither a query nor a result — it is a *pending* query
+you can refine, and that is exactly what makes chaining honest there.
+
+Ruby already has that object: **`Enumerator`, and `Enumerator::Lazy`.** If
+`pages` returns one, the AR ergonomics fall out without a new concept:
+
+```ruby
+pages = ProductsQuery.pages(first: 50)   # nothing fetched yet
+
+pages.first(3)                           # three pages, then stops
+pages.lazy.map { … }.first(200)          # stops as soon as it has 200
+pages.each { |page| … }                  # all of them
+```
+
+`Enumerator#first(n)` is already lazy — it stops early without `.lazy`. `map`
+and `select` are not, so chaining wants `.lazy`, and the docs should say which
+is which rather than leaving it to be discovered.
+
+So there are three things, not two:
+
+| | tense | what it may do |
+|---|---|---|
+| the module | a question | controls what gets fetched — `pages`, `each_node` |
+| the Enumerator | a pending walk | chains, and fetches only as far as it is consumed |
+| the `Result` | an answer | reads only; nothing that looks like it controls fetching |
+
+`res.first(n)` is wrong for the same reason `pages.first(n)` is right: one has
+already paid for its data, the other has not paid yet. Borrowing AR's *shape*
+is fine; what would teach a false model is borrowing it onto the object where
+the fetching is already over.
 
 ## Prerequisite
 
