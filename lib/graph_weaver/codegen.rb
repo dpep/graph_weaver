@@ -178,6 +178,7 @@ class GraphWeaver::Codegen
     inputs.sort.each { |name| input_node(@schema.get_type(name)) }
     enums.uniq.sort.each { |name| variable_core(@schema.get_type(name)) }
     check_shared_collisions!(unions)
+    union_nodes.each { |union| check_shadowing!(union) }
 
     emit_types_files(union_nodes).tap { report_untyped_scalars }
   end
@@ -308,6 +309,7 @@ class GraphWeaver::Codegen
 
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
+    check_shadowing!(root)
 
     # An anonymous operation takes the module's name — declared in the document
     # AND sent as operationName, which have to agree (a server rejects an
@@ -760,6 +762,69 @@ class GraphWeaver::Codegen
     end
 
     node.aliases = resolve_aliases(node)
+    node
+  end
+
+  # A generated class name is only ever a name; Ruby resolves it lexically. So
+  # a struct nesting `class Date < T::Struct` (from a result key `date`) turns
+  # a sibling `Date` scalar prop into that struct, and `Date.iso8601` into a
+  # NoMethodError — the file typechecks against itself and means something
+  # else. Refuse instead, naming both keys: aliasing either one in the query
+  # fixes it. `scope` is what enclosing structs have already introduced, since
+  # a nested class shadows for everything lexically inside it too.
+  def check_shadowing!(node, scope = {})
+    case node
+    when UnionNode
+      members = node.members.each_value.to_a + [node.catch_all].compact
+      inner = scope.merge(members.to_h { |m| [m.class_name, "the member struct #{m.class_name}"] })
+      members.each { |member| check_shadowing!(member, inner) }
+    when ObjectNode
+      nested = node.fields.filter_map { |field|
+        child = field.node.nested
+        [child, field.key] if child && !module_level?(child)
+      }.uniq(&:first)
+      inner = scope.merge(nested.to_h { |child, key| [child.class_name, "the class result key #{key.inspect} generates"] })
+
+      external_constants(node).each do |name, source|
+        shadow = inner[name] or next
+
+        raise GraphWeaver::Error,
+          "#{source} resolves to #{name}, but #{shadow} is also named #{name} and shadows it " \
+          "inside #{node.class_name} — alias one in the query to a distinct name"
+      end
+
+      nested.each { |child, _| check_shadowing!(child, inner) }
+    end
+  end
+
+  # Constants a struct's body names but doesn't define: the runtimes it always
+  # mentions, a registered scalar's Ruby type, a module-level enum, a hoisted
+  # union's alias, an extend_type mixin. Keyed by the constant's first segment,
+  # which is all Ruby resolves — `Money::Amount` goes through `Money`.
+  def external_constants(node)
+    refs = { "T" => "the Sorbet runtime", "GraphWeaver" => "the GraphWeaver runtime" }
+    node.mixins.each { |mixin| refs[root_constant(mixin)] ||= "the mixin #{mixin} registered with extend_type" }
+
+    node.fields.each do |field|
+      child = field.node.nested
+      name = if child
+        next unless module_level?(child)
+
+        child.class_name
+      else
+        root_constant(unwrapped(field.node).bare_type)
+      end
+      refs[name] ||= "result key #{field.key.inspect}"
+    end
+    refs
+  end
+
+  def root_constant(name) = name[/\A[A-Za-z_]\w*/]
+
+  # a leaf node with its NON_NULL/LIST wrappers removed
+  def unwrapped(node)
+    node = T.let(node, T.untyped)
+    node = node.of while node.is_a?(NonNull) || node.is_a?(List)
     node
   end
 

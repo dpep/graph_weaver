@@ -148,6 +148,41 @@ describe "generated class naming" do
     end
   end
 
+  describe "names that would shadow a constant the file uses" do
+    let(:shadowy) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        scalar Date
+        enum Species { DOG CAT }
+        type Info { note: String }
+        type Pet { info: Info, kind: Species, born: Date, tag: Info }
+        type Query { pet: Pet }
+      GRAPHQL
+    end
+
+    def generate(query)
+      GraphWeaver::Codegen.generate(schema: shadowy, query:, module_name: "Q")
+    end
+
+    it "refuses a class name that shadows the enum a sibling field reads" do
+      expect { generate("query Q { pet { species: info { note } kind } }") }
+        .to raise_error(GraphWeaver::Error, /"kind" resolves to Species.*"species".*shadows it inside Pet/)
+    end
+
+    it "refuses a class name that shadows a registered scalar's Ruby type" do
+      GraphWeaver.register_scalar("Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date")
+
+      expect { generate("query Q { pet { date: info { note } born } }") }
+        .to raise_error(GraphWeaver::Error, /"born" resolves to Date/)
+    ensure
+      GraphWeaver::Codegen.reset_scalars!
+    end
+
+    it "allows the same name where nothing lexically reaches it" do
+      # `tag` nests a Species struct, but the enum is read on a different branch
+      expect { generate("query Q { pet { species: info { note } tag { note } } }") }.not_to raise_error
+    end
+  end
+
   describe "structurally identical selections" do
     let(:contacts) do
       GraphQL::Schema.from_definition(<<~GRAPHQL)
