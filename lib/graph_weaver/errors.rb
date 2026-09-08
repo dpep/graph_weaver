@@ -189,12 +189,32 @@ module GraphWeaver
       extensions["code"] || @error_type
     end
 
-    # Message shapes servers use when they reject the *shape* of a query
-    # (unknown field/type/argument). Heuristic by necessity: only Apollo
-    # sets a standard code (GRAPHQL_VALIDATION_FAILED); graphql-ruby and
-    # GitHub speak in messages.
+    # Codes a server sets when it rejects the *shape* of a query. Apollo has
+    # one flat code; graphql-ruby names the rule that fired, and it is the
+    # in-process client this library ships, so its drift-shaped rules are
+    # listed rather than guessed at from prose.
+    VALIDATION_CODES = T.let(%w[
+      GRAPHQL_VALIDATION_FAILED
+      undefinedField undefinedType undefinedDirective
+      argumentNotAccepted argumentType argumentLiteralsIncompatible
+      missingRequiredArguments missingRequiredInputObjectAttribute
+      cannotSpreadFragment fragmentOnNonCompositeType
+      variableMismatch variableRequiresValidType variableNotDefined
+      selectionMismatch invalidOneOfInputObject
+    ].to_set.freeze, T::Set[String])
+
+    # For servers that send no code at all. Variable coercion reports through
+    # the message in both dialects, and a required input field appearing is
+    # unambiguous here: a generated input struct enforces its own required
+    # fields, so the app cannot produce that error itself.
     VALIDATION_MESSAGE = T.let(
-      /doesn't exist|Cannot query field|Unknown (field|type|argument)|isn't defined|undefined (field|type)/i,
+      Regexp.union(
+        /doesn't exist/i, /Cannot query field/i, /Unknown (field|type|argument)/i,
+        /is ?n[o']t defined/i, /undefined (field|type)/i, /No such type/i,
+        /can't be spread inside/i, /is missing required arguments/i,
+        /doesn't accept argument/i, /Field is not defined on/i,
+        /was provided invalid value for .+ \(Expected value to not be null\)/i,
+      ),
       Regexp,
     )
 
@@ -203,7 +223,8 @@ module GraphWeaver
     # changed after generation.
     sig { returns(T::Boolean) }
     def validation?
-      code == "GRAPHQL_VALIDATION_FAILED" || VALIDATION_MESSAGE.match?(message)
+      # to_s: a nil code is never a member, and sorbet can't narrow a call
+      VALIDATION_CODES.include?(code.to_s) || VALIDATION_MESSAGE.match?(message)
     end
 
     # The codes servers use to say "you're going too fast". No standard

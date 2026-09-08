@@ -160,9 +160,10 @@ module SearchQuery
   sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }
   def self.from_response(response)
     raw = GraphWeaver.check_envelope!(response.to_h, Result)
+    errors = (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) }
     GraphWeaver::Response[Result].new(
-      data: (Result.from_h(raw["data"]) if raw["data"]),
-      errors: (raw["errors"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },
+      data: (GraphWeaver.cast_data(Result, raw["data"], errors) if raw["data"]),
+      errors:,
       extensions: raw["extensions"] || {},
     )
   end

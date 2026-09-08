@@ -1,4 +1,15 @@
 ## Unreleased
+- **`schema_stale?` now recognises the drift a graphql-ruby server reports.**
+  It matched Apollo's one flat code plus a message pattern, but graphql-ruby —
+  which this library ships as its in-process client — names the rule that fired
+  in `extensions.code`. So a renamed type, a removed argument, an argument that
+  became required and four other drift shapes all raised without the one
+  sentence telling you to refresh the dump and regenerate, and `to_h` reported
+  `"schema_stale": false`.
+- **A cast failure keeps the server's own explanation.** A field that came back
+  null *with a reason* — a permission rule, a partial outage — raised only
+  Sorbet's nil complaint, because the generated envelope built `data` before it
+  read `errors`. The reason is now in the message. **Regenerate** to pick it up.
 - **Cassette anonymization missed `errors` and `extensions`.** It walked
   `data` and nothing else, so a rejected request's error message — which
   routinely quotes the input that caused it — and whatever the server hangs

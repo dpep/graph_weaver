@@ -68,6 +68,27 @@ module GraphWeaver
     # body has to brand rather than escape as a raw Sorbet TypeError from a sig
     # (which fires before the struct's own rescue can see it). Lives here rather
     # than unrolled into every generated module.
+    # Cast a response's data, keeping the server's own errors on a failure.
+    # The common cause of a cast failure is a field that came back null *with
+    # a reason attached* — a permission rule, a partial outage — and raising
+    # only Sorbet's nil complaint throws that reason away, leaving whoever is
+    # on call with a type error and no explanation.
+    sig do
+      params(struct: T.untyped, data: T.untyped, errors: T::Array[GraphWeaver::GraphQLError])
+        .returns(T.untyped)
+    end
+    def cast_data(struct, data, errors)
+      struct.from_h(data)
+    rescue GraphWeaver::TypeError => e
+      raise if errors.empty?
+
+      detail = e.message.delete_prefix("failed to cast response into #{struct}: ")
+      raise GraphWeaver::TypeError.new(
+        struct:,
+        message: "#{detail} — the server also reported: #{errors.map(&:message).join("; ")}",
+      )
+    end
+
     def check_envelope!(raw, struct)
       unless raw.is_a?(Hash)
         raise GraphWeaver::TypeError.new(struct:, message: "response must be an object, got #{raw.class}")

@@ -500,9 +500,12 @@ class GraphWeaver::Codegen
       out << "  sig { params(response: T.untyped).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.from_response(response)"
       out << "    raw = GraphWeaver.check_envelope!(response.to_h, Result)"
+      # errors first: a cast failure is usually a field the server nulled for
+      # a reason it stated, and that reason belongs in the raised error
+      out << "    errors = (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) }"
       out << "    GraphWeaver::Response[Result].new("
-      out << "      data: (Result.from_h(raw[\"data\"]) if raw[\"data\"]),"
-      out << "      errors: (raw[\"errors\"] || []).map { |e| GraphWeaver::GraphQLError.from_h(e) },"
+      out << "      data: (GraphWeaver.cast_data(Result, raw[\"data\"], errors) if raw[\"data\"]),"
+      out << "      errors:,"
       out << "      extensions: raw[\"extensions\"] || {},"
       out << "    )"
       out << "  end"
