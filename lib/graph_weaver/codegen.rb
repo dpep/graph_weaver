@@ -1135,6 +1135,16 @@ class GraphWeaver::Codegen
   # ("Enum values must be assigned to constants") — catch it here instead.
   def enum_values(core)
     values = core.values.keys.sort
+    # `_` and `__` are legal GraphQL enum values and camelize to nothing, so
+    # the emitted `= new("_")` isn't even parseable — the file fails at load
+    # with a syntax error pointing into generated source
+    nameless = values.find { |value| !camelize(value.downcase).match?(/\A[A-Z]/) }
+    if nameless
+      raise GraphWeaver::Error,
+        "enum #{core.graphql_name} value #{nameless} makes no constant name — map the enum onto " \
+        "one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
+    end
+
     collision = values.group_by { |value| camelize(value.downcase) }.find { |_, group| group.size > 1 }
     if collision
       raise GraphWeaver::Error,

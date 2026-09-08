@@ -536,6 +536,15 @@ describe GraphWeaver::Codegen do
         .to raise_error(GraphWeaver::Error, /ACTIVE and active both become the constant Active/)
     end
 
+    it "refuses an enum value that spells no constant at all" do
+      # `_` is a legal GraphQL enum value; the emitted `= new("_")` is not
+      # legal Ruby, so the file died with a syntax error at load
+      schema = GraphQL::Schema.from_definition("enum E { _ X }\ntype Query { e: E }")
+
+      expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", module_name: "Q") }
+        .to raise_error(GraphWeaver::Error, /value _ makes no constant name/)
+    end
+
     it "leaves values that merely look alike alone" do
       schema = GraphQL::Schema.from_definition(
         "enum E { AB A_B IN_PROGRESS INPROGRESS }\ntype Query { e: E }",
