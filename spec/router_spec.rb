@@ -228,6 +228,27 @@ describe GraphWeaver::Testing::Router do
       expect(router).to have_fetched_subgraphs "reviews", "accounts"
     end
 
+    # a sub-document carries no fragment definitions, so a spread that reached
+    # one names a fragment the subgraph has never seen
+    it "spells a named fragment inline once it crosses a boundary" do
+      query = <<~GQL
+        query($h: Boolean!) { me { username reviews { author { ...ids } } } }
+        fragment ids on User { id username @skip(if: $h) }
+      GQL
+
+      expect(router.execute(query, variables: { "h" => false }).fetch("data"))
+        .to eq({
+          "me" => {
+            "username" => "dpep",
+            "reviews" => [
+              { "author" => { "id" => "1", "username" => "dpep" } },
+              { "author" => { "id" => "1", "username" => "dpep" } },
+            ],
+          },
+        })
+      expect(router.trace.last[:query]).to include "... on User"
+    end
+
     it "leaves a skipped stitched field absent rather than null" do
       query = "query($hide: Boolean!) { me { username reviews @skip(if: $hide) { body } } }"
 

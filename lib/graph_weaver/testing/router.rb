@@ -1015,7 +1015,7 @@ module GraphWeaver
             # the boundary rules govern stitching, so they have no business
             # applying to a query that was never going to cross one
             if node.name.start_with?("__") || local?(type_name, [node], subgraph, fragments, provided)
-              here.selections << node
+              here.selections << inline_spreads(node, fragments)
               next
             end
 
@@ -1041,6 +1041,33 @@ module GraphWeaver
           here.injected = (here.keys + here.prefetches.flat_map(&:paths))
             .map { |path| Router::PREFIX + path.split(".").first }.uniq
           here
+        end
+
+        # A subtree that goes over as written may still hold a fragment spread
+        # — `narrow` only expands the ones at a position it routes. A fetch
+        # carries no fragment definitions, so spell each spread as the inline
+        # fragment it is: same condition, same directives, and the variables
+        # inside it now reachable by used_variables.
+        def inline_spreads(node, fragments, depth = 0)
+          refuse(:too_deep, "this operation nests deeper than #{MAX_DEPTH} levels") if depth > MAX_DEPTH
+          selections = node.respond_to?(:selections) ? node.selections : []
+          return node if selections.empty?
+
+          node.merge(selections: selections.map do |child|
+            inline_spreads(spread_inline(child, fragments), fragments, depth + 1)
+          end)
+        end
+
+        def spread_inline(node, fragments)
+          return node unless node.is_a?(GraphQL::Language::Nodes::FragmentSpread)
+
+          fragment = fragments[node.name] or
+            refuse(:undefined_fragment, "the document spreads ...#{node.name}, which it never defines")
+          GraphQL::Language::Nodes::InlineFragment.new(
+            type: GraphQL::Language::Nodes::TypeName.new(name: fragment.type.name),
+            directives: node.directives,
+            selections: fragment.selections,
+          )
         end
 
         # The field resolves in this subgraph but something under it doesn't.
