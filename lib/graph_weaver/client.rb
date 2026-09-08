@@ -157,6 +157,11 @@ class GraphWeaver::Client
   def build_transport(url, auth:, headers:, kind:, open_timeout: nil, read_timeout: nil, &middleware)
     headers = headers.dup
     if auth
+      unless auth.is_a?(String)
+        raise ArgumentError, "auth: takes a token string, got #{auth.class} — other headers go in " \
+          "headers:, and a token that rotates goes in the Faraday middleware block"
+      end
+
       headers["Authorization"] ||= auth.include?(" ") ? auth : "Bearer #{auth}"
     end
 

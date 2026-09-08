@@ -27,6 +27,15 @@ describe GraphWeaver::Client do
       expect(@requests.last[:headers]["x-api-key"]).to eq ["k"]
     end
 
+    # a header Hash interpolated into "Bearer #{...}" reaches the server as
+    # nonsense and comes back a 401 with nothing pointing at the cause
+    it "refuses an auth: that isn't a token" do
+      [{ "X-Api-Key" => "k" }, -> { "t0ken" }, :t0ken].each do |wrong|
+        expect { GraphWeaver.new(url, auth: wrong) }
+          .to raise_error(ArgumentError, /auth: takes a token string/)
+      end
+    end
+
     it "stays on the built-in transport even when faraday is loaded" do
       expect(defined?(::Faraday)).to be_truthy # transitively present, never chosen
 
