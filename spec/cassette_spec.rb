@@ -274,6 +274,19 @@ describe GraphWeaver::Testing::Cassette do
       expect(ids[0]).not_to eq "7"     # and the original is gone
     end
 
+    # codegen merges a key selected twice into one struct, so an anonymizer
+    # that kept only the last occurrence wrote a cassette its own
+    # cassettes:check couldn't read
+    it "keeps a key selected twice, in the merged shape codegen generates for" do
+      merged = "query { people { id name } people { email } }"
+      cassette = described_class.new(path)
+      cassette.record(merged, {}, { "data" => { "people" => [{ "id" => "7", "name" => "A", "email" => "a@b.test" }] } })
+      cassette.anonymize!(schema: Demo::Schema, seed: 5)
+
+      person = described_class.new(path).lookup(merged, {}).dig("response", "data", "people", 0)
+      expect(person.keys).to contain_exactly("id", "name", "email")
+    end
+
     it "anonymized cassettes still cast through generated modules" do
       GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" },
@@ -315,6 +328,85 @@ describe GraphWeaver::Testing::Cassette do
 
       named = described_class.new(path).lookup(query, {}).dig("response", "data", "named")
       expect(named).to have_key("species") # was dropped before the anonymizer relaxation
+    end
+  end
+
+  # A cassette gets committed, so what reaches the file is the security
+  # boundary. Every credential below is synthesized to LOOK like one —
+  # none of them is real, and none of them opens anything.
+  describe "secrets" do
+    let(:jwt) { "eyJhbGciOiJIUzI1NiJ9.ZmFrZS1wYXlsb2Fk.c2lnbmF0dXJl" }
+    let(:github_token) { "ghp_0123456789abcdef0123456789abcdef0123" }
+    let(:query) { 'query { person(id: "1") { name } }' }
+
+    # the classic leak: a server quotes the input back in the message it
+    # rejects it with, and hangs its own data off extensions
+    let(:failure) do
+      {
+        "data" => nil,
+        "errors" => [{
+          "message" => "invalid password 'hunter2' for real@customer.test",
+          "path" => ["person"],
+          "extensions" => { "code" => "BAD_AUTH", "upstreamToken" => github_token },
+        }],
+        "extensions" => { "tracing" => { "authorization" => "Bearer #{jwt}" } },
+      }
+    end
+
+    def anonymized
+      cassette = described_class.new(path)
+      # recording writes the raw response first, and says so — asserted here
+      # only to keep it out of the suite's output; its own example is below
+      expect { cassette.record(query, {}, failure) }.to output(/contains/).to_stderr
+      cassette.anonymize!(schema: Demo::Schema, seed: 5)
+      described_class.new(path)
+    end
+
+    it "scrubs an error message and its extensions, keeping what replay reads" do
+      error = anonymized.lookup(query, {}).dig("response", "errors", 0)
+
+      expect(error["message"]).not_to include("hunter2")
+      expect(error["message"]).not_to include("real@customer.test")
+      expect(error["extensions"]["upstreamToken"]).not_to eq github_token
+      expect(error["path"]).to eq ["person"]               # points into the query, not at data
+      expect(error["extensions"]["code"]).to eq "BAD_AUTH" # branched on, like an enum
+    end
+
+    it "scrubs extensions outside data" do
+      anonymized
+      expect(File.read(path)).not_to include(jwt)
+    end
+
+    it "scrubs a response that is nothing but errors" do
+      live = Struct.new(:response) do
+        def execute(_query, variables: {}, operation_name: nil) = response
+      end
+      GraphWeaver::Testing.configure do |config|
+        config.schema = Demo::Schema
+        config.anonymize = true
+        config.seed = 5
+      end
+
+      returned = GraphWeaver::Testing::Recorder.new(live.new(failure), path).execute(query)
+
+      expect(File.read(path)).not_to include("hunter2")
+      # the caller sees what was written, so assertions made now hold on replay
+      expect(returned.dig("errors", 0, "message")).to eq described_class.new(path)
+        .lookup(query, {}).dig("response", "errors", 0, "message")
+    end
+
+    # anonymization can't reach the variables — they're the replay key — so
+    # the last line of defence is saying what landed in the file
+    it "warns when a credential shape reaches the file" do
+      expect {
+        described_class.new(path).record(query, { "token" => github_token }, { "data" => nil })
+      }.to output(/a GitHub token/).to_stderr
+    end
+
+    it "says nothing about a cassette with no credential shape in it" do
+      expect {
+        described_class.new(path).record(query, { "id" => "1" }, { "data" => { "person" => { "name" => "Daniel" } } })
+      }.not_to output.to_stderr
     end
   end
 end

@@ -1,4 +1,25 @@
 ## Unreleased
+- **Cassette anonymization missed `errors` and `extensions`.** It walked
+  `data` and nothing else, so a rejected request's error message — which
+  routinely quotes the input that caused it — and whatever the server hangs
+  off `extensions` went to disk verbatim, under a flag that says real data
+  never reaches it. **Re-run `rake graph_weaver:cassettes:anonymize` on any
+  cassette you've already committed**, or re-record it. Neither key has a
+  schema behind it, so both are now walked by shape: keys, nesting, nulls and
+  booleans survive and every string and number is replaced, with `path`,
+  `locations` and an error's `extensions.code` kept because they describe the
+  request rather than the data.
+- **Recording flags a credential that lands in the file.** A cassette gets
+  committed as written, and its query and variables can't be anonymized —
+  they're the key replay matches on. So the bytes headed for disk are checked
+  for the shapes that are unmistakable (a JWT, `AKIA…`, `ghp_…`, `xox…`,
+  `sk_live_…`, a PEM block, a `Bearer` header) and named on stderr once per
+  cassette. Nothing is rewritten; a password like `hunter2` has no shape, so a
+  quiet run still isn't a clean bill of health.
+- **An anonymized cassette no longer drops a key selected twice.** The
+  anonymizer kept the last occurrence's sub-selection where codegen merges
+  them, so `a { x } a { y }` came back holding only `y` — a recording that
+  then failed its own `cassettes:check`.
 - **Three generated types disagreed with the schema.** `srb tc` proves the
   generated code is self-consistent, not that it is true, so each of these was a
   lie the typechecker endorsed. **Regenerate** to pick them up:

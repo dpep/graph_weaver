@@ -89,11 +89,29 @@ module GraphWeaver
       # One recording the generated structs can no longer read.
       Stale = Struct.new(:module_name, :variables, :message, keyword_init: true)
 
+      # Shapes that are a credential whatever the field around them is
+      # called. Anonymization can't cover everything a cassette holds — the
+      # variables ARE the replay key, so they're written verbatim — so the
+      # bytes that reach disk get one look before anyone commits them.
+      # Deliberately narrow: a false alarm costs a glance, while a password
+      # like "hunter2" has no shape at all, so a quiet run is not a clean
+      # bill of health.
+      CREDENTIAL_SHAPES = {
+        "a JWT" => /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./,
+        "an AWS access key" => /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
+        "a GitHub token" => /\b(?:gh[opusr]|github_pat)_[A-Za-z0-9_]{20,}/,
+        "a Slack token" => /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+        "a Stripe key" => /\bsk_(?:live|test)_[A-Za-z0-9]{10,}/,
+        "a private key" => /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+        "an Authorization header" => /\bBearer\s+\S{16,}/,
+      }.freeze
+
       attr_reader :path
 
       def initialize(path)
         @path = Testing.cassette_path(path)
         @entries = File.exist?(@path) ? YAML.safe_load_file(@path, aliases: true) : []
+        @flagged = []
       end
 
       def exist? = File.exist?(@path)
@@ -161,8 +179,7 @@ module GraphWeaver
       def anonymize!(schema:, seed: nil, mode: nil)
         anonymizer = Anonymizer.new(schema:, seed:, mode:)
         @entries.each do |entry|
-          data = entry.dig("response", "data")
-          entry["response"]["data"] = anonymizer.anonymize(entry["query"], data) if data
+          entry["response"] = anonymizer.anonymize(entry["query"], entry["response"]) if entry["response"]
         end
         save
         self
@@ -201,8 +218,25 @@ module GraphWeaver
       private
 
       def save
+        yaml = YAML.dump(@entries)
         FileUtils.mkdir_p(File.dirname(@path))
-        File.write(@path, YAML.dump(@entries))
+        File.write(@path, yaml)
+        flag_credentials(yaml)
+      end
+
+      # Once per shape per cassette: a recording run saves after every
+      # request, and one line is a warning where forty is noise. On stderr
+      # rather than GraphWeaver.logger — the logger is silent by default,
+      # and this has to reach whoever is about to commit the file.
+      def flag_credentials(yaml)
+        found = CREDENTIAL_SHAPES.reject { |name, _| @flagged.include?(name) }
+          .select { |_, pattern| pattern.match?(yaml) }.keys
+        return if found.empty?
+
+        @flagged.concat(found)
+        warn "graph_weaver: #{@path} contains #{found.join(", ")} — a cassette is committed as " \
+          "written, so review this one first. Testing.config.anonymize scrubs the response; the " \
+          "query and variables are the replay key and are recorded verbatim."
       end
     end
 
@@ -227,9 +261,7 @@ module GraphWeaver
 
       def execute(query, variables: {}, operation_name: nil)
         response = @client.execute(query, variables:, operation_name:).to_h
-        if @anonymizer && (data = response["data"])
-          response = response.merge("data" => @anonymizer.anonymize(query, data))
-        end
+        response = @anonymizer.anonymize(query, response) if @anonymizer
 
         @cassette.record(query, variables, response, operation_name)
         response
@@ -260,18 +292,52 @@ module GraphWeaver
     class Anonymizer
       include GraphWeaver::Selection
 
+      # Keys under `errors`/`extensions` whose value describes the request
+      # rather than carrying data: `path` and `locations` point into the
+      # document, and `code` is the errors-world enum — call sites branch on
+      # it exactly as they branch on an enum in `data`, which is preserved
+      # for the same reason.
+      VERBATIM_KEYS = %w[path locations code].freeze
+
       def initialize(schema:, seed: nil, mode: nil)
         @schema = schema
         @values = Values.new(seed:, mode:)
       end
 
-      def anonymize(query, data)
-        operation = load_operation(query)
-
-        object_value(operation_root_type(operation), operation.selections, data)
+      # The whole response, not just `data`: an error message routinely
+      # quotes the input that caused it, and `extensions` is whatever the
+      # server felt like attaching. One rule — `data` is walked against the
+      # schema, everything else by shape.
+      def anonymize(query, response)
+        response.to_h do |key, value|
+          [key, (key == "data") ? data_value(query, value) : untyped_value(key, value)]
+        end
       end
 
       private
+
+      def data_value(query, data)
+        return if data.nil?
+
+        operation = load_operation(query)
+        object_value(operation_root_type(operation), operation.selections, data)
+      end
+
+      # No schema stands behind errors or extensions, so shape is all there
+      # is to preserve: keys, nesting, list lengths, nulls and booleans
+      # survive; every string and number is replaced.
+      def untyped_value(key, value)
+        return value if VERBATIM_KEYS.include?(key)
+
+        case value
+        when Hash then value.to_h { |name, nested| [name, untyped_value(name, nested)] }
+        when Array then value.map { |element| untyped_value(key, element) }
+        when String then @values.scalar("String", key)
+        when Integer then @values.scalar("Int", key)
+        when Float then @values.scalar("Float", key)
+        else value
+        end
+      end
 
       # Anonymization walks recorded data, not a live dispatch. When the query
       # narrows an abstract type without selecting __typename (`named { name
@@ -295,42 +361,45 @@ module GraphWeaver
         end
 
         result = {}
-        each_field(type, selections) do |key, node|
+        # gather (not each_field) so a key selected twice — `a { x } a { y }` —
+        # keeps the MERGED shape codegen's struct expects, not last-writer-wins
+        gather(type, selections).each do |key, nodes|
           next unless data.key?(key)
 
+          node = nodes.first
           result[key] = if node.name == "__typename"
             data[key]
           else
-            field_value(type, node, data[key])
+            field_value(type, node.name, nodes.flat_map(&:selections), data[key])
           end
         end
 
         result
       end
 
-      def field_value(parent_type, node, value)
+      def field_value(parent_type, name, selections, value)
         # a field from a `... on Member` fragment lives on the member, not the
         # abstract type we're walking (no __typename to narrow by), so fall back
         # to whichever possible type declares it
-        field = @schema.get_field(parent_type.graphql_name, node.name) ||
-          @schema.possible_types(parent_type).filter_map { |t| @schema.get_field(t.graphql_name, node.name) }.first
-        type_value(field.type, node, value)
+        field = @schema.get_field(parent_type.graphql_name, name) ||
+          @schema.possible_types(parent_type).filter_map { |t| @schema.get_field(t.graphql_name, name) }.first
+        type_value(field.type, name, selections, value)
       end
 
-      def type_value(type, node, value)
+      def type_value(type, name, selections, value)
         return if value.nil? # preserve null positions
 
         case type.kind.name
         when "NON_NULL"
-          type_value(type.of_type, node, value)
+          type_value(type.of_type, name, selections, value)
         when "LIST"
-          value.map { |element| type_value(type.of_type, node, element) }
+          value.map { |element| type_value(type.of_type, name, selections, element) }
         when "SCALAR"
-          scalar_value(type.graphql_name, node.name, value)
+          scalar_value(type.graphql_name, name, value)
         when "ENUM"
           value # enums aren't PII; preserving them keeps semantics
         when "OBJECT", "UNION", "INTERFACE"
-          object_value(type, node.selections, value)
+          object_value(type, selections, value)
         else
           value
         end

@@ -82,9 +82,29 @@ preserving everything that makes the recording faithful:
 | enums, booleans, `__typename` | numbers, dates |
 | id *relationships* (same original id → same fake id) | the id values themselves |
 
-It needs the schema — it walks each recorded query's selections to know which
-values are enums, dates, ids. Variables are NOT anonymized: they're the replay
-matching key, so don't record with secret variables.
+`data` is walked against the schema — which is why it needs one, to know which
+values are enums, dates, ids. `errors` and `extensions` have none behind them,
+so they're walked by shape instead: keys, nesting and structure survive, every
+string and number is replaced. `path`, `locations` and an error's
+`extensions.code` are kept, because they describe the request rather than the
+data — and call sites branch on `code` the way they branch on an enum.
+
+**The query and its variables are not anonymized.** They're the key replay
+matches on, so scrubbing them would make the recording unfindable. A mutation's
+input is often the sensitive part, so record with placeholder variables, or
+don't record that request.
+
+Recording says so when the bytes it wrote look like a credential:
+
+```
+graph_weaver: spec/cassettes/github.yml contains a JWT, a GitHub token — a
+cassette is committed as written, so review this one first. …
+```
+
+It recognizes tokens by shape — a JWT, `AKIA…`, `ghp_…`, `xox…`, `sk_live_…`, a
+PEM block, a `Bearer` header — which is every credential that is unmistakable
+and nothing else. A password like `hunter2` has no shape, so a quiet run is not
+a clean bill of health: **read a cassette before committing it.**
 
 For cassettes recorded before the flag was on:
 

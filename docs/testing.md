@@ -310,9 +310,10 @@ them offline, above the transport (no HTTP interception):
 client = GraphWeaver::Testing.cassette("github", client: live)
 ```
 
-Re-record with `GRAPHWEAVER_RECORD=1`, and set `config.anonymize = true` so
-real data never lands in a committed file — the full workflow guide is
-**[cassettes](cassettes.md)**.
+Re-record with `GRAPHWEAVER_RECORD=1`, and set `config.anonymize = true` so the
+response is scrubbed on its way to disk — the query and its variables are the
+replay key and are recorded verbatim, so read a cassette before committing it.
+The full workflow guide is **[cassettes](cassettes.md)**.
 
 ## Real resolvers, one schema — `graphql: :in_process`
 
