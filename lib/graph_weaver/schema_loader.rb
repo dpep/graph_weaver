@@ -52,9 +52,9 @@ module GraphWeaver::SchemaLoader
     when ".graphql", ".gql"
       build_sdl(read_schema(path))
     else
-      raise GraphWeaver::Error,
-        "unsupported schema format: #{path} — expected a .json (introspection) or " \
-        ".graphql/.gql (SDL) path, or the content itself#{url_hint(path)}"
+      raise GraphWeaver::Error, url_error(path) ||
+        "unsupported schema format: #{truncate(path)} — expected a .json (introspection) or " \
+        ".graphql/.gql (SDL) path, or the content itself"
     end
   end
   private_class_method :load_path
@@ -79,21 +79,29 @@ module GraphWeaver::SchemaLoader
   end
   private_class_method :parse_json
 
-  # A bare host is the near miss worth naming: "unsupported schema format"
-  # sends you looking at the filesystem when the cause is the missing scheme.
-  HOST_LIKE = %r{\A[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:/\S*)?\z}i
+  # A url with its scheme left off is the near miss worth leading with:
+  # "unsupported schema format" sends you looking at the filesystem when what
+  # you have is an endpoint. A dotted host, or any host carrying a port —
+  # localhost:4000 is the likeliest one to type and has no dot at all.
+  HOST_LIKE = %r{\A[a-z0-9-]+(?:(?:\.[a-z0-9-]+)+(?::\d+)?|:\d+)(?:/\S*)?\z}i
   # dotted-but-not-a-host: a file whose extension we simply don't read
   FILE_SUFFIXES = %w[yaml yml txt xml sdl md rb erb].freeze
 
-  def self.url_hint(source)
+  def self.url_error(source)
     return unless source.match?(HOST_LIKE)
 
     suffix = source[%r{\A[^/:]+}].to_s[/[^.]+\z/].to_s
     return if FILE_SUFFIXES.include?(suffix.downcase)
 
-    %( — "#{source}" looks like a host; did you mean "https://#{source}"?)
+    %("#{source}" looks like a url, not a path — did you mean "https://#{source}"? ) +
+      "A schema source is a .json (introspection) or .graphql/.gql (SDL) dump, or the content itself"
   end
-  private_class_method :url_hint
+  private_class_method :url_error
+
+  # a source we can't read is quoted back so it's recognizable, not reprinted
+  # — an unrecognized 3 MB dump would otherwise BE the error message
+  def self.truncate(source) = (source.length > 120) ? "#{source[0, 120]}…" : source
+  private_class_method :truncate
 
   # Build a schema from SDL, first normalizing whichever federation artifact
   # it is: a composed supergraph gets its composition machinery stripped (so
@@ -629,7 +637,6 @@ module GraphWeaver::SchemaLoader
     schema = GraphQL::Schema.from_introspection(result)
 
     if cache
-      FileUtils.mkdir_p(File.dirname(cache))
       # the extension picks the format: .json is the verbatim wire
       # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
       # diffs (both generate byte-identical code)
@@ -640,7 +647,16 @@ module GraphWeaver::SchemaLoader
         header = meta && "# graph_weaver: #{JSON.generate(meta)}\n\n"
         "#{header}#{schema.to_definition}"
       end
-      GraphWeaver.atomic_write(cache, content)
+      begin
+        FileUtils.mkdir_p(File.dirname(cache))
+        GraphWeaver.atomic_write(cache, content)
+      rescue SystemCallError => e
+        # the introspection worked and the write didn't, which a bare Errno
+        # says neither of — and cache: is the argument to change
+        raise GraphWeaver::Error,
+          "introspected #{endpoint(transport)} but couldn't write the schema cache " \
+          "to #{cache}: #{e.message}"
+      end
       GraphWeaver.log(:info) { "wrote schema cache: #{cache} (#{content.bytesize} bytes)" }
     end
 

@@ -84,9 +84,24 @@ describe GraphWeaver::SchemaLoader do
     expect { described_class.load("graphql.anilist.co") }
       .to raise_error(GraphWeaver::Error, %r{did you mean "https://graphql.anilist.co"})
 
-    # a file whose format we simply don't read isn't a host
+    # host:port has no dot at all — and a dev gateway is the likeliest url to type
+    expect { described_class.load("localhost:4000/graphql") }
+      .to raise_error(GraphWeaver::Error, %r{did you mean "https://localhost:4000/graphql"})
+
+    # a file whose format we simply don't read isn't a url
     expect { described_class.load("schema.yaml") }.to raise_error(GraphWeaver::Error) do |e|
-      expect(e.message).not_to include("host")
+      expect(e.message).not_to include("did you mean")
+    end
+    expect { described_class.load("no/such/place.txt") }.to raise_error(GraphWeaver::Error) do |e|
+      expect(e.message).not_to include("did you mean")
+    end
+  end
+
+  # content with no newline falls through to the path branch, and a schema
+  # dump quoted whole into an error message is not an error message
+  it "keeps an unrecognized source out of the message at length" do
+    expect { described_class.load("x" * 5_000) }.to raise_error(GraphWeaver::Error) do |e|
+      expect(e.message.length).to be < 400
     end
   end
 
@@ -264,6 +279,13 @@ describe GraphWeaver::SchemaLoader do
         GraphWeaver::Error,
         /records no source url — it wasn't introspected from one\. Pass transport:, or rebuild it from the schema class/,
       )
+    end
+
+    # the introspection succeeded and the write didn't — a bare Errno says
+    # neither, and the cache path is the thing to change
+    it "names the cache path when the dump can't be written" do
+      expect { described_class.introspect(counting_executor, cache: "/nope/schema.json") }
+        .to raise_error(GraphWeaver::Error, %r{couldn't write the schema cache to /nope/schema.json})
     end
 
     it "refreshes the cache when the ttl has elapsed" do
