@@ -110,13 +110,18 @@ module GraphWeaver
       # socket doesn't produce spurious failures.
       def connect
         GraphWeaver.log(:debug) { "connecting to #{@uri.hostname}:#{@uri.port}" }
-        Net::HTTP.start(
+        http = Net::HTTP.start(
           @uri.hostname, @uri.port,
           use_ssl: @uri.scheme == "https",
           open_timeout: @open_timeout, read_timeout: @read_timeout,
           keep_alive_timeout: @keep_alive_timeout,
           **@ssl,
         )
+        # net/http otherwise returns the bytes that did arrive, so a
+        # connection dying mid-body reads as a server answering with garbage —
+        # a permanent ServerError — instead of the retriable EOFError it is
+        http.ignore_eof = false
+        http
       end
 
       # Take a permit, saying so when none is free. A queued request is

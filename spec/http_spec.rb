@@ -175,6 +175,25 @@ describe GraphWeaver::Transport::HTTP do
       .to raise_error(GraphWeaver::TransportError)
   end
 
+  # net/http's ignore_eof default hands back whatever arrived before the
+  # socket died, so a half-sent body looks like a server that answered with
+  # garbage — permanent, and not retried — rather than a dropped connection.
+  it "raises TransportError when the connection dies mid-body" do
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new do
+      socket = server.accept
+      socket.readpartial(4096)
+      socket.write("HTTP/1.1 200 OK\r\nContent-Length: 100\r\nContent-Type: application/json\r\n\r\n{\"da")
+      socket.close
+    end
+    truncated = described_class.new("http://127.0.0.1:#{server.addr[1]}/graphql")
+
+    expect { truncated.execute("query { x }") }.to raise_error(GraphWeaver::TransportError)
+  ensure
+    thread&.join
+    server&.close
+  end
+
   it "reclassifies a user-registered exception (e.g. a pool error) as TransportError" do
     pool_error = Class.new(StandardError)
     GraphWeaver.register_transport_error(pool_error)
