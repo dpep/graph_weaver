@@ -36,8 +36,10 @@ subclass says where it failed:
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#field`, `#struct` |
 | `ValidationError` | build time: the query didn't validate against the schema |
+| `Codegen::Aliases::UnknownSegment` | build time: an [`alias:`](generated_modules.md#flat-accessors-with-alias) path names a field no type here has — a typo, so `optional: true` won't skip it |
 | `ConfigurationError` | setup judged against your schema — which Ruby schema serves which subgraph (`Testing::Router`, `federation:diff`) |
 | `Testing::Unplannable` | the local test router won't plan this operation — `#category`, `#detail` |
+| `Testing::MissingRecording` | a [cassette](cassettes.md) holds no entry for this request — the message prints the variables, and the ones it did record |
 
 An argument that is wrong *on its face* raises a plain `ArgumentError` instead
 (`pool_size: must be >= 1`, `cast: must be a Symbol, Proc, :itself, or nil`),

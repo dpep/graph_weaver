@@ -407,4 +407,25 @@ describe "error handling" do
         .to raise_error(GraphWeaver::InputError, /expected a Hash/)
     end
   end
+
+  # docs/errors.md's table is where a reader meets the hierarchy, and it says
+  # the subclass tells you where it failed — so a class that can reach a
+  # `rescue` has to land there. (Two had never been added when this was
+  # written.) The requires are explicit: what's loaded decides the answer.
+  it "documents every error class" do
+    require "graph_weaver/testing"
+
+    docs = File.read(File.expand_path("../docs/errors.md", __dir__)).delete("`")
+    classes = []
+    queue = GraphWeaver::Error.subclasses
+    until queue.empty?
+      klass = queue.shift
+      classes << klass
+      queue.concat(klass.subclasses)
+    end
+
+    undocumented = classes.map { |klass| klass.name.delete_prefix("GraphWeaver::") }
+      .reject { |name| docs.include?(name) }
+    expect(undocumented).to be_empty
+  end
 end
