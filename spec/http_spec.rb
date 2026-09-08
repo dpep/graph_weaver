@@ -145,6 +145,14 @@ describe GraphWeaver::Transport::HTTP do
     end
   end
 
+  # a scheme-less url parses as a path with no host, and the failure surfaced
+  # as far away as Net::HTTP.start(nil, nil)
+  it "rejects a url it can't POST to" do
+    ["api.example.com/graphql", "ftp://example.test/g", "", "not a url at all"].each do |bad|
+      expect { described_class.new(bad) }.to raise_error(ArgumentError, /http\(s\) url/)
+    end
+  end
+
   it "raises ServerError on a non-2xx response (reached the server)" do
     bad = described_class.new("http://127.0.0.1:#{@port}/nope")
 

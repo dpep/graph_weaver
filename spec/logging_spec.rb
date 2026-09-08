@@ -83,6 +83,18 @@ describe "GraphWeaver.logger" do
     expect(io.string).to include("GraphWeaver::ValidationError: invalid query")
   end
 
+  # debug is the loudest level and the one an incident turns on — the token
+  # has to survive both a success and a failure there
+  it "never logs the auth header, at any level" do
+    headers = { "Authorization" => "Bearer s3cret" }
+    GraphWeaver::Transport::HTTP.new(url, headers:).execute("query { people { name } }")
+
+    bad = GraphWeaver::Transport::HTTP.new("http://127.0.0.1:#{@port}/nope", headers:)
+    expect { bad.execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
+
+    expect(io.string).not_to include("s3cret")
+  end
+
   it "stays silent and lazy without a logger" do
     GraphWeaver.logger = nil
     expect { GraphWeaver.log(:debug) { raise "never evaluated" } }.not_to raise_error

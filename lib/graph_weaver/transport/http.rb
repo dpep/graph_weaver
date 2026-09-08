@@ -39,7 +39,17 @@ module GraphWeaver
         raise ArgumentError, "pool_size: must be >= 1" unless pool_size >= 1
 
         @url = url
-        @uri = URI(url)
+        # a scheme-less url parses as a *path* with no host, and the failure
+        # then lands as far away as Net::HTTP.start(nil, nil)
+        @uri = begin
+          URI(url)
+        rescue URI::InvalidURIError
+          nil
+        end
+        unless %w[http https].include?(@uri&.scheme)
+          raise ArgumentError, "expected an http(s) url, got #{url.inspect}"
+        end
+
         @headers = headers
         @open_timeout = open_timeout
         @read_timeout = read_timeout
