@@ -41,7 +41,7 @@ Green gate is in `CLAUDE.md`; `make check` runs the core of it.
   throughout.
 - **Testing.** Schema-correct fakes, failure simulation, anonymizing cassettes,
   and an in-process federation router that runs real subgraph resolvers —
-  verified against a real `@apollo/gateway` (42 identical, 1 refused, 0 wrong),
+  verified against a real `@apollo/gateway` (72 identical, 2 refused, 0 wrong),
   refusing at plan time anything it can't answer faithfully. One rspec tag picks
   the mode: `graphql: :fake | :in_process | :router`.
 - **Lifecycle.** `generate` / `verify` / `schema:refresh` / `schema:diff` /

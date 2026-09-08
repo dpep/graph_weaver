@@ -52,7 +52,7 @@ response. Its payload carries:
 | Key | |
 |-----|--|
 | `:url` | the endpoint — nil in-process |
-| `:schema` | the schema class, in-process only |
+| `:schema` | the schema class's name, in-process only — a String, so a payload logs as it stands |
 | `:operation` | the operation name sent with the request (a generated module always has one) — what a trace keys on |
 | `:status` | the HTTP status, added once the response lands |
 

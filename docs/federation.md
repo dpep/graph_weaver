@@ -435,7 +435,8 @@ $ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
 the graph — could the router split this query faithfully at all. *Servable
 here* is what your suite actually gets: every subgraph that plan reaches is one
 this process serves. In a [partly-local supergraph](#a-supergraph-only-partly-local)
-they differ, and the plannable number alone reads optimistically:
+they differ, and the plannable number alone reads optimistically — sketched
+here on a graph whose `billing` and `shipping` run elsewhere:
 
 ```
 5/5 queries plannable locally (100%), 2 servable here
@@ -454,7 +455,7 @@ the second number and says it counted planning only. The subgraph line says
 which subgraphs each query touches, so a graph whose queries all sit in one is
 visibly a different situation from one that stitches everywhere. Anything
 refused is listed after it, grouped by category, so one glance says whether the
-gap is one construct or many. The runs above are against the demo graph in
+gap is one construct or many. The first run above is the demo graph in
 `spec/support/federation`, not a real app's mix.
 
 ### How the refusals are kept honest

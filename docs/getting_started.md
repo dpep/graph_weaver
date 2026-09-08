@@ -41,7 +41,7 @@ initializer that fits:
 
 | flag | |
 |---|---|
-| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`. Url only. Name a different one and the initializer follows, but `schema:refresh`/`schema:diff` still read `GRAPHWEAVER_AUTH` — set both |
+| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`. Url only. The name is recorded into the dump, so `schema:refresh`/`schema:diff`/`queries:check` read the same one the initializer does |
 | `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh URL=...` does it later |
 
 Re-running is safe — every file goes through the usual Rails conflict
