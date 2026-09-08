@@ -235,19 +235,22 @@ class GraphWeaver::Codegen
       self
     end
 
-    # Built-in scalars — pre-registered entries in the one registry. The
-    # standard scalars stay pass-through: their Ruby classes (String,
-    # Integer, Float) define neither .parse nor .load, so codec inference
-    # matches nothing and leaves them identity — which is exactly why we
-    # can name them with the real class constants. Date deserializes via
-    # ISO-8601 (it *does* define .parse, but we want iso8601 specifically,
-    # so it's explicit). Whether a variable of one accepts loose input is a
-    # separate, generation-time question — see coercion.
+    # Built-in scalars — pre-registered entries in the one registry. Most stay
+    # pass-through: their Ruby classes (String, Integer) define neither .parse
+    # nor .load, so codec inference matches nothing and leaves them identity —
+    # which is exactly why we can name them with the real class constants.
+    # Float is the exception: JSON has one number type, so a whole Float
+    # arrives as `1` from every encoder that drops the trailing zero
+    # (graphql-js and Go both do), and Kernel#Float widens that without
+    # accepting the garbage `.to_f` would silently turn into 0.0. Date
+    # deserializes via ISO-8601 (it *does* define .parse, but we want iso8601
+    # specifically, so it's explicit). Whether a variable of one accepts loose
+    # input is a separate, generation-time question — see coercion.
     def register_builtin_scalars!
       register_scalar "ID", String
       register_scalar "String", String
       register_scalar "Int", Integer
-      register_scalar "Float", Float
+      register_scalar "Float", Float, cast: ->(expr) { "Float(#{expr})" }
       register_scalar "Boolean", "T::Boolean"
       register_scalar "Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date"
     end

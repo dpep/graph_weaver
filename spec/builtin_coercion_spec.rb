@@ -120,6 +120,26 @@ describe "built-in scalar coercion" do
     expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be true
   end
 
+  # JSON has one number type, so 1.0 reaches Ruby as an Integer from any
+  # encoder that drops the trailing zero — graphql-js and Go both do.
+  it "reads a Float that arrived on the wire as a whole number" do
+    schema = GraphQL::Schema.from_definition("type Q { ratio: Float, rate: Float! }\nschema { query: Q }")
+    mod = GraphWeaver.parse(schema:, query: "query M { ratio rate }")
+
+    result = mod.from_response!("data" => { "ratio" => 2, "rate" => 9 })
+
+    expect(result.ratio).to eq 2.0
+    expect(result.rate).to be_a Float
+  end
+
+  it "still refuses a Float the wire can't have meant" do
+    schema = GraphQL::Schema.from_definition("type Q { ratio: Float }\nschema { query: Q }")
+    mod = GraphWeaver.parse(schema:, query: "query M { ratio }")
+
+    expect { mod.from_response!("data" => { "ratio" => "not a number" }) }
+      .to raise_error(GraphWeaver::TypeError)
+  end
+
   it "rejects a non-boolean coerce:" do
     expect { GraphWeaver.register_scalar("X", "X", coerce: :to_s) }
       .to raise_error(ArgumentError, /coerce:/)

@@ -164,7 +164,9 @@ module RoundTrip
       case name
       when "ID", "String" then "s#{@rng.rand(1000)}"
       when "Int" then @rng.rand(10_000)
-      when "Float" then (@rng.rand * 100).round(3)
+      # JSON has one number type, so a whole Float reaches Ruby as an Integer
+      # from any encoder that drops the trailing zero — draw both shapes
+      when "Float" then @rng.rand < 0.25 ? @rng.rand(100) : (@rng.rand * 100).round(3)
       when "Boolean" then @rng.rand < 0.5
       else
         LEAF_VALUES[GraphWeaver::Codegen.scalar(name).type] || { "unregistered" => name }
