@@ -93,8 +93,23 @@ All at generation time, each naming the edit:
 | the cursor variable is `String!` (can't express the first page) | <1% |
 
 And one at runtime, which cannot be a generation-time check: **the cursor stopped
-advancing while `hasNextPage` stayed true.** Break, don't spin. This replaces a
-`max_pages:` knob — the guard is free and catches the actual failure mode.
+advancing while `hasNextPage` stayed true.** **Raise**, naming the connection and
+the stalled cursor — breaking quietly would hand back a truncated result with no
+signal, which is the silently-wrong outcome this library exists to avoid. This
+replaces a `max_pages:` knob; the guard is free and catches the actual failure
+mode. A genuinely endless connection whose cursor keeps advancing is *essential*,
+not a bug — `first(n)` and `.lazy` are the caller's tools there.
+
+Two more shapes the table needs:
+
+- **The target is inside a list** (`edges { node { reviews(after: $c) } }`). One
+  variable cannot hold a per-node cursor, so this shape cannot be walked
+  correctly and must be refused. This is the 1.5% figure — distinct from a
+  target under nullable *objects* (`repository.stargazers`), which is the normal
+  case and trivially supported. The document should stop using "nested" for both.
+- **A nil on the path to `pageInfo`** — `repository(owner:, name:)` is nullable —
+  ends the walk after yielding that `Result`. Defined out of existence in one
+  sentence rather than handled as a case.
 
 Note a nested connection is *present* in 25–40% of operations but is the
 **target** in 1.5%. A blanket refusal on nesting would be another 44%-style trap.
@@ -106,8 +121,15 @@ have cheap random access. But it needs less new machinery than it appears,
 because **the iterator is the walk**:
 
 ```ruby
-ProductsQuery.pages(first: per_page).drop(page - 1).first   # page 3 = 3 fetches
+ProductsQuery.pages(first: per_page).take(page).last   # page 3 = 3 fetches
 ```
+
+**Not `drop(page - 1).first`.** `Enumerable#drop` is eager — it walks the whole
+enumeration and returns the rest as an Array, so that idiom fetches *every*
+page. Measured: `drop(2).first` → 10 fetches; `take(3).last` → 3. The first
+draft of this document recommended the eager one, in the paragraph written to
+make the cost honest, which is the best available argument for how carefully
+this has to be documented.
 
 That already works given `pages`. So the offset story is documentation plus one
 decision, not a feature:
@@ -115,6 +137,17 @@ decision, not a feature:
 - **Document the idiom, with its cost stated in fetches.** Page N costs N round
   trips. That is the truth and users should meet it in the docs, not in an APM
   graph.
+- **Keep the cursor kwarg on `pages`; it is the *start* cursor.** Under the
+  existing "one kwarg per declared variable" rule this falls out with no new
+  machinery, and it is the actual answer to the deep-link case:
+
+  ```ruby
+  ProductsQuery.pages(first: 25, after: params[:after])   # one request
+  ```
+
+  The app carries the cursor in its own URL, `rel=next` works, deep links work,
+  SEO works. The only thing lost is linking to page 3 *by number* — which the
+  server cannot do and the library should not fake.
 - **Expose the cursor at every page boundary** — `pages` yields the `Result`,
   which carries `pageInfo`, so an app that wants to memoise "page 3 → cursor X"
   in its own session or cache can. We don't own that cache.
@@ -250,12 +283,38 @@ already paid for its data, the other has not paid yet. Borrowing AR's *shape*
 is fine; what would teach a false model is borrowing it onto the object where
 the fetching is already over.
 
+**Teach it as one sentence, not three rows.** The table above is the author's
+model and belongs here; the user-facing docs owe exactly one line:
+
+> `pages` returns an Enumerator. Each element it yields is one request.
+> `first(n)`, `take(n)` and `break` stop early; `map`, `select`, `drop`, `count`
+> and `to_a` walk every page unless you `.lazy` first.
+
+A developer given that sentence knows "a yield is a request", which is the whole
+curriculum. `Enumerator` is not a new concept to them — `find_each` without a
+block returns one, so do `each_slice`, `File.foreach` and `Dir.each_child`. The
+only genuinely new thing is the module method.
+
+**No purpose-built enumerator class.** It would re-implement `first`/`take`/
+`each`/`lazy` with identical semantics, and every `Enumerable` method omitted
+becomes a support question. ActiveRecord built `BatchEnumerator` only because it
+needed relation verbs (`delete_all`, `update_all`) with no analogue here.
+
+**`each_batch`: cut.** It is a second name for `pages.each`, and it isn't even
+the convention it was reaching for — ActiveRecord spells those `find_each` and
+`in_batches`. `pages` (the domain noun) and `each_node` (Relay's noun) are
+enough.
+
 ## Prerequisite
 
 `Testing::FakeClient` fabricates `hasNextPage` as a random boolean, so
 `each_node` against `graphql: :fake` would terminate arbitrarily or never — the
-feature would be untestable through the harness this library recommends. The
-fake must synthesise a terminating page sequence before this ships.
+feature would be untestable through the harness this library recommends.
+
+The fix is one line, not a design: fabricate `hasNextPage`/`hasPreviousPage` as
+`false` in the existing name-keyed table in `testing/values.rb`. Deterministic,
+terminates, one page. "My code handles three pages" is a real gap, but reach for
+overrides or a cassette first and only build something if that fails someone.
 
 ## Where it goes
 
@@ -266,19 +325,58 @@ refusals in `#generate` — beside the existing variable-collision checks, so
 refusals land as generation-time `GraphWeaver::Error`s carrying the query path —
 requires no new traversal.
 
-Emission is one private method in `Emit`, called from `emit_module` after
-`emit_execute`. It closes over nothing: module methods calling the already
-emitted `execute!`, with the cursor kwarg and the accessor chain baked in as
-literals from the plan.
+**The loop belongs in `QueryModule`, not in every generated file.** That class
+exists precisely because every module's copy of a thing was identical, and this
+is the first feature that would otherwise turn a generated module into a
+mini-runtime. Generate thin typed wrappers — the sigs (`Enumerator[Result]`, the
+node yield type) are genuinely per-query — that hand the plan to one gem-side
+method as literals: the cursor kwarg, the `hasNextPage`/`endCursor` chains, the
+node chain. Exactly how generated `execute` delegates to `client_for`. A bug in
+the loop is then a gem fix rather than a regeneration, and it is tested once.
+This is still "closes over nothing": the plan remains literals in the generated
+file.
 
-## Open questions for review
+**Partial errors mid-walk need no design.** Pages 1..k are already yielded before
+page k+1 raises `QueryError`, so nothing is lost. Worth a sentence so nobody
+later adds a "collect, then raise" mode.
 
-1. Does `page(n, per_page:)` ship, or is documenting `pages.drop(n - 1).first`
-   the more honest answer?
-2. Is `each_batch` worth having alongside `pages`, or is it a second name for
-   one idea?
-3. Should the 5% ambiguous case (two cursor-bound connections) be resolvable by
-   naming the target — `pages(on: :products)` — or does that knob cost more than
-   the 5% is worth?
-4. Backwards pagination (`last:`/`before:`) — symmetric support, or refuse and
-   see if anyone asks?
+## Settled by review
+
+1. **`page(n)`: no.** Resume-from-cursor covers the real case for free, and the
+   remaining "page 3 by number" is what the server cannot do.
+2. **`each_batch`: no.** A second name for `pages.each`.
+3. **`pages(on:)`: no.** The knob models neither reading of the ambiguity —
+   sibling connections would walk in lock-step, which nobody wants, and a nested
+   target's cursor is per-node, which `on:` cannot express. Refuse, and say
+   "this query paginates two things; split it".
+4. **Backward pagination: deferred**, pending the measurement below. v1
+   recognises `after:` only.
+
+## Still open, and each needs a number first
+
+1. **The refusals may break queries that generate fine today.** A dropdown query
+   selecting `pageInfo { hasNextPage }` for a "more…" affordance, with a literal
+   `first: 20` and no cursor variable, has no pagination intent and would fail to
+   generate. The 5%/9% figures were measured against operations *with* intent;
+   the refusals fire on everything. **Measure the false-positive rate against
+   non-paginating queries** — the same discipline that found the 44% trap,
+   applied to the other side of the line. Unless it is near zero, deliver the
+   diagnosis at the *call site* instead: emit no `pages` method, and let
+   `method_missing` raise the generation-time diagnosis, as
+   `Representations.method_missing` already does. `srb tc` then flags `.pages`
+   statically where the intent lives, and nothing that generates today stops.
+2. **Plain `Enumerator` or `Enumerator::Lazy`?** Plain matches `find_each` and
+   suits `each_node`'s common "all of them" intent, but `select {}.first`
+   silently walks everything — and "silently expensive is silently wrong" pulls
+   the other way. Decide deliberately; do not let the first draft decide.
+3. **`edges { cursor }` as the cursor source.** A query selecting
+   `edges { cursor node {…} }` and no `pageInfo` paginates fine by hand. How many
+   of the 9% are that shape? They would be refused with advice that breaks a
+   working query.
+4. **`before:`/`last:` frequency**, which decides question 4 above.
+5. **Per-schema nullability of `pageInfo`, `edges`, `nodes`, `node`** — decides
+   how much `&.`/`compact` the plan carries, and whether the generated walk stays
+   `# typed: strict` without `T.must`.
+6. **One live walk before shipping.** `make integration` already hits GitHub.
+   716/716 structural detection says the shape is right; only a real walk says
+   `hasNextPage` means what we think on a real server.
