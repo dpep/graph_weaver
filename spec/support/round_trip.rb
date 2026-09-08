@@ -242,10 +242,29 @@ module RoundTrip
       end
 
       parts = ["__typename"]
+      # An interface's own fields, spelled bare or inside a fragment on the
+      # interface itself: GraphQL says those are the same selection, so the
+      # generator has to agree — reading the fragment as a type condition
+      # would narrow the field to one member and drop the rest.
       if type.kind.name == "INTERFACE"
-        sample(selectable(type), 2).each { |field| parts << render(field, depth) }
+        own = sample(selectable(type), 2).filter_map { |field| render(field, depth) }
+        parts << (@rng.rand < 0.4 ? "... on #{type.graphql_name} { #{own.join(" ")} }" : own.join(" ")) if own.any?
       end
-      sample(members, 2).each do |member|
+      # an interface fragment inside a UNION selection: the members that
+      # implement it answer it, including ones the query never named
+      shared_interfaces(type, members).each do |interface|
+        inner = sample(selectable(interface), 2).filter_map { |field| render(field, depth) }
+        next if inner.empty?
+
+        parts << if @rng.rand < 0.3
+          spread("on #{interface.graphql_name}", inner.join(" "), guard: guard?)
+        else
+          "... on #{interface.graphql_name} { #{inner.join(" ")} }"
+        end
+      end
+      # sometimes exactly one condition: with shared fields selected alongside,
+      # that is the shape a wrong narrowing would swallow
+      sample(members, @rng.rand < 0.4 ? 1 : 2).each do |member|
         inner = selection_set(member, depth - 1)
         next unless inner
 
@@ -256,6 +275,23 @@ module RoundTrip
         end
       end
       parts
+    end
+
+    # An interface every member of this union implements — a condition that
+    # narrows nothing, since whatever comes back answers it. At most one per
+    # draw, kept rare.
+    def shared_interfaces(type, members)
+      return [] if type.kind.name == "INTERFACE" || @rng.rand >= 0.3
+
+      sample(common_interfaces(members), 1)
+    end
+
+    def common_interfaces(members)
+      sets = members.map { |member| member.interfaces.map(&:graphql_name).to_set }
+      return [] if sets.empty?
+
+      shared = sets.reduce(:&)
+      members.first.interfaces.select { |i| shared.include?(i.graphql_name) }
     end
 
     # put a repeated selection behind a fragment so it reaches the key by
@@ -480,7 +516,14 @@ module RoundTrip
 
       case wire
       when Hash
-        return [] if object.nil? # a narrowing that filtered — the miss IS the answer
+        if object.nil?
+          # a narrowing that filtered. Legitimate only when the server sent
+          # nothing but the dispatch tag: a narrowing selection names no field
+          # the other members answer, so anything else here was dropped.
+          return [] if (wire.keys - ["__typename"]).empty?
+
+          return [Failure.new(kind: "narrowed", path:, detail: "nil, dropping #{wire.keys.join(", ")}")]
+        end
 
         unless object.is_a?(T::Struct)
           return [Failure.new(kind: "shape", path:, detail: "object #{object.inspect} for hash #{wire.inspect}")]
