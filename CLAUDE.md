@@ -126,6 +126,19 @@ bundle exec rspec --order rand:1        # and a couple of other seeds
 bundle exec ruby bin/federation-diff    # the fixture supergraph still composes
 ```
 
+When the change touches codegen or the generated runtime, widen the property
+test past the bounds the suite runs it at (`spec/round_trip_spec.rb`):
+
+```sh
+bundle exec ruby bin/round-trip -c 2000            # the fixture schemas
+bundle exec ruby bin/round-trip ~/github.json      # any SDL or introspection dump
+bundle exec ruby bin/round-trip ~/github.json -q ~/queries   # real queries
+```
+
+It generates a query, builds a response the *schema* says is legal, and checks
+`from_h` neither raises nor loses a value — a different net from `srb tc`, which
+only proves the generated code agrees with itself.
+
 Order-independence is worth checking rather than assuming — four order-dependent
 failures have hidden behind the default `:defined` order, and a *burst* of them
 usually means one shared resource cascading rather than many bugs.

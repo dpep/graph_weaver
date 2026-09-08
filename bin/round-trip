@@ -1,0 +1,140 @@
+#!/usr/bin/env ruby
+# The round-trip property test (spec/round_trip_spec.rb) without the bounds:
+# generate a query, build a response the schema says is legal, deserialize it,
+# and check nothing raised and nothing was lost — then the same for inputs.
+#
+#   bin/round-trip                                  # the repo's fixture schemas
+#   bin/round-trip ~/schemas/github.json -c 2000    # any SDL or introspection dump
+#   bin/round-trip ~/schemas/github.json -q ~/queries  # real queries, not fuzzed
+#
+# The spec keeps the suite fast; this is where breadth lives — point it at a
+# real schema and a directory of real queries. Exits non-zero on a failure.
+#
+# Cost per case climbs on a schema with huge input types (a Hasura bool_exp
+# graph): sorbet-runtime keeps every T::Struct a parse defines, unreachable or
+# not, so lower -c there rather than waiting it out.
+
+require "date"
+require "json"
+require "optparse"
+
+require_relative "../lib/graph_weaver"
+require_relative "../spec/support/round_trip"
+
+options = { count: 500, seed: 1, draws: 4 }
+OptionParser.new do |opts|
+  opts.banner = "usage: bin/round-trip [SCHEMA ...] [options]"
+  opts.on("-c", "--count N", Integer, "fuzzed queries per schema (default 500)") { |v| options[:count] = v }
+  opts.on("-s", "--seed N", Integer, "base seed (default 1)") { |v| options[:seed] = v }
+  opts.on("-q", "--queries DIR", "round-trip *.graphql here instead of fuzzing") { |v| options[:queries] = v }
+  opts.on("-d", "--draws N", Integer, "responses per corpus query (default 4)") { |v| options[:draws] = v }
+  opts.on("-v", "--verbose", "print every failure, not the first per bucket") { options[:verbose] = true }
+end.parse!
+
+def load_schema(path)
+  return [File.basename(path), GraphQL::Schema.from_definition(File.read(path))] unless path.end_with?(".json")
+
+  raw = JSON.parse(File.read(path))
+  raw = { "data" => raw } unless raw.key?("data")
+  [File.basename(path), GraphQL::Schema.from_introspection(raw)]
+end
+
+# Without registrations a custom scalar is T.untyped pass-through, which casts
+# nothing — give the common shapes a real codec so the cast path is exercised.
+def register_scalars!(schema)
+  schema.types.each_value do |type|
+    next unless type.kind.name == "SCALAR"
+    next if GraphWeaver::Codegen::BUILTIN_SCALARS.include?(type.graphql_name)
+
+    case type.graphql_name
+    when /DateTime|Timestamp\z/ then GraphWeaver.register_scalar(type.graphql_name, Time, serialize: :iso8601, requires: "time")
+    when /\ADate/ then GraphWeaver.register_scalar(type.graphql_name, Date, cast: :iso8601, serialize: :iso8601, requires: "date")
+    when /URI|URL|HTML|Base64/ then GraphWeaver.register_scalar(type.graphql_name, String)
+    when /BigInt|Long/ then GraphWeaver.register_scalar(type.graphql_name, Integer)
+    end
+  end
+end
+
+schemas =
+  if ARGV.empty?
+    require_relative "../spec/support/schema"
+    require_relative "../spec/support/federation_router_graph"
+    [["Demo", Demo::Schema], ["Products", RouterGraph::Products::Schema], ["Reviews", RouterGraph::Reviews::Schema]]
+  else
+    ARGV.map { |path| load_schema(path) }
+  end
+
+# a failure's shape, not its values, is what makes two of them the same bug
+def bucket_key(failure) = failure.detail.to_s.gsub(/\d+/, "N")[0, 120]
+
+total = { trips: 0, refused: 0, skipped: 0, failures: 0 }
+buckets = Hash.new { |hash, key| hash[key] = [] }
+
+schemas.each do |label, schema|
+  GraphWeaver::Codegen.reset_registrations!
+  register_scalars!(schema)
+
+  trips = refused = skipped = 0
+  queries =
+    if options[:queries]
+      Dir[File.join(options[:queries], "**/*.graphql")].sort.flat_map { |f| [File.read(f)] * options[:draws] }
+    else
+      Array.new(options[:count]) { nil } # fuzzed below, one per case
+    end
+
+  queries.each_with_index do |text, i|
+    seed = options[:seed] + i
+    rng = Random.new(seed)
+    query = text || RoundTrip::Fuzzer.new(schema, rng).query
+    next skipped += 1 unless query
+
+    begin
+      next skipped += 1 unless schema.validate(query).empty?
+    rescue StandardError
+      next skipped += 1 # unparseable corpus file
+    end
+
+    trip = RoundTrip.check(schema:, query:, name: "Case#{i}", rng:)
+    next refused += 1 if trip.refused
+
+    trips += 1
+    trip.failures.each { |failure| buckets[bucket_key(failure)] << [label, seed, failure, trip] }
+  end
+
+  # the input half: one case per argument-bearing root field, cycled
+  fields = [[schema.query, false], [schema.mutation, true]].reject { |root, _| root.nil? }
+    .flat_map { |root, mutation| root.fields.each_value.reject { |f| f.arguments.empty? }.map { |f| [f, mutation] } }
+  inputs = 0
+  options[:count].times do |i|
+    break if fields.empty?
+
+    seed = options[:seed] + i
+    # off the seed, not the index, so the seed a failure names picks the same field
+    field, mutation = fields[seed % fields.size]
+    trip = RoundTrip.check_input(schema:, field:, mutation:, name: "Input#{i}", rng: Random.new(seed))
+    next refused += 1 if trip.refused
+
+    inputs += 1
+    trip.failures.each { |failure| buckets[bucket_key(failure)] << [label, seed, failure, trip] }
+  end
+
+  puts "#{label}: #{trips} response round trips, #{inputs} input round trips " \
+    "(#{skipped} undraftable, #{refused} refused by codegen)"
+  total[:trips] += trips + inputs
+  total[:refused] += refused
+  total[:skipped] += skipped
+end
+
+total[:failures] = buckets.values.sum(&:size)
+puts "\n#{total[:trips]} round trips across #{schemas.size} schemas: #{total[:failures]} failures"
+
+buckets.sort_by { |_, list| -list.size }.each do |key, list|
+  puts "\n=== #{list.size}x #{key}"
+  (options[:verbose] ? list : list.first(1)).each do |label, seed, failure, trip|
+    puts "  [#{label} seed #{seed}] #{failure.kind} at #{failure.path.join(".")}: #{failure.detail}"
+    puts "  query: #{trip.query.to_s.gsub(/\s+/, " ").strip[0, 700]}"
+    puts "  wire:  #{JSON.generate(trip.wire)[0, 700]}" if trip.wire
+  end
+end
+
+exit(total[:failures].zero? ? 0 : 1)
