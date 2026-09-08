@@ -12,7 +12,7 @@ Gem::Specification.new do |s|
   # from before the API it describes was rewritten
   s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' ':!:examples' \
                      ':!:CLAUDE.md' ':!:PLAN.md' ':!:REVIEW.md' ':!:NOTES.md' \
-                     ':!:DECISIONS.md' ':!:Makefile'`.split("\n") + [".yardopts"]
+                     ':!:DECISIONS.md' ':!:Makefile' ':!:design'`.split("\n") + [".yardopts"]
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"
