@@ -216,7 +216,11 @@ class GraphWeaver::Client
     case retries
     when true then GraphWeaver::Retry.new(transport)
     when false, nil then transport
-    else GraphWeaver::Retry.new(transport, **retries)
+    when Hash then GraphWeaver::Retry.new(transport, **retries)
+    else
+      # retries: 3 reads as either 3 retries or 3 attempts, so name the form
+      # that says which rather than picking one
+      raise ArgumentError, "retries: takes true or a Hash of Retry options — for a count, retries: { tries: #{retries} }"
     end
   end
 end

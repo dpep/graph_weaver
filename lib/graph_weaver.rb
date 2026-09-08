@@ -668,6 +668,10 @@ module GraphWeaver
       if path
         query = File.read(path)
         name ||= module_name(path, query)
+      elsif !query.include?("{")
+        # every document has a selection set, so this is a path we won't read
+        # — and it would otherwise fail as a syntax error about SCHEMA/SCALAR
+        raise Error, "#{query.inspect} is not a GraphQL document — a query file must be named .graphql or .gql"
       end
       query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 

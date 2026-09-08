@@ -36,6 +36,13 @@ describe GraphWeaver::Client do
       end
     end
 
+    # retries: 3 reads as either 3 retries or 3 attempts, and it used to die
+    # inside a splat as "no implicit conversion of Integer into Hash"
+    it "refuses a retries: that isn't true or a Hash" do
+      expect { GraphWeaver.new(url, retries: 3) }
+        .to raise_error(ArgumentError, /retries: \{ tries: 3 \}/)
+    end
+
     it "stays on the built-in transport even when faraday is loaded" do
       expect(defined?(::Faraday)).to be_truthy # transitively present, never chosen
 

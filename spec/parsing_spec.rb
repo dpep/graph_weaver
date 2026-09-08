@@ -66,6 +66,13 @@ describe GraphWeaver::Parsing do
     end
   end
 
+  # only .graphql/.gql is read as a path, so any other one is parsed as the
+  # document itself — and failed as a syntax error about SCHEMA/SCALAR/TYPE
+  it "says a path is a path, rather than parsing it as a document" do
+    expect { GraphWeaver.new(Demo::Schema).parse("app/graphql/queries/person") }
+      .to raise_error(GraphWeaver::Error, /must be named .graphql or .gql/)
+  end
+
   it "Retry holds no schema, so it has no #parse" do
     # it wraps a client to retry its execute; the schema — and parsing
     # against it — stays with whatever it wraps
