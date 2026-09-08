@@ -528,7 +528,8 @@ module GraphWeaver
     def initialize(message, field: nil, struct: nil)
       @field = field
       @struct = struct
-      super(message)
+      # the message often IS a sorbet prop error — drop its frame, as TypeError does
+      super(message.sub(TypeError::SORBET_CALLER, ""))
     end
 
     sig { override.returns(T::Hash[String, T.untyped]) }

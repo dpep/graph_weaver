@@ -270,6 +270,15 @@ describe GraphWeaver::Client do
 
       expect(mod.execute!(client: Demo::Schema).person&.name).to eq "Daniel"
     end
+
+    # a graphql: tag does nothing unless graph_weaver/rspec is required, and
+    # the failure lands here — where the advice was for the wrong file
+    it "names the require a spec's graphql: tag needs" do
+      hide_const("GraphWeaver::Testing::RSpecIntegration") if defined?(GraphWeaver::Testing::RSpecIntegration)
+
+      expect { GraphWeaver.client! }
+        .to raise_error(GraphWeaver::Error, %r{require "graph_weaver/rspec"})
+    end
   end
 
   describe "schema caching" do

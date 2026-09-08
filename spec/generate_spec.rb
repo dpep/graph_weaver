@@ -218,6 +218,26 @@ describe "GraphWeaver.generate!" do
     end
   end
 
+  # a mistyped queries_paths looks exactly like a brand-new app: generate!
+  # printed nothing and exited 0, and verify_generated! returned true having
+  # compared nothing, so a CI gate stayed green forever
+  describe "no query documents" do
+    let(:empty) { File.join(@dir, "querys") }
+
+    it "warns from generate! and fails verify_generated!" do
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+
+      expect(GraphWeaver.generate!(schema: Demo::Schema, queries: empty, output: @dir)).to be_empty
+      expect(io.string).to include("nothing to generate")
+
+      expect { GraphWeaver.verify_generated!(schema: Demo::Schema, queries: empty, output: @dir) }
+        .to raise_error(GraphWeaver::Error, /proved nothing/)
+    ensure
+      GraphWeaver.logger = nil
+    end
+  end
+
   describe "pruning" do
     let(:queries) { File.join(@dir, "queries") }
     let(:output) { File.join(@dir, "generated") }
@@ -255,8 +275,6 @@ describe "GraphWeaver.generate!" do
 
       expect(generated).to eq %w[person_query_helpers.rb]
       expect(File.read(mine)).to start_with "# mine"
-      expect { GraphWeaver.verify_generated!(schema: Demo::Schema, queries:, output:, client: Demo::Schema) }
-        .not_to raise_error
     end
   end
 end

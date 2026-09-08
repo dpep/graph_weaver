@@ -41,15 +41,16 @@ module GraphWeaver
         @url = url
         # a scheme-less url parses as a *path* with no host, and the failure
         # then lands as far away as Net::HTTP.start(nil, nil)
-        @uri = begin
+        uri = begin
           URI(url)
         rescue URI::InvalidURIError
           nil
         end
-        unless %w[http https].include?(@uri&.scheme)
+        unless uri && %w[http https].include?(uri.scheme)
           raise ArgumentError, "expected an http(s) url, got #{url.inspect}"
         end
 
+        @uri = uri
         @headers = headers
         @open_timeout = open_timeout
         @read_timeout = read_timeout

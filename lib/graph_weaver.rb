@@ -58,6 +58,10 @@ module GraphWeaver
       # being loaded is what says which suggestion is the useful one
       @client or raise Error, "no client configured — " + if defined?(Testing::RSpecIntegration)
         "tag the example graphql: :fake (or :in_process / :router), or build one with graphql_fake"
+      elsif defined?(::RSpec)
+        # a graphql: tag without graph_weaver/rspec is silent, and lands here
+        "set GraphWeaver.client= or pass a client; if you tagged this example graphql:, " \
+          "require \"graph_weaver/rspec\" in your spec helper — the tag does nothing without it"
       else
         "set GraphWeaver.client= or pass a client"
       end
@@ -104,6 +108,7 @@ module GraphWeaver
     end
 
     def check_envelope!(raw, struct)
+      raw = raw.to_h if !raw.is_a?(Hash) && raw.respond_to?(:to_h)
       unless raw.is_a?(Hash)
         raise GraphWeaver::TypeError.new(struct:, message: "response must be an object, got #{raw.class}")
       end
@@ -121,12 +126,13 @@ module GraphWeaver
       end
 
       # A response with neither key isn't a GraphQL response at all — a client
-      # that returned nil (to_h'd to {}), or one keying the envelope by symbol.
-      # Both otherwise pass as a success carrying no data.
+      # that returned nil, one keying the envelope by symbol, one that typo'd
+      # "dat". Each otherwise passes as a success carrying no data.
       unless raw.key?("data") || raw.key?("errors")
-        symbols = " — the keys must be strings" if raw.key?(:data) || raw.key?(:errors)
+        found = raw.empty? ? "it is empty" : "got #{raw.keys.first(5).map(&:inspect).join(", ")}"
         raise GraphWeaver::TypeError.new(struct:, message:
-          "response carried neither \"data\" nor \"errors\"#{symbols}")
+          "response carried neither \"data\" nor \"errors\" — #{found}; " \
+          "the keys are the wire's own, as strings")
       end
 
       raw
@@ -235,6 +241,12 @@ module GraphWeaver
       types_module: nil)
       schema = schema ? schema_for(schema) : locate_schema!
 
+      if query_files(queries).empty?
+        # a brand-new app legitimately has none; a mistyped queries_paths looks
+        # exactly the same, and prints nothing either way
+        log(:warn) { "no query documents under #{Array(queries).join(", ")} — nothing to generate" }
+      end
+
       plan = generation_plan(queries:, schema:, client:, types_module:)
       written = plan.map do |filename, source|
         target = File.join(output, filename)
@@ -284,6 +296,13 @@ module GraphWeaver
     #      end
     def verify_generated!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
       types_module: nil)
+      if query_files(queries).empty?
+        # green over nothing is worse than red: a CI gate stays passing
+        # forever because someone typed app/graphql/querys
+        raise Error, "no query documents under #{Array(queries).join(", ")} — this checked nothing, " \
+          "so it proved nothing (set GraphWeaver.queries_paths, or pass queries:)"
+      end
+
       schema = schema ? schema_for(schema) : locate_schema!
       plan = generation_plan(queries:, schema:, client:, types_module:)
       stale = plan.filter_map do |filename, source|

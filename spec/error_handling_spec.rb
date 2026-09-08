@@ -411,18 +411,31 @@ describe "error handling" do
       expect { run("data" => nil).data! }.to raise_error(GraphWeaver::QueryError)
     end
 
-    # both used to arrive as a Response reporting success with no data
+    # each used to arrive as a Response reporting success with no data
     it "refuses a response carrying neither data nor errors" do
       expect { run(nil) }.to raise_error(GraphWeaver::TypeError, /neither "data" nor "errors"/)
 
-      expect { run(data: person_data) }
-        .to raise_error(GraphWeaver::TypeError, /keys must be strings/)
+      expect { run(data: person_data) }.to raise_error(GraphWeaver::TypeError, /got :data/)
+      expect { run("dat" => person_data) }.to raise_error(GraphWeaver::TypeError, /got "dat"/)
+    end
+
+    it "brands a response that isn't an object at all" do
+      expect { GraphWeaver.check_envelope!('{"data":{}}', mod::Result) }
+        .to raise_error(GraphWeaver::TypeError, /must be an object, got String/)
     end
 
     it "raises InputError when an input struct is coerced from a non-Hash" do
       require_relative "generated/types"
       expect { GraphQLTypes::AdoptionInput.coerce("nope") }
         .to raise_error(GraphWeaver::InputError, /expected a Hash/)
+    end
+
+    # the frame sorbet appends is a path into the gem, never into the code
+    # with the problem — TypeError already drops it
+    it "keeps sorbet's own frame out of an InputError" do
+      require_relative "generated/types"
+      expect { GraphQLTypes::AdoptionInput.coerce("species" => "DOG") }
+        .to raise_error(GraphWeaver::InputError) { |e| expect(e.message).not_to include("Caller:") }
     end
   end
 
