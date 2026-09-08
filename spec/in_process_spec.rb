@@ -13,6 +13,10 @@ module InProcessDemo
     field :boom, String
 
     def boom = raise("kaboom")
+
+    field :visits, Integer
+
+    def visits = context[:visits] = (context[:visits] || 0) + 1
   end
 
   class Schema < GraphQL::Schema
@@ -35,6 +39,13 @@ describe GraphWeaver::InProcess do
     # decisive: unasked, the document's first operation would have run
     expect { client.execute(document, operation_name: "Boom") }
       .to raise_error(GraphWeaver::ServerError, /kaboom/)
+  end
+
+  # one InProcess is normally the whole app's client, and graphql-ruby writes
+  # a resolver's `context[...] =` straight into the hash it was handed
+  it "gives each query its own context" do
+    2.times { expect(client.execute("query { visits }").to_h.dig("data", "visits")).to eq 1 }
+    expect(context).to eq({ current_user: "dpep" })
   end
 
   it "brands a resolver raise, keeping the original as #cause" do

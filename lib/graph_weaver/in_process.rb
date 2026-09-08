@@ -66,7 +66,9 @@ class GraphWeaver::InProcess
     end
 
     result = GraphWeaver.log_timed(:debug, "in-process #{@schema} #{tag} completed") do
-      @schema.execute(query, variables:, operation_name:, context: @context)
+      # a copy per query: graphql-ruby writes a resolver's `context[...] =`
+      # into the hash it is handed, and one client serves every request
+      @schema.execute(query, variables:, operation_name:, context: @context.dup)
     end
 
     # the same key the network transports set, so one instrumenter
