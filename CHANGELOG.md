@@ -1,4 +1,16 @@
 ## Unreleased
+- **The gem's internal helpers moved under `GraphWeaver::Internal`, and the
+  public surface is locked by a spec.** A dozen names were public only
+  because a second file in the gem reached them with a qualified receiver —
+  `GraphWeaver.atomic_write`, `.did_you_mean`, `.module_name`, `.query_files`;
+  `Transport.operation_name`, `.mutation?`, `.log_tag`, `.truncate_for_log`;
+  `Testing::Subgraphs`. They now live under `GraphWeaver::Internal`, whose one
+  rule is that nothing in it is API; the `Transport` four hung off a class you
+  subclass. `spec/public_surface_spec.rb` diffs everything reachable from
+  `GraphWeaver` against a checked-in list, so the next accidental promotion
+  fails CI instead of shipping. Generated modules also stop exposing their
+  plumbing: `DEFAULT_CLIENT`, `FIELDS` and `ONE_OF` are emitted as
+  `private_constant`. **Regenerate**; nothing you call changes.
 - **The retry options are flat.** `retries:` is how many attempts follow the
   first; every other `Retry` option now sits beside it on the client —
   `GraphWeaver.new(url, retries: 5, backoff: :linear, retry_codes:
