@@ -86,7 +86,8 @@ GraphWeaver.queries_paths = "app/graphql/queries"   # after
 
 ### One reset
 
-`GraphWeaver.reset_registrations!` is the clean slate between tests. The four
+`GraphWeaver.reset_registrations!` is the clean slate between tests, or between
+generations for different schemas. The four
 narrow ones moved to where they live:
 
 ```ruby

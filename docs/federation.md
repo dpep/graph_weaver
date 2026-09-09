@@ -20,13 +20,15 @@ else to decide.
 Registrations stay in one global registry, because names compose by identity
 across a graph — `Money` is one Ruby type wherever it appears, and `Person` is
 one entity even though a single subgraph owns `birthday`. So a registration a
-given subgraph doesn't declare is not an error; generation warns and carries on:
+given subgraph doesn't declare is not an error; generation warns and carries on.
+`rake graph_weaver:generate` and `verify` print the list once per run, after the
+files:
 
 ```
 register_scalar("Money") matches no scalar in Billing::Schema — a typo, or a registration for another schema
 ```
 
-Register everything once and read the warnings, or scope each generation to what
+Register everything once and read those lines, or scope each generation to what
 it needs and get a silent build:
 
 ```ruby

@@ -36,6 +36,13 @@ module GraphWeaver
           "SUPERGRAPH=supergraph.graphql")
     end
 
+    # Registrations the run couldn't match, once each. The logger is the
+    # runtime channel and is silent by default; this task's own output is the
+    # build channel, and the build is where someone regenerating is looking.
+    def self.report_unmatched
+      GraphWeaver.unmatched_registrations.each { |message| puts message }
+    end
+
     # Neither task that needs the committed dump can take one itself, so both
     # say which task can — the same sentence SchemaLoader gives on refresh.
     def self.no_dump
@@ -76,6 +83,7 @@ namespace :graph_weaver do
     # user is about to find; a run that printed nothing at all had done both
     (before - Dir[File.join(output, "**/*.rb")]).each { |path| puts "pruned #{path}" }
     puts "no queries in #{GraphWeaver.queries_paths.join(", ")}" if written.empty?
+    GraphWeaver::Tasks.report_unmatched
   rescue GraphWeaver::Error => e
     # a typo'd query is a user error — the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
@@ -86,6 +94,7 @@ namespace :graph_weaver do
   task verify: :environment do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
+    GraphWeaver::Tasks.report_unmatched
   rescue GraphWeaver::Error => e
     abort e.message
   end

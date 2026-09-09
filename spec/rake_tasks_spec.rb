@@ -134,6 +134,21 @@ describe "graph_weaver rake tasks" do
       expect(result.out).to eq "no queries in #{@root}/queries\n"
     end
 
+    # the logger is silent by default and Rails' writes to a file, so a
+    # registration this schema can't match has to reach the build's own output
+    # — once for the run, not once per query file
+    it "names an unmatched registration once, however many queries" do
+      write_schema
+      3.times { |i| write_query("q#{i}.graphql", "query Q#{i} { person(id: \"1\") { name } }") }
+      GraphWeaver.register_scalar("Money", String, cast: :itself, serialize: :itself)
+
+      result = invoke("generate")
+
+      expect(result.status).to eq 0
+      expect(result.out.scan(/register_scalar\("Money"\)/).size).to eq 1
+      expect(result.out).to include "matches no scalar in", "or a registration for another schema"
+    end
+
     # a typo'd query is a user error: the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
     it "names the file and position for a bad query, and exits non-zero" do
@@ -190,6 +205,13 @@ describe "graph_weaver rake tasks" do
       invoke("generate")
 
       expect(invoke("verify")).to have_attributes(status: 0, out: "generated queries up to date\n", err: "")
+    end
+
+    it "names an unmatched registration too, so CI reads the same as the build" do
+      invoke("generate")
+      GraphWeaver.register_scalar("Money", String, cast: :itself, serialize: :itself)
+
+      expect(invoke("verify").out).to include %{register_scalar("Money") matches no scalar in}
     end
 
     it "names the stale file and exits non-zero" do

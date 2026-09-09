@@ -249,6 +249,7 @@ module GraphWeaver
       end
 
       plan = generation_plan(queries:, schema:, client:, types_module:)
+      @unmatched_registrations = Codegen.unmatched_registrations(schema)
       written = plan.map do |filename, source|
         target = File.join(output, filename)
         FileUtils.mkdir_p(File.dirname(target))
@@ -309,6 +310,7 @@ module GraphWeaver
 
       schema = schema ? schema_for(schema) : locate_schema!
       plan = generation_plan(queries:, schema:, client:, types_module:)
+      @unmatched_registrations = Codegen.unmatched_registrations(schema)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
         # git's autocrlf rewrites line endings on checkout — a Windows working
@@ -324,6 +326,12 @@ module GraphWeaver
 
       true
     end
+
+    # What the last generate!/verify_generated! couldn't match in the schema it
+    # ran against — one sentence per registration, empty after a clean run. The
+    # same list codegen logs at warn, kept here so the build can print it once
+    # instead of once per query file.
+    def unmatched_registrations = @unmatched_registrations || []
 
     # Which checked-in queries no longer validate — breaking-change
     # detection scoped to the operations you actually ship. Reports rather
@@ -704,8 +712,9 @@ module GraphWeaver
     end
 
     # Every registry back to its starting state: built-in scalars restored,
-    # enum mappings and type helpers dropped — the clean slate between
-    # tests. (One registry at a time is a Codegen call:
+    # enum mappings and type helpers dropped — the clean slate between tests,
+    # or between generations for different schemas. (One registry at a time
+    # is a Codegen call:
     # GraphWeaver::Codegen.reset_enums!, .reset_scalars!, .clear_scalars!,
     # .reset_type_helpers!)
     def reset_registrations!

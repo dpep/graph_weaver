@@ -218,6 +218,23 @@ describe "the registration registry" do
 
       expect(io.string).to be_empty
     end
+
+    # the build channel reads this rather than the log; a second, clean run
+    # still reporting the first run's registrations would be a false alarm
+    it "hands the list to the build, and clears it on a clean run" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "person.graphql"), "query { person(id: 1) { name } }\n")
+        out = File.join(dir, "generated")
+
+        GraphWeaver.register_scalar("Money", String, cast: :itself, serialize: :itself)
+        GraphWeaver.generate!(schema: Demo::Schema, queries: dir, output: out)
+        expect(GraphWeaver.unmatched_registrations).to contain_exactly(/register_scalar\("Money"\)/)
+
+        GraphWeaver::Codegen.reset_registrations!
+        GraphWeaver.generate!(schema: Demo::Schema, queries: dir, output: out)
+        expect(GraphWeaver.unmatched_registrations).to be_empty
+      end
+    end
   end
 
   describe "resets" do
