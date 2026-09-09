@@ -32,8 +32,8 @@ only warns — one registry serves a whole graph, so that name may belong to the
 subgraph next door (see
 [federation](federation.md#generating-for-a-federated-graph)).
 
-Pass a real class as the second argument and the cast/serialize are **inferred** from it by
-probing the deserialize side and pairing its serializer:
+Pass a real class as the second argument and the cast/serialize are
+**inferred** from it by probing the deserialize side and pairing its serializer:
 
 | the class defines | cast          | serialize      |
 |-------------------|---------------|----------------|
@@ -162,10 +162,10 @@ the sig is `.checked(:never)`).
 | a registered custom scalar | its Ruby type | whatever its `cast:` takes | its `serialize:` |
 | unregistered | `T.untyped` | anything | straight through |
 
-Two rows are judgement calls worth stating. **`ID` takes an `Integer`** because
+Two rows are judgment calls worth stating. **`ID` takes an `Integer`** because
 the GraphQL spec says an ID serializes as a string but accepts an integer input,
 and `execute(id: user.id)` off a model is the everyday call; `String` gets no
-such licence, since an `Integer` where a `String` belongs is more often a bug
+such license, since an `Integer` where a `String` belongs is more often a bug
 than a spelling. **`Boolean` takes no string** — Ruby has no `Kernel#Boolean`,
 so every rule for reading `"0"`, `"off"`, `"no"` is somebody's convention, and
 the library will not pick one for you; convert at the call site.

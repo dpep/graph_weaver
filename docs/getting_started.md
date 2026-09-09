@@ -123,6 +123,10 @@ client = GraphWeaver.new(MyApp::Schema, context: { current_user: })
 PetQuery.execute!(client:, id: "1").pet.owner   # => the context's user
 ```
 
+Each query gets its own copy of that hash, so a resolver writing
+`context[:loader] =` can't hand what it wrote to the next request — which
+matters because one in-process client is normally the whole app's.
+
 **Keep the dump in step with the schema.** Codegen reads the committed
 dump at `GraphWeaver.schema_path`, never the live class — that's what
 makes `rake graph_weaver:verify` a deterministic CI check. The generator

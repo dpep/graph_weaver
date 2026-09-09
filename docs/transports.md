@@ -155,6 +155,11 @@ warmest one; requests beyond that queue for a free slot rather than
 opening unbounded connections. A socket that errors is closed and its slot
 left empty, so the next call reconnects.
 
+A url client introspects its schema lazily, and the first requests of a cold
+process arrive together — so that fetch is done **once**, by whoever asks
+first, with the rest waiting on it rather than each making its own round trip
+and writing its own copy of the schema cache.
+
 `pool_size:` defaults to `RAILS_MAX_THREADS` (else 5) — the same variable
 Rails sizes its own connection pool from, because it is the same question:
 how many requests this process can have in flight at once. Lower it for a
