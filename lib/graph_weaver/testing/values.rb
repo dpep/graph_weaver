@@ -129,8 +129,9 @@ class GraphWeaver::Testing::Values
     end
   end
 
-  # ID asks by name rather than by class: it registers as String, and an id
-  # repeated across a list breaks a `find` or `group_by` in the code under test.
+  # ID asks by name as well as by class: it registers as String, and an id
+  # repeated across a list breaks a `find` or `group_by` in the code under
+  # test. Registered as anything else, it takes that type's treatment.
   def shape_of(type_name, ruby_type)
     if type_name == "ID" && ruby_type == "String"
       :id
