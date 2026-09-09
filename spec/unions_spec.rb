@@ -240,7 +240,7 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
       expect(File.read("#{@base}/generated/types/rank.rb")).to include("class Rank < T::Enum")
       # same module, so the union member spells Rank bare — no alias to keep
       union = File.read("#{@base}/generated/types/feed_item_fields.rb")
-      expect(union).to include("Rank.deserialize")
+      expect(union).to include("Hints.enum(Rank,")
       expect(union).not_to include("Rank = ")
       GraphWeaver.load_generated!("#{@base}/generated")
       got = HomeQuery.from_response!("data" => { "feed" => [{ "__typename" => "Post", "rank" => "HIGH" }] })

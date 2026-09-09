@@ -199,7 +199,7 @@ class GraphWeaver::Codegen
     def bare_type = class_name
 
     def cast(expr, _depth)
-      "#{class_name}.deserialize(#{expr})"
+      "GraphWeaver::Hints.enum(#{class_name}, #{expr})"
     end
 
     def serialize(expr, _depth)
@@ -244,7 +244,7 @@ class GraphWeaver::Codegen
       if @fallback
         "#{const_prefix}_FROM_WIRE.fetch(#{expr}) { #{fallback_const} }"
       else
-        "#{const_prefix}_FROM_WIRE.fetch(#{expr})"
+        "GraphWeaver::Hints.mapped_enum(#{@type_name}, #{const_prefix}_FROM_WIRE, #{expr})"
       end
     end
 

@@ -40,7 +40,7 @@ module FindPetsQuery
       def self.from_h(data)
         new(
           name: data.fetch("name"),
-          species: GraphWeaver::Hints.field(self, "species") { Species.deserialize(data.fetch("species")) },
+          species: GraphWeaver::Hints.field(self, "species") { GraphWeaver::Hints.enum(Species, data.fetch("species")) },
           metadata: data["metadata"],
         )
       rescue GraphWeaver::Error

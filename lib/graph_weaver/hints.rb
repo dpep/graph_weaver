@@ -54,6 +54,28 @@ module GraphWeaver
       raise GraphWeaver::TypeError.new(struct:, message: "#{key}: #{e.message}")
     end
 
+    # A wire value the generated enum doesn't have — the response-side twin
+    # of InputStruct.enum. Almost always drift (the server grew a value since
+    # you generated) rather than a bad value, and T::Enum's own KeyError says
+    # neither that nor which values exist. Raised bare so the enclosing
+    # Hints.field brands it with the field.
+    def self.enum(type, value)
+      type.try_deserialize(value) || drifted!(type, value, type.values.map(&:serialize))
+    end
+
+    # the same, for an enum mapped onto an app-owned T::Enum, where the wire
+    # table rather than the type knows the accepted values
+    def self.mapped_enum(type, table, value)
+      table.fetch(value) { drifted!(type, value, table.keys) }
+    end
+
+    def self.drifted!(type, value, values)
+      raise KeyError, "#{value.inspect} is not a #{type} — expected one of: " \
+        "#{values.sort.join(", ")}; a value the server added since you generated " \
+        "needs a regenerate, or register_enum fallback: to absorb them"
+    end
+    private_class_method :drifted!
+
     # The message for a response that wouldn't cast. sorbet names the prop
     # and the value but not whose bug it is, and an ID the server sent as
     # its raw integer primary key is the case that keeps happening — so

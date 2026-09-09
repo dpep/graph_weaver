@@ -40,7 +40,7 @@ module AddPetMutation
         new(
           id: data.fetch("id"),
           name: data.fetch("name"),
-          species: GraphWeaver::Hints.field(self, "species") { Species.deserialize(data.fetch("species")) },
+          species: GraphWeaver::Hints.field(self, "species") { GraphWeaver::Hints.enum(Species, data.fetch("species")) },
         )
       rescue GraphWeaver::Error
         raise # already branded by a nested struct or leaf — keep the innermost context
