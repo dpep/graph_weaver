@@ -294,6 +294,10 @@ nil it declared it wouldn't get, while `AdoptionInput.nickname` gaining
 one rejects a query that omits it. Any drift exits non-zero — whether a
 change matters is yours to judge.
 
+`GraphWeaver::SchemaLoader.diff(path)` is the same summary as an object —
+`#breaking`, `#compatible`, `#to_h`, and `#empty?` for the plain "has it
+drifted" question.
+
 `queries:check` answers the question that actually matters when the schema
 *has* moved: **which of your queries no longer validate, and why.** It
 re-introspects the recorded url (without rewriting the dump) and validates
