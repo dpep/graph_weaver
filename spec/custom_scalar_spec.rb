@@ -138,7 +138,7 @@ describe "custom scalar deserialization" do
     source = generate
 
     expect(source).to include("const :price, MoneyDemo::Money")
-    expect(source).to include('price: MoneyDemo::Money.parse(data.fetch("price"))')
+    expect(source).to include('MoneyDemo::Money.parse(data.fetch("price"))')
     # inferred serialize emits the inverse for the Money variable
     expect(source).to include('"budget" => budget.to_s')
   end

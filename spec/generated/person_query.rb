@@ -44,9 +44,9 @@ module PersonQuery
             name: data.fetch("name"),
           )
         rescue GraphWeaver::Error
-          raise # already branded by a nested struct — keep the innermost context
+          raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -60,13 +60,13 @@ module PersonQuery
         new(
           id: data.fetch("id"),
           name: data.fetch("name"),
-          birthday: data["birthday"]&.then { |v1| Date.iso8601(v1) },
+          birthday: GraphWeaver::Hints.field(self, "birthday") { data["birthday"]&.then { |v1| Date.iso8601(v1) } },
           pets: data.fetch("pets").map { |v1| Pets.from_h(v1) },
         )
       rescue GraphWeaver::Error
-        raise # already branded by a nested struct — keep the innermost context
+        raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, error: e)
+        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -78,9 +78,9 @@ module PersonQuery
         person: data["person"]&.then { |v1| Person.from_h(v1) },
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 

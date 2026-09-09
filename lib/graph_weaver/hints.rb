@@ -40,6 +40,55 @@ module GraphWeaver
       )
     end
 
+    # Wraps one field's cast in generated from_h so a failure says which
+    # field. A scalar's cast is arbitrary Ruby — Float(), Date.iso8601, an
+    # app's Money.parse — and its complaint is about the value alone
+    # ("invalid date"), which locates nothing on a struct holding four
+    # dates. Sorbet's own prop errors already name the prop, so this is
+    # only on the leaves that cast.
+    def self.field(struct, key)
+      yield
+    rescue GraphWeaver::Error
+      raise # a nested struct already named its own field
+    rescue StandardError => e
+      raise GraphWeaver::TypeError.new(struct:, message: "#{key}: #{e.message}")
+    end
+
+    # The message for a response that wouldn't cast. sorbet names the prop
+    # and the value but not whose bug it is, and an ID the server sent as
+    # its raw integer primary key is the case that keeps happening — so
+    # say that GraphQL requires the quotes, and how to take it anyway.
+    def self.cast_message(struct, data, error)
+      message = error.message.sub(GraphWeaver::TypeError::SORBET_CALLER, "")
+      keys = unquoted_keys(struct, data)
+      return message if keys.empty?
+
+      "#{message} — the server sent #{keys.join(", ")} unquoted; GraphQL serializes ID and " \
+        "String as JSON strings, so that is the server being out of spec. To take it anyway, " \
+        'register the scalar loosely: GraphWeaver.register_scalar("ID", "T.untyped")'
+    end
+
+    # Response keys whose prop would take a String but whose value is
+    # another JSON scalar. Narrow on purpose: a prop that casts (a Date, an
+    # enum) legitimately arrives as some other type, so only the
+    # pass-through String ones say anything.
+    def self.unquoted_keys(struct, data)
+      return [] unless data.is_a?(Hash) && struct.respond_to?(:props)
+
+      props = struct.props
+      data.filter_map do |key, value|
+        next unless value.is_a?(Numeric) || value == true || value == false
+
+        prop = props[GraphWeaver::Inflect.underscore(key.to_s).to_sym]
+        next unless prop
+
+        # :type is a raw Class for a bare-class prop, a T::Types::Base otherwise
+        type = T::Utils.coerce(prop[:type])
+        key.inspect if type.valid?("") && !type.valid?(value)
+      end
+    end
+    private_class_method :unquoted_keys
+
     def method_missing(name, *args, &block)
       if args.empty? && (hint = prop_hint(name.to_s))
         raise NoMethodError, "undefined method '#{name}' for #{self.class} — #{hint}"

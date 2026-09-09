@@ -40,13 +40,13 @@ module FindPetsQuery
       def self.from_h(data)
         new(
           name: data.fetch("name"),
-          species: Species.deserialize(data.fetch("species")),
+          species: GraphWeaver::Hints.field(self, "species") { Species.deserialize(data.fetch("species")) },
           metadata: data["metadata"],
         )
       rescue GraphWeaver::Error
-        raise # already branded by a nested struct — keep the innermost context
+        raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, error: e)
+        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -58,9 +58,9 @@ module FindPetsQuery
         find_pets: data.fetch("findPets").map { |v1| FindPets.from_h(v1) },
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 

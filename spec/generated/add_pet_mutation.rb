@@ -40,12 +40,12 @@ module AddPetMutation
         new(
           id: data.fetch("id"),
           name: data.fetch("name"),
-          species: Species.deserialize(data.fetch("species")),
+          species: GraphWeaver::Hints.field(self, "species") { Species.deserialize(data.fetch("species")) },
         )
       rescue GraphWeaver::Error
-        raise # already branded by a nested struct — keep the innermost context
+        raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, error: e)
+        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -57,9 +57,9 @@ module AddPetMutation
         add_pet: AddPet.from_h(data.fetch("addPet")),
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 

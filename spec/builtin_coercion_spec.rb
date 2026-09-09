@@ -140,6 +140,39 @@ describe "built-in scalar coercion" do
       .to raise_error(GraphWeaver::TypeError)
   end
 
+  # spec: Int serializes as a JSON integer. Nothing about the wire format
+  # forces the decimal point, so 2.0 is the server being wrong — unlike a
+  # whole Float, which encoders write without one.
+  it "refuses an Int the server wrote with a decimal point" do
+    schema = GraphQL::Schema.from_definition("type Q { n: Int }\nschema { query: Q }")
+    mod = GraphWeaver.parse(schema:, query: "query M { n }")
+
+    expect { mod.from_response!("data" => { "n" => 2.0 }) }
+      .to raise_error(GraphWeaver::TypeError, /'n'.*Float/m)
+  end
+
+  # a cast raises about the value alone — "invalid date" locates nothing on
+  # a struct holding four of them
+  it "names the field when a leaf's cast refuses the wire value" do
+    schema = GraphQL::Schema.from_definition(
+      "scalar Date\ntype Q { born: Date, died: Date }\nschema { query: Q }",
+    )
+    mod = GraphWeaver.parse(schema:, query: "query M { born died }")
+
+    expect { mod.from_response!("data" => { "born" => "2024-01-01", "died" => "not a date" }) }
+      .to raise_error(GraphWeaver::TypeError, /died: invalid date/)
+  end
+
+  # ID is a String on the wire whatever the server stores; a raw integer
+  # primary key is the case that keeps happening, and looks like our bug
+  it "says whose bug an unquoted ID is, and how to take it anyway" do
+    schema = GraphQL::Schema.from_definition("type Q { id: ID }\nschema { query: Q }")
+    mod = GraphWeaver.parse(schema:, query: "query M { id }")
+
+    expect { mod.from_response!("data" => { "id" => 42 }) }
+      .to raise_error(GraphWeaver::TypeError, /"id" unquoted.*register_scalar\("ID", "T\.untyped"\)/m)
+  end
+
   it "rejects a non-boolean coerce:" do
     expect { GraphWeaver.register_scalar("X", "X", coerce: :to_s) }
       .to raise_error(ArgumentError, /coerce:/)

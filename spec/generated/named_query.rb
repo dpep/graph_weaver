@@ -45,12 +45,12 @@ module NamedQuery
           new(
             __typename: data.fetch("__typename"),
             name: data.fetch("name"),
-            species: Species.deserialize(data.fetch("species")),
+            species: GraphWeaver::Hints.field(self, "species") { Species.deserialize(data.fetch("species")) },
           )
         rescue GraphWeaver::Error
-          raise # already branded by a nested struct — keep the innermost context
+          raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -68,9 +68,9 @@ module NamedQuery
             name: data.fetch("name"),
           )
         rescue GraphWeaver::Error
-          raise # already branded by a nested struct — keep the innermost context
+          raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -95,9 +95,9 @@ module NamedQuery
         named: data["named"]&.then { |v1| Named.from_h(v1) },
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 

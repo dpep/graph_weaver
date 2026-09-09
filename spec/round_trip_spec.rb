@@ -82,6 +82,21 @@ describe "round trip" do
       expect(failures).to be_empty, -> { failures.join("\n\n") }
     end
 
+    it "refuses, by name, a #{label} wire value the scalar can't mean" do
+      failures = []
+      ROUND_TRIP_CASES.times do |i|
+        seed = ROUND_TRIP_SEED + i
+        rng = Random.new(seed)
+        query = RoundTrip::Fuzzer.new(schema, rng).query
+        next unless query && schema.validate(query).empty?
+
+        trip = RoundTrip.check_hostile(schema:, query:, name: "Hostile#{i}", rng:)
+        failures.concat(trip.failures.map { |failure| report(failure, trip, seed) })
+      end
+
+      expect(failures).to be_empty, -> { failures.join("\n\n") }
+    end
+
     it "puts #{label} inputs on the wire in the shape the schema wants" do
       fields = [[schema.query, false], [schema.mutation, true]].reject { |root, _| root.nil? }
         .flat_map { |root, mutation| root.fields.each_value.reject { |f| f.arguments.empty? }.map { |f| [f, mutation] } }

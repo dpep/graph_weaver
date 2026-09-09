@@ -369,9 +369,10 @@ class GraphWeaver::Codegen
       end
       out << "#{pad}    )"
       out << "#{pad}  rescue GraphWeaver::Error"
-      out << "#{pad}    raise # already branded by a nested struct — keep the innermost context"
-      out << "#{pad}  rescue StandardError => e" # a scalar's cast may raise anything
-      out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, error: e)"
+      out << "#{pad}    raise # already branded by a nested struct or leaf — keep the innermost context"
+      out << "#{pad}  rescue StandardError => e" # sorbet's prop check, mostly
+      out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, " \
+        "message: GraphWeaver::Hints.cast_message(self, data, e))"
       out << "#{pad}  end"
 
       # alias delegators (extend_type alias:) — typed accessors that project a
@@ -525,13 +526,19 @@ class GraphWeaver::Codegen
     def field_cast(field)
       node = field.node
 
-      if node.non_null?
-        raw = "data.fetch(#{field.key.inspect})"
-        node.identity? ? raw : node.cast(raw, 1)
-      else
-        raw = "data[#{field.key.inspect}]"
-        node.identity? ? raw : "#{raw}&.then { |v1| #{node.cast("v1", 2)} }"
-      end
+      cast =
+        if node.non_null?
+          raw = "data.fetch(#{field.key.inspect})"
+          node.identity? ? raw : node.cast(raw, 1)
+        else
+          raw = "data[#{field.key.inspect}]"
+          node.identity? ? raw : "#{raw}&.then { |v1| #{node.cast("v1", 2)} }"
+        end
+      return cast if node.identity? || !node.leaf?
+
+      # a leaf's cast raises about the value alone ("invalid date"); nothing
+      # else in the trace says which of the struct's four dates it was
+      "GraphWeaver::Hints.field(self, #{field.key.inspect}) { #{cast} }"
     end
 
     # A module-level T::Struct per input type: typed consts plus a FIELDS

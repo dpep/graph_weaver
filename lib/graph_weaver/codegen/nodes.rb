@@ -8,7 +8,7 @@ require "forwardable"
 # cast/serialize code to emit.
 class GraphWeaver::Codegen
   # Protocol defaults — subclasses override what differs. The full node
-  # protocol: bare_type, prop_type, cast(expr, depth), identity?,
+  # protocol: bare_type, prop_type, cast(expr, depth), identity?, leaf?,
   # serialize(expr, depth), serialize_identity?, coerce?, coerce(expr),
   # coerce_input_type, hash_coerce(expr, depth), hash_coerce_identity?,
   # non_null?, nested.
@@ -16,6 +16,9 @@ class GraphWeaver::Codegen
     def bare_type = raise(GraphWeaver::Error, "#{self.class} must define bare_type")
     def prop_type = "T.nilable(#{bare_type})"
     def identity? = false
+    # a scalar or enum: its cast is arbitrary code that raises on its own
+    # terms, so the field name has to be attached from outside
+    def leaf? = false
     def serialize_identity? = false
     def coerce? = false
     def hash_coerce_identity? = false
@@ -48,6 +51,8 @@ class GraphWeaver::Codegen
       !@scalar.cast?
     end
 
+    def leaf? = true
+
     def serialize(expr, _depth)
       @scalar.serialize(expr)
     end
@@ -79,7 +84,7 @@ class GraphWeaver::Codegen
 
     attr_reader :of
 
-    def_delegators :@of, :bare_type, :cast, :identity?, :serialize, :serialize_identity?,
+    def_delegators :@of, :bare_type, :cast, :identity?, :leaf?, :serialize, :serialize_identity?,
       :coerce?, :coerce, :coerce_input_type, :hash_coerce, :hash_coerce_identity?, :nested
 
     def initialize(of)
@@ -113,6 +118,7 @@ class GraphWeaver::Codegen
     end
 
     def identity? = @of.identity?
+    def leaf? = @of.leaf?
 
     def serialize(expr, depth)
       var = "v#{depth}"
@@ -200,6 +206,8 @@ class GraphWeaver::Codegen
       "#{expr}.serialize"
     end
 
+    def leaf? = true
+
     # enums always coerce: a kwarg or hash field accepts the T::Enum or
     # its wire value (deserialize raises on anything else)
     def coerce? = true
@@ -243,6 +251,8 @@ class GraphWeaver::Codegen
     def serialize(expr, _depth)
       "#{const_prefix}_TO_WIRE.fetch(#{expr})"
     end
+
+    def leaf? = true
 
     # kwargs and hash fields accept the member or its wire value; unlike
     # casting, bad input raises even with a fallback (a typo'd input is
