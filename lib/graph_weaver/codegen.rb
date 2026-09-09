@@ -509,16 +509,17 @@ class GraphWeaver::Codegen
     return validate_scalar_field!(schema, name, method) if kind == "scalar" && name.include?(".")
 
     type = schema.get_type(name)
-    return unmatched(schema, method, name, kind == "type" ? "type" : kind) unless type
+    return unmatched(schema, method, name, kind) unless type
 
     expected = REGISTERED_KIND[kind]
     return if expected.nil? || type.kind.name == expected
 
     found = type.kind.name.downcase.tr("_", " ")
+    # a leaf registered as the other kind has a method that would have worked
     other = REGISTERED_KIND.key(type.kind.name)
     raise GraphWeaver::Error,
-      "#{method}(#{name.inspect}) names #{article(found)} #{found}, not #{article(expected)} " \
-      "#{expected.downcase}#{other ? " — use #{REGISTRATION_METHOD.fetch(other)}" : ""}"
+      "#{method}(#{name.inspect}) names #{article(found)} #{found}, not #{article(kind)} " \
+      "#{kind}#{other ? " — use #{REGISTRATION_METHOD.fetch(other)}" : ""}"
   end
 
   # A per-field override, register_scalar("Type.field", ...). The type has to
