@@ -1,4 +1,18 @@
 ## Unreleased
+- **A registration another schema owns warns instead of failing generation.**
+  One registry serves a whole graph — federation composes scalars and types
+  by name — but validation ran against the single schema in hand, so the
+  natural multi-subgraph pattern (register once, generate each query against
+  its own subgraph) hard-failed. Generation now fails only on what the schema
+  can *disprove*: a name it declares as something else, or a coordinate whose
+  field it declares as a composite. Everything else warns, naming the schema
+  and suggesting a corrected name. `rake graph_weaver:generate` and `verify`
+  print that list once per run after the files;
+  `GraphWeaver.unmatched_registrations` is the same list for a Rakefile.
+  **Breaking**: a typo'd registration that used to stop generation is now a
+  printed warning. `docs/federation.md` gains "Generating for a federated
+  graph": through the gateway, generate against the supergraph; calling
+  subgraphs directly, one client each with `reset_registrations!` between.
 - **Variables coerce inside `execute` now, and the sig stays as narrow as the
   schema.** `execute(first: params[:first])` works — the String becomes an
   Integer, an ISO-8601 string a `Date`, a model's Integer primary key an `ID` —

@@ -15,7 +15,7 @@ What logs at which level — pick the level, get the story:
 |-------|--------------|
 | `debug` | the wire: query + variables per call (long queries truncated), response status/bytes, request timing, connection open/drop, dynamically parsed modules |
 | `info` | schema introspection (with timing) and cache hits/misses, generated files written and any unregistered scalars, query modules loaded |
-| `warn` | every GraphWeaver error raised — `TransportError`, `ServerError`, `QueryError`, `ValidationError`, `TypeError` |
+| `warn` | every GraphWeaver error raised — `TransportError`, `ServerError`, `QueryError`, `ValidationError`, `TypeError` — and registrations the schema being generated against can't match |
 
 Every line carries `graph_weaver` as the progname, so formatter-based
 filtering works out of the box. Wire lines are tagged
