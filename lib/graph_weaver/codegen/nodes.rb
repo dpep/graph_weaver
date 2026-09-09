@@ -406,4 +406,10 @@ class GraphWeaver::Codegen
       @params = params
     end
   end
+
+  # The IR is codegen's own vocabulary — every node type is reachable only
+  # from inside the walk.
+  private_constant :Node, :Scalar, :NonNull, :List, :ObjectNode, :EnumNode,
+    :MappedEnum, :NarrowedNode, :UnionNode, :UnionRefNode, :InputNode,
+    :RepresentationNode
 end

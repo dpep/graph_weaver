@@ -86,6 +86,7 @@ class GraphWeaver::Codegen
     # ever satisfy it, so it's a typo (or a wire-cased name), not a path that
     # doesn't fit this query. optional: skips the latter, never this.
     UnknownSegment = Class.new(GraphWeaver::Error)
+    private_constant :ALIAS_RESERVED, :LIST_SELECTORS, :UnknownSegment
 
     # Walk a dotted path through this struct's selected shape, building the
     # delegator expression (`meta&.tag`, `_entities.first&.name`) and its return

@@ -82,6 +82,7 @@ class GraphWeaver::Codegen
     # arbitrary text that could inject code
     ALIAS_NAME = /\A[a-zA-Z_]\w*[?!]?\z/
     ALIAS_SEGMENT = /\A[a-zA-Z_]\w*\z/
+    private_constant :ALIAS_NAME, :ALIAS_SEGMENT
 
     # { accessor => { segments:, optional: } } from a path string (accessor
     # named after the last segment), an array of such, or an { accessor => path }

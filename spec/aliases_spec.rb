@@ -291,6 +291,9 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     # `inherited` off each one), leaving what generation itself added
     added = PersonQuery::Result::Person.singleton_methods(false) - Class.new(T::Struct).singleton_methods(false)
 
-    expect(added.map(&:to_s).to_set).to eq GraphWeaver::Codegen::Aliases::ALIAS_RESERVED
+    # const_get, not ::, because the list is private — and it is the thing
+    # under test: a new generated class method has to be added to it
+    reserved = GraphWeaver::Codegen.const_get(:Aliases).const_get(:ALIAS_RESERVED)
+    expect(added.map(&:to_s).to_set).to eq reserved
   end
 end

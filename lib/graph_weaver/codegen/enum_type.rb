@@ -105,4 +105,7 @@ class GraphWeaver::Codegen
       self
     end
   end
+
+  # codegen's own record of a register_enum mapping
+  private_constant :EnumType
 end

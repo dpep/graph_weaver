@@ -37,6 +37,8 @@ class GraphWeaver::Codegen
   include GraphWeaver::Selection
   include Aliases
   include Emit
+  # the walk's two halves, split for file size rather than for reuse
+  private_constant :Aliases, :Emit
 
   # How a directory of GraphQL documents is scanned: both extensions the rest of
   # the library already accepts, and nested — `queries/admin/pets.graphql` is
@@ -82,7 +84,7 @@ class GraphWeaver::Codegen
     @used_unions = []
     # scalars this generation had no registration for (see report_untyped_scalars)
     @untyped_scalars = []
-    @client_const = self.class.client_const(client)
+    @client_const = CLIENT_CONST.call(client)
 
     if client && @client_const.nil?
       # a live object can't be spelled in generated source — parse can
@@ -93,12 +95,15 @@ class GraphWeaver::Codegen
 
   # The constant name a client can be referenced by in generated
   # source — nil when it can't be (live objects, anonymous modules).
-  def self.client_const(client)
+  # A lambda rather than a method: both `parse` and `initialize` need it,
+  # from the class and from an instance.
+  CLIENT_CONST = lambda do |client|
     case client
     when String then client
     when Module then client.name
     end
   end
+  private_constant :CLIENT_CONST
 
   # one-step shorthand
   def self.generate(schema:, query:, module_name: nil, client: nil, path: nil)
@@ -111,7 +116,7 @@ class GraphWeaver::Codegen
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
   def self.parse(schema:, query:, module_name: nil, client: nil, path: nil)
-    client_const = client_const(client)
+    client_const = CLIENT_CONST.call(client)
 
     codegen = new(schema:, query:, module_name:, client: client_const, path:,
       default_module_name: "Query")
@@ -186,6 +191,7 @@ class GraphWeaver::Codegen
   # module-level constants every generated query module defines — a shared
   # type aliased to one of these would clash at load
   MODULE_RESERVED = %w[Result QUERY Representations].to_set.freeze
+  private_constant :MODULE_RESERVED
 
   # One hoisted shared fragment, built against the schema and named for the
   # fragment rather than the field that spread it.
@@ -259,6 +265,7 @@ class GraphWeaver::Codegen
   private :validate_module_name!
 
   VarDef = Struct.new(:kwarg, :wire, :node, :required)
+  private_constant :VarDef
 
   # Names generated Ruby can't spell bare — as a kwarg, a local, or a method
   # name. As a prop they're fine (`const :next`), since a prop is only ever
@@ -281,6 +288,7 @@ class GraphWeaver::Codegen
   # ArgumentError at require time. Derived rather than listed, so it tracks
   # whatever the Ruby and sorbet-runtime in play actually define.
   STRUCT_METHODS = (GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
+  private_constant :RUBY_KEYWORDS, :GENERATED_METHODS, :RESERVED_KWARGS, :STRUCT_METHODS
 
   def generate
     begin
@@ -407,6 +415,7 @@ class GraphWeaver::Codegen
   # The subgraph spec's representation scalar. A field taking one is the
   # entity resolver, whatever it's called.
   REPRESENTATION_SCALAR = "_Any"
+  private_constant :REPRESENTATION_SCALAR
 
   def representation_field?(definition)
     definition.arguments.each_value.any? { |argument| argument.type.unwrap.graphql_name == REPRESENTATION_SCALAR }
@@ -540,6 +549,7 @@ class GraphWeaver::Codegen
       "#{method}(#{name.inspect}) names #{article(found)} #{found}, not #{article(kind)} " \
       "#{kind}#{other ? " — use #{REGISTRATION_METHOD.fetch(other)}" : ""}"
   end
+  private_class_method :validate_registration!
 
   # A per-field override, register_scalar("Type.field", ...). Neither an absent
   # type nor an absent field is disprovable here; what is, is a field this
@@ -628,6 +638,7 @@ class GraphWeaver::Codegen
       [{ message: prefix.empty? ? e.message : "#{prefix} #{e.message}", line: e.line, column: e.col }],
     )
   end
+  private_class_method :parse_document
 
   # Append the shared fragments a query spreads (transitively) to its source, so
   # the sent query is self-contained. Unused shared fragments are left out.

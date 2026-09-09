@@ -55,6 +55,7 @@ class GraphWeaver::Codegen
       "String" => "string",
       "T::Boolean" => "boolean",
     }.freeze
+    private_constant :Codec, :CODECS, :COERCERS
 
     attr_reader :graphql_name, :type, :requires
 
@@ -222,7 +223,11 @@ class GraphWeaver::Codegen
     # clean slate to reach for between tests, or to undo overrides.
     def reset_scalars!
       clear_scalars!
-      register_builtin_scalars!
+      # codegen's own record of a registration; users get one back from
+  # `.scalar` but never name the class
+  private_constant :ScalarType
+
+  register_builtin_scalars!
       self
     end
 
@@ -245,6 +250,7 @@ class GraphWeaver::Codegen
       register_scalar "Boolean", "T::Boolean"
       register_scalar "Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date"
     end
+    private :register_builtin_scalars!
   end
 
   register_builtin_scalars!
