@@ -35,6 +35,7 @@ module GraphWeaver
         .transform_values(&:first)
         .merge(invalid: "doesn't validate against the supergraph")
         .freeze
+      private_constant :LABELS
 
       attr_reader :results
 

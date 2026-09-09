@@ -14,6 +14,7 @@ module GraphWeaver
     class MissingRecording < GraphWeaver::Error
       # how many recorded variable sets to print before summarizing
       SHOWN = 5
+      private_constant :SHOWN
 
       def initialize(path:, query:, variables:, recorded:, size:)
         super([

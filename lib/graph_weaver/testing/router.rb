@@ -218,6 +218,7 @@ module GraphWeaver
       # position holds is a fact only the data carries, so every abstract
       # fetch asks for it — under this key whether or not the caller did.
       TYPENAME = "#{PREFIX}__typename"
+      private_constant :PREFIX, :TYPENAME
 
       # A field set as dotted paths, back into the selection set it was parsed
       # from ({"origin" => {"lat" => {}, "lon" => {}}}). Both sides of a
@@ -636,6 +637,7 @@ module GraphWeaver
           ),
         ),
       )
+      private_constant :REPRESENTATIONS, :REPRESENTATIONS_DEFINITION
 
       # A subgraph query may only declare the variables it uses, so each
       # fetch carries the slice of the operation's definitions it reached.
@@ -765,7 +767,7 @@ module GraphWeaver
         # One subgraph fetch. `selections` go over as written; `keys` names the
         # @key/@requires paths this fetch also asks for, to carry entities
         # across a boundary, and `injected` the response keys those land under
-        # (Router::PREFIX + the path's first segment — a nested field set
+        # (PREFIX + the path's first segment — a nested field set
         # arrives as one object), which the answer is stripped of. `children`
         # and `deferrals` are what happens to the objects it answers with — a
         # child stays in this subgraph and only carries deferrals deeper, a
@@ -782,7 +784,7 @@ module GraphWeaver
         # the __typename every abstract fetch asks for, under the router's own
         # response key so the caller's answer never gains one it didn't ask for
         TYPENAME_FIELD = GraphQL::Language::Nodes::Field.new(
-          name: "__typename", field_alias: Router::TYPENAME,
+          name: "__typename", field_alias: TYPENAME,
         )
 
         # What a field returning an abstract type defers to: one plan per
@@ -1091,7 +1093,7 @@ module GraphWeaver
           # one is nested rather than a dotted alias no schema has
           here.selections.concat(Router.injected_selections(here.keys))
           here.injected = (here.keys + here.prefetches.flat_map(&:paths))
-            .map { |path| Router::PREFIX + path.split(".").first }.uniq
+            .map { |path| PREFIX + path.split(".").first }.uniq
           check_reserved!(type_name, selections, here.injected)
           here
         end

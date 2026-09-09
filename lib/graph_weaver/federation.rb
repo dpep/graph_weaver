@@ -49,6 +49,7 @@ module GraphWeaver
       # declares one — so a root can't tell subgraphs apart, and a schema
       # is recognized by the other types it defines.
       ROOTS = %w[Query Mutation Subscription].freeze
+      private_constant :ROOTS
 
       # { "Product.weight" => ["products"] } — the supergraph says these
       # subgraphs resolve it, and no schema of theirs here defines it

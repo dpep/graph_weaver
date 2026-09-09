@@ -129,7 +129,6 @@ GraphWeaver::Federation::Drift#to_h
 GraphWeaver::Federation::Drift#to_s
 GraphWeaver::Federation::Drift#uncomposed
 GraphWeaver::Federation::Drift#vacuous?
-GraphWeaver::Federation::Drift::ROOTS = Array
 GraphWeaver::Federation::Drift::STALE = String
 GraphWeaver::Federation::Drift::UNCOMPOSED = String
 GraphWeaver::GraphQLError (Class)
@@ -374,7 +373,6 @@ GraphWeaver::Testing::Coverage#report
 GraphWeaver::Testing::Coverage#results
 GraphWeaver::Testing::Coverage#servable
 GraphWeaver::Testing::Coverage#to_s
-GraphWeaver::Testing::Coverage::LABELS = Hash
 GraphWeaver::Testing::Coverage::Result (Class)
 GraphWeaver::Testing::Coverage::Result#absent
 GraphWeaver::Testing::Coverage::Result#absent=
@@ -411,7 +409,6 @@ GraphWeaver::Testing::FakeSubgraph#schema
 GraphWeaver::Testing::FakeSubgraph#to_s
 GraphWeaver::Testing::MissingRecording (Class)
 GraphWeaver::Testing::MissingRecording.recorded_summary
-GraphWeaver::Testing::MissingRecording::SHOWN = Integer
 GraphWeaver::Testing::RSpecIntegration (Module)
 GraphWeaver::Testing::RSpecIntegration.client_for
 GraphWeaver::Testing::RSpecIntegration.context!
@@ -449,7 +446,6 @@ GraphWeaver::Testing::Router.field_selections
 GraphWeaver::Testing::Router.field_tree
 GraphWeaver::Testing::Router.graphql_error
 GraphWeaver::Testing::Router.injected_selections
-GraphWeaver::Testing::Router::PREFIX = String
 GraphWeaver::Testing::Router::Planner (Class)
 GraphWeaver::Testing::Router::Planner#narrow
 GraphWeaver::Testing::Router::Planner#plan
@@ -538,9 +534,6 @@ GraphWeaver::Testing::Router::Planner::Step.[]
 GraphWeaver::Testing::Router::Planner::Step.keyword_init?
 GraphWeaver::Testing::Router::Planner::Step.members
 GraphWeaver::Testing::Router::Planner::TYPENAME_FIELD = GraphQL::Language::Nodes::Field
-GraphWeaver::Testing::Router::REPRESENTATIONS = String
-GraphWeaver::Testing::Router::REPRESENTATIONS_DEFINITION = GraphQL::Language::Nodes::VariableDefinition
-GraphWeaver::Testing::Router::TYPENAME = String
 GraphWeaver::Testing::Sequence (Class)
 GraphWeaver::Testing::Sequence#execute
 GraphWeaver::Testing::Unplannable (Class)
