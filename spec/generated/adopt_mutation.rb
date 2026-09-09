@@ -72,16 +72,18 @@ module AdoptMutation
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(input:, client: nil)
     variables = {
-      "input" => AdoptionInput.coerce(input).serialize,
+      "input" => GraphWeaver::Coerce.variable("input", OPERATION_NAME, input) { |v| AdoptionInput.coerce(v) }.serialize,
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(Result) }
+  sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(input:, client: nil)
     execute(input:, client:).data!
   end

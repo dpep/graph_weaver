@@ -140,7 +140,7 @@ describe "custom scalar deserialization" do
     expect(source).to include("const :price, MoneyDemo::Money")
     expect(source).to include('MoneyDemo::Money.parse(data.fetch("price"))')
     # inferred serialize emits the inverse for the Money variable
-    expect(source).to include('"budget" => budget.to_s')
+    expect(source).to include("}.to_s,")
   end
 
   it "emits requires: atop the generated source, before the module" do
@@ -253,20 +253,23 @@ describe "custom scalar deserialization" do
       .not_to raise_error
   end
 
-  describe "coerce:" do
-    it "accepts the value or its raw input, running the raw one through the cast" do
-      GraphWeaver.register_scalar("Money", MoneyDemo::Money, coerce: true)
+  # cast: is the how in both directions: what builds a Money out of the wire
+  # also builds one out of a Rails param. Nothing to opt into, and the kwarg
+  # stays typed Money.
+  describe "loose variable input" do
+    it "keeps the kwarg narrow and normalizes in the body" do
+      GraphWeaver.register_scalar("Money", MoneyDemo::Money)
 
       source = generate
 
-      expect(source).to include("budget: T.any(MoneyDemo::Money, String)")
+      expect(source).to include("budget: MoneyDemo::Money")
       expect(source).to include(
-        '"budget" => (budget.is_a?(MoneyDemo::Money) ? budget : MoneyDemo::Money.parse(budget)).to_s',
+        '(v.is_a?(MoneyDemo::Money) ? v : MoneyDemo::Money.parse(v))',
       )
     end
 
     it "coerces a raw string input end to end, and passes a value through" do
-      GraphWeaver.register_scalar("Money", MoneyDemo::Money, coerce: true, requires: "bigdecimal")
+      GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "bigdecimal")
 
       mod = GraphWeaver.parse(
         schema: MoneyDemo::Schema,
@@ -281,9 +284,21 @@ describe "custom scalar deserialization" do
       expect(from_value.price.amount).to eq BigDecimal("12.00")
     end
 
-    it "refuses a scalar with no way to coerce" do
-      expect { GraphWeaver.register_scalar("Money", String, coerce: true) } # String: no cast
-        .to raise_error(ArgumentError, /nothing to coerce/)
+    it "names the variable when the cast refuses" do
+      GraphWeaver.register_scalar("Money", MoneyDemo::Money, requires: "bigdecimal")
+
+      mod = GraphWeaver.parse(schema: MoneyDemo::Schema, client: MoneyDemo::Schema, query:)
+
+      expect { mod.execute(name: "Widget", budget: Object.new) }
+        .to raise_error(GraphWeaver::InputError, /\$budget of Store/)
+    end
+
+    # the sig no longer checks at runtime, so a pass-through scalar still
+    # has its Ruby type held to
+    it "checks a pass-through scalar's Ruby type" do
+      GraphWeaver.register_scalar("Money", String) # String has no .parse/.load
+
+      expect(generate).to include("GraphWeaver::Coerce.string(v)")
     end
   end
 

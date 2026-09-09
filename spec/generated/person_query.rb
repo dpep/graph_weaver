@@ -90,16 +90,18 @@ module PersonQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(id: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(id: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(id:, client: nil)
     variables = {
-      "id" => id,
+      "id" => GraphWeaver::Coerce.variable("id", OPERATION_NAME, id) { |v| GraphWeaver::Coerce.id(v) },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(id: String, client: T.untyped).returns(Result) }
+  sig { params(id: String, client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(id:, client: nil)
     execute(id:, client:).data!
   end

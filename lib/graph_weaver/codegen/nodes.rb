@@ -9,12 +9,18 @@ require "forwardable"
 class GraphWeaver::Codegen
   # Protocol defaults — subclasses override what differs. The full node
   # protocol: bare_type, prop_type, cast(expr, depth), identity?, leaf?,
-  # serialize(expr, depth), serialize_identity?, coerce?, coerce(expr),
-  # coerce_input_type, hash_coerce(expr, depth), hash_coerce_identity?,
+  # serialize(expr, depth), serialize_identity?, input_type, coerce?,
+  # coerce(expr), hash_coerce(expr, depth), hash_coerce_identity?,
   # non_null?, nested.
   class Node
     def bare_type = raise(GraphWeaver::Error, "#{self.class} must define bare_type")
     def prop_type = "T.nilable(#{bare_type})"
+    # The Sorbet type an execute kwarg (or input-struct field) accepts. Same
+    # as the prop type for anything a caller can only pass as itself; wider
+    # where a wire spelling is also accepted (an enum, an input hash).
+    # Independent of #coerce: the sig says what typechecks, the body
+    # normalizes whatever actually arrives.
+    def input_type = bare_type
     def identity? = false
     # a scalar or enum: its cast is arbitrary code that raises on its own
     # terms, so the field name has to be attached from outside
@@ -61,15 +67,14 @@ class GraphWeaver::Codegen
       !@scalar.serialize?
     end
 
-    # coercion (coerce: per scalar, or GraphWeaver.auto_coerce for all):
-    # accept the value or its raw input and normalize before serializing.
-    # See ScalarType#coercion.
+    # An untyped value reaching the kwarg is normalized to the scalar's Ruby
+    # type before it is serialized — the sig stays narrow. See
+    # ScalarType#coerce_input.
     def coerce? = @scalar.coerce?
     def coerce(expr) = @scalar.coerce_input(expr)
-    def coerce_input_type = @scalar.coerce_type
 
-    # inside input-struct hashes, scalars coerce exactly like variable
-    # kwargs do — the registry (incl. GraphWeaver.auto_coerce) decides
+    # inside input-struct hashes, scalars coerce exactly as variable
+    # kwargs do
     def hash_coerce(expr, _depth)
       @scalar.coerce_input(expr) || expr
     end
@@ -85,7 +90,7 @@ class GraphWeaver::Codegen
     attr_reader :of
 
     def_delegators :@of, :bare_type, :cast, :identity?, :leaf?, :serialize, :serialize_identity?,
-      :coerce?, :coerce, :coerce_input_type, :hash_coerce, :hash_coerce_identity?, :nested
+      :input_type, :coerce?, :coerce, :hash_coerce, :hash_coerce_identity?, :nested
 
     def initialize(of)
       @of = of
@@ -140,9 +145,9 @@ class GraphWeaver::Codegen
     def coerce? = !hash_coerce_identity?
     def coerce(expr) = hash_coerce(expr, 1)
 
-    def coerce_input_type
-      element = @of.coerce? ? @of.coerce_input_type : @of.prop_type
-      element = "T.nilable(#{element})" if @of.coerce? && !@of.non_null? && element != "T.untyped"
+    def input_type
+      element = @of.input_type
+      element = "T.nilable(#{element})" if !@of.non_null? && element != "T.untyped"
       "T::Array[#{element}]"
     end
 
@@ -216,7 +221,7 @@ class GraphWeaver::Codegen
       "GraphWeaver::InputStruct.enum(#{class_name}, #{expr})"
     end
 
-    def coerce_input_type = "T.any(#{class_name}, String)"
+    def input_type = "T.any(#{class_name}, String)"
     def hash_coerce(expr, _depth) = coerce(expr)
     def nested = self
   end
@@ -263,7 +268,7 @@ class GraphWeaver::Codegen
       "GraphWeaver::InputStruct.mapped_enum(#{@type_name}, #{const_prefix}_FROM_WIRE, #{expr})"
     end
 
-    def coerce_input_type = "T.any(#{@type_name}, String)"
+    def input_type = "T.any(#{@type_name}, String)"
     def hash_coerce(expr, _depth) = coerce(expr)
   end
 
@@ -370,7 +375,7 @@ class GraphWeaver::Codegen
 
     def coerce? = true
     def coerce(expr) = "#{class_name}.coerce(#{expr})"
-    def coerce_input_type = "T.any(#{class_name}, T::Hash[T.untyped, T.untyped])"
+    def input_type = "T.any(#{class_name}, T::Hash[T.untyped, T.untyped])"
 
     # building a struct field from a caller-supplied plain hash value
     def hash_coerce(expr, _depth) = "#{class_name}.coerce(#{expr})"

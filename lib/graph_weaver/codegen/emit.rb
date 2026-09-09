@@ -446,7 +446,7 @@ class GraphWeaver::Codegen
       ordered = required + optional
 
       sig_params = ordered.map do |var|
-        bare = var.node.coerce? ? var.node.coerce_input_type : var.node.bare_type
+        bare = var.node.input_type
         kwarg_type = var.required || bare == "T.untyped" ? bare : "T.nilable(#{bare})"
         "#{var.kwarg}: #{kwarg_type}"
       end
@@ -471,14 +471,16 @@ class GraphWeaver::Codegen
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # the typed result, or a raised QueryError.
-      out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
+      out << "  # .checked(:never): an untyped value (a Rails param) reaches the coercion below"
+      out << "  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites."
+      out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]).checked(:never) }"
       out << "  def self.execute(#{kwargs.join(", ")})"
       emit_variables(out, required, optional, omitted)
       out << ""
       out << "    from_response(#{call})"
       out << "  end"
       out << ""
-      out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+      out << "  sig { params(#{sig_params.join(", ")}).returns(Result).checked(:never) }"
       out << "  def self.execute!(#{kwargs.join(", ")})"
       if omitted.empty?
         # kwargs forward via hash shorthand (key == value)
@@ -547,8 +549,17 @@ class GraphWeaver::Codegen
       out << "  end"
     end
 
+    # A kwarg's trip onto the wire: normalize whatever arrived into the type
+    # the sig promises — the sig itself is `.checked(:never)`, so this is the
+    # check — then serialize. Coercion is wrapped so a refusal names the
+    # variable and the operation; the value alone locates nothing.
     def variable_serialize(var)
-      value = var.node.coerce? ? var.node.coerce(var.kwarg) : var.kwarg
+      value = if var.node.coerce?
+        "GraphWeaver::Coerce.variable(#{var.wire.inspect}, OPERATION_NAME, #{var.kwarg}) " \
+          "{ |v| #{var.node.coerce("v")} }"
+      else
+        var.kwarg
+      end
       var.node.serialize_identity? ? value : var.node.serialize(value, 1)
     end
 

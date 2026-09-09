@@ -41,6 +41,20 @@ module GraphWeaver
       table.fetch(value) { invalid_enum!(type, value, table.keys) }
     end
 
+    # Names the input field a coercion refused — a scalar's coercer, an
+    # enum's, or a nested input's — since the complaint underneath is about
+    # the value alone. A nested error that already named a field keeps it:
+    # the innermost input is the one that actually held the bad value.
+    def self.field(struct, prop)
+      yield
+    rescue GraphWeaver::InputError => e
+      raise if e.field
+
+      raise GraphWeaver::InputError.new("#{prop}: #{e.message}", field: prop.to_s, struct: e.struct || struct)
+    rescue StandardError => e
+      raise GraphWeaver::InputError.new("#{prop}: #{e.message}", field: prop.to_s, struct:)
+    end
+
     def self.invalid_enum!(type, value, values)
       raise GraphWeaver::InputError.new(
         "#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}",
@@ -109,7 +123,11 @@ module GraphWeaver
         given = fields.select { |field| value.key?(field.prop) || value.key?(field.prop.to_s) }.map(&:prop)
         supplied = fields.to_h do |field|
           raw = value.key?(field.prop) ? value[field.prop] : value[field.prop.to_s]
-          [field.prop, raw.nil? || field.coercer.nil? ? raw : field.coercer.call(raw)]
+          next [field.prop, raw] if raw.nil? || field.coercer.nil?
+
+          # a coercer is arbitrary Ruby — Coerce.integer, Date.iso8601, a
+          # nested .coerce — and its complaint is about the value alone
+          [field.prop, GraphWeaver::InputStruct.field(self, field.prop) { field.coercer.call(raw) }]
         end
 
         # FIELDS knows which are required, so say what is missing — sorbet's

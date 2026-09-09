@@ -107,16 +107,18 @@ module NamedQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(name: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(name: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(name:, client: nil)
     variables = {
-      "name" => name,
+      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v) },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(name: String, client: T.untyped).returns(Result) }
+  sig { params(name: String, client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(name:, client: nil)
     execute(name:, client:).data!
   end

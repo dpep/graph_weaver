@@ -70,18 +70,20 @@ module FindPetsQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(where: (where_omitted = true; nil), client: nil)
     variables = {}
-    variables["where"] = (where.nil? ? nil : PetFilter.coerce(where).serialize) unless where_omitted
+    variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v) }.serialize) unless where_omitted
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(Result) }
+  sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(where: (where_omitted = true; nil), client: nil)
     variables = {}
-    variables["where"] = (where.nil? ? nil : PetFilter.coerce(where).serialize) unless where_omitted
+    variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v) }.serialize) unless where_omitted
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME)).data!
   end

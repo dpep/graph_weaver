@@ -141,16 +141,18 @@ module SearchQuery
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(term: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(term: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(term:, client: nil)
     variables = {
-      "term" => term,
+      "term" => GraphWeaver::Coerce.variable("term", OPERATION_NAME, term) { |v| GraphWeaver::Coerce.string(v) },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(term: String, client: T.untyped).returns(Result) }
+  sig { params(term: String, client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(term:, client: nil)
     execute(term:, client:).data!
   end

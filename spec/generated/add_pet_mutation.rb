@@ -69,17 +69,19 @@ module AddPetMutation
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
-  sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(name:, species:, client: nil)
     variables = {
-      "name" => name,
-      "species" => GraphWeaver::InputStruct.enum(Species, species).serialize,
+      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v) },
+      "species" => GraphWeaver::Coerce.variable("species", OPERATION_NAME, species) { |v| GraphWeaver::InputStruct.enum(Species, v) }.serialize,
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(Result) }
+  sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(name:, species:, client: nil)
     execute(name:, species:, client:).data!
   end

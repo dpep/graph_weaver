@@ -448,65 +448,6 @@ describe "GraphWeaver.verify_generated!" do
   end
 end
 
-describe "GraphWeaver.auto_coerce" do
-  after do
-    GraphWeaver.auto_coerce = nil
-    GraphWeaver::Codegen.reset_scalars!
-  end
-
-  let(:query) { "query Cast($id: ID!, $term: String!) { search(term: $term) { __typename ... on Named { name } } }" }
-
-  it "defaults built-in coercion lazily — no reset_scalars! dance, any order" do
-    mod = GraphWeaver.parse(
-      schema: Demo::Schema,
-      client: Demo::Schema,
-      query: "query Sized($term: String!, $first: Int) { search(term: $term, first: $first) { __typename ... on Named { name } } }",
-    )
-    # parse happened BEFORE enabling? no — generation is what matters, so
-    # enable first here; the point is no registry reset is needed
-    GraphWeaver.auto_coerce = true
-    coerced = GraphWeaver.parse(
-      schema: Demo::Schema,
-      client: Demo::Schema,
-      query: "query Sized($term: String!, $first: Int) { search(term: $term, first: $first) { __typename ... on Named { name } } }",
-    )
-
-    expect(coerced.execute!(term: "el", first: "1").search.size).to eq 1 # "1" converted
-    expect { mod.execute!(term: "el", first: "1") }.to raise_error(TypeError) # generated before: strict
-  end
-
-  it "gives cast/serialize scalars parse-style coercion; explicit coerce: false wins" do
-    GraphWeaver.auto_coerce = true
-
-    date_mod = GraphWeaver.parse(
-      schema: Demo::Schema,
-      client: Demo::Schema,
-      query: "query People { people { birthday } }",
-    )
-    # Date has a full cast/serialize pair, so under auto_coerce a Date
-    # VARIABLE would accept "2020-01-01" — output casting is unchanged
-    expect(date_mod.execute!.people.first&.birthday).to be_a Date
-
-    GraphWeaver.register_scalar("Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date", coerce: false)
-    expect(GraphWeaver::Codegen.scalar("Date").coerce?).to be false # explicit false beats auto
-  end
-
-  it "applies inside input objects too — mutations included" do
-    GraphWeaver.auto_coerce = true
-
-    mod = GraphWeaver.parse(
-      schema: Demo::Schema,
-      client: Demo::Schema,
-      query: "mutation Adopt($input: AdoptionInput!) { adopt(input: $input) { name species } }",
-    )
-
-    # birthday as a raw iso8601 string: the Date scalar's coercion (auto)
-    # parses it before the struct type-checks
-    pet = mod.execute!(input: { name: "Rex", species: "DOG", birthday: "2020-06-15" }).adopt
-    expect(pet.name).to eq "Rex"
-  end
-end
-
 describe "query directory scanning" do
   around do |example|
     Dir.mktmpdir { |dir| @dir = dir; example.run }

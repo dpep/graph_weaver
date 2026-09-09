@@ -3,6 +3,7 @@ require "sorbet-runtime"
 
 require_relative "graph_weaver/logging"
 require_relative "graph_weaver/errors"
+require_relative "graph_weaver/coerce"
 require_relative "graph_weaver/hints"
 require_relative "graph_weaver/input_struct"
 require_relative "graph_weaver/query_module"
@@ -601,15 +602,6 @@ module GraphWeaver
     end
     private :generation_plan
 
-    # coerce: true for every scalar that doesn't say coerce: itself —
-    # the same switch at global scope, resolved lazily at generation time
-    # (so set it any time before you generate, no ordering dance):
-    #
-    #      GraphWeaver.auto_coerce = true
-    #
-    # An explicit coerce: on a registration always wins.
-    attr_accessor :auto_coerce
-
     # Whether generated modules/structs emit `extend T::Sig` (so `sig`
     # resolves standalone). Default (nil) auto-detects: an app that globally
     # injects T::Sig (`class Module; include T::Sig`) makes the per-struct
@@ -652,10 +644,9 @@ module GraphWeaver
     # Proc(expr) => code string, or :itself to force pass-through. requires:
     # (a String or Array) names files the generated code needs — validated,
     # and actually required to confirm it resolves when type: is a real class.
-    # coerce: true makes a variable of this scalar accept the value OR its
-    # raw input (e.g. "12.00"), normalizing the latter before serializing —
-    # it raises on bad input, so some safety survives; GraphWeaver.auto_coerce
-    # is the same switch for every scalar at once. Built-in scalars are
+    # cast: is also what an untyped variable input coerces through, so a
+    # variable of this scalar takes the value OR its raw input ("12.00") with
+    # no static loosening — see GraphWeaver::Coerce. Built-in scalars are
     # pre-registered the same way, so this also overrides them.
     #
     # fake: is the wire value the testing harness fabricates for this scalar
@@ -674,8 +665,8 @@ module GraphWeaver
     #
     # A field-level override wins over the scalar-name registration. Same
     # signature either way. Call before generating.
-    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil, fake: nil)
-      Codegen.register_scalar(graphql_name, type, cast:, serialize:, requires:, coerce:, fake:)
+    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, fake: nil)
+      Codegen.register_scalar(graphql_name, type, cast:, serialize:, requires:, fake:)
     end
 
     # Map a GraphQL enum onto an app-owned T::Enum, so generated code
