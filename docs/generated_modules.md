@@ -96,8 +96,11 @@ directory. `schema_path` is the one singular setting: a run reads one schema,
 so a list would name a dump nothing ever opens.
 
 (Plain requires, not Zeitwerk: Zeitwerk would expect
-`Generated::PersonQuery` from `generated/person_query.rb`, and generated
-code only changes on regeneration — restart, like a schema migration.)
+`Generated::PersonQuery` from `generated/person_query.rb`. In development a
+query edit regenerates and reloads before the next request; everywhere else
+generated code changes only on regeneration — restart, like a schema
+migration. `GraphWeaver.reload_generated!` does the reload by hand, after
+regenerating in another terminal.)
 
 Regenerate when: a query changes, the schema changes, a registration changes,
 or GraphWeaver itself upgrades — **any release can change what codegen emits**,
@@ -452,10 +455,10 @@ pet.name           # => "Shelby" — the wire value stays honest
 
 The methods live on the struct, so they see its wire fields at runtime and
 fakes/cassettes get the behavior automatically; registrations are additive
-(repeated ones stack). Generated files are `require`d once per boot, so
-editing a mixin in development needs a restart — a reload hands the constant
-a new module object, and the `include` that took the old one doesn't run
-again. For quick decoration, build the mixin inline — the block
+(repeated ones stack). Editing the *mixin* in development needs a restart,
+unlike a `.graphql` edit: a reload hands the constant a new module object, and
+the `include` that took the old one doesn't run again.
+For quick decoration, build the mixin inline — the block
 is `module_eval`'d into a fresh module auto-named under
 `GraphWeaver::TypeHelpers`:
 
@@ -569,6 +572,12 @@ identical. The one requirement: pass the response **verbatim** — a hash (or
 anything with `#to_h`) with the standard GraphQL shape and **wire-cased string
 keys** (`"person"`, `"nameWithOwner"`), the top-level `"data"` / `"errors"` /
 `"extensions"` keys included. Don't symbolize or snake_case it first.
+
+Which is checked, since symbolizing is the likeliest thing to go wrong at this
+seam: a hash carrying neither `"data"` nor `"errors"` raises a
+`GraphWeaver::TypeError` naming the keys it *did* find, rather than handing back
+an envelope that reports success with no data. `nil` and a bare String are
+refused the same way.
 
 ## Dynamic mode
 
