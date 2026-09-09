@@ -581,13 +581,15 @@ RSpec.describe "#{GraphWeaver::SchemaLoader} federation directive lists" do
   # rename in the definitions has to reach the markers.
   it "recognizes only directives it can also define" do
     loader = GraphWeaver::SchemaLoader
-    defined = loader::SUBGRAPH_DIRECTIVE_DEFS.keys.map { |name| name.delete_prefix("@") }
+    defined = loader.const_get(:SUBGRAPH_DIRECTIVE_DEFS).keys.map { |name| name.delete_prefix("@") }
 
-    expect(loader::SUBGRAPH_MARKERS - defined).to be_empty
+    expect(loader.const_get(:SUBGRAPH_MARKERS) - defined).to be_empty
   end
 end
 
 RSpec.describe "#{GraphWeaver::SchemaLoader} auth provenance" do
+  # send: auth_env is private; the public doors that consult it (refresh!,
+  # source_transport) all need a live endpoint to observe the answer
   # `--auth MY_TOKEN` used to give an app that authenticated and rake tasks
   # that 401'd: the generator wrote ENV["MY_TOKEN"] into the initializer
   # while the schema tasks hardcoded GRAPHWEAVER_AUTH.
@@ -599,7 +601,7 @@ RSpec.describe "#{GraphWeaver::SchemaLoader} auth provenance" do
         "graph_weaver" => { "url" => "https://api.example.com/graphql", "auth_env" => "MY_TOKEN" },
       ))
 
-      expect(GraphWeaver::SchemaLoader.auth_env(path)).to eq "MY_TOKEN"
+      expect(GraphWeaver::SchemaLoader.send(:auth_env, path)).to eq "MY_TOKEN"
     end
   end
 
@@ -611,8 +613,8 @@ RSpec.describe "#{GraphWeaver::SchemaLoader} auth provenance" do
         "graph_weaver" => { "url" => "https://api.example.com/graphql" },
       ))
 
-      expect(GraphWeaver::SchemaLoader.auth_env(path)).to eq "GRAPHWEAVER_AUTH"
-      expect(GraphWeaver::SchemaLoader.auth_env(nil)).to eq "GRAPHWEAVER_AUTH"
+      expect(GraphWeaver::SchemaLoader.send(:auth_env, path)).to eq "GRAPHWEAVER_AUTH"
+      expect(GraphWeaver::SchemaLoader.send(:auth_env, nil)).to eq "GRAPHWEAVER_AUTH"
     end
   end
 end

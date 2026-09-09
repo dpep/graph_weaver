@@ -41,6 +41,7 @@ module GraphWeaver::SchemaLoader
   # `type` definition — and a one-line `type Query { hi: String }`, the shape
   # you'd type in a console, still is.
   SDL_CONTENT = /\A\s*(?:\#|"|(?:schema|type|interface|union|enum|scalar|directive|input|extend)\b[\s{(@])/
+  private_constant :SDL_CONTENT
 
   def self.sdl_content?(source)
     source.match?(SDL_CONTENT)
@@ -87,6 +88,7 @@ module GraphWeaver::SchemaLoader
   HOST_LIKE = %r{\A[a-z0-9-]+(?:(?:\.[a-z0-9-]+)+(?::\d+)?|:\d+)(?:/\S*)?\z}i
   # dotted-but-not-a-host: a file whose extension we simply don't read
   FILE_SUFFIXES = %w[yaml yml txt xml sdl md rb erb].freeze
+  private_constant :HOST_LIKE, :FILE_SUFFIXES
 
   def self.url_error(source)
     return unless source.match?(HOST_LIKE)
@@ -150,6 +152,7 @@ module GraphWeaver::SchemaLoader
       "specs it declares, a subgraph by applied-but-undeclared @key/@shareable/…",
     introspection: 'an introspection result — it should be the whole envelope, {"data": {"__schema": …}}',
   }.freeze
+  private_constant :SOURCE_KINDS
 
   # graphql-ruby reports a schema it can't build with whatever its internals
   # happen to raise — NoMethodError, ParseError, a bare RuntimeError — often
@@ -172,6 +175,7 @@ module GraphWeaver::SchemaLoader
   # @join__ marker misses: one that renamed join (`as: "j"`), and a core
   # schema that merged nothing but still carries core__Purpose.
   COMPOSITION_SPEC = %r{@(?:link\s*\(\s*url|core\s*\(\s*feature):\s*"https://specs\.apollo\.dev/(?:join|core)/}
+  private_constant :COMPOSITION_SPEC
 
   # A composed Fed2 supergraph is marked by @join__* directives (every merged
   # type carries them); a plain schema has none.
@@ -185,6 +189,7 @@ module GraphWeaver::SchemaLoader
   # defines everything it applies (and federation_sdl? catches it first).
   SUBGRAPH_LINK = %r{@link\s*\(\s*url:\s*"https://specs\.apollo\.dev/federation/}
   SUBGRAPH_MARKERS = %w[key external extends provides requires shareable override interfaceObject].freeze
+  private_constant :SUBGRAPH_LINK, :SUBGRAPH_MARKERS
 
   # A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the
   # .graphql in a service repo — rather than a composed graph.
@@ -194,6 +199,7 @@ module GraphWeaver::SchemaLoader
 
     SUBGRAPH_MARKERS.any? { |name| sdl.match?(/@#{name}\b/) && !sdl.match?(/\bdirective\s+@#{name}\b/) }
   end
+  private_class_method :subgraph_sdl?
 
   # The subgraph spec's directives and the types they reference, keyed by
   # what a definition in the SDL would be named ("@key" for a directive).
@@ -230,6 +236,7 @@ module GraphWeaver::SchemaLoader
     "link__Import" => "scalar link__Import",
     "link__Purpose" => "enum link__Purpose { SECURITY EXECUTION }",
   }.freeze
+  private_constant :SUBGRAPH_DIRECTIVE_DEFS, :SUBGRAPH_HELPER_TYPES
 
   # A fed-2 subgraph that @links the spec under a namespace — `as: "fed"`,
   # and "federation" is the default — applies every non-imported directive
@@ -329,6 +336,7 @@ module GraphWeaver::SchemaLoader
   # only ever adds to this.
   DEFAULT_PREFIXES = %w[join__ link__ core__].freeze
   DEFAULT_DIRECTIVES = %w[link core inaccessible].freeze
+  private_constant :LINK_DIRECTIVES, :DEFAULT_PREFIXES, :DEFAULT_DIRECTIVES
 
   # What THIS document calls federation's machinery — type-name prefixes,
   # directive names, and the local names @inaccessible answers to — read off
@@ -396,6 +404,7 @@ module GraphWeaver::SchemaLoader
 
   VERSION_TAG = /\Av\d+\.\d+\z/
   GRAPHQL_NAME = /\A[A-Za-z][A-Za-z0-9_]*\z/
+  private_constant :VERSION_TAG, :GRAPHQL_NAME
 
   # The name a linked spec's elements are namespaced under: the URL's
   # penultimate path segment when the last is a version tag, else the last one.
@@ -448,6 +457,7 @@ module GraphWeaver::SchemaLoader
 
     GraphQL::Language::Nodes::Document.new(definitions: defs).to_query_string
   end
+  private_class_method :strip_federation
 
   # a synthetic composition definition to drop: a federation directive
   # definition (by name), or a synthetic join__*/link__* type (by prefix)
@@ -712,6 +722,7 @@ module GraphWeaver::SchemaLoader
     recorded = provenance(path)&.dig("auth_env") if path && File.exist?(path)
     recorded || DEFAULT_AUTH_ENV
   end
+  private_class_method :auth_env
 
   # Re-introspect a dump's source and compare — a {SchemaDiff} naming what
   # moved, empty when the server still matches what's on disk. transport:
@@ -785,6 +796,7 @@ module GraphWeaver::SchemaLoader
   private_class_method :stamp
 
   CACHE_EXTENSIONS = %w[.json .graphql .gql].freeze
+  private_constant :CACHE_EXTENSIONS
 
   # cache: true / :json / :graphql / :gql / a path => the file to write
   # (nil for no caching). Symbols and true anchor at GraphWeaver.schema_path —
@@ -885,6 +897,7 @@ module GraphWeaver::SchemaLoader
       join__type join__field join__graph join__implements
       join__unionMember join__enumValue join__owner
     ].to_set.freeze
+    private_constant :Field, :KNOWN
 
     # every subgraph in the graph, in the order the supergraph declares them
     attr_reader :subgraphs

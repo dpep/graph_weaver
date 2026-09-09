@@ -359,10 +359,12 @@ describe "federation / subgraph SDL" do
     expect(schema.get_type("User").fields["mask"].type.unwrap.graphql_name).to eq "FieldSet"
   end
 
+  # send: the classification is private, and it is what is under test — every
+  # public door (load, routing_table) reaches it only through a built schema
   it "detects a subgraph, and doesn't mistake a plain schema or a supergraph for one" do
-    expect(GraphWeaver::SchemaLoader.subgraph_sdl?(sdl_of(FederationDemo::Users::Schema))).to be true
-    expect(GraphWeaver::SchemaLoader.subgraph_sdl?("type Query { a: Int }")).to be false
-    expect(GraphWeaver::SchemaLoader.subgraph_sdl?(SUPERGRAPH_SDL)).to be false
+    expect(GraphWeaver::SchemaLoader.send(:subgraph_sdl?, sdl_of(FederationDemo::Users::Schema))).to be true
+    expect(GraphWeaver::SchemaLoader.send(:subgraph_sdl?, "type Query { a: Int }")).to be false
+    expect(GraphWeaver::SchemaLoader.send(:subgraph_sdl?, SUPERGRAPH_SDL)).to be false
   end
 
   # a published subgraph SDL never contains the entity resolver it serves, so

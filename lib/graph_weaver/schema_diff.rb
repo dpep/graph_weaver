@@ -36,6 +36,7 @@ module GraphWeaver
     # Every schema carries these whether or not anything uses them, so a
     # field newly typed Float would otherwise read as "type Float added".
     BUILT_IN = GraphQL::Schema::BUILT_IN_TYPES.keys.to_set.freeze
+    private_constant :BUILT_IN
 
     # every change found, breaking ones first, then by coordinate
     attr_reader :changes
@@ -254,7 +255,7 @@ module GraphWeaver
     # A signature split into its shape and where the `!`s sit: "[User!]!"
     # => ["[User]", [.., true(r), true(])]]. Comparing the two separately
     # is what lets nullability be read directionally.
-    def self.shape(signature)
+    def shape(signature)
       bare = +""
       nullability = []
       signature.each_char do |char|
@@ -272,8 +273,8 @@ module GraphWeaver
     # depth, or a guarantee withdrawn — `String!` to `String` hands a
     # generated struct the nil it declared it wouldn't get.
     def breaks_output?(old, new)
-      was, was_null = self.class.shape(old.to_type_signature)
-      now, now_null = self.class.shape(new.to_type_signature)
+      was, was_null = shape(old.to_type_signature)
+      now, now_null = shape(new.to_type_signature)
       return true if was != now
 
       was_null.each_index.any? { |i| was_null[i] && !now_null[i] }
@@ -282,8 +283,8 @@ module GraphWeaver
     # An input the client can no longer satisfy: a different type, or a
     # guarantee demanded that wasn't demanded before.
     def breaks_input?(old, new)
-      was, was_null = self.class.shape(old.to_type_signature)
-      now, now_null = self.class.shape(new.to_type_signature)
+      was, was_null = shape(old.to_type_signature)
+      now, now_null = shape(new.to_type_signature)
       return true if was != now
 
       now_null.each_index.any? { |i| now_null[i] && !was_null[i] }
