@@ -998,6 +998,19 @@ describe GraphWeaver::Testing::Router do
         }.to raise_error(GraphWeaver::ConfigurationError, /fake: says how faked subgraphs fabricate/)
       end
 
+      # A simulated failure that nulls the field but reports no error is a
+      # response no server gives, and the app under test can't tell it from
+      # data that is legitimately absent.
+      it "carries a simulated failure back out of a stitched fetch" do
+        partial.fake = { fail_at: "shipment.carrier" }
+
+        response = partial.execute("{ reviews { body shipment { carrier } } }")
+
+        expect(response.dig("data", "reviews", 0, "shipment")).to be_nil
+        expect(response["errors"])
+          .to eq [{ "message" => "simulated failure", "path" => ["reviews", 0, "shipment", "carrier"] }]
+      end
+
       it "warns on every faked fetch, since invented data passing quietly is the risk" do
         log = StringIO.new
         GraphWeaver.logger = Logger.new(log, level: Logger::WARN)

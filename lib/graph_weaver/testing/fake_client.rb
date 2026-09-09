@@ -164,7 +164,10 @@ class GraphWeaver::Testing::FakeClient
   # operation: is the definition the selections came from — a faked subgraph
   # passes it so @skip/@include see the defaults it declares, as graphql-ruby
   # would. Without it, or variables:, directives stay unevaluated.
-  def object(type_name, selections, fragments: {}, variables: nil, operation: nil)
+  # failures: an array any simulated field error (fail_at:) is appended to,
+  # paths relative to this object. Left unsaid, a fail_at here only nulls the
+  # field — a null with no error is a response no server gives.
+  def object(type_name, selections, fragments: {}, variables: nil, operation: nil, failures: nil)
     type = @schema.get_type(type_name) or
       raise GraphWeaver::Error, "#{type_name} is not a type of this schema"
 
@@ -173,6 +176,7 @@ class GraphWeaver::Testing::FakeClient
     @path = []
     @failures = []
     value = object_value(type, selections)
+    failures&.concat(@failures)
     value.equal?(NULL_BUBBLE) ? nil : value
   end
 

@@ -50,7 +50,11 @@ module GraphWeaver
         entities = entities_field(operation)
         return @client.execute(query, variables:, operation_name:) unless entities
 
-        { "data" => { "_entities" => entities_value(entities, document, operation, variables) } }
+        failures = []
+        value = entities_value(entities, document, operation, variables, failures)
+        response = { "data" => { "_entities" => value } }
+        response["errors"] = failures unless failures.empty?
+        response
       end
 
       private
@@ -64,15 +68,21 @@ module GraphWeaver
 
       # one object per representation, in order and as the type it names —
       # which is the contract _entities answers on
-      def entities_value(field, document, operation, variables)
+      def entities_value(field, document, operation, variables, failures)
         fragments = document.definitions
           .grep(GraphQL::Language::Nodes::FragmentDefinition).to_h { |node| [node.name, node] }
 
-        representations(variables).map do |representation|
+        representations(variables).each_with_index.map do |representation, index|
           type_name = representation["__typename"] or raise GraphWeaver::Error,
             "a representation sent to #{@name} carries no __typename: #{representation.inspect}"
 
-          @client.object(type_name, field.selections, fragments:, variables:, operation:)
+          here = []
+          object = @client.object(type_name, field.selections, fragments:, variables:, operation:,
+            failures: here)
+          # rooted where the fetch put it, which is how the router maps an
+          # entity error back onto the caller's path
+          here.each { |error| failures << error.merge("path" => ["_entities", index] + error["path"]) }
+          object
         end
       end
 
