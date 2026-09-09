@@ -1,4 +1,26 @@
 ## Unreleased
+- **Variables coerce inside `execute` now, and the sig stays as narrow as the
+  schema.** `execute(first: params[:first])` works — the String becomes an
+  Integer, an ISO-8601 string a `Date`, a model's Integer primary key an `ID` —
+  while `execute(first: "20")` written literally in a typed file is still an
+  `srb tc` error. The only way to accept loose input used to be `coerce: true`
+  / `GraphWeaver.auto_coerce`, which bought it by *widening* the emitted kwarg
+  and so switched off the static check at every call site. The generated sigs
+  are now `.checked(:never)` so an untyped value reaches the body; coercion is
+  the check that replaces sorbet-runtime's, and it refuses more than sorbet
+  did. Bad input raises `GraphWeaver::InputError` naming the variable, the
+  operation and the value — the same 422 rescue point as an input-object
+  field. **Breaking:** `GraphWeaver.auto_coerce` and `register_scalar(coerce:)`
+  are gone; a scalar that had `coerce: true` keeps its behaviour but its kwarg
+  narrows, so a call site passing a literal String is now an `srb tc` error.
+  `cast:` is what a loose value converts through. **Regenerate.**
+- **Numeric strings are read as a wire format, not as Ruby source.** `"010"`
+  is ten, not eight, and `"0x1f"` and `"1_0"` are refused, in variables and
+  responses alike — `Kernel#Integer` accepted all three, which made a
+  zero-padded form field silently mean something else. An `Int` refuses a
+  `Float` it can't hold losslessly (`2.5`), and a `Boolean` refuses a String:
+  Ruby has no `Kernel#Boolean`, so every rule for `"0"`/`"off"` is a
+  convention the library declines to pick — convert at the call site.
 - **A faked subgraph takes the options every other fake takes, and
   `graphql_router` says them per example.** `subgraphs: { "reviews" => :fake }`
   built its fake with nothing, so `overrides:`, `list_size:` and `null_chance:`

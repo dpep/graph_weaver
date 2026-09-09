@@ -128,7 +128,7 @@ carries it — `SearchQuery::Result::Search::Species` is `GraphQLTypes::Species`
 | before | after |
 |---|---|
 | `Testing.config.auto_fake = true` | `Testing.config.default_mode = :fake` |
-| `register_scalar(…, coerce: :to_s)` | `coerce: true`, or a `cast:`/`serialize:` pair |
+| `register_scalar(…, coerce:)`, `GraphWeaver.auto_coerce` | gone — variables always coerce; `cast:` is how |
 | a mutation's `…Query` module | `…Mutation` |
 | `graphql: :none` (rspec tag) | `graphql: false` |
 
