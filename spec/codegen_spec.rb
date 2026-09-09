@@ -219,6 +219,18 @@ describe GraphWeaver::Codegen do
       expect(PersonQuery::QUERY).to start_with "query PersonQuery("
     end
 
+    # QueryModule and InputStruct read these with const_get/const_defined?,
+    # which privacy doesn't block — so the plumbing stays plumbing instead of
+    # becoming two more names a generated module appears to offer.
+    it "keeps the plumbing constants private and still reads them" do
+      expect { PersonQuery::DEFAULT_CLIENT }.to raise_error(NameError, /private constant/)
+      expect { AdoptMutation::AdoptionInput::FIELDS }.to raise_error(NameError, /private constant/)
+
+      expect(PersonQuery.client).to eq Demo::Schema
+      expect(AdoptMutation::AdoptionInput.coerce(name: "Rex", species: "DOG").serialize)
+        .to include("name" => "Rex")
+    end
+
     it "names a query-shorthand document too" do
       source = described_class.generate(
         schema: Demo::Schema, module_name: "PeopleQuery", query: "{ people { name } }",
@@ -647,6 +659,7 @@ describe GraphWeaver::Codegen do
 
       it "puts the one supplied field on the wire" do
         expect(mod::Ref.coerce(id: "1").serialize).to eq("id" => "1")
+        expect { mod::Ref::ONE_OF }.to raise_error(NameError, /private constant/)
       end
 
       it "rejects zero or many, naming what was supplied" do

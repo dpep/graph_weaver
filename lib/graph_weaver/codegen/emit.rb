@@ -434,6 +434,8 @@ class GraphWeaver::Codegen
         out << ""
         out << "  # the baked default client, resolved on first use"
         out << "  DEFAULT_CLIENT = T.let(-> { #{@client_const} }, T.proc.returns(T.untyped))"
+        # QueryModule reads it with const_get, which privacy doesn't block
+        out << "  private_constant :DEFAULT_CLIENT"
       end
       out << ""
 
@@ -598,6 +600,7 @@ class GraphWeaver::Codegen
       if node.one_of
         out << "#{pad}  # @oneOf: every field is nullable, so exactly-one is checked at runtime"
         out << "#{pad}  ONE_OF = T.let(true, T::Boolean)"
+        out << "#{pad}  private_constant :ONE_OF"
         out << ""
       end
       node.fields.each do |field|
@@ -618,6 +621,8 @@ class GraphWeaver::Codegen
         out << "#{pad}    GraphWeaver::InputStruct::Field.new(:#{field.prop}, #{field.wire.inspect}, #{field.required}, #{serializer}, #{coercer}),"
       end
       out << "#{pad}  ].freeze, T::Array[GraphWeaver::InputStruct::Field])"
+      # InputStruct reads it with const_get, which privacy doesn't block
+      out << "#{pad}  private_constant :FIELDS"
       out << "#{pad}end"
     end
   end

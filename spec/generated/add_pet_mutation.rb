@@ -68,6 +68,7 @@ module AddPetMutation
 
   # the baked default client, resolved on first use
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
+  private_constant :DEFAULT_CLIENT
 
   # .checked(:never): an untyped value (a Rails param) reaches the coercion below
   # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.

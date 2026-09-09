@@ -22,5 +22,6 @@ module GraphQLTypes
       GraphWeaver::InputStruct::Field.new(:name, "name", false, nil, ->(v) { GraphWeaver::Coerce.string(v) }),
       GraphWeaver::InputStruct::Field.new(:species, "species", false, ->(v) { v.serialize }, ->(v) { GraphWeaver::InputStruct.enum(Species, v) }),
     ].freeze, T::Array[GraphWeaver::InputStruct::Field])
+    private_constant :FIELDS
   end
 end
