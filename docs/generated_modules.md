@@ -237,10 +237,13 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 ```
 
 - required vs optional falls out of nullability and defaults: nullable or
-  defaulted variables become optional kwargs (nil is omitted from the wire,
-  so server-side defaults apply). A nullable variable passed `nil` is
-  omitted rather than sent as `null`, so a mutation meaning "clear this
-  field" can't say so today — a known gap
+  defaulted variables become optional kwargs
+- **absent and `null` are different things, and the kwarg says which.**
+  Leaving a keyword out omits the variable, so the server's default applies;
+  passing `nil` sends `null`, which is how a mutation clears a field.
+  `bio: params[:bio]` therefore sends `null` when the param is missing — pass
+  the keyword only when you mean to. A non-null variable can't carry `null`,
+  so `nil` there still means omit.
 - enum variables accept the enum or its wire value (`species: Species::Dog`
   or `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
@@ -269,7 +272,11 @@ AdoptMutation.execute!(input: AdoptMutation::AdoptionInput.new(name: "Rex", spec
 
 A struct is typed consts plus a compact per-field `FIELDS` table the
 `GraphWeaver::InputStruct` runtime drives — `serialize` (aliased `to_h`) builds
-the wire hash with nil optionals omitted, `coerce` builds from a plain hash.
+the wire hash, `coerce` builds from a plain hash. `coerce` remembers which keys
+the hash had, so `{nickname: nil}` sends `null` and `{}` omits the field. A
+struct built with `.new` can't tell the two apart — every unset prop is nil
+either way — so `nil` there means omit; reach for `coerce` to send an explicit
+null.
 Nested inputs work, including recursive ones — a self-referential filter
 generates cleanly, with `_and:`/`_not:` typed as the struct itself:
 

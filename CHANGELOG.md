@@ -1,4 +1,30 @@
 ## Unreleased
+- **A variable passed `nil` now sends `null`; one left out is still left
+  out.** GraphQL tells an absent variable from an explicit null — `bio: null`
+  clears a bio, omitting it does nothing — and a Ruby kwarg with a nil default
+  cannot, so both spellings omitted the key and no generated mutation could
+  clear a field. An optional nullable variable now records whether the keyword
+  was supplied. Input objects get the same distinction where a Hash can express
+  it: `coerce({nickname: nil})` sends null, `coerce({})` omits; a struct built
+  with `.new` can't tell, so nil there still means omit. A non-null variable
+  can't carry null, so nil there also still omits and its schema default
+  applies. **Breaking**: `bio: params[:bio]` with a missing param now sends
+  `null` where it used to omit — pass the keyword only when you mean to.
+  **Regenerate.**
+- **A response that won't cast says which field, and whose bug it is.** A
+  leaf's cast raises about the value alone — "invalid date" on a struct holding
+  four dates located nothing — so each casting leaf now carries its response
+  key. An `ID` the server sent unquoted is out of spec but read like a
+  graph_weaver bug in sorbet's words; the message now says which it is and how
+  to take it anyway. An enum value the generated enum doesn't hold now names
+  the legal values and says the likely cause is drift, matching the input
+  side. **Regenerate.**
+- **`register_scalar` with a type the wire can't build is refused at
+  generation.** `register_scalar("Money", BigDecimal)` produced a `BigDecimal`
+  prop and no cast, so every response failed its prop check at runtime, far
+  from the initializer that caused it. Generation now refuses it where a query
+  reads that scalar back, naming the field and how to give it a `cast:`.
+  `docs/scalars.md` now tabulates what the wire carries in both directions.
 - **`register_scalar` takes a `fake:`, and fabrication refuses without one.**
   A scalar registered as your own class — `register_scalar("Money", Money,
   cast: :parse)` — told codegen how to read the wire value but left the
