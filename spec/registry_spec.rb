@@ -42,6 +42,12 @@ describe "the registration registry" do
       expect { client.parse(query) }
         .to raise_error(GraphWeaver::Error, /register_scalar\("Dtae"\).*did you mean 'Date'/)
     end
+
+    # the ArgumentError this would raise at fabrication time names no scalar
+    it "refuses a fake: proc it couldn't call" do
+      expect { GraphWeaver.register_scalar("Date", String, fake: ->(rng, extra) { [rng, extra] }) }
+        .to raise_error(ArgumentError, /fake: takes no arguments, or one/)
+    end
   end
 
   describe "enum mappings" do
