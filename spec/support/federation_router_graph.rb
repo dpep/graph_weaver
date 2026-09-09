@@ -506,6 +506,7 @@ module RouterGraph
     directive @join__graph(name: String!, url: String!) on ENUM_VALUE
     directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
     scalar join__FieldSet
+    scalar Date
     enum join__Graph {
       ACCOUNTS @join__graph(name: "accounts", url: "http://accounts")
       REVIEWS @join__graph(name: "reviews", url: "http://reviews")
@@ -533,6 +534,7 @@ module RouterGraph
     type Shipment @join__type(graph: SHIPPING) {
       id: ID! @join__field(graph: SHIPPING)
       carrier: String! @join__field(graph: SHIPPING)
+      deliveredOn: Date! @join__field(graph: SHIPPING)
     }
     type Invoice @join__type(graph: BILLING) {
       id: ID! @join__field(graph: BILLING)

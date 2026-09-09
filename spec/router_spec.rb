@@ -938,6 +938,22 @@ describe GraphWeaver::Testing::Router do
           .to eq [["reviews", nil], ["shipping", true]]
       end
 
+      # A fake's values have to satisfy the cast codegen emitted for them, and
+      # a faked subgraph reaches the scalar registry the same way a plain fake
+      # does — otherwise a registered scalar comes back unparseable and the
+      # only workable fake is one with no interesting fields in it.
+      it "fabricates a registered scalar the generated cast accepts" do
+        mod = GraphWeaver.parse(
+          schema: partial.schema,
+          query: "query Shipments { shipments { deliveredOn } reviews { shipment { deliveredOn } } }",
+          name: "ShipmentsQuery",
+        )
+
+        result = mod.execute!(client: partial)
+        expect(result.shipments.map(&:delivered_on)).to all(be_a Date)
+        expect(result.reviews.map { |review| review.shipment.delivered_on }).to all(be_a Date)
+      end
+
       it "warns on every faked fetch, since invented data passing quietly is the risk" do
         log = StringIO.new
         GraphWeaver.logger = Logger.new(log, level: Logger::WARN)
