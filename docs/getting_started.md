@@ -258,6 +258,33 @@ schedule and repair with `rake graph_weaver:schema:refresh`.
 `federation:diff` needs no network either, so it goes in the same PR run;
 see [federation](federation.md#has-the-supergraph-been-recomposed).
 
+`schema:diff` names what moved, breaking changes first — breaking meaning
+a query written against your dump stops validating, or stops casting:
+
+```
+app/graphql/schema.json vs https://api.example.com/graphql: 8 changes, 5 breaking
+
+breaking:
+  AdoptionInput.nickname          String -> String!
+  Person.email                    removed
+  Person.pets                     [Pet!]! -> [Pet!]
+  Query.person(includeArchived:)  argument added: Boolean! — required
+  Species.CAT                     enum value removed
+
+other:
+  Person.birthday  deprecated: use bornOn
+  Pet.nickname     added: String
+  Species.BIRD     enum value added
+
+app/graphql/schema.json is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)
+```
+
+Nullability is judged from your side, which is why the two above point
+opposite ways: `Person.pets` losing its `!` hands a generated struct the
+nil it declared it wouldn't get, while `AdoptionInput.nickname` gaining
+one rejects a query that omits it. Any drift exits non-zero — whether a
+change matters is yours to judge.
+
 `queries:check` answers the question that actually matters when the schema
 *has* moved: **which of your queries no longer validate, and why.** It
 re-introspects the recorded url (without rewriting the dump) and validates
