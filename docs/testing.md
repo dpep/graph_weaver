@@ -107,9 +107,13 @@ GraphWeaver::Testing.configure do |config|
   # config.seed = 4242               # defaults to rspec's own --seed
   # config.overrides = { "Person.name" => "Daniel" }
   # config.list_size = 1..3
-  # config.null_chance = 0.1         # nullable fields go nil sometimes
 end
 ```
+
+Anything whose honest answer differs per example belongs on the fake instead
+— `graphql_fake(null_chance: 1.0)` for the example that's about an empty
+state. A suite-wide `null_chance` would sprinkle nils through every *other*
+example, one run in ten, on a seed the failure doesn't name.
 
 Need the schema itself inside an example — to sample a field, or build a
 query on the fly? The client in play exposes it as

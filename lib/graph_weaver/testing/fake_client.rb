@@ -65,8 +65,15 @@ require_relative "../parsing"
 #
 #      FakeClient.new(schema:, corrupt: "Person.birthday")
 #
-# seed: makes a run reproducible (also seeds faker). Every option,
-# schema: included, falls back to GraphWeaver::Testing.config — and the
+# null_chance: how often a nullable field comes back null — 0 by default,
+# and per fake only: "does this render with no email" is one example's
+# question, and a suite-wide answer would sprinkle nils through every other
+# example instead.
+#
+#      FakeClient.new(schema:, null_chance: 1.0)   # everything nullable, null
+#
+# seed: makes a run reproducible (also seeds faker). schema:, overrides:,
+# list_size: and mode: fall back to GraphWeaver::Testing.config — and the
 # config's schema falls back to the committed dump.
 class GraphWeaver::Testing::FakeClient
   include GraphWeaver::Parsing
@@ -100,7 +107,7 @@ class GraphWeaver::Testing::FakeClient
     GraphWeaver::Testing.validate_overrides!(@schema, @overrides)
     @values = GraphWeaver::Testing::Values.new(seed:, mode:)
     @list_size = list_size || config.list_size
-    @null_chance = null_chance || config.null_chance
+    @null_chance = null_chance || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs
     @extra_errors = wrap(errors).map { |error| normalize_error(error) }
     @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }

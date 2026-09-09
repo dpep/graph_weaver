@@ -486,7 +486,7 @@ describe GraphWeaver::Testing do
       described_class.reset!
 
       expect(described_class.config.seed).to be_nil
-      expect(described_class.config.null_chance).to eq 0.0
+      expect(described_class.config.list_size).to eq 1..3
     end
   end
 

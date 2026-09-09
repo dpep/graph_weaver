@@ -26,9 +26,12 @@ end
 #        config.mode = :faker                      # or :literal; nil = auto
 #        config.overrides = { "Person.name" => "Daniel" }
 #        config.list_size = 2..4
-#        config.null_chance = 0.1                  # nullable fields go nil sometimes
 #        config.cassette_dir = "spec/cassettes"
 #      end
+#
+# Anything whose honest answer differs per example belongs on the fake, not
+# here: graphql_fake(null_chance: 1.0) for the empty-state example, and
+# overrides:/list_size: to say what one example's data is.
 #
 # mode picks how values are fabricated:
 #      :faker   — semantic, field-name matched (requires the faker gem)
@@ -50,7 +53,7 @@ module GraphWeaver
     CLIENT_MODES = %i[fake in_process router].freeze
 
     class Config
-      attr_accessor :overrides, :seed, :list_size, :null_chance, :cassette_dir, :context,
+      attr_accessor :overrides, :seed, :list_size, :cassette_dir, :context,
         :record, :anonymize
       # #schema is written plainly and read with a fallback (below), the way
       # #mode, #router and #default_mode are read plainly and written with a check
@@ -61,7 +64,6 @@ module GraphWeaver
         @overrides = {}
         @seed = nil
         @list_size = 1..3
-        @null_chance = 0.0
         @mode = nil # auto
         @schema = nil
         @located = nil # the committed dump, once located
