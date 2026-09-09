@@ -1,4 +1,6 @@
 require "graph_weaver/testing"
+require "logger"
+require "stringio"
 
 # app-owned types for the enum-mapping and type-helper specs
 class PetKind < T::Enum
@@ -19,6 +21,14 @@ module PetShouting
   def shout = "#{name}!"
 end
 
+# A sibling subgraph of Demo: one registry serves both, and neither schema
+# declares the other's names.
+PAYMENTS_SDL = <<~SDL
+  scalar Money
+  type Invoice { id: ID!, total: Money! }
+  type Query { invoice(id: ID!): Invoice }
+SDL
+
 # One registry, global, consulted by every generation path — the console
 # (parse) and the build step (generate!) alike.
 describe "the registration registry" do
@@ -36,11 +46,11 @@ describe "the registration registry" do
       expect(birthday).to be_a String
     end
 
-    it "catches a typo'd scalar name at generation" do
-      GraphWeaver.register_scalar("Dtae", String)
+    it "refuses a name this schema declares as something other than a scalar" do
+      GraphWeaver.register_scalar("Species", String)
 
       expect { client.parse(query) }
-        .to raise_error(GraphWeaver::Error, /register_scalar\("Dtae"\).*did you mean 'Date'/)
+        .to raise_error(GraphWeaver::Error, /register_scalar\("Species"\) names an enum, not a scalar/)
     end
 
     # the ArgumentError this would raise at fabrication time names no scalar
@@ -108,13 +118,6 @@ describe "the registration registry" do
       expect(pet&.name).to eq "Shelby" # the wire value stays honest
     end
 
-    it "catches typo'd registrations at generation" do
-      GraphWeaver.extend_type("Pett", PetShouting)
-
-      expect { client.parse(query) }
-        .to raise_error(GraphWeaver::Error, /extend_type\("Pett"\).*did you mean 'Pet'/)
-    end
-
     it "builds a mixin from a block, auto-named for generated source" do
       GraphWeaver.extend_type("Pet") do
         def whisper = "#{name.downcase}..."
@@ -134,6 +137,81 @@ describe "the registration registry" do
     it "says where to register when handed a module's name" do
       expect { GraphWeaver.extend_type("Pet", "PetShouting") }
         .to raise_error(ArgumentError, /extend_type\("Pet", PetShouting\).*to_prepare/m)
+    end
+  end
+
+  # One registry serves a whole graph while a generation sees one schema, so
+  # a name this schema simply doesn't have may belong to a sibling subgraph.
+  describe "a registration this schema doesn't match" do
+    let(:io) { StringIO.new }
+
+    around do |example|
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+      example.run
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    it "warns rather than failing, and keeps the did-you-mean hint" do
+      GraphWeaver.register_scalar("Dtae", String)
+
+      expect { client.parse(query) }.not_to raise_error
+      expect(io.string).to include(
+        %{register_scalar("Dtae") matches no scalar in Demo::Schema } \
+        "— a typo (did you mean 'Date'?), or a registration for another schema",
+      )
+    end
+
+    it "warns for an enum, a type helper, and a field on a type that's elsewhere" do
+      GraphWeaver.register_enum("Currency", PetKind)
+      GraphWeaver.extend_type("Invoice", PetShouting)
+      GraphWeaver.register_scalar("Invoice.due", String)
+
+      expect { client.parse(query) }.not_to raise_error
+      expect(io.string).to include(%{register_enum("Currency") matches no enum in Demo::Schema})
+      expect(io.string).to include(%{extend_type("Invoice") matches no type in Demo::Schema})
+      expect(io.string).to include(%{register_scalar("Invoice.due") matches no scalar field in Demo::Schema})
+    end
+
+    it "still fails on a field the type it names doesn't have" do
+      GraphWeaver.register_scalar("Person.birthdya", String)
+
+      expect { client.parse(query) }
+        .to raise_error(GraphWeaver::Error, /register_scalar\("Person.birthdya"\).*did you mean 'Person.birthday'/)
+    end
+
+    it "still fails on a field that isn't a scalar" do
+      GraphWeaver.register_scalar("Person.pets", String)
+
+      expect { client.parse(query) }.to raise_error(GraphWeaver::Error, /isn't a scalar field/)
+    end
+
+    # the shape that drove this: register what the graph needs once, then
+    # generate each query against the subgraph that serves it
+    it "generates against two schemas from one set of registrations" do
+      GraphWeaver.register_scalar("Money", String, cast: :itself, serialize: :itself)
+      GraphWeaver.register_scalar("Person.birthday", String, cast: :itself, serialize: :itself)
+      GraphWeaver.extend_type("Pet", PetShouting)
+
+      demo = GraphWeaver.new(Demo::Schema)
+      payments = GraphWeaver.new(PAYMENTS_SDL) # loaded, so unnamed
+
+      expect { demo.parse("query { person(id: 1) { birthday pets { name } } }") }.not_to raise_error
+      expect { payments.parse("query { invoice(id: 1) { total } }") }.not_to raise_error
+      expect(io.string).to include(%{register_scalar("Money") matches no scalar in Demo::Schema})
+      expect(io.string).to include(%{extend_type("Pet") matches no type in this schema})
+      expect(io.string).to include(%{register_scalar("Person.birthday") matches no scalar field in this schema})
+    end
+
+    it "says nothing when registrations are scoped to each generation" do
+      GraphWeaver.register_scalar("Person.birthday", String, cast: :itself, serialize: :itself)
+      GraphWeaver.new(Demo::Schema).parse("query { person(id: 1) { birthday } }")
+
+      GraphWeaver::Codegen.reset_registrations!
+      GraphWeaver.register_scalar("Money", String, cast: :itself, serialize: :itself)
+      GraphWeaver.new(PAYMENTS_SDL).parse("query { invoice(id: 1) { total } }")
+
+      expect(io.string).to be_empty
     end
   end
 

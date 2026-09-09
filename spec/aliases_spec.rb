@@ -267,9 +267,12 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
   end
 
   describe "registration validation" do
-    it "flags a global registration that names no type in the schema" do
+    # one registry serves a whole graph, so a name this schema doesn't have
+    # may belong to another subgraph: it warns (see registry_spec) and the
+    # alias simply finds nothing to project here
+    it "tolerates a global registration that names no type in the schema" do
       GraphWeaver.extend_type("Widgt", alias: { tag: "meta.tag" })
-      expect { generate }.to raise_error(GraphWeaver::Error, /did you mean 'Widget'/)
+      expect { generate }.not_to raise_error
     end
 
     it "checks requires: for loadability at registration" do

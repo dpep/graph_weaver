@@ -490,38 +490,74 @@ class GraphWeaver::Codegen
     end
   end
 
-  # A registration names a type in a specific schema — a typo'd name would
-  # otherwise be a silent no-op, the most confusing failure mode available.
-  # Called at generation for every registration in play.
+  # What a registry's names must be in the schema. extend_type decorates
+  # whatever composite a query reaches, so it demands no particular kind.
+  REGISTERED_KIND = { "scalar" => "SCALAR", "enum" => "ENUM" }.freeze
+  # the type registry is reached via extend_type; scalars/enums via register_*
+  REGISTRATION_METHOD = { "type" => "extend_type", "scalar" => "register_scalar", "enum" => "register_enum" }.freeze
+  private_constant :REGISTERED_KIND, :REGISTRATION_METHOD
+
+  # One registry serves the whole graph, but a generation sees one schema — so
+  # a registration fails generation only where THIS schema can disprove it (a
+  # field its own type doesn't declare, a name of the wrong kind). A name it
+  # doesn't have at all is indistinguishable from one meant for a sibling
+  # subgraph, so it warns instead. Called at generation for every registration.
   def self.validate_registration!(schema, kind, name)
+    method = REGISTRATION_METHOD.fetch(kind)
     # register_scalar("Type.field", ...) overrides one field's scalar — validate
-    # the field exists and is a scalar, not that a type named "Type.field" exists.
-    if kind == "scalar" && name.include?(".")
-      return if scalar_field?(schema, name)
+    # the field, not that a type named "Type.field" exists.
+    return validate_scalar_field!(schema, name, method) if kind == "scalar" && name.include?(".")
 
-      raise GraphWeaver::Error, "register_scalar(#{name.inspect}) matches no scalar field in this schema"
+    type = schema.get_type(name)
+    return unmatched(schema, method, name, kind == "type" ? "type" : kind) unless type
+
+    expected = REGISTERED_KIND[kind]
+    return if expected.nil? || type.kind.name == expected
+
+    found = type.kind.name.downcase.tr("_", " ")
+    other = REGISTERED_KIND.key(type.kind.name)
+    raise GraphWeaver::Error,
+      "#{method}(#{name.inspect}) names #{article(found)} #{found}, not #{article(expected)} " \
+      "#{expected.downcase}#{other ? " — use #{REGISTRATION_METHOD.fetch(other)}" : ""}"
+  end
+
+  # A per-field override, register_scalar("Type.field", ...). The type has to
+  # be here for the field to mean anything; once it is, the field is checkable.
+  def self.validate_scalar_field!(schema, name, method)
+    type_name, field_name = name.split(".", 2)
+    type = field_name && schema.get_type(type_name)
+    return unmatched(schema, method, name, "scalar field") unless type
+
+    fields = type.respond_to?(:fields) ? type.fields : {}
+    field = fields[field_name]
+    unless field
+      suggestion = GraphWeaver.did_you_mean(fields.keys, field_name)
+      hint = suggestion ? " — did you mean '#{type_name}.#{suggestion}'?" : ""
+      raise GraphWeaver::Error, "#{method}(#{name.inspect}) matches no scalar field on #{type_name}#{hint}"
     end
+    return if field.type.unwrap.kind.name == "SCALAR"
 
-    return if schema.get_type(name)
-
-    suggestion = GraphWeaver.did_you_mean(schema.types.keys, name)
-    hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
-    # the type registry is reached via extend_type; scalars/enums via register_*
-    method = kind == "type" ? "extend_type" : "register_#{kind}"
-    raise GraphWeaver::Error, "#{method}(#{name.inspect}) matches no type in this schema#{hint}"
+    raise GraphWeaver::Error,
+      "#{method}(#{name.inspect}): #{name} isn't a scalar field (it's #{field.type.unwrap.kind.name.downcase})"
   end
+  private_class_method :validate_scalar_field!
 
-  # Whether `coordinate` ("Type.field") names an existing scalar field — the
-  # validation for a per-field register_scalar override.
-  def self.scalar_field?(schema, coordinate)
-    type_name, field_name = coordinate.split(".", 2)
-    return false unless field_name
-
-    field = schema.get_field(type_name, field_name)
-    !!field && field.type.unwrap.kind.name == "SCALAR"
-  rescue StandardError
-    false
+  # A name this schema has nothing for. Registrations are graph-scoped —
+  # federation composes by name, so one `Money` codec serves every subgraph
+  # that declares it — which is exactly why this schema can't tell a typo from
+  # a registration for the subgraph next door. Say both and carry on.
+  def self.unmatched(schema, method, name, what)
+    GraphWeaver.log(:warn) do
+      suggestion = GraphWeaver.did_you_mean(schema.types.keys, name.split(".").first)
+      hint = suggestion ? " (did you mean '#{suggestion}'?)" : ""
+      "#{method}(#{name.inspect}) matches no #{what} in #{schema.name || "this schema"} " \
+        "— a typo#{hint}, or a registration for another schema"
+    end
   end
+  private_class_method :unmatched
+
+  def self.article(word) = word.downcase.start_with?(/[aeiou]/) ? "an" : "a"
+  private_class_method :article
 
   # Parse every fragment file under `paths` into one { name => FragmentDefinition }
   # map — reusable fragments a query can spread. Fragment files hold only
