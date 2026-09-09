@@ -127,10 +127,10 @@ A refusal is a [`GraphWeaver::TypeError`](errors.md) naming the field and the
 generated struct (which names the query). Two refusals carry advice rather than
 only sorbet's words: an unquoted `ID`, and a registration with no cast (above).
 
-The numeric strings are read as a wire format, not as Ruby source: `"010"` is
-ten, and `"0x1f"` and `"1_0"` are refused. `Kernel#Integer` and `Kernel#Float`
-accept all three as literals, which would make a zero-padded form field
-silently mean something else.
+Numeric strings — here, and in the going-out table below — are read as a wire
+format, not as Ruby source: `"010"` is ten, and `"0x1f"` and `"1_0"` are
+refused. `Kernel#Integer` and `Kernel#Float` accept all three as literals,
+which would let a zero-padded form field silently mean something else.
 
 ### Going out — what a variable kwarg accepts
 
