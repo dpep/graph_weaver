@@ -1,4 +1,13 @@
 ## Unreleased
+- **The retry options are flat.** `retries:` is how many attempts follow the
+  first; every other `Retry` option now sits beside it on the client —
+  `GraphWeaver.new(url, retries: 5, backoff: :linear, retry_codes:
+  ["THROTTLED"])`. **Breaking:** `retries:` no longer takes a Hash (`retries:
+  { retries: 5 }` read as a key nested in itself), and three options are
+  spelled out now that they sit next to a count: `on:` is `retry_on:`,
+  `base:`/`max:` are `base_delay:`/`max_delay:` — `retries: 5, max: 30`
+  invited reading `max:` as a second attempt count. The Hash form names its
+  flat replacement, and a retry option passed without `retries:` says so.
 - **A representation's key fields are coerced, like an `execute` kwarg.**
   `Representations.user(id: params[:id])` typechecked statically and then
   raised sorbet-runtime's unbranded `TypeError` at runtime. The generated
