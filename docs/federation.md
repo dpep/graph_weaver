@@ -567,6 +567,15 @@ Variant representation satisfies none of its @keys — supply "id", or "serial"
 Listing representation is missing @key "organization.id"
 ```
 
+Key fields take the same loose input an `execute` kwarg does — a `params[:sku]`
+String converts to the `Int` the `@key` declares — and a value that converts to
+nothing raises `GraphWeaver::InputError` naming the representation and the
+field:
+
+```
+Product representation sku: expected an Int, got "forty-two"
+```
+
 Only the declared key fields reach the wire — an extra key in a nested hash is
 dropped. Builders are emitted **only for the entities a query's `_entities`
 selection reaches** (codegen is query-driven, so a subgraph with fifty entities

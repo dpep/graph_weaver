@@ -1,4 +1,22 @@
 ## Unreleased
+- **A representation's key fields are coerced, like an `execute` kwarg.**
+  `Representations.user(id: params[:id])` typechecked statically and then
+  raised sorbet-runtime's unbranded `TypeError` at runtime. The generated
+  builders now carry `.checked(:never)` and run each key field through the
+  registered scalar's own conversion; a value that converts to nothing raises
+  `GraphWeaver::InputError` naming the representation and the field.
+  **Regenerate.**
+- **The library's internals are private.** Everything not documented and not
+  named by generated code is now `private` / `private_class_method` /
+  `private_constant`: codegen's IR and walk, the schema loader's detection
+  tables, the transport's log patterns, `Retry`'s default predicate, the
+  file-naming helpers. **Breaking:** `GraphWeaver::Selection`'s methods are
+  private in every class that mixes it in, so `Testing::FakeClient` no longer
+  answers to `each_field`, `gather` or `load_operation` — never a supported
+  door. The runtime that emitted source calls into (`cast_data`,
+  `check_envelope!`, `Coerce`, `Hints`, `InputStruct`, `QueryModule`,
+  `Representation`) stays public and says in its comments that it is
+  generated code's, not yours.
 - **A registration another schema owns warns instead of failing generation.**
   One registry serves a whole graph — federation composes scalars and types
   by name — but validation ran against the single schema in hand, so the
