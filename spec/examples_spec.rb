@@ -46,6 +46,21 @@ RSpec.describe "checked-in examples" do
     end
   end
 
+  # execute's kwargs are the query's, but the note above it and
+  # .checked(:never) are the emitter's — schema-independent, so the same
+  # fixture can stand in. Both moved in the same change that made coercion
+  # the runtime check; a stale example would say the sig is enforced.
+  it "carry the execute preamble the current emitter writes" do
+    preamble = /(?:^  #.*\n)+  sig \{ params\(.*\)\.checked\(:never\) \}\n(?=  def self\.execute\()/
+    note = ->(source) { source[preamble]&.sub(/  sig \{ params\(.*/, "") }
+    current = note.call(File.read(File.expand_path("generated/person_query.rb", __dir__)))
+    expect(current).not_to be_nil
+
+    Dir["#{EXAMPLES}/github/generated/*.rb"].each do |path|
+      expect(note.call(File.read(path))).to eq(current), path
+    end
+  end
+
   it "link only to example files that exist" do
     links = File.read("#{EXAMPLES}/README.md").scan(/\]\((?!https?:)([^)#]+)\)/).flatten.uniq
 

@@ -42,9 +42,9 @@ module StarMutation
             viewer_has_starred: data.fetch("viewerHasStarred"),
           )
         rescue GraphWeaver::Error
-          raise # already branded by a nested struct — keep the innermost context
+          raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -56,9 +56,9 @@ module StarMutation
           starrable: data["starrable"]&.then { |v1| Starrable.from_h(v1) },
         )
       rescue GraphWeaver::Error
-        raise # already branded by a nested struct — keep the innermost context
+        raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, error: e)
+        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -70,25 +70,27 @@ module StarMutation
         add_star: data["addStar"]&.then { |v1| AddStar.from_h(v1) },
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
-  sig { params(id: String, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(id: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(id:, client: nil)
     variables = {
-      "id" => id,
+      "id" => GraphWeaver::Coerce.variable("id", OPERATION_NAME, id) { |v| GraphWeaver::Coerce.id(v) },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(id: String, client: T.untyped).returns(Result) }
+  sig { params(id: String, client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(id:, client: nil)
     execute(id:, client:).data!
   end

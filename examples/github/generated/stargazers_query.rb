@@ -74,9 +74,9 @@ module StargazersQuery
                     stargazer_count: data.fetch("stargazerCount"),
                   )
                 rescue GraphWeaver::Error
-                  raise # already branded by a nested struct — keep the innermost context
+                  raise # already branded by a nested struct or leaf — keep the innermost context
                 rescue StandardError => e
-                  raise GraphWeaver::TypeError.new(struct: self, error: e)
+                  raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
                 end
               end
 
@@ -88,9 +88,9 @@ module StargazersQuery
                   nodes: data["nodes"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Nodes.from_h(v3) } } },
                 )
               rescue GraphWeaver::Error
-                raise # already branded by a nested struct — keep the innermost context
+                raise # already branded by a nested struct or leaf — keep the innermost context
               rescue StandardError => e
-                raise GraphWeaver::TypeError.new(struct: self, error: e)
+                raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
               end
             end
 
@@ -106,9 +106,9 @@ module StargazersQuery
                 repositories: Repositories.from_h(data.fetch("repositories")),
               )
             rescue GraphWeaver::Error
-              raise # already branded by a nested struct — keep the innermost context
+              raise # already branded by a nested struct or leaf — keep the innermost context
             rescue StandardError => e
-              raise GraphWeaver::TypeError.new(struct: self, error: e)
+              raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
             end
           end
 
@@ -118,13 +118,13 @@ module StargazersQuery
           sig { params(data: T::Hash[String, T.untyped]).returns(Edges) }
           def self.from_h(data)
             new(
-              starred_at: Time.parse(data.fetch("starredAt")),
+              starred_at: GraphWeaver::Hints.field(self, "starredAt") { Time.parse(data.fetch("starredAt")) },
               node: Node.from_h(data.fetch("node")),
             )
           rescue GraphWeaver::Error
-            raise # already branded by a nested struct — keep the innermost context
+            raise # already branded by a nested struct or leaf — keep the innermost context
           rescue StandardError => e
-            raise GraphWeaver::TypeError.new(struct: self, error: e)
+            raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
           end
         end
 
@@ -136,9 +136,9 @@ module StargazersQuery
             edges: data["edges"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Edges.from_h(v3) } } },
           )
         rescue GraphWeaver::Error
-          raise # already branded by a nested struct — keep the innermost context
+          raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -156,9 +156,9 @@ module StargazersQuery
           stargazers: Stargazers.from_h(data.fetch("stargazers")),
         )
       rescue GraphWeaver::Error
-        raise # already branded by a nested struct — keep the innermost context
+        raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, error: e)
+        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -170,27 +170,29 @@ module StargazersQuery
         repository: data["repository"]&.then { |v1| Repository.from_h(v1) },
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
-  sig { params(owner: String, name: String, first: Integer, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(owner: String, name: String, first: Integer, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(owner:, name:, first:, client: nil)
     variables = {
-      "owner" => owner,
-      "name" => name,
-      "first" => first,
+      "owner" => GraphWeaver::Coerce.variable("owner", OPERATION_NAME, owner) { |v| GraphWeaver::Coerce.string(v) },
+      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v) },
+      "first" => GraphWeaver::Coerce.variable("first", OPERATION_NAME, first) { |v| GraphWeaver::Coerce.integer(v) },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(owner: String, name: String, first: Integer, client: T.untyped).returns(Result) }
+  sig { params(owner: String, name: String, first: Integer, client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(owner:, name:, first:, client: nil)
     execute(owner:, name:, first:, client:).data!
   end

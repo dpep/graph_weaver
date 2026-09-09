@@ -49,9 +49,9 @@ module StarredQuery
               stargazer_count: data.fetch("stargazerCount"),
             )
           rescue GraphWeaver::Error
-            raise # already branded by a nested struct — keep the innermost context
+            raise # already branded by a nested struct or leaf — keep the innermost context
           rescue StandardError => e
-            raise GraphWeaver::TypeError.new(struct: self, error: e)
+            raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
           end
         end
 
@@ -65,9 +65,9 @@ module StarredQuery
             nodes: data["nodes"]&.then { |v1| v1.map { |v2| v2&.then { |v3| Nodes.from_h(v3) } } },
           )
         rescue GraphWeaver::Error
-          raise # already branded by a nested struct — keep the innermost context
+          raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, error: e)
+          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -79,9 +79,9 @@ module StarredQuery
           starred_repositories: StarredRepositories.from_h(data.fetch("starredRepositories")),
         )
       rescue GraphWeaver::Error
-        raise # already branded by a nested struct — keep the innermost context
+        raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, error: e)
+        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -93,26 +93,28 @@ module StarredQuery
         user: data["user"]&.then { |v1| User.from_h(v1) },
       )
     rescue GraphWeaver::Error
-      raise # already branded by a nested struct — keep the innermost context
+      raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, error: e)
+      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
-  sig { params(login: String, first: Integer, client: T.untyped).returns(GraphWeaver::Response[Result]) }
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
+  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  sig { params(login: String, first: Integer, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(login:, first:, client: nil)
     variables = {
-      "login" => login,
-      "first" => first,
+      "login" => GraphWeaver::Coerce.variable("login", OPERATION_NAME, login) { |v| GraphWeaver::Coerce.string(v) },
+      "first" => GraphWeaver::Coerce.variable("first", OPERATION_NAME, first) { |v| GraphWeaver::Coerce.integer(v) },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
-  sig { params(login: String, first: Integer, client: T.untyped).returns(Result) }
+  sig { params(login: String, first: Integer, client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(login:, first:, client: nil)
     execute(login:, first:, client:).data!
   end
