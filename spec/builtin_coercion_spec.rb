@@ -125,6 +125,23 @@ describe "built-in scalar coercion" do
     expect(source).to include('Field.new(:metadata, "metadata", false, nil, nil)')
   end
 
+  # A scalar registered as a Ruby type with no codec and no entry in Coerce's
+  # table gets no coercer either, so the struct's own type is the only check
+  # left — and sorbet's complaint is what reaches the app unless something
+  # brands it.
+  it "brands a wrong-typed field no coercer covers" do
+    GraphWeaver.register_scalar("Metadata", Hash)
+    mod = GraphWeaver.parse(
+      schema: Demo::Schema, client: Demo::Schema,
+      query: "query Pets($where: PetFilter) { findPets(where: $where) { name } }",
+    )
+
+    expect { mod::PetFilter.coerce({ metadata: "brown" }) }
+      .to raise_error(GraphWeaver::InputError, /invalid input for .*PetFilter/) { |error|
+        expect(error.cause).to be_a ::TypeError
+      }
+  end
+
   it "coerces input-object fields through the same table" do
     mod = GraphWeaver.parse(
       schema: Demo::Schema, client: Demo::Schema,
