@@ -13,7 +13,7 @@ require "graph_weaver/testing"
 # An input object exposes its members as arguments, not fields, so a
 # fields-only check reported every input field as missing — and a correct
 # supergraph failed the CI gate it was supposed to pass.
-describe "GraphWeaver::Schemas.defines? on an input object" do
+describe "GraphWeaver::Internal::Schemas.defines? on an input object" do
   let(:schema) do
     input = Class.new(GraphQL::Schema::InputObject) do
       graphql_name "TicketInput"
@@ -30,8 +30,8 @@ describe "GraphWeaver::Schemas.defines? on an input object" do
   end
 
   it "finds an input field, and still refuses one that isn't there" do
-    expect(GraphWeaver::Schemas.defines?(schema, "TicketInput.eventId")).to be true
-    expect(GraphWeaver::Schemas.defines?(schema, "TicketInput.nope")).to be false
+    expect(GraphWeaver::Internal::Schemas.defines?(schema, "TicketInput.eventId")).to be true
+    expect(GraphWeaver::Internal::Schemas.defines?(schema, "TicketInput.nope")).to be false
   end
 end
 
@@ -97,7 +97,7 @@ describe GraphWeaver::Federation::Drift do
   # a faked subgraph is absent by choice rather than by accident, and the
   # report says so — there is still no real schema to compare against
   it "distinguishes a subgraph answered with fabricated data" do
-    result = drift(DriftGraph::Widgets, subgraphs: { "depots" => GraphWeaver::Testing::Subgraphs::FAKE })
+    result = drift(DriftGraph::Widgets, subgraphs: { "depots" => GraphWeaver::Internal::Subgraphs::FAKE })
 
     expect(result.to_h).to eq CLEAN.merge("faked" => ["depots"])
     expect(result.report).to include "not checked — answered with fabricated data:\n  depots"

@@ -50,7 +50,7 @@ module GraphWeaver
         # says one resolves), and never refuses: with nothing loaded the
         # answer is simply "none", which is the SDL-alone CI run.
         @planner = Router::Planner.new(table:, schema: GraphWeaver::SchemaLoader.load(source))
-        @absent = table.subgraphs.reject { |name| Subgraphs.served?(table, name) }
+        @absent = table.subgraphs.reject { |name| Internal::Subgraphs.served?(table, name) }
         @local = @absent.size < table.subgraphs.size
         @shared = GraphWeaver::Codegen.load_fragments(fragments)
         @results = GraphWeaver::Internal::Util.query_files(queries).map { |path| measure(path) }

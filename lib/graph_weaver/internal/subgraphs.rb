@@ -4,10 +4,10 @@
 require "graphql"
 
 require_relative "../schema_loader"
-require_relative "../schemas"
+require_relative "schemas"
 
 module GraphWeaver
-  module Testing
+  module Internal
     # Which Ruby schema serves which subgraph — for the subgraphs this
     # process serves at all.
     #
@@ -51,7 +51,7 @@ module GraphWeaver
         # derived, and both go through the same check.
         def resolve(table, given = nil, schemas: nil)
           named = table.named_subgraphs(given)
-          searched = schemas || GraphWeaver::Schemas.loaded
+          searched = schemas || Schemas.loaded
           resolution = Resolution.new({}, {})
           table.subgraphs.each do |name|
             if named.key?(name)
@@ -69,9 +69,9 @@ module GraphWeaver
         end
 
         # every loaded schema that defines what the table says `name` resolves
-        def candidates(table, name, schemas = GraphWeaver::Schemas.loaded)
+        def candidates(table, name, schemas = Schemas.loaded)
           wanted = expected(table, name)
-          schemas.select { |schema| wanted.all? { |coordinate| GraphWeaver::Schemas.defines?(schema, coordinate) } }
+          schemas.select { |schema| wanted.all? { |coordinate| Schemas.defines?(schema, coordinate) } }
         end
 
         # The schema coordinates the supergraph says `name` resolves — "Type"
@@ -88,14 +88,14 @@ module GraphWeaver
 
         # which of them `schema` doesn't define
         def missing(table, name, schema)
-          expected(table, name).reject { |coordinate| GraphWeaver::Schemas.defines?(schema, coordinate) }
+          expected(table, name).reject { |coordinate| Schemas.defines?(schema, coordinate) }
         end
 
         # Is this subgraph served in this process? Exactly one candidate is
         # what that means: none is somebody else's service, and several is a
         # question only the caller can answer, so neither is something a suite
         # can run against.
-        def served?(table, name, schemas = GraphWeaver::Schemas.loaded)
+        def served?(table, name, schemas = Schemas.loaded)
           candidates(table, name, schemas).one?
         end
 

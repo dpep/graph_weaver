@@ -202,8 +202,8 @@ namespace :graph_weaver do
       # detection sees when it refuses, and for committing the map instead.
       table = GraphWeaver::SchemaLoader.routing_table(supergraph)
       rows = table.subgraphs.map do |name|
-        found = GraphWeaver::Testing::Subgraphs.candidates(table, name)
-        sought = GraphWeaver::Testing::Subgraphs.expected(table, name)
+        found = GraphWeaver::Internal::Subgraphs.candidates(table, name)
+        sought = GraphWeaver::Internal::Subgraphs.expected(table, name)
         [name, found, sought]
       end
       width = rows.map { |name, found, _| %("#{name}" => #{found.first&.name || "nil"},).length }.max

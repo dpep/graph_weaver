@@ -9,7 +9,7 @@ require "graph_weaver/testing"
 # Which Ruby schema serves which subgraph, derived from what each one
 # defines. The point is that a match is evidence rather than a guess — so
 # what it does when the evidence isn't conclusive is the whole spec.
-describe GraphWeaver::Testing::Subgraphs do
+describe GraphWeaver::Internal::Subgraphs do
   let(:table) { GraphWeaver::SchemaLoader.routing_table(RouterGraph::SUPERGRAPH) }
   let(:split) { GraphWeaver::SchemaLoader.routing_table(SplitGraph::SUPERGRAPH) }
 
@@ -79,8 +79,8 @@ describe GraphWeaver::Testing::Subgraphs do
   it "only ever considers named schemas" do
     GraphQL::Schema.from_definition("type Query { hi: String }")
 
-    expect(GraphWeaver::Schemas.loaded).to all(satisfy { |schema| schema.name })
-    expect(GraphWeaver::Schemas.loaded).to include RouterGraph::Reviews::Schema
+    expect(GraphWeaver::Internal::Schemas.loaded).to all(satisfy { |schema| schema.name })
+    expect(GraphWeaver::Internal::Schemas.loaded).to include RouterGraph::Reviews::Schema
   end
 
   # the router derives the map itself; the task is for reading what detection

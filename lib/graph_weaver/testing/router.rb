@@ -9,7 +9,7 @@ require_relative "../schema_loader"
 require_relative "../selection"
 require_relative "../internal"
 require_relative "../transport"
-require_relative "subgraphs"
+require_relative "../internal/subgraphs"
 
 module GraphWeaver
   module Testing
@@ -146,7 +146,7 @@ module GraphWeaver
     #        context: { current_user: user },
     #      )
     #
-    # (`subgraphs:` is optional — see {Subgraphs}.)
+    # (`subgraphs:` is optional — see {Internal::Subgraphs}.)
     #
     # A supergraph only **partly** local — the rest of it served by other
     # processes — needs nothing extra: the subgraphs nobody here defines are
@@ -255,7 +255,7 @@ module GraphWeaver
 
       # subgraphs: names the Ruby schema serving each subgraph. Omit it (or
       # any of its entries) and the rest are derived from what each loaded
-      # schema defines — see {Subgraphs}, which also checks the ones you name.
+      # schema defines — see {Internal::Subgraphs}, which also checks the ones you name.
       # A subgraph nothing serves is absent (refused per query, not here);
       # `"reviews" => :fake` fabricates its answers instead.
       # fake: how those fabricate — see {#fake=}.
@@ -268,12 +268,12 @@ module GraphWeaver
 
         Unplannable.unsupported!(@table)
 
-        resolution = Subgraphs.resolve(@table, subgraphs)
+        resolution = Internal::Subgraphs.resolve(@table, subgraphs)
         served = resolution.served
         @ambiguous = resolution.ambiguous.freeze
-        @faked = served.select { |_name, schema| schema == Subgraphs::FAKE }.keys.freeze
+        @faked = served.select { |_name, schema| schema == Internal::Subgraphs::FAKE }.keys.freeze
         @absent = (@table.subgraphs - served.keys - @ambiguous.keys).freeze
-        @subgraphs = served.reject { |_name, schema| schema == Subgraphs::FAKE }
+        @subgraphs = served.reject { |_name, schema| schema == Internal::Subgraphs::FAKE }
         @built_fake = check_fake!(fake)
         @fake = @built_fake
         build_fakes
@@ -358,7 +358,7 @@ module GraphWeaver
 
         raise GraphWeaver::ConfigurationError, "fake: says how faked subgraphs fabricate, and this " \
           "router fakes none — ask for one with subgraphs: { \"#{@table.subgraphs.first}\" => " \
-          "#{Subgraphs::FAKE.inspect} }"
+          "#{Internal::Subgraphs::FAKE.inspect} }"
       end
 
       # __schema / __type describe the COMPOSED graph; a subgraph would
@@ -1516,9 +1516,9 @@ module GraphWeaver
         # named is the one an rspec example can reach: there is no Router.new
         # in sight from inside one.
         def advice(name)
-          fake = "subgraphs: { #{name} => #{Subgraphs::FAKE.inspect} } " \
+          fake = "subgraphs: { #{name} => #{Internal::Subgraphs::FAKE.inspect} } " \
             "(GraphWeaver::Testing.config.router = { subgraphs: … } under the rspec tag, or " \
-            "subgraphs: on Router.new) — or a schema class in place of #{Subgraphs::FAKE.inspect}"
+            "subgraphs: on Router.new) — or a schema class in place of #{Internal::Subgraphs::FAKE.inspect}"
           if eager_loaded?
             "Eager loading is on, so it isn't a class waiting to be autoloaded — it runs " \
               "elsewhere. Fabricate its answers: #{fake}."

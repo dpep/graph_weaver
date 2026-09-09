@@ -4,7 +4,7 @@
 require "graphql"
 
 require_relative "schema_loader"
-require_relative "schemas"
+require_relative "internal/schemas"
 
 module GraphWeaver
   # Federation checks that need no network — the supergraph you committed,
@@ -39,7 +39,7 @@ module GraphWeaver
     # count.
     #
     # A supergraph is routinely only **partly local** — the rest served by
-    # another process, or answered with fabricated data ({Testing::Subgraphs}
+    # another process, or answered with fabricated data ({Internal::Subgraphs}
     # `=> :fake`). Neither can be compared against anything, so the report
     # names three states rather than two: checked, not here, and faked. A
     # clean result that didn't say what it couldn't see would be actively
@@ -82,7 +82,7 @@ module GraphWeaver
         # loader asks it, which a one-line supergraph doesn't fool
         @source = GraphWeaver::SchemaLoader.sdl_content?(source) ? "the supergraph" : source
         @given = @table.named_subgraphs(subgraphs)
-        @schemas = schemas || GraphWeaver::Schemas.loaded
+        @schemas = schemas || GraphWeaver::Internal::Schemas.loaded
         @stale = {}
         @uncomposed = {}
         @skipped = {}
@@ -181,7 +181,7 @@ module GraphWeaver
             next unless @table.owners(type_name, field_name).include?(name)
 
             coordinate = "#{type_name}.#{field_name}"
-            next if fitting.any? { |schema| GraphWeaver::Schemas.defines?(schema, coordinate) }
+            next if fitting.any? { |schema| GraphWeaver::Internal::Schemas.defines?(schema, coordinate) }
 
             (@stale[coordinate] ||= []) << name
           end

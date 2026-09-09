@@ -275,9 +275,6 @@ GraphWeaver::SchemaLoader::RoutingTable#to_s
 GraphWeaver::SchemaLoader::RoutingTable#types
 GraphWeaver::SchemaLoader::RoutingTable#unsupported
 GraphWeaver::SchemaLoader::RoutingTable.parse_field_set
-GraphWeaver::Schemas (Module)
-GraphWeaver::Schemas.defines?
-GraphWeaver::Schemas.loaded
 GraphWeaver::Selection (Module)
 GraphWeaver::Selection::CONDITIONAL_DIRECTIVES = Array
 GraphWeaver::ServerError (Class)
@@ -546,22 +543,6 @@ GraphWeaver::Testing::Router::REPRESENTATIONS_DEFINITION = GraphQL::Language::No
 GraphWeaver::Testing::Router::TYPENAME = String
 GraphWeaver::Testing::Sequence (Class)
 GraphWeaver::Testing::Sequence#execute
-GraphWeaver::Testing::Subgraphs (Module)
-GraphWeaver::Testing::Subgraphs.candidates
-GraphWeaver::Testing::Subgraphs.expected
-GraphWeaver::Testing::Subgraphs.missing
-GraphWeaver::Testing::Subgraphs.resolve
-GraphWeaver::Testing::Subgraphs.served?
-GraphWeaver::Testing::Subgraphs::FAKE = Symbol
-GraphWeaver::Testing::Subgraphs::Resolution (Class)
-GraphWeaver::Testing::Subgraphs::Resolution#ambiguous
-GraphWeaver::Testing::Subgraphs::Resolution#ambiguous=
-GraphWeaver::Testing::Subgraphs::Resolution#served
-GraphWeaver::Testing::Subgraphs::Resolution#served=
-GraphWeaver::Testing::Subgraphs::Resolution.[]
-GraphWeaver::Testing::Subgraphs::Resolution.keyword_init?
-GraphWeaver::Testing::Subgraphs::Resolution.members
-GraphWeaver::Testing::Subgraphs::SAMPLE = Integer
 GraphWeaver::Testing::Unplannable (Class)
 GraphWeaver::Testing::Unplannable#category
 GraphWeaver::Testing::Unplannable#detail

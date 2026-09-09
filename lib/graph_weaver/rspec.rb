@@ -43,7 +43,7 @@ require_relative "testing"
 #     neither is there it says so rather than hunting for one.
 #   - :router plans against the composed supergraph: the dump, when that's
 #     what it is, else config.router = { supergraph: … }. Subgraphs are
-#     derived from what each loaded schema defines (Testing::Subgraphs);
+#     derived from what each loaded schema defines (Internal::Subgraphs);
 #     one nothing here serves is absent, and only a query that reaches its
 #     fields is refused.
 #

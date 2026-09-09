@@ -370,7 +370,7 @@ describe "graph_weaver rake tasks" do
     # message is pinned in federation_drift_spec; what CI actually reads is
     # the status.
     it "exits non-zero when no subgraph here was loaded to compare against" do
-      allow(GraphWeaver::Schemas).to receive(:loaded).and_return([])
+      allow(GraphWeaver::Internal::Schemas).to receive(:loaded).and_return([])
 
       result = invoke("federation:diff", SUPERGRAPH: RouterGraph::SUPERGRAPH)
 
