@@ -1,4 +1,23 @@
 ## Unreleased
+- **A faked subgraph takes the options every other fake takes, and
+  `graphql_router` says them per example.** `subgraphs: { "reviews" => :fake }`
+  built its fake with nothing, so `overrides:`, `list_size:` and `null_chance:`
+  had nowhere to go. `fake:` carries them, on `Router.new`, on
+  `Testing.config.router`, and per example through `graphql_router(fake:)`,
+  which mirrors `graphql_fake`. One `fake:` covers every faked subgraph —
+  coordinate-keyed overrides already say which type they mean. A `fail_at:`
+  inside an `_entities` fetch used to null the field and report no error; it
+  now comes back as an error on the caller's path.
+- **A subgraph two loaded schema classes fit is refused by the query that
+  reaches it, not by `Router.new`.** In an app where several loaded schemas
+  each satisfy a foundational subgraph, building a router raised for
+  subgraphs the query under test never touched — and only when eager loading
+  happened to be on. The router now builds, every query that avoids the
+  subgraph runs, and one that reaches it raises naming the candidates, saying
+  they came from loaded schema classes, and showing the `subgraphs:` form that
+  pins one. A class named explicitly still fails at construction.
+  `router.ambiguous` lists them. `Testing::Subgraphs.resolve` now returns a
+  `Resolution` (`#served`, `#ambiguous`).
 - **A `.graphql` edit reaches the next request in development.** The query
   directories and the schema dump join Rails' own reloaders, and the
   `to_prepare` that loads the generated modules now regenerates first — after
