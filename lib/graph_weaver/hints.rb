@@ -7,6 +7,8 @@ require_relative "errors"
 require_relative "inflect"
 
 module GraphWeaver
+  # Called by generated code — not semver'd for direct use.
+  #
   # Included in generated response structs. GraphQL's camelCase fields
   # become snake_case props, and reaching for the wire name is a classic
   # stumble — result.nameWithOwner instead of result.name_with_owner.

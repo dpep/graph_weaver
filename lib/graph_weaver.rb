@@ -69,11 +69,8 @@ module GraphWeaver
       end
     end
 
-    # Shape-check a raw response envelope, returning it. Generated
-    # from_response is public API taking anything with #to_h, so a malformed
-    # body has to brand rather than escape as a raw Sorbet TypeError from a sig
-    # (which fires before the struct's own rescue can see it). Lives here rather
-    # than unrolled into every generated module.
+    # Called by generated code — not semver'd for direct use.
+    #
     # Cast a response's data, keeping the server's own errors on a failure.
     # The common cause of a cast failure is a field that came back null *with
     # a reason attached* — a permission rule, a partial outage — and raising
@@ -109,6 +106,13 @@ module GraphWeaver
       File.unlink(tmp) if tmp && File.exist?(tmp)
     end
 
+    # Called by generated code — not semver'd for direct use.
+    #
+    # Shape-check a raw response envelope, returning it. Generated
+    # from_response is public API taking anything with #to_h, so a malformed
+    # body has to brand rather than escape as a raw Sorbet TypeError from a sig
+    # (which fires before the struct's own rescue can see it). Lives here rather
+    # than unrolled into every generated module.
     def check_envelope!(raw, struct)
       raw = raw.to_h if !raw.is_a?(Hash) && raw.respond_to?(:to_h)
       unless raw.is_a?(Hash)

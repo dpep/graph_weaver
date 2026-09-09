@@ -4,6 +4,8 @@
 require_relative "errors"
 
 module GraphWeaver
+  # Called by generated code — not semver'd for direct use.
+  #
   # Turning a loose value into the Ruby type a generated kwarg promises.
   #
   # Generated `execute` sigs are `.checked(:never)`, so a `params[:first]`

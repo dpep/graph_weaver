@@ -2,6 +2,8 @@
 # frozen_string_literal: true
 
 module GraphWeaver
+  # Called by generated code — not semver'd for direct use.
+  #
   # GraphQL names are plain camelCase/SCREAMING_SNAKE — no acronym edge
   # cases, so minimal inflection beats an activesupport dependency
   module Inflect

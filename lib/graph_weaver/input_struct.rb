@@ -7,6 +7,8 @@ require_relative "errors"
 require_relative "hints"
 
 module GraphWeaver
+  # Called by generated code — not semver'd for direct use.
+  #
   # Runtime for generated input structs. Each struct declares its typed
   # consts plus a compact FIELDS table — (prop, wire name, requiredness,
   # serializer, coercer) per field, with the conversions emitted as

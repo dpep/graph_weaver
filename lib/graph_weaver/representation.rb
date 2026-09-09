@@ -4,6 +4,8 @@
 require_relative "errors"
 
 module GraphWeaver
+  # Called by generated code — not semver'd for direct use.
+  #
   # Runtime for the generated `Representations` builders — the entity
   # references a federation `_entities(representations:)` query takes.
   #

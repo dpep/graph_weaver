@@ -4,6 +4,8 @@
 require "sorbet-runtime"
 
 module GraphWeaver
+  # Called by generated code — not semver'd for direct use.
+  #
   # Runtime for generated query modules: the client plumbing, which is the
   # one part of a generated module that carries no per-query type
   # information — every module's copy was identical. `extend
