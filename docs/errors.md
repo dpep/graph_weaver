@@ -158,6 +158,14 @@ response.report
 `GraphQLError#field` strips list indices (`people.3.email` → `people.email`) —
 the stable grouping key; the raw `#path` keeps indices for exact location.
 
+`Response#to_h` decomposes the envelope the same way: `{"data" =>, "errors" =>,
+"extensions" =>}`, with each error as its JSON-ready hash. `data` stays the
+typed struct — it is deliberately not re-serialized, because `T::Struct#serialize`
+would give snake_case keys where the wire is camelCase, drop null fields, and
+leave a registered scalar as the Ruby object its codec built. That output would
+look like the server's response without being one, so serialize the typed data
+yourself when you need to re-emit it.
+
 ## Stale schemas
 
 GraphQL has no schema-version signal, so a schema change surfaces as the

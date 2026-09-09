@@ -51,6 +51,21 @@ module GraphWeaver
     sig { returns(T::Boolean) }
     def success? = errors.empty?
 
+    # The envelope decomposed, string-keyed like the error classes' #to_h:
+    # errors become JSON-ready hashes, extensions pass through, and data
+    # stays the typed struct.
+    #
+    # Data is NOT re-serialized: T::Struct#serialize is the wrong inverse
+    # here — props are snake_case where the wire is camelCase, nil fields
+    # drop out, and a registered scalar keeps whatever Ruby object its codec
+    # built. The result would look like the server's response and not be one.
+    # Serialize the typed data yourself, or keep the raw hash and hand it to
+    # .from_response when you need both.
+    sig { returns(T::Hash[String, T.untyped]) }
+    def to_h
+      { "data" => data, "errors" => errors.map(&:to_h), "extensions" => extensions }
+    end
+
     # The typed result, or raise QueryError if the response carried top-level
     # errors (partial data and extensions ride along on the error).
     sig { returns(Data) }

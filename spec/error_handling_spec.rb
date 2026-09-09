@@ -315,6 +315,30 @@ describe "error handling" do
   end
 
   describe "machine-readable output (#to_h)" do
+    # the envelope is where an API boundary reaches for to_h, and every error
+    # class had one while the thing holding them didn't
+    it "decomposes the envelope, errors machine-ready" do
+      errors = [{ "message" => "bad email", "path" => ["person", "email"] }]
+      resp = run("data" => person_data, "errors" => errors, "extensions" => { "cost" => 3 })
+
+      h = resp.to_h
+      expect(h.keys).to contain_exactly("data", "errors", "extensions")
+      expect(h["errors"].first).to include("message" => "bad email", "field" => "person.email")
+      expect(h["extensions"]).to eq("cost" => 3)
+      expect { JSON.generate(h["errors"]) }.not_to raise_error
+    end
+
+    # sorbet's #serialize is the wrong inverse here — props are snake_case
+    # while the wire is camelCase, nulls drop out, and a registered scalar
+    # stays the Ruby object its codec built. So data stays typed.
+    it "keeps data typed rather than re-serializing it" do
+      resp = run("data" => person_data)
+
+      expect(resp.to_h["data"]).to be resp.data
+      expect(resp.to_h["data"].person&.name).to eq "Daniel"
+      expect(run("errors" => [{ "message" => "down" }]).to_h["data"]).to be_nil
+    end
+
     it "nests the full error detail as JSON-ready hashes" do
       errors = [
         { "message" => "bad email", "path" => ["person", "email"],
