@@ -95,6 +95,34 @@ GraphWeaver::Codegen.reset_scalars!   # after   (also reset_enums!, clear_scalar
                                       #          reset_type_helpers!)
 ```
 
+### Generated names come from the response key, not the type
+
+Nested structs used to be named for the GraphQL *type* they were cast from;
+they are now named for the **response key that selects them**, camelized, and
+the constant path reads like the query. The typechecker finds the call sites in
+a `# typed: true` file (an unresolved constant is an `srb tc` error); in a
+`# typed: false` file it is `uninitialized constant` at runtime, so grep for
+`::Result::` there.
+
+| selection | before (type) | after (key) |
+|---|---|---|
+| `person { pets { name } }` | `PersonQuery::Result::Person::Pet` | `PersonQuery::Result::Person::Pets` |
+| `payrollRisk { score }` | `…::Result::RiskAssessment` | `…::Result::PayrollRisk` |
+| `_entities(…) { ... on Product { … } }` | `…::Result::Product` | `…::Result::Entities::Product` |
+
+The key is used verbatim — no pluralization, so a list field `pets` is `Pets`.
+To pick the name yourself, alias the field: `pet: pets { name }` generates
+`Pet`. Union and interface members keep their type-condition names, nested in
+the container the field names. The payoff is that adding, removing or
+reordering an unrelated selection can never rename a struct you reference.
+
+**Enums moved out of the result tree.** Every schema enum a query touches is one
+Ruby type in the shared module, `GraphQLTypes::Species`, so a value read from
+one query hands straight into another's variable. A query module aliases the
+enums its *variables* use (`AddPetMutation::Species` still works); an enum
+reached only through a result is no longer nested under the struct that
+carries it — `SearchQuery::Result::Search::Species` is `GraphQLTypes::Species`.
+
 ### Smaller renames
 
 | before | after |
