@@ -186,6 +186,19 @@ refresh the schema cache.
 When wire data disagrees with the types the schema promised at generation time
 (a nil where non-null was declared, a malformed scalar, an unknown enum value),
 casting raises `GraphWeaver::TypeError` naming the failing generated struct,
-with the original exception as `#cause`. Simulate one in tests with
+with the original exception as `#cause`.
+
+A cast's own complaint is about the value and nothing else — "invalid date"
+locates nothing on a struct holding four of them — so a casting leaf also
+carries **its response key**, and three failures that keep happening say whose
+bug it is rather than leaving you sorbet's words:
+
+| what came back | what the message adds |
+|---|---|
+| an `ID` the server sent unquoted | GraphQL serializes `ID` as a JSON string, so this is the server out of spec — plus how to take it anyway (`register_scalar("ID", "T.untyped")`) |
+| an enum value the generated enum doesn't hold | the values it does hold, and that drift is the likely cause: regenerate, or `register_enum(fallback:)` to absorb them |
+| a field the server nulled **with a reason** | the server's own explanation, rather than only sorbet's nil complaint |
+
+Simulate one in tests with
 `GraphWeaver::Testing::FakeClient.new(schema:, corrupt: "Person.birthday")` — see
 [testing](testing.md).
