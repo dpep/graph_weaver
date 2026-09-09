@@ -52,7 +52,19 @@ describe GraphWeaver::Testing::FakeClient do
   # lands, how long a list is — comes off the rng, so a shape it gets wrong
   # shows up in some fraction of runs and not the one the spec pinned.
   it "fabricates a response every generated module can read, whatever the seed" do
-    modules = [PersonQuery, SearchQuery, FindPetsQuery, NamedQuery, AddPetMutation, AdoptMutation]
+    # an app class is the shape only the registration can fabricate for, so
+    # the promise has to hold through one of those too
+    stub_const("Tag", Class.new do
+      def self.parse(wire) = new(wire.fetch("label"))
+      def initialize(label) = @label = label
+      attr_reader :label
+    end)
+    GraphWeaver.register_scalar("Metadata", Tag, cast: :parse, serialize: :to_h,
+      fake: ->(rng) { { "label" => "tag-#{rng.rand(100)}" } })
+    tagged = GraphWeaver.parse(schema: Demo::Schema, name: "Tagged",
+      query: "query Tagged { people { pets { metadata } } }")
+
+    modules = [PersonQuery, SearchQuery, FindPetsQuery, NamedQuery, AddPetMutation, AdoptMutation, tagged]
 
     40.times do |seed|
       fake = described_class.new(schema: Demo::Schema, seed:, null_chance: 0.3, list_size: 0..3)
@@ -64,6 +76,8 @@ describe GraphWeaver::Testing::FakeClient do
           .not_to raise_error, "seed #{seed}, #{mod}: #{response.inspect}"
       end
     end
+  ensure
+    GraphWeaver::Codegen.reset_scalars!
   end
 
   describe "@skip / @include" do
@@ -137,6 +151,22 @@ describe GraphWeaver::Testing::FakeClient do
 
     expect(event.at).to be_a Time
     expect(event.ticks).to be_an Integer
+  ensure
+    GraphWeaver::Codegen.reset_scalars!
+  end
+
+  # A `Type.field` registration is how the same scalar deserializes as
+  # different Ruby types across fields — so the fake has to resolve it the
+  # way codegen does, most specific first, or the emitted codec gets a value
+  # fabricated for the wrong type.
+  it "fabricates a per-field registration for the type that field deserializes into" do
+    GraphWeaver.register_scalar("Person.email", Time, cast: :iso8601, serialize: :iso8601, requires: "time")
+    fake = described_class.new(schema: Demo::Schema, seed: 1)
+
+    mod = GraphWeaver.parse(schema: Demo::Schema, name: "Contact",
+      query: "query Contact { people { name email } }", client: fake)
+
+    expect(mod.execute!.people.first.email).to be_a Time
   ensure
     GraphWeaver::Codegen.reset_scalars!
   end

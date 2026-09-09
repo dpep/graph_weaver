@@ -389,19 +389,19 @@ module GraphWeaver
         # to whichever possible type declares it
         field = @schema.get_field(parent_type.graphql_name, name) ||
           @schema.possible_types(parent_type).filter_map { |t| @schema.get_field(t.graphql_name, name) }.first
-        type_value(field.type, name, selections, value)
+        type_value(field.type, name, selections, value, "#{parent_type.graphql_name}.#{name}")
       end
 
-      def type_value(type, name, selections, value)
+      def type_value(type, name, selections, value, coordinate = nil)
         return if value.nil? # preserve null positions
 
         case type.kind.name
         when "NON_NULL"
-          type_value(type.of_type, name, selections, value)
+          type_value(type.of_type, name, selections, value, coordinate)
         when "LIST"
-          value.map { |element| type_value(type.of_type, name, selections, element) }
+          value.map { |element| type_value(type.of_type, name, selections, element, coordinate) }
         when "SCALAR"
-          scalar_value(type.graphql_name, name, value)
+          scalar_value(type.graphql_name, name, value, coordinate)
         when "ENUM"
           value # enums aren't PII; preserving them keeps semantics
         when "OBJECT", "UNION", "INTERFACE"
@@ -411,11 +411,11 @@ module GraphWeaver
         end
       end
 
-      def scalar_value(type_name, field_name, value)
+      def scalar_value(type_name, field_name, value, coordinate = nil)
         case type_name
         when "ID" then @values.mapped_id(value)
         when "Boolean" then value # not PII; preserves branching behavior
-        else @values.scalar(type_name, field_name)
+        else @values.scalar(type_name, field_name, coordinate)
         end
       end
     end

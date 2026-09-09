@@ -121,6 +121,49 @@ describe GraphWeaver::Testing::Values do
     it "still names the type when nothing registered one" do
       expect(values.scalar("Money", "price")).to match(/\AMoney-\d+\z/)
     end
+
+    # An app class is the one Ruby type the library can't invent a wire value
+    # for: only whoever wrote Money.parse knows what it accepts. A placeholder
+    # here raised out of the codec, blaming Money for the fake's guess.
+    context "registered as an app class" do
+      let(:money) do
+        Class.new do
+          def self.name = "Money"
+          def self.parse(wire) = new(Float(wire))
+          def initialize(amount) = @amount = amount
+          attr_reader :amount
+        end
+      end
+
+      before { stub_const("Money", money) }
+
+      it "refuses, naming the field and both fixes" do
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
+
+        expect { values.scalar("Money", "price") }.to raise_error(GraphWeaver::Error) { |error|
+          expect(error.message).to include("Money", "price", "fake:", "overrides:")
+        }
+      end
+
+      it "uses the fake: the registration supplies" do
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s, fake: "12.00")
+
+        expect(Money.parse(values.scalar("Money", "price")).amount).to eq 12.0
+      end
+
+      # a fake that varies has to vary off the seeded rng, or --seed stops
+      # reproducing the run
+      it "hands a proc the seeded rng" do
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s,
+          fake: ->(rng) { format("%.2f", rng.rand(1.0..100.0)) })
+
+        drawn = Array.new(3) { values.scalar("Money", "price") }
+        again = described_class.new(seed: 3, mode: :literal)
+
+        expect(drawn.uniq.size).to eq 3
+        expect(drawn).to eq Array.new(3) { again.scalar("Money", "price") }
+      end
+    end
   end
 
   describe "mode" do

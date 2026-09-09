@@ -136,6 +136,22 @@ person.name       # a plausible name, when faker is loaded
 person.birthday   # a real Date
 ```
 
+A scalar you registered as **your own class** is the one value nothing here
+can invent — only `Money.parse` knows what it accepts — so say it once, where
+the rest of that scalar's knowledge already lives:
+
+```ruby
+GraphWeaver.register_scalar("Money", Money, fake: "12.00")
+GraphWeaver.register_scalar("Money", Money, fake: ->(rng) { format("%.2f", rng.rand(1.0..100.0)) })
+```
+
+`fake:` is a **wire** value — what the server would send, before your `cast:`
+runs. A proc is handed the seeded `Random`, so `--seed` still reproduces the
+run. Without one, fabrication refuses and names the field, rather than feeding
+your cast a `"Money-1"` placeholder that fails deep inside `from_h` blaming
+the codec. A scalar registered as `Time`, `Date`, `Integer`, `Float`, `String`
+or `T::Boolean` needs nothing: those the harness knows how to write.
+
 Pin what matters, keyed by GraphQL names (schema vocabulary — keys
 survive query refactors); `"Type.field"` beats `"field"`:
 

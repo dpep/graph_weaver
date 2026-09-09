@@ -358,6 +358,31 @@ describe GraphWeaver::Testing::Cassette do
       GraphWeaver::Codegen.reset_scalars!
     end
 
+    # An app class's codec is the case Values can't derive a wire value for,
+    # and anonymization runs through the same engine as the fake — so a
+    # registration's fake: has to reach both, or scrubbing a cassette is what
+    # breaks it.
+    it "keeps an app-class scalar castable, from its registered fake:" do
+      money = stub_const("Money", Class.new do
+        def self.parse(wire) = new(Float(wire))
+        def initialize(amount) = @amount = amount
+        attr_reader :amount
+      end)
+      GraphWeaver.register_scalar("Money", money, cast: :parse, serialize: :to_s, fake: "12.00")
+      schema = GraphQL::Schema.from_definition("scalar Money type Query { total: Money }")
+      mod = GraphWeaver.parse(schema:, name: "Total", query: "query Total { total }")
+
+      cassette = described_class.new(path)
+      cassette.record(mod::QUERY, {}, { "data" => { "total" => "99.95" } })
+      cassette.anonymize!(schema:, seed: 5)
+
+      check = described_class.new(path).check([mod])
+      expect(check.checked).to eq 1
+      expect(check).to be_ok, -> { check.report.join("\n") }
+    ensure
+      GraphWeaver::Codegen.reset_scalars!
+    end
+
     it "anonymized cassettes still cast through generated modules" do
       GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" },

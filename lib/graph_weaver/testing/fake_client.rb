@@ -289,7 +289,7 @@ class GraphWeaver::Testing::FakeClient
     return pinned_value(field_type, node, selections, pin, source) unless pin.equal?(UNPINNED)
     return corrupt_value(field_type) if @corrupt.include?(coordinate)
 
-    type_value(field_type, node, selections)
+    type_value(field_type, node, selections, coordinate:)
   end
 
   # What an override pins here. A leaf takes the value outright; a composite
@@ -401,8 +401,10 @@ class GraphWeaver::Testing::FakeClient
     @list_size.is_a?(Range) ? rng.rand(@list_size) : @list_size
   end
 
-  def type_value(type, node, selections, non_null: false)
-    return type_value(type.of_type, node, selections, non_null: true) if type.kind.name == "NON_NULL"
+  def type_value(type, node, selections, coordinate: nil, non_null: false)
+    if type.kind.name == "NON_NULL"
+      return type_value(type.of_type, node, selections, coordinate:, non_null: true)
+    end
     # every nullable position, a list included — null_chance is about the
     # nilable props codegen emitted, and it emits one for `[Thing!]` too
     return if !non_null && rng.rand < @null_chance
@@ -411,7 +413,7 @@ class GraphWeaver::Testing::FakeClient
     when "LIST"
       elements = Array.new(list_length(node)) do |index|
         @path.push(index)
-        element = type_value(type.of_type, node, selections)
+        element = type_value(type.of_type, node, selections, coordinate:)
         @path.pop
         element
       end
@@ -424,14 +426,14 @@ class GraphWeaver::Testing::FakeClient
       end
       elements
     else
-      core_value(type, node, selections)
+      core_value(type, node, selections, coordinate)
     end
   end
 
-  def core_value(type, node, selections)
+  def core_value(type, node, selections, coordinate = nil)
     case type.kind.name
     when "SCALAR"
-      @values.scalar(type.graphql_name, node.name)
+      @values.scalar(type.graphql_name, node.name, coordinate)
     when "ENUM"
       type.values.keys.sort.sample(random: rng)
     when "OBJECT"

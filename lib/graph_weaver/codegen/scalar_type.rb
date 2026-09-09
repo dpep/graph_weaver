@@ -56,7 +56,7 @@ class GraphWeaver::Codegen
 
     attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
+    def initialize(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil, fake: nil)
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
@@ -68,7 +68,9 @@ class GraphWeaver::Codegen
       @cast = normalize_cast(cast, codec&.cast)
       @serialize = normalize_serialize(serialize, codec&.serialize)
       @coerce = coerce
+      @fake = fake
       validate_coerce!
+      validate_fake!
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -76,6 +78,17 @@ class GraphWeaver::Codegen
     def serialize(expr) = @serialize&.call(expr)
     def serialize? = !@serialize.nil?
     def coerce? = !!coercion
+    def fake? = !@fake.nil?
+
+    # The wire value the testing harness fabricates for this scalar. Only the
+    # registration can know one: an app class's `cast` accepts whatever its
+    # author decided it accepts. A proc is handed the seeded Random, so a
+    # varying fake still reproduces under `rspec --seed`.
+    def fake(rng)
+      return @fake unless @fake.is_a?(Proc)
+
+      @fake.arity.zero? ? @fake.call : @fake.call(rng)
+    end
 
     # How this scalar coerces a variable input, or nil for not at all.
     # coerce: says WHETHER (explicit always wins); left unset the global
@@ -169,6 +182,15 @@ class GraphWeaver::Codegen
         raise ArgumentError, "coerce: must be true or false, got #{@coerce.inspect}"
       end
     end
+
+    # A proc taking anything else can't be called at fabrication time, and
+    # the ArgumentError it would raise there names no scalar.
+    def validate_fake!
+      return unless @fake.is_a?(Proc) && @fake.arity > 1
+
+      raise ArgumentError, "fake: takes no arguments, or one — the seeded Random " \
+        "(fake: ->(rng) { ... }); #{@graphql_name}'s takes #{@fake.arity}"
+    end
   end
 
   class << self
@@ -200,18 +222,19 @@ class GraphWeaver::Codegen
     # the accepted cast:/serialize:/requires: forms. Later registrations
     # win, so an app can override a built-in (e.g. map Date onto its own
     # type).
-    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil)
+    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, coerce: nil, fake: nil)
       scalar_registry[graphql_name.to_s] =
-        ScalarType.new(graphql_name, type, cast:, serialize:, requires:, coerce:)
+        ScalarType.new(graphql_name, type, cast:, serialize:, requires:, coerce:, fake:)
     end
 
-    # The ScalarType for a scalar name; unknown scalars fall back to an
-    # untyped pass-through (T.untyped, no cast) — the prior behavior for
-    # scalars outside the table.
-    def scalar(graphql_name)
-      scalar_registry.fetch(graphql_name.to_s) do
-        ScalarType.new(graphql_name, "T.untyped")
-      end
+    # The ScalarType in play for a scalar, most specific first: the
+    # `Type.field` registration when `coordinate` names one, then the
+    # scalar-name registration. Unknown scalars fall back to an untyped
+    # pass-through (T.untyped, no cast) — the prior behavior for scalars
+    # outside the table.
+    def scalar(graphql_name, coordinate = nil)
+      (coordinate && scalar_registry[coordinate.to_s]) ||
+        scalar_registry.fetch(graphql_name.to_s) { ScalarType.new(graphql_name, "T.untyped") }
     end
 
     def scalar_registry

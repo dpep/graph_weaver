@@ -46,6 +46,9 @@ class GraphWeaver::Testing::Values
     "DateTime" => :time,
   }.freeze
 
+  # What Codegen.scalar reports for a scalar nobody registered
+  UNREGISTERED = "T.untyped"
+
   # The fallback, for a scalar nobody registered: its prop is T.untyped, so
   # anything holds and a plausible shape beats a placeholder.
   NAMED_SHAPES = {
@@ -68,12 +71,17 @@ class GraphWeaver::Testing::Values
     @mode = resolve_mode(mode || config.mode)
     @sequence = 0
     @id_map = {}
-    @shapes = {}
+    @resolved = {}
   end
 
-  def scalar(type_name, field_name)
+  # coordinate: the "Type.field" this value is for, so a per-field
+  # register_scalar resolves the way codegen resolved it when it emitted the
+  # cast.
+  def scalar(type_name, field_name, coordinate = nil)
+    registered, shape = resolve(type_name, coordinate)
+    return registered.fake(rng) if registered.fake?
+
     prop = underscore(field_name)
-    shape = shape_of(type_name)
 
     if @mode == :faker
       # rebind per call: several Values instances may interleave (e.g. two
@@ -100,7 +108,8 @@ class GraphWeaver::Testing::Values
     when :boolean then [true, false].sample(random: @rng)
     when :date then (Date.new(2020, 1, 1) + @rng.rand(0..2_000)).iso8601
     when :time then Time.at(1_600_000_000 + @rng.rand(0..100_000_000)).utc.iso8601
-    else "#{type_name}-#{@sequence += 1}" # unknown custom scalar: override it
+    when :unregistered then "#{type_name}-#{@sequence += 1}" # nobody registered it: prop is T.untyped
+    else unfakeable!(type_name, field_name, registered)
     end
   end
 
@@ -111,14 +120,39 @@ class GraphWeaver::Testing::Values
 
   private
 
+  # The registration in play and the shape it wants, memoized per scalar (or
+  # per coordinate, where a field-level registration overrides it).
+  def resolve(type_name, coordinate)
+    @resolved[coordinate || type_name] ||= begin
+      registered = GraphWeaver::Codegen.scalar(type_name, coordinate)
+      [registered, shape_of(type_name, registered.type)]
+    end
+  end
+
   # ID asks by name rather than by class: it registers as String, and an id
   # repeated across a list breaks a `find` or `group_by` in the code under test.
-  def shape_of(type_name)
-    @shapes[type_name] ||= if type_name == "ID"
+  def shape_of(type_name, ruby_type)
+    if type_name == "ID" && ruby_type == "String"
       :id
+    elsif (shape = REGISTERED_SHAPES[ruby_type])
+      shape
+    elsif ruby_type == UNREGISTERED
+      NAMED_SHAPES[type_name] || :unregistered
     else
-      REGISTERED_SHAPES[GraphWeaver::Codegen.scalar(type_name).type] || NAMED_SHAPES[type_name] || :unknown
+      :unfakeable
     end
+  end
+
+  # An app class is the one Ruby type nothing here can invent a wire value
+  # for — `Money.parse` accepts what its author decided it accepts — and
+  # guessing hands the generated cast a placeholder, which fails deep inside
+  # from_h blaming the codec.
+  def unfakeable!(type_name, field_name, registered)
+    raise GraphWeaver::Error, "can't fabricate a #{type_name} for #{field_name.inspect}: it " \
+      "deserializes into #{registered.type}, and only the registration knows what wire value " \
+      "that accepts. Say it there — GraphWeaver.register_scalar(#{registered.graphql_name.inspect}, " \
+      "#{registered.type}, fake: -> { ... }) — or pin this one field: " \
+      "overrides: { #{field_name.inspect} => ... }"
   end
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto
