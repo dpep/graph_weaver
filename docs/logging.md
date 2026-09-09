@@ -24,8 +24,32 @@ name — so a request's lines stay paired when threads interleave.
 
 **PII note**: queries, variables, and response sizes appear at debug
 only — variables can carry user data, so keep production loggers at
-info or above (or scrub in your formatter). Auth headers never log at
-any level.
+info or above. Auth headers never log at any level.
+
+## Filtered variables
+
+Debug gets switched on during an incident, which is exactly when a
+`login(password:)` mutation's variables must not land in the log. So the
+values of sensitive keys are replaced with `[FILTERED]` before the line is
+written — at any depth, including inside input objects.
+
+In Rails you configure nothing: the railtie adopts the app's own
+`config.filter_parameters`, so GraphWeaver scrubs whatever the request logs
+already scrub.
+
+Everywhere else, one list:
+
+```ruby
+GraphWeaver.filter_parameters = [:password, /token/]
+```
+
+Strings and Symbols match as case-insensitive substrings — `:token` covers
+`apiToken` — and Regexps match themselves. The default is `[:password,
+:token, :secret, :authorization]`, which covers the usual names before
+anyone configures anything; assigning replaces it rather than adding to it,
+and `[]` turns filtering off. Anything answering `#filter(hash)` is used
+as-is, which is how the railtie hands over an
+`ActiveSupport::ParameterFilter`.
 
 ## Instrumentation
 

@@ -39,6 +39,17 @@ class GraphWeaver::Railtie < Rails::Railtie
     GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
   end
 
+  # The app already declared what is sensitive, so variables logged at debug
+  # honour the same list as its request logs — including the Procs and dotted
+  # paths only ParameterFilter understands. after: :load_config_initializers,
+  # since filter_parameter_logging.rb is where an app adds to it.
+  initializer "graph_weaver.filter_parameters", after: :load_config_initializers do |app|
+    filters = app.config.filter_parameters
+    next if filters.empty? || GraphWeaver.filter_parameters != GraphWeaver::DEFAULT_FILTER_PARAMETERS
+
+    GraphWeaver.filter_parameters = ActiveSupport::ParameterFilter.new(filters)
+  end
+
   # A generated file `include`s the type helper it was generated with, so it
   # can't load until that constant resolves — and both Zeitwerk's setup and
   # the app's own to_prepare blocks (where extend_type/register_enum are told

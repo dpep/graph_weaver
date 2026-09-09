@@ -63,9 +63,11 @@ class GraphWeaver::Transport
     # the operation so the log says WHICH query, not just the url
     tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
 
-    # full query + variables at debug only — they can carry PII
+    # full query + variables at debug only — they can carry PII, and the
+    # sensitive keys are scrubbed even there (GraphWeaver.filter_parameters)
     GraphWeaver.log(:debug) do
-      "POST #{url} #{tag} variables=#{JSON.generate(variables)}\n#{GraphWeaver::Transport.truncate_for_log(query)}"
+      filtered = JSON.generate(GraphWeaver.filter_variables(variables))
+      "POST #{url} #{tag} variables=#{filtered}\n#{GraphWeaver::Transport.truncate_for_log(query)}"
     end
 
     # camelCase because it's the graphql-over-http request field, not a

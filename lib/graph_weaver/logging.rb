@@ -26,6 +26,36 @@ module GraphWeaver
       logger&.public_send(level, "graph_weaver", &block)
     end
 
+    # What never reaches the log when variables are written at debug. A
+    # list of keys — Strings/Symbols match as case-insensitive substrings
+    # (`:token` covers `apiToken`), Regexps match themselves — applied at
+    # every depth, matched values replaced with "[FILTERED]":
+    #
+    #      GraphWeaver.filter_parameters = [:password, /token/]
+    #
+    # Rails apps need none of this: the railtie hands over the app's own
+    # config.filter_parameters. Anything answering #filter(hash) is taken
+    # as-is, which is how an ActiveSupport::ParameterFilter gets in.
+    attr_reader :filter_parameters
+
+    def filter_parameters=(filters)
+      unless filters.nil? || filters.is_a?(Array) || filters.respond_to?(:filter)
+        raise ArgumentError,
+          "filter_parameters: takes a list of keys, or an object answering #filter — got #{filters.inspect}"
+      end
+
+      @filter_parameters = filters
+    end
+
+    # Internal: variables with the filtered keys blanked out.
+    def filter_variables(variables)
+      filters = filter_parameters
+      # Array before the duck-type check: Array#filter is Enumerable's, not ours
+      return filters.empty? ? variables : scrub(variables, filters) if filters.is_a?(Array)
+
+      filters.nil? ? variables : filters.filter(variables)
+    end
+
     # Internal: run the block, logging "<label> (Nms)" at level — timing
     # skipped entirely when no logger is set. Returns the block's value.
     def log_timed(level, label)
@@ -62,7 +92,33 @@ module GraphWeaver
 
       hook.call(event, payload) { yield }
     end
+
+    private
+
+    def scrub(value, filters)
+      case value
+      when Hash then value.to_h { |k, v| [k, filtered?(k, filters) ? FILTERED : scrub(v, filters)] }
+      when Array then value.map { |v| scrub(v, filters) }
+      else value
+      end
+    end
+
+    def filtered?(key, filters)
+      name = key.to_s
+      filters.any? do |filter|
+        filter.is_a?(Regexp) ? name.match?(filter) : name.downcase.include?(filter.to_s.downcase)
+      end
+    end
   end
+
+  # Rails' spelling, so a scrubbed log reads the same either side of the seam
+  FILTERED = "[FILTERED]"
+
+  # Safe before anyone configures anything; substring matching means these
+  # already cover apiToken, client_secret, password_confirmation…
+  DEFAULT_FILTER_PARAMETERS = %i[password token secret authorization].freeze
+
+  self.filter_parameters = DEFAULT_FILTER_PARAMETERS
 
   # The one instrumentation event: a single GraphQL request, start to
   # parsed response, whichever client slot served it.

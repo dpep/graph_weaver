@@ -33,6 +33,50 @@ describe "GraphWeaver.logger" do
     expect(io.string.scan(tag).size).to eq 3 # request, timing, status
   end
 
+  describe "filtered variables" do
+    # debug gets turned on during an incident, and that is exactly when a
+    # login mutation's variables must not land in the log
+    it "scrubs sensitive values by default, at any depth" do
+      executor.execute(
+        "query { people { name } }",
+        variables: { "password" => "hunter2", "input" => { "apiToken" => "t0k", "name" => "Daniel" } },
+      )
+
+      expect(io.string).not_to include("hunter2")
+      expect(io.string).not_to include("t0k")
+      expect(io.string).to include("[FILTERED]")
+      expect(io.string).to include("Daniel") # everything else still logs
+    end
+
+    it "takes a configured list, matching keys case-insensitively" do
+      GraphWeaver.filter_parameters = [:ssn, /\Acustom/]
+      executor.execute(
+        "query { people { name } }",
+        variables: { "SSN" => "123-45-6789", "customField" => "x", "password" => "hunter2" },
+      )
+
+      expect(io.string).not_to include("123-45-6789")
+      expect(io.string).not_to include("customField\":\"x")
+      expect(io.string).to include("hunter2") # the list replaces the default
+    ensure
+      GraphWeaver.filter_parameters = GraphWeaver::DEFAULT_FILTER_PARAMETERS
+    end
+
+    # a Rails app already declared what is sensitive; ParameterFilter answers
+    # #filter, so the railtie hands one straight in
+    it "delegates to any object that answers #filter" do
+      GraphWeaver.filter_parameters = Class.new do
+        def filter(_variables) = { "everything" => "[GONE]" }
+      end.new
+      executor.execute("query { people { name } }", variables: { "password" => "hunter2" })
+
+      expect(io.string).to include("[GONE]")
+      expect(io.string).not_to include("hunter2")
+    ensure
+      GraphWeaver.filter_parameters = GraphWeaver::DEFAULT_FILTER_PARAMETERS
+    end
+  end
+
   it "truncates long queries at debug (introspection dumps)" do
     executor.execute("query Big { people { #{"name " * 300}} }", variables: {})
 

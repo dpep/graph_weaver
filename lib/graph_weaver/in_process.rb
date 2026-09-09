@@ -61,7 +61,7 @@ class GraphWeaver::InProcess
     tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
 
     GraphWeaver.log(:debug) do
-      "in-process #{@schema} #{tag} variables=#{JSON.generate(variables)}\n" \
+      "in-process #{@schema} #{tag} variables=#{JSON.generate(GraphWeaver.filter_variables(variables))}\n" \
         "#{GraphWeaver::Transport.truncate_for_log(query)}"
     end
 

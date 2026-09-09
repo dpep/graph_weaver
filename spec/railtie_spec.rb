@@ -129,7 +129,10 @@ describe "GraphWeaver::Railtie" do
   end
 
   it "loads generated modules at boot when the directory exists" do
-    expect(RAILTIE_INITIALIZERS.keys).to eq %w[graph_weaver.ignore_generated graph_weaver.logger graph_weaver.load_generated]
+    expect(RAILTIE_INITIALIZERS.keys).to eq %w[
+      graph_weaver.ignore_generated graph_weaver.logger
+      graph_weaver.filter_parameters graph_weaver.load_generated
+    ]
 
     Dir.mktmpdir do |dir|
       GraphWeaver.generated_paths = dir
@@ -190,6 +193,46 @@ describe "GraphWeaver::Railtie" do
     expect { register_generated_load.each(&:call) }.not_to raise_error
   ensure
     GraphWeaver.generated_paths = nil
+  end
+
+  # a Rails app says what is sensitive once, in filter_parameter_logging.rb
+  describe "filter_parameters" do
+    # activesupport isn't a dependency of this gem, so ParameterFilter — which
+    # exists wherever a railtie actually runs — stands in. What's under test is
+    # the wiring: the app's list reaches GraphWeaver as a filter object.
+    before do
+      stub_const("ActiveSupport", Module.new)
+      ActiveSupport.const_set(:ParameterFilter, Class.new do
+        def initialize(filters) = @filters = filters.map { |f| f.to_s.downcase }
+        def filter(hash)
+          hash.to_h { |k, v| [k, @filters.any? { |f| k.to_s.downcase.include?(f) } ? "[FILTERED]" : v] }
+        end
+      end)
+    end
+
+    def boot(filters)
+      app = Object.new
+      app.define_singleton_method(:config) do
+        Struct.new(:filter_parameters).new(filters)
+      end
+      RAILTIE_INITIALIZERS["graph_weaver.filter_parameters"].call(app)
+    end
+
+    after { GraphWeaver.filter_parameters = GraphWeaver::DEFAULT_FILTER_PARAMETERS }
+
+    it "adopts the app's list" do
+      boot([:passw, :ssn])
+
+      expect(GraphWeaver.filter_variables("passwordConfirmation" => "x", "name" => "d"))
+        .to eq("passwordConfirmation" => "[FILTERED]", "name" => "d")
+    end
+
+    it "leaves a list the app set on GraphWeaver itself alone" do
+      GraphWeaver.filter_parameters = [:only_this]
+      boot([:passw])
+
+      expect(GraphWeaver.filter_parameters).to eq [:only_this]
+    end
   end
 
   it "wires Rails.logger unless the app already chose one" do
