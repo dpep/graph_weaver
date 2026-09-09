@@ -48,6 +48,35 @@ reference the class. `requires:` (a string or array) names files emitted as
 a real class (so the runtime is loaded), each path is also `require`d at
 registration — a typo fails now, not in the generated file.
 
+Pass `fake:` to say what the testing harness should fabricate for this scalar —
+the **wire** value, before your `cast:` runs. Only the registration can know
+one: `Money.parse` accepts what its author decided it accepts.
+
+```ruby
+GraphWeaver.register_scalar("Money", Money, fake: "12.00")
+GraphWeaver.register_scalar("Money", Money, fake: ->(rng) { format("%.2f", rng.rand(1.0..100.0)) })
+```
+
+A proc is handed the seeded `Random`, so `rspec --seed` still reproduces the
+run. Needed only when `type:` is a class the harness can't write for — a scalar
+registered as `Time`, `Date`, `Integer`, `Float`, `String` or `T::Boolean` needs
+nothing, and neither do the built-ins. Without one, [`FakeClient`](testing.md)
+and cassette anonymization refuse at fabrication time rather than handing your
+cast a placeholder.
+
+A registration whose `type:` is a class **JSON can't parse into** needs a
+`cast:` to build one — `BigDecimal` is the one people reach for, and it defines
+neither `.parse` nor `.load`, so inference finds no codec and the prop would be
+unsatisfiable. Generation refuses it where a query reads that scalar back,
+naming the field:
+
+```
+register_scalar("Money", BigDecimal) has no cast, so nothing builds a BigDecimal
+out of the JSON at Product.price — give it one ...
+```
+
+A registration used only for a variable is untouched: nothing casts it.
+
 Pass `coerce: true` to let a variable of this scalar accept **either** the value
 object **or** its raw input, normalizing the latter before it goes on the wire:
 
@@ -71,9 +100,62 @@ on one raises rather than emitting a no-op.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
-`register_scalar` overrides them. On the way back, `Float` accepts the whole
-number JSON encoders write for it (`1` for `1.0`) — JSON has one number type,
-so that isn't the server being loose.
+`register_scalar` overrides them.
+
+## What the wire carries
+
+The rule is one sentence: **generated code takes every JSON spelling a
+spec-compliant server may write, and refuses the rest.** The table is the whole
+of it — [`bin/round-trip`](../bin/round-trip) draws from the same lists, in both
+modes, so the two can't drift.
+
+The one place "spec-compliant" is doing real work is `Float`. JSON has a single
+number type and encoders write the shortest form, so `1.0` reaches Ruby as `1`
+from graphql-js and from Go. Nothing does the reverse: `2.0` for an `Int` is the
+server writing a non-integer where the spec says integer, so it is refused.
+
+### Coming back — what `from_h` accepts
+
+| scalar | accepted | refused |
+|---|---|---|
+| `Int` | any JSON integer, including past 2³¹ and 2⁵³ (lossless in Ruby) | `2.0`, `1.5`, `"1"`, `true` |
+| `Float` | any JSON number, `3` and `-0.0` and `1e308` included; also a numeric string | a non-numeric string, `true`, a list/object |
+| `String` | any JSON string — empty, unicode, newlines, control characters | a number, `true`, a list/object |
+| `ID` | any JSON string | a number or `true` — **refused with a hint**: the server didn't quote it |
+| `Boolean` | `true`, `false` | `"true"`, `1`, `0` |
+| `Date` | ISO-8601: `"2024-01-01"`, `"20240101"`, and a full timestamp (truncated) | any other spelling, an epoch integer |
+| `DateTime`/`Time` (registered as `Time`) | RFC 3339 with `Z` or an offset, with or without fractional seconds, seconds optional; also a bare date and `Time.parse`'s looser forms | an epoch integer, an unparseable string |
+| an enum | a declared value, as a string | an undeclared value, a non-string |
+| unregistered | anything — `T.untyped`, straight through | nothing |
+
+A refusal is a [`GraphWeaver::TypeError`](errors.md) naming the field and the
+generated struct (which names the query). Two refusals carry advice rather than
+only sorbet's words: an unquoted `ID`, and a registration with no cast (above).
+
+`Float`'s tolerance of numeric strings is `Kernel#Float`'s, which also takes
+Ruby literal syntax — `"0x1f"` reads as `31.0`. No server writes that, but it is
+the one place the table is wider than the spec.
+
+### Going out — what a variable kwarg accepts
+
+Strict by default; the right column is what `coerce: true` — or
+`GraphWeaver.auto_coerce` — adds.
+
+| scalar | kwarg takes | on the wire | with coercion |
+|---|---|---|---|
+| `Int` | `Integer` | the integer | `Integer\|Float\|String`, via `.to_i` |
+| `Float` | `Float` | the float | `Float\|Integer\|String`, via `.to_f` |
+| `String`, `ID` | `String` | the string | nothing to add — `coerce: true` raises |
+| `Boolean` | `true`/`false` | the boolean | nothing to add — `coerce: true` raises |
+| `Date` | `Date` | `iso8601` | `Date\|String`, parsed with `Date.iso8601` |
+| `Time` | `Time` | `iso8601` | `Time\|String`, parsed with `Time.parse` |
+| an enum | the member **or** its wire value | the wire value | always on |
+| an input object | the struct **or** a Hash | the wire hash | always on |
+
+A wrong-typed kwarg is caught by `srb tc` at the call site; at runtime it is
+sorbet's own `TypeError`, not a `GraphWeaver::InputError` — that one covers the
+input shapes sorbet can't see (an unknown key, a missing required field, an
+out-of-range enum).
 
 `GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
 scalars restored, enum mappings and type helpers dropped. To reset one registry
