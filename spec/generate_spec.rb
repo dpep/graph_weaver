@@ -398,6 +398,27 @@ describe "GraphWeaver.verify_generated!" do
     end
   end
 
+  # a rake task beside a watching dev server writes the same file, and the
+  # server requires it next: a truncating write can hand it a prefix
+  it "leaves a regenerated file whole until the new one replaces it" do
+    Dir.mktmpdir do |dir|
+      queries = File.join(root, "spec/queries")
+      GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir, client: Demo::Schema)
+      before = Dir[File.join(dir, "**/*.rb")].to_h { |path| [path, File.read(path)] }
+
+      # what a concurrent reader would see at the last possible moment
+      seen = {}
+      allow(File).to receive(:rename).and_wrap_original do |original, tmp, target|
+        seen[target] = File.read(target)
+        original.call(tmp, target)
+      end
+      GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir, client: Demo::Schema)
+
+      expect(seen.keys).to match_array before.keys
+      expect(seen).to eq before
+    end
+  end
+
   it "flags a generated file the queries no longer produce" do
     Dir.mktmpdir do |dir|
       FileUtils.cp_r(File.join(root, "spec/generated/."), dir)

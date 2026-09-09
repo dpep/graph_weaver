@@ -251,7 +251,10 @@ module GraphWeaver
       written = plan.map do |filename, source|
         target = File.join(output, filename)
         FileUtils.mkdir_p(File.dirname(target))
-        File.write(target, source)
+        # a rake task beside a watching dev server writes the same file: a
+        # truncating write can leave a prefix that no longer parses, and it is
+        # the running app that requires it next
+        atomic_write(target, source)
         log(:info) { "generated #{target}" }
         target
       end
