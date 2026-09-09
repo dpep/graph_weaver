@@ -15,24 +15,121 @@ changed, and whether it needs a regenerate, is in the changelog.
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
 
-## Upgrading to 0.6.0
+## Upgrading from 0.5.1
 
-### The retry options are flat
+Much smaller than 0.5.0, and mostly mechanical. Three commands find most of it:
 
-`retries:` is how many attempts follow the first; the other retry options sit
-beside it, on the client and on `Retry` alike. The Hash form is gone — it read
-as a key nested in itself — and three options are spelled out now that they sit
-next to a count:
+```sh
+rake graph_weaver:generate   # 1. what codegen emits moved in several places
+srb tc                       # 2. kwargs that got narrower are call-site errors
+bundle exec rspec            # 3. every deleted knob raises where it's still set
+```
+
+The rest of this section is what those three don't catch.
+
+### Loose input coerces, so `coerce:` and `auto_coerce` are gone
+
+`execute(first: params[:first])` converts the String to an `Integer` — for every
+variable and every input-object field, with nothing to switch on. The old way of
+buying that was `GraphWeaver.auto_coerce` or `register_scalar(…, coerce: true)`,
+and both paid for it by **widening the emitted kwarg**, which switched off the
+static check at every call site. Delete them:
+
+```ruby
+GraphWeaver.auto_coerce = true                             # gone
+GraphWeaver.register_scalar("Money", Money, coerce: true)  # drop the coerce:
+```
+
+Behavior is unchanged; the kwarg is not. It is now typed exactly as the schema
+types it, so a call site passing a **literal** of the wrong type is a new
+`srb tc` error — which is the point, since a literal is one you can just spell
+right:
+
+```ruby
+StargazersQuery.execute(first: "10")            # srb tc error now
+StargazersQuery.execute(first: params[:first])  # fine, and "10" becomes 10
+```
+
+`cast:` is what a loose value converts through, so a custom scalar needs nothing
+beyond the registration it already has. Bad input raises
+`GraphWeaver::InputError` naming the variable, the operation and the value.
+
+Two conversions got **stricter** at the same time, and either can bite an app
+that was passing. A numeric string is now read as a wire format rather than as
+Ruby source, so `"010"` is ten rather than eight and `"0x1f"` and `"1_0"` are
+refused. And a `Boolean` refuses a String outright — every rule for `"0"` and
+`"off"` is somebody's convention, so convert at the call site.
+
+### `nil` sends `null`
+
+A variable passed `nil` now sends an explicit `null`; one left out is still left
+out. That's what lets a mutation clear a field — and it changes what a kwarg fed
+a possibly-missing value means:
+
+```ruby
+UpdateProfile.execute!(bio: params[:bio])   # a missing param used to omit; now it clears the bio
+```
+
+**Grep for kwargs fed straight from `params` or an optional attribute**, and
+pass the keyword only when you mean it:
+
+```ruby
+UpdateProfile.execute!(**(params[:bio] ? { bio: params[:bio] } : {}))
+```
+
+Non-null variables are unaffected: they can't carry `null`, so `nil` there still
+omits and the schema default applies. Input objects get the distinction only
+where a Hash can express it — `coerce({nickname: nil})` sends null, `coerce({})`
+omits, and a struct built with `.new` can't tell the two apart, so `nil` there
+still means omit.
+
+### Renames
 
 | before | after |
 |---|---|
-| `GraphWeaver.new(url, retries: { retries: 5, retry_codes: […] })` | `GraphWeaver.new(url, retries: 5, retry_codes: […])` |
+| `Retry.new(tries: n)`, `retries: { tries: n }` | `retries: n - 1` — one word everywhere, counting the attempts *after* the first, so `retries: 0` is one attempt and `GraphWeaver.new(url, retries: 3)` is four |
+| `GraphWeaver.new(url, retries: { retries: 5, retry_codes: […] })` | `GraphWeaver.new(url, retries: 5, retry_codes: […])` — the other retry options sit beside the count; the Hash form read as a key nested in itself |
 | `Retry.new(t, on: […])` | `Retry.new(t, retry_on: […])` |
-| `Retry.new(t, base: 0.5, max: 30)` | `Retry.new(t, base_delay: 0.5, max_delay: 30)` |
+| `Retry.new(t, base: 0.5, max: 30)` | `Retry.new(t, base_delay: 0.5, max_delay: 30)` — beside a count, `max: 30` read as a second, larger attempt count |
+| `Testing.config.null_chance = 0.3` | `graphql_fake(null_chance: 0.3)`, on the example that wants it |
+| `Testing.config.mode = :literal` | `graphql_fake(values: :literal)`, likewise |
+| `Testing::MODES` | `Testing::VALUE_STYLES` |
+| `SchemaLoader.stale?(path)` | `SchemaLoader.diff(path).empty?` — and `diff` also names what moved |
 
-`retries: 5, max: 30` invited reading `max:` as a second, larger attempt count.
-Every one of these raises rather than being ignored: the Hash names its flat
-replacement, and a retry option passed without `retries:` says so.
+The two `Testing.config` deletions are the ones worth a sentence. A suite-wide
+`null_chance` answers a per-example question, so it nils an unrelated field one
+run in ten, on a seed the failure doesn't name; move it onto the examples that
+are *about* an empty state. (`config.default_mode` and the `graphql: :fake` tag
+are untouched — the per-fake `mode:` became `values:` so the two can't be
+confused for each other.) Every retry misspelling raises rather than being
+ignored: the Hash form names its flat replacement, and a retry option passed
+without `retries:` says so.
+
+### Behavior that changed under you
+
+- **A mutation is no longer retried.** A timeout doesn't say whether the server
+  applied it, and a second `charge` is worse than a failed one. Pass
+  `retry_mutations: true` for an API whose mutations are idempotent.
+- **A registration this schema can't match warns instead of failing
+  generation.** One registry serves a whole federated graph, so a name the
+  schema in hand doesn't declare may belong to the subgraph next door — see
+  [federation](federation.md#generating-for-a-federated-graph). Your typo is now
+  in the list `rake graph_weaver:generate` prints after the files, so read it.
+- **`verify_generated!` fails when it finds no query documents.** A mistyped
+  `queries_paths` used to leave a CI gate green forever.
+- **Fabricating a custom scalar needs a `fake:`** when you registered it as a
+  class of your own — `register_scalar("Money", Money, cast: :parse, fake:
+  "12.00")`. Without one, `FakeClient` and cassette anonymization refuse rather
+  than feeding your cast a `"Money-1"` placeholder. Scalars registered as
+  `Time`, `Date`, `Integer`, `Float`, `String` or `T::Boolean` need nothing.
+- **Re-run `rake graph_weaver:cassettes:anonymize`** on any committed cassette
+  holding a registered custom scalar: the anonymizer used to write a value the
+  generated codec couldn't read back.
+- **Generation refuses four more things**, each naming its fix — a
+  `register_scalar` whose Ruby type nothing can build out of JSON (`BigDecimal`,
+  classically: give it a `cast:`), a result key that would shadow a constant the
+  file uses, an enum value that camelizes to nothing, and a narrowed fragment
+  whose `__typename` sits behind `@skip`/`@include`.
 
 ## Upgrading to 0.5.0
 
@@ -148,7 +245,6 @@ carries it — `SearchQuery::Result::Search::Species` is `GraphQLTypes::Species`
 | before | after |
 |---|---|
 | `Testing.config.auto_fake = true` | `Testing.config.default_mode = :fake` |
-| `register_scalar(…, coerce:)`, `GraphWeaver.auto_coerce` | gone — variables always coerce; `cast:` is how |
 | a mutation's `…Query` module | `…Mutation` |
 | `graphql: :none` (rspec tag) | `graphql: false` |
 
