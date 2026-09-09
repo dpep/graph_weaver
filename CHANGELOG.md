@@ -1,4 +1,16 @@
 ## Unreleased
+- **A `.graphql` edit reaches the next request in development.** The query
+  directories and the schema dump join Rails' own reloaders, and the
+  `to_prepare` that loads the generated modules now regenerates first — after
+  your registrations, so an `extend_type` in a `to_prepare` is in place before
+  codegen reads it. A query that doesn't compile is logged at `error` with its
+  file and position while the modules already loaded keep serving. Development
+  only, while the server is running; `config.graph_weaver.watch = false` turns
+  it off, and `rake graph_weaver:verify` still gates CI on the committed files.
+  `GraphWeaver.reload_generated!` does the same by hand after regenerating in
+  another terminal, and generated files are now written to a temp file and
+  renamed, so a `rake graph_weaver:generate` beside a watching dev server can't
+  hand the running app a prefix that no longer parses.
 - **A variable passed `nil` now sends `null`; one left out is still left
   out.** GraphQL tells an absent variable from an explicit null — `bio: null`
   clears a bio, omitting it does nothing — and a Ruby kwarg with a nil default
