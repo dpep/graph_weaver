@@ -191,6 +191,15 @@ name; the full set of naming rules is in
 `.graphql` files as you type, with schema autocomplete and hover docs — see
 [editors](editors.md).
 
+**In development you don't type that command again.** While the server is
+running, a `.graphql` edit — or a refreshed schema dump — regenerates before
+the next request, the way a route or a locale change takes effect. A query that
+doesn't compile is logged with its file and position while the modules already
+loaded keep serving, so a file saved mid-edit doesn't take the server down.
+Development only, and `config.graph_weaver.watch = false` turns it off. The
+generated files are still what ships: commit them, and keep `rake
+graph_weaver:verify` in CI.
+
 ### Shared fragments
 
 Define reusable fragments once and spread them from any query:
