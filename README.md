@@ -57,7 +57,13 @@ rails g graph_weaver:install https://api.example.com/graphql
 
 which writes the initializer, the `app/graphql` layout, the editor config and the
 schema dump. **[Getting started](docs/getting_started.md)** walks the production
-setup end to end. Or skip the build step and poke at an API from a console —
+setup end to end.
+
+You then rarely type `rake graph_weaver:generate` again: while the dev server is
+up, a `.graphql` edit regenerates and reloads before the next request, the way a
+route change does. Run it when you're ready to commit the Ruby.
+
+Or skip the build step and poke at an API from a console —
 anything holding a schema parses, and the module runs on what parsed it:
 
 ```ruby
