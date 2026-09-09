@@ -141,9 +141,9 @@ See [federation](docs/federation.md).
 ## The schema keeps itself honest
 
 The lifecycle is rake tasks, not a CI pipeline you assemble yourself:
-`schema:refresh` re-introspects the committed dump, `schema:diff` fails when the
-server has drifted, `queries:check` names the queries that drift broke and where,
-and `verify` fails when the checked-in Ruby is stale. Generation is deterministic
+`schema:refresh` re-introspects the committed dump, `schema:diff` names what
+changed when the server has drifted, `queries:check` names the queries that
+drift broke and where, and `verify` fails when the checked-in Ruby is stale. Generation is deterministic
 — same schema and queries, byte-identical files — so regenerating never shows a
 diff you didn't earn. See [getting started](docs/getting_started.md#5-verify-in-ci).
 

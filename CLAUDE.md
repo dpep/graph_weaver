@@ -107,6 +107,9 @@ load bundler:
 source ~/.rvm/scripts/rvm && rvm use 3.4.9
 ```
 
+Where `source` isn't allowed (a sandboxed agent shell), the wrapper needs no
+shell setup: `~/.rvm/wrappers/ruby-3.4.9/bundle exec ...`.
+
 Then:
 
 ```sh
