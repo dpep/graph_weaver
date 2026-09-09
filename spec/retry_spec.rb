@@ -59,10 +59,10 @@ describe GraphWeaver::Retry do
     expect(slept.size).to eq 2 # slept between attempts, not after the last
   end
 
-  it "backs off exponentially by default, clamped at max" do
+  it "backs off exponentially by default, clamped at max_delay" do
     executor = described_class.new(
       failure.transport,
-      retries: 4, base: 1, max: 5, jitter: false, sleeper:,
+      retries: 4, base_delay: 1, max_delay: 5, jitter: false, sleeper:,
     )
 
     expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
@@ -70,7 +70,7 @@ describe GraphWeaver::Retry do
   end
 
   it "supports linear and custom backoff" do
-    linear = described_class.new(failure.transport, retries: 2, base: 2, backoff: :linear, jitter: false, sleeper:)
+    linear = described_class.new(failure.transport, retries: 2, base_delay: 2, backoff: :linear, jitter: false, sleeper:)
     expect { linear.execute("q", variables: {}) }.to raise_error(GraphWeaver::TransportError)
     expect(slept).to eq [2.0, 4.0]
 
@@ -81,7 +81,7 @@ describe GraphWeaver::Retry do
   end
 
   it "jitter randomizes within 50-100% of the delay" do
-    executor = described_class.new(failure.transport, retries: 1, base: 10, sleeper:)
+    executor = described_class.new(failure.transport, retries: 1, base_delay: 10, sleeper:)
 
     expect { executor.execute("q", variables: {}) }.to raise_error(GraphWeaver::TransportError)
     expect(slept.first).to be_between(5.0, 10.0)
@@ -124,27 +124,27 @@ describe GraphWeaver::Retry do
 
   it "waits as long as Retry-After says, in preference to its own backoff" do
     executor = described_class.new(
-      sequence(throttling("2"), fake), retries: 1, base: 30, jitter: false, sleeper:,
+      sequence(throttling("2"), fake), retries: 1, base_delay: 30, jitter: false, sleeper:,
     )
 
     expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
     expect(slept).to eq [2.0] # the server's number, not the 30s backoff
   end
 
-  it "reads an HTTP-date Retry-After, and clamps a long one to max:" do
+  it "reads an HTTP-date Retry-After, and clamps a long one to max_delay:" do
     at = described_class.new(throttling((Time.now + 5).httpdate), retries: 1, sleeper:)
     expect { PersonQuery.execute(client: at, id: "1") }.to raise_error(GraphWeaver::ServerError)
     expect(slept.first).to be_within(1).of(5)
 
     slept.clear
-    hour = described_class.new(throttling("3600"), retries: 1, max: 30, sleeper:)
+    hour = described_class.new(throttling("3600"), retries: 1, max_delay: 30, sleeper:)
     expect { PersonQuery.execute(client: hour, id: "1") }.to raise_error(GraphWeaver::ServerError)
     expect(slept).to eq [30.0]
   end
 
   it "falls back to its backoff when the server sends no Retry-After" do
     executor = described_class.new(
-      sequence(throttling(nil), fake), retries: 1, base: 3, jitter: false, sleeper:,
+      sequence(throttling(nil), fake), retries: 1, base_delay: 3, jitter: false, sleeper:,
     )
 
     expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
@@ -199,7 +199,7 @@ describe GraphWeaver::Retry do
   it "honors a custom retry_if and error list" do
     only_transport = described_class.new(
       sequence(failure.server(status: 503), fake),
-      retries: 2, on: [GraphWeaver::TransportError], sleeper:,
+      retries: 2, retry_on: [GraphWeaver::TransportError], sleeper:,
     )
 
     expect {
@@ -229,5 +229,15 @@ describe GraphWeaver::Retry do
 
     expect(described_class::RETRIABLE_CLIENT_STATUSES.reject { |s| docs.include?(s.to_s) }).to be_empty
     expect(described_class::BACKOFFS.keys.reject { |name| docs.include?(":#{name}") }).to be_empty
+  end
+
+  # The client lists these one by one rather than sweeping up a Hash, so
+  # an option added here is silently unreachable until it is added there.
+  it "has every option spelled the same on the client" do
+    keywords = ->(klass) {
+      klass.instance_method(:initialize).parameters.filter_map { |kind, name| name if kind == :key }
+    }
+
+    expect(keywords[described_class] - keywords[GraphWeaver::Client]).to be_empty
   end
 end

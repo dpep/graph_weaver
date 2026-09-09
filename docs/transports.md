@@ -45,8 +45,9 @@ contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
   scheme (`"Basic dXNlcjpwYXNz..."`)
 - `transport:` — `:http` (the default) or `:faraday`
 - `headers:` — anything else (API keys, custom headers)
-- `retries:` — off by default; a count (`retries: 3`), `true` for a
-  `Retry` with defaults, or a Hash of its options
+- `retries:` — off by default; a count (`retries: 3`), or `true` for the
+  default count. Every other [`Retry`](#retries) option sits beside it
+  (`backoff:`, `retry_codes:`, ...)
 - `open_timeout:` / `read_timeout:` — seconds, defaulting to 10 and 30 on
   either transport
 - `cache:` / `ttl:` — schema introspection caching (see
@@ -183,21 +184,25 @@ Nothing set anywhere raises, naming the two you'd usually reach for:
 
 ## Retries
 
-`Retry` wraps any client/transport:
+A url client retries when you give it a count; the rest of the options
+sit beside it:
 
 ```ruby
-GraphWeaver::Retry.new(
-  inner_transport,
+GraphWeaver.new(
+  url,
   retries: 5,                      # attempts after the first
   backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
-  base: 0.5, max: 30,              # seconds; delays clamp at max:
+  base_delay: 0.5, max_delay: 30,  # seconds; delays clamp at max_delay:
   jitter: true,                    # randomize each delay by 50-100%
-  on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
-  retry_if: ->(error) { ... },     # fine-grain within on:
+  retry_on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
+  retry_if: ->(error) { ... },     # fine-grain within retry_on:
   retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
   retry_mutations: false,          # true if your mutations are idempotent
 )
 ```
+
+`GraphWeaver::Retry.new(inner_transport, ...)` takes the same options and
+wraps any client/transport directly — the client just passes them along.
 
 Defaults: transport failures always retry; `ServerError` on 5xx plus
 **408 and 429** — the rest of 4xx is a bug in the request, retrying
@@ -206,10 +211,10 @@ GraphQL-level throttling can retry too (off by default — pass the codes
 your API uses). Exhausting the retries re-raises the last error (or
 returns the last code-matched response).
 
-`retries:` counts the attempts *after* the first — the same word and the
-same meaning wherever it appears, so `GraphWeaver.new(url, retries: 3)`
-makes up to four attempts and `retries: 0` never retries. It defaults
-to 2.
+`retries:` is how many attempts follow the first; the other retry options
+sit beside it. So `GraphWeaver.new(url, retries: 3)` makes up to four
+attempts, `retries: 0` never retries, and a retry option without a count
+raises rather than quietly doing nothing. It defaults to 2.
 
 **A mutation gets one attempt.** A failure with no answer — a read
 timeout, a 502, a reset socket — does not say whether the server applied
@@ -219,7 +224,7 @@ retry says so on the logger.
 
 **`Retry-After` wins over the backoff.** When the server names a delay
 (seconds or an HTTP-date), that's the wait — the server is the only
-party that knows when its window reopens. It's clamped to `max:` so a
+party that knows when its window reopens. It's clamped to `max_delay:` so a
 "come back in an hour" can't park a thread for an hour, and not
 jittered, since it's an instruction rather than a guess.
 
@@ -234,8 +239,6 @@ rescue GraphWeaver::ServerError => e
   e.headers["x-ratelimit-remaining"]
 end
 ```
-
-Or via the client: `GraphWeaver.new(url, retries: { retries: 5, retry_codes: ["THROTTLED"] })`.
 
 What classifies as a transport failure is an extensible set — see
 [errors](errors.md#extending-transporterror) (`GraphWeaver.register_transport_error`).

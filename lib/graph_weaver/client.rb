@@ -39,19 +39,29 @@ class GraphWeaver::Client
   # refused from two branches — a url source, and a schema source with
   # nothing to hand a context to — so the two can't word it differently
   CONTEXT_IN_PROCESS = "context: applies to a schema class executing in-process"
-  private_constant :CONTEXT_IN_PROCESS
 
-  def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
-    open_timeout: nil, read_timeout: nil, context: nil, &middleware)
+  # the whole rule, said wherever a retry option is refused
+  RETRY_RULE = "retries: is how many attempts follow the first; the other retry options sit beside it"
+  private_constant :CONTEXT_IN_PROCESS, :RETRY_RULE
+
+  def initialize(source, auth: nil, headers: {}, transport: nil, cache: nil, ttl: nil,
+    open_timeout: nil, read_timeout: nil, context: nil,
+    retries: false, backoff: nil, base_delay: nil, max_delay: nil, jitter: nil, retry_on: nil,
+    retry_if: nil, retry_codes: nil, retry_mutations: nil, sleeper: nil, &middleware)
     check_source!(source)
+
+    # Retry's options, spelled the same and passed straight through; nil
+    # is "not given", so their defaults stay in Retry alone
+    retry_options = { backoff:, base_delay:, max_delay:, jitter:, retry_on:, retry_if:,
+                      retry_codes:, retry_mutations:, sleeper: }.compact
 
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, CONTEXT_IN_PROCESS if context
 
       built = build_transport(source, auth:, headers:, kind: transport, open_timeout:, read_timeout:, &middleware)
-      @transport = wrap_retries(built, retries)
+      @transport = wrap_retries(built, retries, retry_options)
     else
-      if auth || middleware || retries || open_timeout || read_timeout
+      if auth || middleware || retries || open_timeout || read_timeout || !retry_options.empty?
         raise ArgumentError, "auth:/retries:/timeouts/middleware apply to a url — got a schema source"
       end
       if transport.is_a?(Symbol)
@@ -211,17 +221,23 @@ class GraphWeaver::Client
     GraphWeaver::Transport::Faraday.new(url, headers:, **timeouts, &middleware)
   end
 
-  # retries: is off by default — a count, true for Retry defaults, or a
-  # Hash of its options
-  def wrap_retries(transport, retries)
+  # retries: is off by default — a count, or true for Retry's default
+  # count. Without it nothing wraps the transport, so a retry option on
+  # its own would quietly do nothing.
+  def wrap_retries(transport, retries, options)
     case retries
-    when Integer then GraphWeaver::Retry.new(transport, retries:)
-    when true then GraphWeaver::Retry.new(transport)
-    when false, nil then transport
-    when Hash then GraphWeaver::Retry.new(transport, **retries)
+    when Integer then GraphWeaver::Retry.new(transport, retries:, **options)
+    when true then GraphWeaver::Retry.new(transport, **options)
+    when false, nil
+      raise ArgumentError, "#{options.keys.first}: needs retries: — #{RETRY_RULE}" if options.any?
+
+      transport
+    when Hash
+      # it used to take a Hash of Retry options, which read as a key nested in itself
+      flat = retries.map { |key, value| "#{key}: #{value.inspect}" }.join(", ")
+      raise ArgumentError, "retries: no longer takes a Hash — pass GraphWeaver.new(url, #{flat})"
     else
-      raise ArgumentError,
-        "retries: takes a count, true, or a Hash of Retry options — got #{retries.inspect}"
+      raise ArgumentError, "#{RETRY_RULE} — got #{retries.inspect}"
     end
   end
 end

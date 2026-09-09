@@ -15,6 +15,25 @@ changed, and whether it needs a regenerate, is in the changelog.
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
 
+## Upgrading to 0.6.0
+
+### The retry options are flat
+
+`retries:` is how many attempts follow the first; the other retry options sit
+beside it, on the client and on `Retry` alike. The Hash form is gone — it read
+as a key nested in itself — and three options are spelled out now that they sit
+next to a count:
+
+| before | after |
+|---|---|
+| `GraphWeaver.new(url, retries: { retries: 5, retry_codes: […] })` | `GraphWeaver.new(url, retries: 5, retry_codes: […])` |
+| `Retry.new(t, on: […])` | `Retry.new(t, retry_on: […])` |
+| `Retry.new(t, base: 0.5, max: 30)` | `Retry.new(t, base_delay: 0.5, max_delay: 30)` |
+
+`retries: 5, max: 30` invited reading `max:` as a second, larger attempt count.
+Every one of these raises rather than being ignored: the Hash names its flat
+replacement, and a retry option passed without `retries:` says so.
+
 ## Upgrading to 0.5.0
 
 0.5.0 is one large breaking release. Almost all of it is caught mechanically,

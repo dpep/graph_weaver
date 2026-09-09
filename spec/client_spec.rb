@@ -36,23 +36,37 @@ describe GraphWeaver::Client do
       end
     end
 
-    # the natural spelling, and the one that used to be refused
-    it "takes a retry count" do
+    it "takes a retry count, and the rest of the retry options beside it" do
       slept = []
       client = GraphWeaver.new(
         "http://127.0.0.1:1/graphql", # nothing listens: every attempt refuses
-        retries: { retries: 3, sleeper: ->(s) { slept << s } },
+        retries: 3, backoff: :linear, base_delay: 2, jitter: false,
+        sleeper: ->(s) { slept << s },
       )
 
       expect { client.run!("query { person(id: 1) { id } }") }.to raise_error(GraphWeaver::TransportError)
-      expect(slept.size).to eq 3 # 3 retries after the first attempt
+      expect(slept).to eq [2, 4, 6] # 3 retries after the first attempt, linear
 
       expect(GraphWeaver.new(url, retries: 2).transport).to be_a GraphWeaver::Retry
     end
 
-    it "refuses a retries: that is neither a count, true, nor a Hash" do
+    it "refuses a retries: that is neither a count nor true/false" do
       expect { GraphWeaver.new(url, retries: "3") }
-        .to raise_error(ArgumentError, /retries: takes a count/)
+        .to raise_error(ArgumentError, /retries: is how many attempts follow the first/)
+    end
+
+    # it used to be a Hash of Retry options, which read as a key nested in itself
+    it "refuses the retries: Hash, naming the flat spelling" do
+      expect { GraphWeaver.new(url, retries: { retries: 3, retry_codes: ["THROTTLED"] }) }
+        .to raise_error(ArgumentError, /retries: 3, retry_codes:/)
+    end
+
+    # without a count nothing wraps the transport, so the option would do nothing
+    it "refuses a retry option given without retries:" do
+      expect { GraphWeaver.new(url, backoff: :linear) }
+        .to raise_error(ArgumentError, /backoff: needs retries:/)
+      expect { GraphWeaver.new(url, retries: false, retry_codes: ["THROTTLED"]) }
+        .to raise_error(ArgumentError, /retry_codes: needs retries:/)
     end
 
     it "stays on the built-in transport even when faraday is loaded" do
@@ -177,6 +191,8 @@ describe GraphWeaver::Client do
     it "accepts retries: nil (off), like a url client" do
       expect { GraphWeaver.new(Demo::Schema, retries: nil) }.not_to raise_error
       expect { GraphWeaver.new(Demo::Schema, retries: true) }.to raise_error(ArgumentError, /url/)
+      expect { GraphWeaver.new(Demo::Schema, retries: 2, backoff: :linear) }
+        .to raise_error(ArgumentError, /url/)
     end
 
     it "is self-contained: the app default never leaks into an explicit client" do
