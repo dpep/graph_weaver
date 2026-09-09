@@ -86,17 +86,22 @@ with its `Authorization` header, at a host the server named isn't the
 library's call. A 401 or 403 appends "check `auth:` — the token, and its
 scopes".
 
-**Top-level scalar variables** fail like any Ruby method call, *outside* the
-hierarchy on purpose — passing the wrong Ruby type for a scalar kwarg is a
-programming bug, not caller input: a wrong-typed one raises sorbet-runtime's
-`TypeError` ("Parameter 'page': Expected type T.nilable(Integer), got type
-String"), a missing required one a plain `ArgumentError` ("missing keyword: :id").
+**Everything you pass to `execute` is caller input**, so a value that won't
+convert raises `GraphWeaver::InputError` — top-level scalar variables included.
+They name the variable and the operation, since the value alone locates nothing
+in an app that runs a hundred queries:
 
-**What's inside an input object** is the caller-input case, so that's *inside*
-the hierarchy. Pass one as a hash (or struct) and it's built through the
-generated `coerce`, and anything wrong in there raises
-`GraphWeaver::InputError` — one rescue point for turning invalid input into a
-422:
+```
+$count of Compute: expected an Int, got "lots"
+```
+
+A *missing* required kwarg is still a plain `ArgumentError` ("missing keyword:
+:id") — that's Ruby's, and it is a programming bug rather than bad input.
+
+**What's inside an input object** reports the same way. Pass one as a hash (or
+struct) and it's built through the generated `coerce`, and anything wrong in
+there raises `GraphWeaver::InputError` too — so one rescue point turns invalid
+input into a 422:
 
 ```ruby
 rescue GraphWeaver::InputError => e
@@ -108,10 +113,11 @@ end
 ```
 
 A nested filter reports the innermost input type, so the error points at the
-input that actually held the bad field. Passing something that is neither —
-a bare `String` where the input goes — is the scalar case again: the generated
-sig rejects it as sorbet's `TypeError`, which is what gives the call site its
-static check.
+input that actually held the bad field. Passing something that is neither — a
+bare `String` where the input goes — reports the same way. A call site that
+*spells* the wrong type is caught earlier and better, by `srb tc`: the sig is
+as narrow as the schema, and only untyped values reach the runtime check
+([why](generated_modules.md#variables-become-typed-kwargs)).
 
 Business/validation failures returned *as data* (Shopify-style `userErrors { field
 message code }`) aren't errors here — they're just fields you selected, so they

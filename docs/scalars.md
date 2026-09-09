@@ -77,26 +77,21 @@ out of the JSON at Product.price — give it one ...
 
 A registration used only for a variable is untouched: nothing casts it.
 
-Pass `coerce: true` to let a variable of this scalar accept **either** the value
-object **or** its raw input, normalizing the latter before it goes on the wire:
+`cast:` is also what a *variable* of this scalar coerces through, so the same
+registration gets you both directions with nothing to switch on:
 
 ```ruby
-GraphWeaver.register_scalar("Money", Money, coerce: true)
-# generated execute now takes T.any(Money, String); "12.00" is parsed
+GraphWeaver.register_scalar("Money", Money)
 StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the hood
-StoreQuery.execute(budget: Money.new(1200))  # passed straight through
+StoreQuery.execute(budget: Money.new(1200))  # already a Money — passed straight through
 ```
 
-`GraphWeaver.auto_coerce = true` is the same switch for every scalar at once —
-set it any time before you generate; an explicit `coerce:` on a registration
-always wins. Off by default either way: the strict typed kwarg is the norm.
-
-*How* a scalar coerces isn't yours to pick — the scalar already knows. `Int` and
-`Float` convert (`"5"` → `5`, sent as a native number); anything with a full
-cast/serialize pair (`Date`, your `Money`) parses, and bad input still explodes
-because the cast raises. A pass-through scalar — `String`, `ID`, `Boolean` — has
-neither a conversion nor a codec pair, so it can't coerce at all: `coerce: true`
-on one raises rather than emitting a no-op.
+The kwarg is still typed `Money`, not `T.any(Money, String)`: `execute`'s sig
+stays as narrow as the schema and the conversion happens in its body (see
+[typed variables](generated_modules.md#variables-become-typed-kwargs)). So
+`budget: "12.00"` written literally in a `# typed:` file is still an `srb tc`
+error — as it should be, since you have a `Money` right there — while
+`budget: params[:budget]` typechecks and converts.
 
 The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
 same path (`Date` even carries its own `require "date"`), so a later
@@ -119,7 +114,7 @@ server writing a non-integer where the spec says integer, so it is refused.
 | scalar | accepted | refused |
 |---|---|---|
 | `Int` | any JSON integer, including past 2³¹ and 2⁵³ (lossless in Ruby) | `2.0`, `1.5`, `"1"`, `true` |
-| `Float` | any JSON number, `3` and `-0.0` and `1e308` included; also a numeric string | a non-numeric string, `true`, a list/object |
+| `Float` | any JSON number, `3` and `-0.0` and `1e308` included; also a decimal string | a non-numeric string, `true`, a list/object |
 | `String` | any JSON string — empty, unicode, newlines, control characters | a number, `true`, a list/object |
 | `ID` | any JSON string | a number or `true` — **refused with a hint**: the server didn't quote it |
 | `Boolean` | `true`, `false` | `"true"`, `1`, `0` |
@@ -132,30 +127,46 @@ A refusal is a [`GraphWeaver::TypeError`](errors.md) naming the field and the
 generated struct (which names the query). Two refusals carry advice rather than
 only sorbet's words: an unquoted `ID`, and a registration with no cast (above).
 
-`Float`'s tolerance of numeric strings is `Kernel#Float`'s, which also takes
-Ruby literal syntax — `"0x1f"` reads as `31.0`. No server writes that, but it is
-the one place the table is wider than the spec.
+The numeric strings are read as a wire format, not as Ruby source: `"010"` is
+ten, and `"0x1f"` and `"1_0"` are refused. `Kernel#Integer` and `Kernel#Float`
+accept all three as literals, which would make a zero-padded form field
+silently mean something else.
 
 ### Going out — what a variable kwarg accepts
 
-Strict by default; the right column is what `coerce: true` — or
-`GraphWeaver.auto_coerce` — adds.
+The kwarg's **type** is what `srb tc` holds a call site to, and it is exactly
+what the schema says. The **value** reaching `execute` at runtime is coerced,
+because a Rails param is a String whatever the sig says (see
+[typed variables](generated_modules.md#variables-become-typed-kwargs) for why
+the sig is `.checked(:never)`).
 
-| scalar | kwarg takes | on the wire | with coercion |
+| scalar | kwarg is typed | also accepts, at runtime | on the wire |
 |---|---|---|---|
-| `Int` | `Integer` | the integer | `Integer\|Float\|String`, via `.to_i` |
-| `Float` | `Float` | the float | `Float\|Integer\|String`, via `.to_f` |
-| `String`, `ID` | `String` | the string | nothing to add — `coerce: true` raises |
-| `Boolean` | `true`/`false` | the boolean | nothing to add — `coerce: true` raises |
-| `Date` | `Date` | `iso8601` | `Date\|String`, parsed with `Date.iso8601` |
-| `Time` | `Time` | `iso8601` | `Time\|String`, parsed with `Time.parse` |
-| an enum | the member **or** its wire value | the wire value | always on |
-| an input object | the struct **or** a Hash | the wire hash | always on |
+| `Int` | `Integer` | a decimal string, a whole `Float` | the integer |
+| `Float` | `Float` | a decimal string, an `Integer` | the float |
+| `String` | `String` | nothing | the string |
+| `ID` | `String` | an `Integer` — `execute(id: user.id)` | the string |
+| `Boolean` | `true`/`false` | nothing | the boolean |
+| `Date` | `Date` | an ISO-8601 string | `iso8601` |
+| `Time` | `Time` | a string `Time.parse` takes | `iso8601` |
+| an enum | the member **or** its wire value | — | the wire value |
+| an input object | the struct **or** a Hash | — | the wire hash |
+| a registered custom scalar | its Ruby type | whatever its `cast:` takes | its `serialize:` |
+| unregistered | `T.untyped` | anything | straight through |
 
-A wrong-typed kwarg is caught by `srb tc` at the call site; at runtime it is
-sorbet's own `TypeError`, not a `GraphWeaver::InputError` — that one covers the
-input shapes sorbet can't see (an unknown key, a missing required field, an
-out-of-range enum).
+Two rows are judgement calls worth stating. **`ID` takes an `Integer`** because
+the GraphQL spec says an ID serializes as a string but accepts an integer input,
+and `execute(id: user.id)` off a model is the everyday call; `String` gets no
+such licence, since an `Integer` where a `String` belongs is more often a bug
+than a spelling. **`Boolean` takes no string** — Ruby has no `Kernel#Boolean`,
+so every rule for reading `"0"`, `"off"`, `"no"` is somebody's convention, and
+the library will not pick one for you; convert at the call site.
+
+Anything the table refuses raises `GraphWeaver::InputError` naming the variable,
+the operation and the value — `$count of Compute: expected an Int, got "lots"`
+— which is the same [422 rescue point](errors.md) as a bad input-object field.
+Input-object fields go through this table too, so `{first: "20"}` inside a
+filter hash reads the same as `first: "20"` as a kwarg.
 
 `GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
 scalars restored, enum mappings and type helpers dropped. To reset one registry

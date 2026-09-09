@@ -248,6 +248,28 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
   or `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
 
+**The kwarg is typed exactly as the schema types it, and the value is coerced
+anyway.** Those aren't in tension, because they answer different questions:
+
+```ruby
+StargazersQuery.execute(first: 10)              # typechecks
+StargazersQuery.execute(first: "10")            # srb tc error — you know it's a literal
+StargazersQuery.execute(first: params[:first])  # typechecks, and "10" becomes 10
+```
+
+`first:` is `Integer`, never `T.any(Integer, String)`, so `srb tc` still catches
+a call site that has the wrong thing. But a Rails param is `T.untyped` — sorbet
+lets it through, and `execute` converts it in its body from what the scalar
+already knows ([the table is in scalars.md](scalars.md#going-out--what-a-variable-kwarg-accepts)).
+A value that won't convert raises `GraphWeaver::InputError` naming the variable,
+the operation and the value.
+
+That is why the emitted sig carries `.checked(:never)`: sorbet-runtime would
+otherwise reject the String before the body could read it. Coercion is what
+stands in its place for the arguments — stricter, and with a better message —
+and the `Result` it returns is a `T::Struct`, so its props are still checked one
+by one.
+
 One kwarg per declared variable, always — so adding a variable to a query
 adds a kwarg and leaves every existing call site alone. Two names are refused at
 generation, `$client` and `$variables`: the generated `execute` body already

@@ -256,25 +256,39 @@ survives is the honest half of the argument: one run reads one *schema*, so
   connections lazily and on failure, so a block would run an unpredictable number
   of times. Configuration survives that; behaviour doesn't.
 
-## Coercion says *whether*, never *how*
+## Variables coerce in execute's body, under a narrow sig
 
-**Considered:** keeping `coerce: <Symbol>` (`register_scalar("ID", String, coerce: :to_s)`),
-which let a registration name the conversion as well as opt into it.
+`first: params[:page_size]` arriving as a String is the most common real
+coercion in a Rails app, and the library has to serve it. What it must not do
+is pay for that with the static check.
 
-**Rejected because** it asked the user to answer a question the library already
-answers — the conversion for every scalar that has one is derived from the
-scalar itself, and a custom scalar's conversion is its `cast:`/`serialize:`
-pair. Its documented showcase existed only to re-enable something deliberately
-removed from the auto path: the feature arguing for its own removal.
+**The road taken:** the emitted sig stays exactly as narrow as the schema
+(`first: Integer`), and `.checked(:never)` lets an untyped value through to the
+body, where `GraphWeaver::Coerce` converts it from what the scalar already
+knows — `cast:` for anything that has one, the Ruby type's own rule for the
+built-ins that don't. A typed call site is still an `srb tc` error; an untyped
+one works; garbage raises `InputError` naming the variable, the operation and
+the value.
 
-**Also considered:** dropping the `Int`/`Float` conversion entirely, leaving
-parse as the single coercion mechanism. **Rejected because** `first: params[:page_size]`
-arriving as a String is the most common real coercion in a Rails app, and
-without it `auto_coerce` would loosen nothing among the built-ins but `Date` —
-capability loss wearing simplicity's clothes.
+**Not taken: widening the sig** — `first: T.any(Integer, Float, String)`,
+resolved at generation time. This one *shipped*, as `coerce:` and
+`auto_coerce`, through 0.5.x, which makes it the most instructive rejected
+path here. It bought the untyped boundary its conversion by discarding the
+static check at *every* call site of that variable, typed ones included, and
+because it was resolved at generation time a global switch silently loosened
+kwargs across the whole codebase. The narrow sig gives the same call the same
+answer without giving anything up, so both knobs are gone.
 
-`coerce:` and `auto_coerce` both survive because they are one question at two
-scopes — a global default with a local override, the standard shape.
+**Not taken: an explicit second door** — `PersonQuery.coerce(params)` or
+`execute_loose(...)` alongside the typed `execute`. Honest about which values
+are trusted, but it is two methods for one idea, and every call site has to
+know which it is on. Coercion that is always on needs no door.
+
+**The cost, stated plainly:** `.checked(:never)` turns off sorbet-runtime's
+check of `execute`'s arguments and return. The arguments are covered by
+coercion, which is stricter and better-messaged than the sorbet `TypeError` it
+replaces. The return isn't checked, but the `Response`/`Result` it builds are
+`T::Struct`s whose props are still validated one by one.
 
 ## `:in_process` names its schema per example, not per suite
 
