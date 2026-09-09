@@ -1,4 +1,27 @@
 ## Unreleased
+- **`register_scalar` takes a `fake:`, and fabrication refuses without one.**
+  A scalar registered as your own class — `register_scalar("Money", Money,
+  cast: :parse)` — told codegen how to read the wire value but left the
+  testing harness guessing what to write, so every fake response touching it
+  died inside `from_h` blaming `Money.parse` for a `"Money-1"` placeholder.
+  `fake:` says it at the registration: a wire value, or a proc handed the
+  seeded `Random` so `--seed` still reproduces.
+
+      GraphWeaver.register_scalar("Money", Money, cast: :parse, fake: "12.00")
+
+  With no `fake:` and a Ruby type the harness can't write for, `FakeClient`
+  and cassette anonymization refuse, naming the scalar, the field, and both
+  fixes. Scalars registered as `Time`, `Date`, `Integer`, `Float`, `String` or
+  `T::Boolean` need nothing. Fakes also now honor a per-field
+  `register_scalar("User.birthday", Date)`, matching codegen's resolution.
+- **`Testing.config.null_chance` and `Testing.config.mode` are gone; both
+  are per-fake now.** A suite-wide answer to a per-example question nils an
+  unrelated field one run in ten. **Move them:** `graphql_fake(null_chance:
+  0.3)` and `graphql_fake(values: :literal)` (the per-fake `mode:` is renamed
+  `values:` so it can't be confused with `graphql: :fake` /
+  `config.default_mode`, which stay). The auto-detect — faker when the gem is
+  loaded, else literal — is the only suite-wide value style.
+  `Testing::MODES` is now `VALUE_STYLES`.
 - **`retries:` takes the count you'd write, and means the same thing
   everywhere.** `GraphWeaver.new(url, retries: 3)` raised and pointed at
   `retries: { tries: 3 }` — a second word for the same number that disagreed
