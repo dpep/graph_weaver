@@ -208,8 +208,13 @@ graph and the `:fake` opt-in, each as a named example.
 schemas define**: a schema serves subgraph `s` when it defines every type and
 field the routing table says `s` resolves. That's evidence rather than a guess,
 and a wrong guess would point a suite at the wrong resolvers and still pass — so
-exactly one match is used, and **two** matches refuse, naming both. **No** match
-isn't a refusal: that subgraph is simply served somewhere else (next section).
+exactly one match is used. Neither other outcome refuses at construction, since
+which classes are loaded is not a fact about the query you're running: **no**
+match means the subgraph is served somewhere else (next section), and **two**
+means detection can't say which loaded schema class serves it. Both are refused
+by the query that reaches the subgraph's fields, each naming its own fix — for
+two, `subgraphs: { "reviews" => App::Reviews::Schema }` pins it, and
+`router.ambiguous` lists them.
 
 Name them yourself when you'd rather have the wiring committed, or when
 detection can't settle it — including partially, with the rest derived:

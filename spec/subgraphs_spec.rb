@@ -14,7 +14,7 @@ describe GraphWeaver::Testing::Subgraphs do
   let(:split) { GraphWeaver::SchemaLoader.routing_table(SplitGraph::SUPERGRAPH) }
 
   it "derives the whole map from what each schema defines" do
-    expect(described_class.resolve(table)).to eq RouterGraph::SUBGRAPHS
+    expect(described_class.resolve(table).served).to eq RouterGraph::SUBGRAPHS
   end
 
   it "judges a schema on the types and fields the supergraph says it resolves" do
@@ -32,32 +32,34 @@ describe GraphWeaver::Testing::Subgraphs do
       .to eq products - ["Query"]
   end
 
-  it "refuses when two schemas fit, naming both" do
-    expect { described_class.resolve(split) }.to raise_error(
-      GraphWeaver::ConfigurationError,
-      /\A2 loaded schemas define everything the supergraph says "b" resolves \(SplitGraph::B::Schema, SplitGraph::Twin::Schema\) — pass subgraphs:/,
-    )
+  # both fit the evidence, so it can't say which — but that isn't a fact
+  # about any query, so it's reported rather than raised (see Router)
+  it "reports a subgraph two schemas fit, naming both" do
+    resolution = described_class.resolve(split)
+
+    expect(resolution.served.keys).to eq ["a"]
+    expect(resolution.ambiguous).to eq("b" => ["SplitGraph::B::Schema", "SplitGraph::Twin::Schema"])
   end
 
   # a dev reload leaves two class objects spelled the same, and the list
   # read as a bug in the message
   it "names each candidate once" do
-    expect {
-      described_class.resolve(split, schemas: [SplitGraph::B::Schema, SplitGraph::B::Schema, SplitGraph::Twin::Schema])
-    }.to raise_error(
-      /\A2 loaded schemas define .*\(SplitGraph::B::Schema, SplitGraph::Twin::Schema\)/,
+    resolution = described_class.resolve(
+      split, schemas: [SplitGraph::B::Schema, SplitGraph::B::Schema, SplitGraph::Twin::Schema],
     )
+
+    expect(resolution.ambiguous["b"]).to eq ["SplitGraph::B::Schema", "SplitGraph::Twin::Schema"]
   end
 
   # a subgraph nothing here defines is served elsewhere — routine in a
   # migration, and not a reason to refuse a suite that never touches it
   it "leaves out a subgraph nothing defines rather than refusing" do
-    expect(described_class.resolve(table, schemas: [RouterGraph::Accounts::Schema]))
+    expect(described_class.resolve(table, schemas: [RouterGraph::Accounts::Schema]).served)
       .to eq("accounts" => RouterGraph::Accounts::Schema)
   end
 
   it "takes :fake for a subgraph to answer with fabricated data" do
-    expect(described_class.resolve(table, { "reviews" => :fake }))
+    expect(described_class.resolve(table, { "reviews" => :fake }).served)
       .to eq RouterGraph::SUBGRAPHS.merge("reviews" => :fake)
   end
 

@@ -1020,11 +1020,48 @@ describe GraphWeaver::Testing::Router do
       end
     end
 
-    # two candidates is a genuine mistake, and picking either would be a coin
-    # flip — absence tolerance must not soften that
-    it "still refuses a subgraph two loaded schemas fit" do
-      expect { described_class.new(supergraph: SplitGraph::SUPERGRAPH) }
-        .to raise_error(GraphWeaver::ConfigurationError, /2 loaded schemas define everything the supergraph says "b" resolves/)
+  end
+
+  # Two candidates is a genuine mistake and picking either would be a coin
+  # flip — but which classes are loaded is not a fact about the query in
+  # hand, so it can't be a reason to refuse a suite that never reaches the
+  # subgraph. Same rule as absence: refuse where the field asked for it.
+  describe "a subgraph two loaded schemas fit" do
+    subject(:split) { described_class.new(supergraph: SplitGraph::SUPERGRAPH) }
+
+    it "builds, and answers a query that never reaches it" do
+      expect(split.execute("mutation { publish { id } }").dig("data", "publish"))
+        .to eq({ "id" => "d1" })
+    end
+
+    it "refuses a query that reaches it, naming the candidates and how to pin one" do
+      expect { split.execute("mutation { annotate { id } }") }.to raise_error(
+        GraphWeaver::ConfigurationError,
+        'Mutation.annotate resolves in "b", and 2 loaded schema classes define everything the ' \
+          "supergraph says it resolves (SplitGraph::B::Schema, SplitGraph::Twin::Schema) — " \
+          'which of them serves it is a question only you can answer. Pin it: subgraphs: { "b" ' \
+          "=> SplitGraph::B::Schema } (GraphWeaver::Testing.config.router = { subgraphs: … } " \
+          "under the rspec tag, or subgraphs: on Router.new).",
+      )
+      expect(split).not_to have_fetched_subgraphs
+    end
+
+    it "says so in its introspection, apart from the ones nothing serves" do
+      expect(split.ambiguous).to eq ["b"]
+      expect(split.absent).to eq []
+      expect(split.inspect).to eq '#<GraphWeaver::Testing::Router ' \
+        'subgraphs=["a"] ambiguous=["b"]>'
+    end
+
+    # a class named explicitly is a claim, and a wrong one should fail before
+    # a query goes looking for it
+    it "settles at construction when the map names one" do
+      pinned = described_class.new(supergraph: SplitGraph::SUPERGRAPH,
+        subgraphs: { "b" => SplitGraph::B::Schema })
+
+      expect(pinned.ambiguous).to eq []
+      expect(pinned.execute("mutation { annotate { id } }").dig("data", "annotate"))
+        .to eq({ "id" => "n1" })
     end
   end
 

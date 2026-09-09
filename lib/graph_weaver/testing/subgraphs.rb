@@ -19,19 +19,20 @@ module GraphWeaver
     # `AccountsSchema`, `Subgraphs::Accounts`), and a wrong guess points a
     # suite at the wrong resolvers and still passes.
     #
-    # Two matches refuse, naming both — both fit the evidence, so picking
-    # either would be the guess this module exists to avoid. **No match is
-    # not a refusal**: a supergraph is routinely only partly local, the rest
-    # served by another process, so a subgraph nothing here defines is left
-    # out of the map. Only a query that reaches its fields fails, at plan
-    # time — see {Router}.
+    # Neither of the two ways detection can come up short is a reason to
+    # refuse a whole suite, because neither is a fact about the query in
+    # hand. **No match** means the subgraph runs in another process, which is
+    # routine mid-migration. **Two matches** means two loaded classes fit the
+    # evidence equally, and picking one would be the guess this module exists
+    # to avoid. Both leave the subgraph unserved, and {Router} refuses the
+    # query that reaches its fields — each with its own fix.
     #
     # `"reviews" => :fake` asks for schema-correct fabricated data instead of
     # that refusal (see {FakeSubgraph}).
     #
-    # The same check runs over a map you pass explicitly, which is how a
-    # swapped pair fails at construction rather than as a mystery three
-    # fetches later.
+    # A map you pass explicitly is a claim rather than a derivation, so it
+    # goes through the same check *and refuses at construction* — a swapped
+    # pair fails there rather than as a mystery three fetches later.
     module Subgraphs
       # how many coordinates a message names before it says "and N more"
       SAMPLE = 5
@@ -39,23 +40,38 @@ module GraphWeaver
       # answer this subgraph with fabricated data rather than refusing
       FAKE = :fake
 
+      # What detection settled and what it couldn't: `served` is
+      # { "accounts" => Accounts::Schema, … } (with FAKE for a faked one),
+      # `ambiguous` is { "reviews" => ["App::Reviews::Schema", …] } for the
+      # ones several loaded classes fit. A subgraph in neither is absent.
+      Resolution = Struct.new(:served, :ambiguous)
+
       class << self
-        # { "accounts" => Accounts::Schema, … } for the subgraphs this
-        # process serves — one nothing defines is absent, and left out.
         # Names in `given` skip detection (:fake included); the rest are
         # derived, and both go through the same check.
         def resolve(table, given = nil, schemas: nil)
           named = table.named_subgraphs(given)
           searched = schemas || GraphWeaver::Schemas.loaded
-          table.subgraphs.filter_map do |name|
-            served = named.key?(name) ? check!(table, name, named[name]) : detect(table, name, searched)
-            [name, served] if served
-          end.to_h
+          resolution = Resolution.new({}, {})
+          table.subgraphs.each do |name|
+            if named.key?(name)
+              resolution.served[name] = check!(table, name, named[name])
+              next
+            end
+
+            found = candidates(table, name, searched)
+            next resolution.served[name] = found.first if found.one?
+            # by name: a dev reload leaves two class objects spelled the same,
+            # and naming one of them twice reads as a bug in the message
+            resolution.ambiguous[name] = found.map(&:name).uniq.sort if found.any?
+          end
+          resolution
         end
 
         # every loaded schema that defines what the table says `name` resolves
         def candidates(table, name, schemas = GraphWeaver::Schemas.loaded)
-          schemas.select { |schema| missing(table, name, schema).empty? }
+          wanted = expected(table, name)
+          schemas.select { |schema| wanted.all? { |coordinate| GraphWeaver::Schemas.defines?(schema, coordinate) } }
         end
 
         # The schema coordinates the supergraph says `name` resolves — "Type"
@@ -78,30 +94,12 @@ module GraphWeaver
         # Is this subgraph served in this process? Exactly one candidate is
         # what that means: none is somebody else's service, and several is a
         # question only the caller can answer, so neither is something a suite
-        # can run against. `detect` turns the several into a refusal at
-        # construction; a report counts it as not served here, which is the
-        # same verdict phrased for something that never raises.
+        # can run against.
         def served?(table, name, schemas = GraphWeaver::Schemas.loaded)
           candidates(table, name, schemas).one?
         end
 
         private
-
-        # The schema serving `name`, or nil when nothing here does — the
-        # subgraph is somebody else's, which is not an error until a query
-        # asks for it.
-        def detect(table, name, schemas)
-          found = candidates(table, name, schemas)
-          return found.first if found.one?
-          return if found.empty?
-
-          # by name: a dev reload leaves two class objects spelled the same,
-          # and naming one of them twice reads as a bug in the message
-          names = found.map(&:name).uniq.sort
-          raise GraphWeaver::ConfigurationError, "#{names.size} loaded schemas define everything the " \
-            "supergraph says #{name.inspect} resolves (#{names.join(", ")}) — pass subgraphs: naming " \
-            "the one you mean"
-        end
 
         def check!(table, name, schema)
           return FAKE if schema == FAKE

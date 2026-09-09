@@ -76,15 +76,17 @@ describe GraphWeaver::Testing::Coverage do
   end
 
   # "servable here" has to mean the same thing to the report as to the router
-  # it reports on: two loaded schemas fitting one subgraph is a refusal at
-  # Router.new, so counting it as served would promise a run that can't happen.
+  # it reports on: two loaded schemas fitting one subgraph is a refusal the
+  # moment a query reaches it, so counting it as served would promise a run
+  # that can't happen.
   it "counts a subgraph two loaded schemas fit as not served here" do
     report = coverage_of(
       { "annotate.graphql" => "mutation { annotate { id } }" },
       supergraph: SplitGraph::SUPERGRAPH,
     )
 
-    expect { GraphWeaver::Testing::Router.new(supergraph: SplitGraph::SUPERGRAPH) }
+    router = GraphWeaver::Testing::Router.new(supergraph: SplitGraph::SUPERGRAPH)
+    expect { router.execute("mutation { annotate { id } }") }
       .to raise_error(GraphWeaver::ConfigurationError)
     expect(report.results.flat_map(&:absent)).to include "b"
     expect(report.servable).to eq 0

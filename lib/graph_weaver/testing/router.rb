@@ -197,6 +197,11 @@ module GraphWeaver
       # refused at plan time, everything else runs
       attr_reader :absent
 
+      # subgraphs several loaded schema classes fit equally, so detection
+      # can't say which serves them — refused per query like an absent one,
+      # and the refusal lists the candidates
+      def ambiguous = @ambiguous.keys
+
       # subgraphs answered with fabricated data instead of that refusal
       attr_reader :faked
 
@@ -262,14 +267,16 @@ module GraphWeaver
 
         Unplannable.unsupported!(@table)
 
-        served = Subgraphs.resolve(@table, subgraphs)
+        resolution = Subgraphs.resolve(@table, subgraphs)
+        served = resolution.served
+        @ambiguous = resolution.ambiguous.freeze
         @faked = served.select { |_name, schema| schema == Subgraphs::FAKE }.keys.freeze
-        @absent = (@table.subgraphs - served.keys).freeze
+        @absent = (@table.subgraphs - served.keys - @ambiguous.keys).freeze
         @subgraphs = served.reject { |_name, schema| schema == Subgraphs::FAKE }
         @built_fake = check_fake!(fake)
         @fake = @built_fake
         build_fakes
-        @planner = Planner.new(table: @table, schema: @schema, absent: @absent)
+        @planner = Planner.new(table: @table, schema: @schema, absent: @absent, ambiguous: @ambiguous)
       end
 
       # Drop the fetches recorded so far, so #trace answers about what runs
@@ -331,6 +338,7 @@ module GraphWeaver
         parts = ["subgraphs=#{(@subgraphs.keys - @faked).inspect}"]
         parts << "faked=#{@faked.inspect}" if @faked.any?
         parts << "absent=#{@absent.inspect}" if @absent.any?
+        parts << "ambiguous=#{ambiguous.inspect}" if @ambiguous.any?
         "#<#{self.class.name} #{parts.join(" ")}>"
       end
       alias to_s inspect
@@ -837,13 +845,17 @@ module GraphWeaver
         # only ever reached by a document validation didn't see
         MAX_DEPTH = 32
 
-        # absent: subgraphs no schema serves here. Planning is otherwise
-        # unchanged — coverage plans with none of them loaded, which is why
-        # absence is a fact about this process rather than about the graph.
-        def initialize(table:, schema:, absent: [])
+        # absent: subgraphs no schema serves here. ambiguous: the ones
+        # several loaded classes fit, as { name => candidate class names }.
+        # Planning is otherwise unchanged — coverage plans with neither, which
+        # is why both are facts about this process rather than about the
+        # graph.
+        def initialize(table:, schema:, absent: [], ambiguous: {})
           @table = table
           @schema = schema
           @absent = absent
+          @ambiguous = ambiguous
+          @unserved = absent + ambiguous.keys
           @interface_objects = table.interface_objects
         end
 
@@ -998,7 +1010,7 @@ module GraphWeaver
           shared = fields.map { |node| owners!(root, node.name) }.reduce(:&) || @table.subgraphs
           # no refusal here: an absent candidate just isn't one, and the
           # per-field walk below names it if that's what stops the query
-          (shared - @absent).find { |subgraph| local?(root, selections, subgraph, fragments, []) }
+          (shared - @unserved).find { |subgraph| local?(root, selections, subgraph, fragments, []) }
         end
 
         # Root fields resolve independently, so each picks its own subgraph
@@ -1466,13 +1478,32 @@ module GraphWeaver
         # rather than at construction, which would refuse the whole suite
         # over fields it may never touch.
         def available!(owners, coordinate)
-          here = owners - @absent
+          here = owners - @unserved
           return here if here.any?
+
+          # ambiguity first: it's the one with a fix that isn't "stand the
+          # service up", and the classes are right here to name
+          unsettled = owners.find { |name| @ambiguous.key?(name) }
+          ambiguous!(unsettled, coordinate) if unsettled
 
           absent = owners.map(&:inspect)
           refuse :absent_subgraph, "#{coordinate} resolves in #{absent.join(" or ")}, which no " \
             "schema here serves — nothing loaded defines what the supergraph says " \
             "#{absent.first} resolves. #{advice(absent.first)}"
+        end
+
+        # Which class serves this subgraph is a question only the caller can
+        # answer — but it is only worth asking about the subgraphs a query
+        # reaches, since which classes happen to be loaded is not a fact
+        # about the query.
+        def ambiguous!(name, coordinate)
+          found = @ambiguous.fetch(name)
+          raise GraphWeaver::ConfigurationError, "#{coordinate} resolves in #{name.inspect}, and " \
+            "#{found.size} loaded schema classes define everything the supergraph says it " \
+            "resolves (#{found.join(", ")}) — which of them serves it is a question only you can " \
+            "answer. Pin it: subgraphs: { #{name.inspect} => #{found.first} } " \
+            "(GraphWeaver::Testing.config.router = { subgraphs: … } under the rspec tag, or " \
+            "subgraphs: on Router.new)."
         end
 
         # Two causes, and only one of them applies at a time. A class Rails
