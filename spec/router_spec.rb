@@ -1066,6 +1066,29 @@ describe GraphWeaver::Testing::Router do
         'subgraphs=["a"] ambiguous=["b"]>'
     end
 
+    # The reported shape: a foundational subgraph every other one extends,
+    # several loaded classes fitting it, and a suite whose queries reach
+    # fields it doesn't own. Nothing is named and nothing is faked.
+    describe "when it's the graph's shared foundation" do
+      subject(:core) { described_class.new(supergraph: CoreGraph::SUPERGRAPH) }
+
+      it "runs a query whose fields another subgraph owns" do
+        expect(core.execute("{ items { name } }").dig("data", "items"))
+          .to eq [{ "name" => "Table" }]
+        expect(core).to have_fetched_subgraphs "catalog"
+      end
+
+      it "refuses one that reaches a field it does own" do
+        expect { core.execute("{ items { name audit } }") }.to raise_error(
+          GraphWeaver::ConfigurationError,
+          a_string_starting_with('Item.audit resolves in "core", and 2 loaded schema classes ' \
+            "define everything the supergraph says it resolves (CoreGraph::Schema, " \
+            'CoreGraph::Twin) — '),
+        )
+        expect(core).not_to have_fetched_subgraphs
+      end
+    end
+
     # a class named explicitly is a claim, and a wrong one should fail before
     # a query goes looking for it
     it "settles at construction when the map names one" do
