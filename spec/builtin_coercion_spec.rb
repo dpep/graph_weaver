@@ -108,6 +108,12 @@ describe "built-in scalar coercion" do
     expect { echo(id: nil) }.to raise_error(GraphWeaver::InputError, /\$id of Compute: expected an ID, got nil/)
   end
 
+  # nothing about true or a hash says which number it meant
+  it "refuses a value of no numeric kind at all" do
+    expect { echo(count: true) }.to raise_error(GraphWeaver::InputError, /\$count of Compute: expected an Int/)
+    expect { echo(amount: { a: 1 }) }.to raise_error(GraphWeaver::InputError, /\$amount of Compute: expected a Float/)
+  end
+
   # nothing is registered for it, so nothing is known to convert it to
   it "leaves an unregistered scalar untouched" do
     source = GraphWeaver::Codegen.generate(
@@ -154,6 +160,7 @@ describe "built-in scalar coercion" do
 
     expect(result.ratio).to eq 2.0
     expect(result.rate).to be_a Float
+    expect(mod.from_response!("data" => { "ratio" => 1.5, "rate" => 9 }).ratio).to eq 1.5
   end
 
   it "still refuses a Float the wire can't have meant" do
@@ -162,6 +169,8 @@ describe "built-in scalar coercion" do
 
     expect { mod.from_response!("data" => { "ratio" => "not a number" }) }
       .to raise_error(GraphWeaver::TypeError)
+    expect { mod.from_response!("data" => { "ratio" => true }) }
+      .to raise_error(GraphWeaver::TypeError, /ratio: expected a Float/)
   end
 
   # spec: Int serializes as a JSON integer. Nothing about the wire format
