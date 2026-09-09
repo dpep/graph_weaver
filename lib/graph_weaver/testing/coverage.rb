@@ -53,7 +53,7 @@ module GraphWeaver
         @absent = table.subgraphs.reject { |name| Subgraphs.served?(table, name) }
         @local = @absent.size < table.subgraphs.size
         @shared = GraphWeaver::Codegen.load_fragments(fragments)
-        @results = GraphWeaver.query_files(queries).map { |path| measure(path) }
+        @results = GraphWeaver::Internal::Util.query_files(queries).map { |path| measure(path) }
       end
 
       def plannable = @results.count { |result| result.category.nil? }

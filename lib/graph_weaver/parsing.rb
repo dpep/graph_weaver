@@ -4,6 +4,7 @@
 require "sorbet-runtime"
 
 require_relative "codegen"
+require_relative "internal"
 
 module GraphWeaver
   # Anything that holds a schema parses against it. That's a Client, an
@@ -41,8 +42,8 @@ module GraphWeaver
     # Reloadable (constants are replaced), so it suits consoles and dev.
     # Returns the modules.
     def load_queries!(dir = nil, namespace: Object)
-      GraphWeaver.query_files(dir || GraphWeaver.queries_paths).map do |path|
-        name = GraphWeaver.module_name(path, File.read(path))
+      GraphWeaver::Internal::Util.query_files(dir || GraphWeaver.queries_paths).map do |path|
+        name = GraphWeaver::Internal::Util.module_name(path, File.read(path))
         if namespace.const_defined?(name, false)
           # the constant moves, its instances don't — a struct built before the
           # reload keeps failing is_a? against the new module, silently

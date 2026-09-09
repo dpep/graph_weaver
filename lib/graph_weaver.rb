@@ -2,6 +2,7 @@ require "graphql"
 require "sorbet-runtime"
 
 require_relative "graph_weaver/logging"
+require_relative "graph_weaver/internal"
 require_relative "graph_weaver/errors"
 require_relative "graph_weaver/coerce"
 require_relative "graph_weaver/hints"
@@ -92,20 +93,6 @@ module GraphWeaver
       )
     end
 
-    # Internal: replace a file's contents in one step. The schema dump and a
-    # cassette are artifacts people commit, and File.write truncates before it
-    # writes — so an interrupted run, or a second writer (a rake task beside a
-    # running app, two Puma workers), can leave a half-written file that no
-    # longer parses. A rename is atomic on POSIX: a reader sees the old file
-    # or the new one, never a prefix of it.
-    def atomic_write(path, content)
-      tmp = File.join(File.dirname(path), ".#{File.basename(path)}.#{Process.pid}.#{Thread.current.object_id}.tmp")
-      File.write(tmp, content)
-      File.rename(tmp, path)
-    ensure
-      File.unlink(tmp) if tmp && File.exist?(tmp)
-    end
-
     # Called by generated code — not semver'd for direct use.
     #
     # Shape-check a raw response envelope, returning it. Generated
@@ -143,36 +130,6 @@ module GraphWeaver
 
       raw
     end
-
-    # The module a .graphql file generates, and the basename of the file it
-    # generates into: the camelized file name plus the operation's own word.
-    #
-    #      person.graphql          => PersonQuery       (person_query.rb)
-    #      save_list_entry.graphql => SaveListEntryMutation
-    #                                 (save_list_entry_mutation.rb)
-    #
-    # Every naming site goes through here — generate!, parse(path), and
-    # load_queries! — so the constant a file produces is the same one
-    # whichever door you came in by, and the file it lands in matches it.
-    def generated_names(path, source)
-      base = File.basename(path, ".*")
-      suffix = operation_suffix(source)
-      ["#{Inflect.camelize(base)}#{suffix}", "#{base}_#{suffix.downcase}.rb"]
-    end
-
-    # just the module name — see generated_names
-    def module_name(path, source) = generated_names(path, source).first
-    private :generated_names
-
-    # "Mutation" for a mutation document, "Query" for everything else.
-    def operation_suffix(source)
-      operation = GraphQL.parse(source).definitions
-        .grep(GraphQL::Language::Nodes::OperationDefinition).first
-      (operation&.operation_type == "mutation") ? "Mutation" : "Query"
-    rescue GraphQL::ParseError
-      "Query" # unparseable: codegen brands the real error a moment later
-    end
-    private :operation_suffix
 
     # Conventional locations. Every directory setting is a LIST,
     # factory_bot-style: extra locations (a test-only dir, an engine's) can be
@@ -217,12 +174,6 @@ module GraphWeaver
     # None of them needs the modules loaded.
     attr_accessor :skip_generated_load
 
-    # Every query document under these directories, sorted — the files
-    # generate!, verify_generated!, check_queries and load_queries! all read.
-    def query_files(paths = queries_paths)
-      Array(paths).flat_map { |dir| Dir[File.join(dir, Codegen::DOCUMENT_GLOB)].sort }
-    end
-
     # The name of the shared module — the types that live once per schema
     # (input types, enums, unions hoisted from shared fragments) and are
     # aliased into every query module that touches them. Constant, not derived
@@ -249,7 +200,7 @@ module GraphWeaver
       types_module: nil)
       schema = schema ? schema_for(schema) : locate_schema!
 
-      if query_files(queries).empty?
+      if Internal::Util.query_files(queries).empty?
         # a brand-new app legitimately has none; a mistyped queries_paths looks
         # exactly the same, and prints nothing either way
         log(:warn) { "no query documents under #{Array(queries).join(", ")} — nothing to generate" }
@@ -263,7 +214,7 @@ module GraphWeaver
         # a rake task beside a watching dev server writes the same file: a
         # truncating write can leave a prefix that no longer parses, and it is
         # the running app that requires it next
-        atomic_write(target, source)
+        Internal::Util.atomic_write(target, source)
         log(:info) { "generated #{target}" }
         target
       end
@@ -308,7 +259,7 @@ module GraphWeaver
     #      end
     def verify_generated!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
       types_module: nil)
-      if query_files(queries).empty?
+      if Internal::Util.query_files(queries).empty?
         # green over nothing is worse than red: a CI gate stays passing
         # forever because someone typed app/graphql/querys
         raise Error, "no query documents under #{Array(queries).join(", ")} — this checked nothing, " \
@@ -369,7 +320,7 @@ module GraphWeaver
       schema = schema ? schema_for(schema) : refreshed_schema
       shared = Codegen.load_fragments(fragments)
 
-      query_files(queries).each_with_object({}) do |path, failures|
+      Internal::Util.query_files(queries).each_with_object({}) do |path, failures|
         errors = validation_errors(schema, File.read(path), shared, table)
         failures[path] = errors if errors.any?
       end
@@ -382,7 +333,7 @@ module GraphWeaver
     # nil when a live schema class is what gets checked, since the dump then
     # isn't what the errors came from.
     def checked_routing_table
-      return if live_schema
+      return if Internal::Util.live_schema
 
       path = SchemaLoader.locate_path
       return unless path&.end_with?(".graphql", ".gql")
@@ -401,7 +352,7 @@ module GraphWeaver
     # class — hand-written SDL, a composed supergraph — have nothing to
     # re-read, so they're checked as they are.
     def refreshed_schema
-      live = live_schema
+      live = Internal::Util.live_schema
       return live if live
 
       # locate_schema! raises the conventional "no schema dump" message
@@ -413,19 +364,6 @@ module GraphWeaver
       SchemaLoader.introspect(SchemaLoader.source_transport(path))
     end
     private :refreshed_schema
-
-    # The graphql-ruby schema class the app default executes against, when it
-    # runs in-process — a Client wrapping one, or the class in the slot bare.
-    # nil for every network client. Not memoized: in dev the class object is
-    # replaced on reload. (Public because testing's :in_process mode asks:
-    # a client already running in-process names its own schema class.)
-    def live_schema
-      # through #transport, not #schema: a url client's #schema introspects,
-      # so asking it would answer this question over the network
-      target = client.is_a?(Client) ? client.transport : client
-      target = target.schema if target.is_a?(InProcess)
-      target if target.is_a?(Class) && target <= GraphQL::Schema
-    end
 
     # One query's schema-validation errors as JSON-ready hashes, with the
     # source position graphql-ruby reports. Unparseable counts as an error
@@ -520,7 +458,7 @@ module GraphWeaver
     # whose query was just deleted keeps its old constant until restart —
     # nothing on disk says what it was called any more.
     def reload_generated!
-      names = query_files.map { |path| module_name(path, File.read(path)) } << types_module
+      names = Internal::Util.query_files.map { |path| Internal::Util.module_name(path, File.read(path)) } << types_module
       names.each { |name| undefine(name) }
 
       generated_paths.each do |dir|
@@ -581,9 +519,9 @@ module GraphWeaver
 
       seen = {} # module name => the file that produced it, for the collision message
 
-      plan = query_files(queries).map do |path|
+      plan = Internal::Util.query_files(queries).map do |path|
         source = File.read(path)
-        name, filename = generated_names(path, source)
+        name, filename = Internal::Util.generated_names(path, source)
         if (earlier = seen[name])
           raise Error, "duplicate query module #{name} — #{earlier} and #{path} both generate it; " \
             "the module name comes from the file name alone (directories don't namespace it), so rename one"
@@ -636,15 +574,6 @@ module GraphWeaver
     # (`class Module; include T::Sig`) — extracted so it's stubbable in tests.
     def global_tsig? = Module.include?(T::Sig)
     private :global_tsig?
-
-    # The closest entry in `dictionary` to `term` — a "did you mean" suggestion,
-    # or nil (also nil when did_you_mean isn't loadable). One home for the guard
-    # used by codegen validation, alias resolution, and the runtime prop hints.
-    def did_you_mean(dictionary, term)
-      return unless defined?(DidYouMean::SpellChecker)
-
-      DidYouMean::SpellChecker.new(dictionary: dictionary).correct(term).first
-    end
 
     # Teach the generator how a GraphQL custom scalar deserializes into a
     # rich Ruby object (and serializes back onto the wire when used as a
@@ -750,7 +679,7 @@ module GraphWeaver
       path = query if query.end_with?(".graphql", ".gql")
       if path
         query = File.read(path)
-        name ||= module_name(path, query)
+        name ||= Internal::Util.module_name(path, query)
       elsif !query.include?("{")
         # every document has a selection set, so this is a path we won't read
         # — and it would otherwise fail as a syntax error about SCHEMA/SCALAR

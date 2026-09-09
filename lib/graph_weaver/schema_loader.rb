@@ -5,6 +5,7 @@ require "fileutils"
 require "graphql"
 require "json"
 require_relative "errors"
+require_relative "internal"
 require_relative "schema_diff"
 
 # Load a schema for codegen from either format a remote service can hand
@@ -660,7 +661,7 @@ module GraphWeaver::SchemaLoader
       end
       begin
         FileUtils.mkdir_p(File.dirname(cache))
-        GraphWeaver.atomic_write(cache, content)
+        GraphWeaver::Internal::Util.atomic_write(cache, content)
       rescue SystemCallError => e
         # the introspection worked and the write didn't, which a bare Errno
         # says neither of — and cache: is the argument to change

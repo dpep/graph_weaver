@@ -256,8 +256,8 @@ namespace :graph_weaver do
       # unlike its siblings this task reads generated modules — they are what
       # a recording is checked against
       GraphWeaver.load_generated!
-      modules = GraphWeaver.query_files.filter_map do |path|
-        name = GraphWeaver.module_name(path, File.read(path))
+      modules = GraphWeaver::Internal::Util.query_files.filter_map do |path|
+        name = GraphWeaver::Internal::Util.module_name(path, File.read(path))
         Object.const_get(name) if Object.const_defined?(name)
       end
 

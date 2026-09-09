@@ -226,7 +226,7 @@ module GraphWeaver
       def save
         yaml = YAML.dump(@entries)
         FileUtils.mkdir_p(File.dirname(@path))
-        GraphWeaver.atomic_write(@path, yaml)
+        GraphWeaver::Internal::Util.atomic_write(@path, yaml)
         flag_credentials(yaml)
       end
 

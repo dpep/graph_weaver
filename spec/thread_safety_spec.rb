@@ -141,18 +141,18 @@ RSpec.describe "thread safety" do
     end
 
     it "replaces the file and leaves nothing behind" do
-      GraphWeaver.atomic_write(path, "type Query { a: Int }")
-      GraphWeaver.atomic_write(path, "type Query { b: Int }")
+      GraphWeaver::Internal::Util.atomic_write(path, "type Query { a: Int }")
+      GraphWeaver::Internal::Util.atomic_write(path, "type Query { b: Int }")
 
       expect(File.read(path)).to eq "type Query { b: Int }"
       expect(Dir.children(@dir)).to eq ["schema.graphql"]
     end
 
     it "leaves the previous file intact when the write fails" do
-      GraphWeaver.atomic_write(path, "type Query { a: Int }")
+      GraphWeaver::Internal::Util.atomic_write(path, "type Query { a: Int }")
       allow(File).to receive(:write).and_raise(Errno::ENOSPC)
 
-      expect { GraphWeaver.atomic_write(path, "type Query { b: Int }") }.to raise_error(Errno::ENOSPC)
+      expect { GraphWeaver::Internal::Util.atomic_write(path, "type Query { b: Int }") }.to raise_error(Errno::ENOSPC)
       expect(File.read(path)).to eq "type Query { a: Int }"
       expect(Dir.children(@dir)).to eq ["schema.graphql"]
     end

@@ -138,7 +138,7 @@ class GraphWeaver::Codegen
           unless field
             check_segment_exists!(node, name, obj, seg)
             props = obj.fields.map(&:prop)
-            suggestion = GraphWeaver.did_you_mean(props, seg)
+            suggestion = GraphWeaver::Internal::Util.did_you_mean(props, seg)
             hint = suggestion ? " — did you mean '#{suggestion}'?" : " (have: #{props.join(", ")})"
             raise GraphWeaver::Error,
               "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is not a selected field#{hint}"
@@ -170,7 +170,7 @@ class GraphWeaver::Codegen
       hint = if prop != seg && known.include?(prop)
         # paths are the Ruby prop chain, not the GraphQL one — the classic miss
         " — GraphQL fields generate snake_case props; use '#{prop}'"
-      elsif (suggestion = GraphWeaver.did_you_mean(known, prop))
+      elsif (suggestion = GraphWeaver::Internal::Util.did_you_mean(known, prop))
         " — did you mean '#{suggestion}'?"
       else
         " (has: #{known.sort.join(", ")})"

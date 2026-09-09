@@ -4,6 +4,7 @@
 require "sorbet-runtime"
 
 require_relative "errors"
+require_relative "internal"
 require_relative "inflect"
 
 module GraphWeaver
@@ -31,7 +32,7 @@ module GraphWeaver
         suggestion = if known.include?(prop)
           prop # a wire-cased key — the exact snake_case prop exists
         else
-          GraphWeaver.did_you_mean(known, prop)
+          GraphWeaver::Internal::Util.did_you_mean(known, prop)
         end
         suggestion ? "#{key} (did you mean '#{suggestion}'?)" : key
       end
@@ -140,7 +141,7 @@ module GraphWeaver
       # a guess, not a mapping — spellcheck the (underscored) miss
       # against the props that exist, so typos in either casing land
       props = T.unsafe(self.class).props.keys.map(&:to_s)
-      suggestion = GraphWeaver.did_you_mean(props, prop)
+      suggestion = GraphWeaver::Internal::Util.did_you_mean(props, prop)
       "did you mean '#{suggestion}'?" if suggestion
     end
   end

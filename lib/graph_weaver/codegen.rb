@@ -20,6 +20,7 @@ require "sorbet-runtime"
 # registry), codegen/nodes.rb (the typed IR), codegen/aliases.rb (resolving
 # registered alias paths against a node), codegen/emit.rb (source emission);
 # this file holds the public API and the query walk.
+require_relative "internal"
 require_relative "hints"
 require_relative "input_struct"
 require_relative "schema_loader"
@@ -550,7 +551,7 @@ class GraphWeaver::Codegen
     return validate_scalar_field!(schema, name, method) if kind == "scalar" && name.include?(".")
 
     type = schema.get_type(name)
-    return unmatched(schema, method, name, kind, GraphWeaver.did_you_mean(schema.types.keys, name)) unless type
+    return unmatched(schema, method, name, kind, GraphWeaver::Internal::Util.did_you_mean(schema.types.keys, name)) unless type
 
     expected = REGISTERED_KIND[kind]
     return if expected.nil? || type.kind.name == expected
@@ -571,14 +572,14 @@ class GraphWeaver::Codegen
     type_name, field_name = name.split(".", 2)
     type = schema.get_type(type_name)
     unless type
-      near = GraphWeaver.did_you_mean(schema.types.keys, type_name)
+      near = GraphWeaver::Internal::Util.did_you_mean(schema.types.keys, type_name)
       return unmatched(schema, method, name, "scalar field", near && "#{near}.#{field_name}")
     end
 
     fields = type.respond_to?(:fields) ? type.fields : {}
     field = fields[field_name]
     unless field
-      near = GraphWeaver.did_you_mean(fields.keys, field_name)
+      near = GraphWeaver::Internal::Util.did_you_mean(fields.keys, field_name)
       return unmatched(schema, method, name, "scalar field", near && "#{type_name}.#{near}")
     end
     return if field.type.unwrap.kind.name == "SCALAR"

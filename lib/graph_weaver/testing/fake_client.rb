@@ -369,7 +369,7 @@ class GraphWeaver::Testing::FakeClient
     unknown = pins.keys.reject { |key| key == "__typename" || fields.key?(key) }
     return if unknown.empty?
 
-    suggestion = GraphWeaver.did_you_mean(fields.keys, unknown.first.to_s)
+    suggestion = GraphWeaver::Internal::Util.did_you_mean(fields.keys, unknown.first.to_s)
     hint = suggestion ? " — did you mean #{suggestion.inspect}?" : "."
     raise GraphWeaver::Error, "override #{source.inspect} supplies #{unknown.first.inspect} at " \
       "#{location}, which this query doesn't select#{hint} An override's keys are response keys, " \

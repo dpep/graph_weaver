@@ -42,6 +42,7 @@ walk = lambda do |mod, path|
     value = mod.const_get(const, false)
     child = "#{path}::#{const}"
     if value.is_a?(Module)
+      next if value.equal?(GraphWeaver::Internal)
       # only our own: a constant aliasing GraphQL:: or T:: belongs to them
       next unless value.name.to_s.start_with?("GraphWeaver")
 

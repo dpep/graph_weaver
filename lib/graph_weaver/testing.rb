@@ -175,7 +175,7 @@ module GraphWeaver
         # explicit_schema, not schema: the latter falls back to the committed
         # dump, which loads as an anonymous GraphQL::Schema subclass — runnable
         # by every test that matters, and holding not one resolver.
-        runnable(explicit_schema) || GraphWeaver.live_schema ||
+        runnable(explicit_schema) || GraphWeaver::Internal::Util.live_schema ||
           raise(GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
             "GraphQL::Schema class — and GraphWeaver.client isn't running one in-process to " \
             "borrow. Name it in the example — graphql_in_process(MySchema) — or set " \
@@ -279,7 +279,7 @@ module GraphWeaver
       end
 
       def bad_override!(key, problem, dictionary, term)
-        suggestion = GraphWeaver.did_you_mean(dictionary, term)
+        suggestion = GraphWeaver::Internal::Util.did_you_mean(dictionary, term)
         hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
         raise GraphWeaver::Error, "override key #{key.inspect} #{problem}#{hint}"
       end
