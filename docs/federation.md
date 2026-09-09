@@ -10,6 +10,43 @@ subgraph SDL, or a live router — and recognizes which it got.
 `SchemaLoader.load` (and `Client.new(path_or_sdl)`) accept each as an SDL file
 or an introspection dump.
 
+## Generating for a federated graph
+
+**Queries go through the gateway?** Generate against the supergraph. It is the
+whole graph in one schema, so every registration matches and there is nothing
+else to decide.
+
+**Calling subgraphs directly?** One client per subgraph, one `generate!` each.
+Registrations stay in one global registry, because names compose by identity
+across a graph — `Money` is one Ruby type wherever it appears, and `Person` is
+one entity even though a single subgraph owns `birthday`. So a registration a
+given subgraph doesn't declare is not an error; generation warns and carries on:
+
+```
+register_scalar("Money") matches no scalar in Billing::Schema — a typo, or a registration for another schema
+```
+
+Register everything once and read the warnings, or scope each generation to what
+it needs and get a silent build:
+
+```ruby
+GraphWeaver.register_scalar("Money", Money)
+GraphWeaver.generate!(schema: "billing.graphql",
+  queries: "app/graphql/billing", output: "app/graphql/generated/billing")
+
+GraphWeaver.reset_registrations!
+
+GraphWeaver.register_scalar("Person.birthday", Date)
+GraphWeaver.generate!(schema: "directory.graphql",
+  queries: "app/graphql/directory", output: "app/graphql/generated/directory")
+```
+
+What a subgraph *can* disprove still fails generation: a name it declares as
+something else, and a coordinate whose type it declares **without** that field.
+The second one bites here — every subgraph referencing an entity declares it, so
+`register_scalar("Person.birthday", Date)` fails against one that carries
+`Person` for its `@key` alone. Reset between generations when that comes up.
+
 ## Generating against a supergraph
 
 A supergraph SDL works as-is. On load, GraphWeaver strips the composition

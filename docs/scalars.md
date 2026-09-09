@@ -22,8 +22,15 @@ GraphWeaver.register_scalar("User.birthday", Date)     # this field only
 ```
 
 A field override wins over the scalar-name registration — which is also how two
-servers that disagree about a `DateTime` coexist in one process. Coordinates are
-validated against the schema, so a typo'd field raises.
+servers that disagree about a `DateTime` coexist in one process.
+
+Registrations are validated against the schema you generate against, and only
+what that schema can **disprove** fails generation: a coordinate whose type is
+there but whose field isn't, or a name it declares as something else
+(`register_scalar("Species")` where `Species` is an enum). A name it has nothing
+for only warns — one registry serves a whole graph, so that name may belong to
+the subgraph next door (see
+[federation](federation.md#generating-for-a-federated-graph)).
 
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
@@ -168,9 +175,10 @@ the operation and the value — `$count of Compute: expected an Int, got "lots"`
 Input-object fields go through this table too, so `{first: "20"}` inside a
 filter hash reads the same as `first: "20"` as a kwarg.
 
-`GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
-scalars restored, enum mappings and type helpers dropped. To reset one registry
-rather than all of them, `GraphWeaver::Codegen` has the pieces —
+`GraphWeaver.reset_registrations!` is the clean slate between tests, or between
+generations for different schemas: built-in scalars restored, enum mappings and
+type helpers dropped. To reset one registry rather than all of them,
+`GraphWeaver::Codegen` has the pieces —
 `reset_scalars!` (restore the built-ins), `clear_scalars!` (empty the registry
 entirely), `reset_enums!`, `reset_type_helpers!`.
 
