@@ -744,7 +744,7 @@ class GraphWeaver::Codegen
           type_ref(field_type) { variable_core(core) }
         when "SCALAR"
           coordinate = "#{type.graphql_name}.#{field_name}"
-          type_ref(field_type) { scalar_node(core.graphql_name, coordinate) }
+          type_ref(field_type) { scalar_node(core.graphql_name, coordinate, result: true) }
         else
           raise GraphWeaver::Error, "unsupported kind: #{core.kind.name}"
         end
@@ -1184,15 +1184,41 @@ class GraphWeaver::Codegen
   # generated file can require them (collected across the whole query).
   # Resolution, most specific first: a per-field override (`Type.field`), then
   # the scalar-name registration.
-  def scalar_node(name, coordinate = nil)
+  def scalar_node(name, coordinate = nil, result: false)
     registry = GraphWeaver::Codegen.scalar_registry
     scalar = (coordinate && registry[coordinate]) || registry[name.to_s]
     if scalar.nil?
       @untyped_scalars << name.to_s
       scalar = GraphWeaver::Codegen.scalar(name)
     end
+    refuse_uncastable!(scalar, coordinate || name) if result
     @requires.concat(scalar.requires)
     Scalar.new(scalar)
+  end
+
+  # Everything JSON.parse can hand back. A registered type outside this set
+  # has to be BUILT from one of them, which is what cast: is for.
+  WIRE_CLASSES = [String, Integer, Float, Hash, Array, TrueClass, FalseClass].freeze
+  private_constant :WIRE_CLASSES
+
+  # A registered type nothing on the wire can be, with no cast to build one:
+  # the prop is unsatisfiable, so every response fails — at runtime, a long
+  # way from the registration that caused it. BigDecimal is the one people
+  # reach for (it defines neither .parse nor .load, so inference finds no
+  # codec and leaves the value untouched).
+  def refuse_uncastable!(scalar, where)
+    return if scalar.cast?
+
+    klass = Object.const_get(scalar.type)
+    return unless klass.is_a?(Class) && WIRE_CLASSES.none? { |native| native <= klass }
+
+    raise GraphWeaver::Error,
+      "register_scalar(#{scalar.graphql_name.inspect}, #{scalar.type}) has no cast, so nothing " \
+      "builds a #{scalar.type} out of the JSON at #{where} — give it one (cast: :parse names a " \
+      "class method, cast: ->(v) { \"#{scalar.type}(\#{v})\" } emits any expression), or register " \
+      "a type the wire already parses into"
+  rescue ::NameError
+    nil # a type: given as a String names a class this process may not have
   end
 
   # An unregistered custom scalar passes through as T.untyped — legitimate
