@@ -5,6 +5,7 @@ require "fileutils"
 require "graphql"
 require "json"
 require_relative "errors"
+require_relative "schema_diff"
 
 # Load a schema for codegen from either format a remote service can hand
 # you — introspection JSON or SDL, as a file path or the content itself —
@@ -712,15 +713,15 @@ module GraphWeaver::SchemaLoader
     recorded || DEFAULT_AUTH_ENV
   end
 
-  # Re-introspect a dump's source and compare — true when the server has
-  # drifted from what's on disk. transport: overrides the transport (auth
-  # etc); by default one is built from the dump's recorded url. Wired up
-  # as `rake graph_weaver:schema:diff` / `:refresh`.
-  def self.stale?(path, transport: nil)
+  # Re-introspect a dump's source and compare — a {SchemaDiff} naming what
+  # moved, empty when the server still matches what's on disk. transport:
+  # overrides the transport (auth etc); by default one is built from the
+  # dump's recorded url. Wired up as `rake graph_weaver:schema:diff`.
+  def self.diff(path, transport: nil)
     transport ||= source_transport(path)
     fresh = introspect(transport)
 
-    fresh.to_definition != load(path).to_definition
+    GraphWeaver::SchemaDiff.new(load(path), fresh, source: path, target: endpoint(transport).to_s)
   end
 
   # Re-introspect and rewrite the local dump, returning [path, url].

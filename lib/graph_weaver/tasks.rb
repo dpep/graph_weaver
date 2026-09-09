@@ -97,11 +97,16 @@ namespace :graph_weaver do
     desc "Fail when the server's schema has drifted from the local dump"
     task diff: :environment do
       path = GraphWeaver::SchemaLoader.locate_path or abort GraphWeaver::Tasks.no_dump
-      if GraphWeaver::SchemaLoader.stale?(path)
+      diff = GraphWeaver::SchemaLoader.diff(path)
+      if diff.empty?
+        puts "#{path} matches the server"
+      else
+        puts diff.report
+        # abort writes to unbuffered stderr; the summary above went to
+        # block-buffered stdout, so a piped CI log shows it first
+        $stdout.flush
         abort "#{path} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
       end
-
-      puts "#{path} matches the server"
     rescue GraphWeaver::Error => e
       # e.g. a dump with no recorded url — same clean exit as :refresh
       abort e.message

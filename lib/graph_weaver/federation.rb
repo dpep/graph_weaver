@@ -17,7 +17,7 @@ module GraphWeaver
     # A committed supergraph is a snapshot of a composition. Change a
     # subgraph and skip the recompose and it quietly describes a graph that
     # no longer exists — the failure this catches, locally and before merge,
-    # where {SchemaLoader.stale?} needs the server and answers a different
+    # where {SchemaLoader.diff} needs the server and answers a different
     # question (has the *server* drifted from my dump).
     #
     # Both directions, because they mean opposite things:

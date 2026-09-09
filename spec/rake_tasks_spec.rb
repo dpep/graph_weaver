@@ -214,21 +214,32 @@ describe "graph_weaver rake tasks" do
         "rake graph_weaver:schema:refresh URL="
     end
 
+    def diff_between(before, after)
+      GraphWeaver::SchemaDiff.new(
+        GraphQL::Schema.from_definition(before), GraphQL::Schema.from_definition(after)
+      )
+    end
+
     it "says the dump matches, and exits zero" do
       write_schema
-      allow(GraphWeaver::SchemaLoader).to receive(:stale?).and_return(false)
+      allow(GraphWeaver::SchemaLoader).to receive(:diff).and_return(diff_between("type Query { a: String }", "type Query { a: String }"))
 
       expect(invoke("schema:diff"))
         .to have_attributes(status: 0, out: "#{GraphWeaver.schema_path} matches the server\n")
     end
 
-    it "names the task that repairs a drifted dump, and exits non-zero" do
+    # the whole point of the task: refreshing and diffing a 3 MB dump to
+    # learn what moved is not a report
+    it "prints what changed before naming the task that repairs it" do
       write_schema
-      allow(GraphWeaver::SchemaLoader).to receive(:stale?).and_return(true)
+      allow(GraphWeaver::SchemaLoader).to receive(:diff).and_return(
+        diff_between("type Query { a: String b: Int }", "type Query { a: String c: Int }"),
+      )
 
       result = invoke("schema:diff")
 
       expect(result.status).to eq 1
+      expect(result.out).to include "2 changes, 1 breaking", "Query.b  removed", "Query.c  added: Int"
       expect(result.err).to include "is stale", "rake graph_weaver:schema:refresh"
     end
 

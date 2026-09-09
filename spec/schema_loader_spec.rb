@@ -262,19 +262,22 @@ describe GraphWeaver::SchemaLoader do
       expect(described_class.provenance(plain_path)).to be_nil
     end
 
-    it "stale? re-introspects and reports drift" do
+    it "diff re-introspects and names what drifted" do
       path = File.join(@dir, "schema.graphql")
       described_class.introspect(counting_executor, cache: path)
 
-      expect(described_class.stale?(path, transport: counting_executor)).to be false
+      expect(described_class.diff(path, transport: counting_executor)).to be_empty
 
       drifted = GraphQL::Schema.from_definition("type Query { renamed: String }")
-      expect(described_class.stale?(path, transport: drifted)).to be true
+      diff = described_class.diff(path, transport: drifted)
+
+      expect(diff).not_to be_empty
+      expect(diff.report).to include path, "Query.renamed  added: String"
 
       # without transport: it needs a recorded url to rebuild one, and a dump
       # from a schema class never records one — say so rather than dead-end
       expect {
-        described_class.stale?(path)
+        described_class.diff(path)
       }.to raise_error(
         GraphWeaver::Error,
         /records no source url — it wasn't introspected from one\. Pass transport:, or rebuild it from the schema class/,
