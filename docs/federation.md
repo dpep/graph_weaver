@@ -28,6 +28,9 @@ files:
 register_scalar("Money") matches no scalar in Billing::Schema — a typo, or a registration for another schema
 ```
 
+`GraphWeaver.unmatched_registrations` is that same list as data, for a Rakefile
+or a spec that would rather gate on it than read it.
+
 Register everything once and read those lines, or scope each generation to what
 it needs and get a silent build:
 
@@ -335,8 +338,11 @@ absent. Values come from the same engine as
 [`graphql: :fake`](testing.md#fabricated-data--graphql-fake), so `config.seed`,
 `config.overrides` and the rest apply.
 
-`fake:` says how they fabricate, in the options a fake takes — suite-wide, or
-for the one example that cares:
+`fake:` says how they fabricate, and takes everything
+[a fake takes](testing.md#fabricated-data--graphql-fake) — `overrides:`,
+`list_size:`, `null_chance:`, `values:`. It goes on `Router.new` outside rspec,
+on `Testing.config.router` for the suite, and on `graphql_router` for the one
+example that cares:
 
 ```ruby
 Testing.config.router = { subgraphs: { "shipping" => :fake },
@@ -348,9 +354,10 @@ it "shows the carrier" do
 end
 ```
 
-`graphql_router` is `graphql: :router` with somewhere to put arguments — the
-router itself is still built once for the suite, and the options last one
-example.
+One `fake:` covers every faked subgraph, because a coordinate-keyed override
+(`"Shipment.carrier"`) already says which type it means. And `graphql_router` is
+`graphql: :router` with somewhere to put arguments — the router itself is still
+built once for the suite, and the options last one example.
 
 ### What it plans
 
@@ -449,9 +456,12 @@ Every category, spelled as `Unplannable#category` reports it:
 | a federation construct the routing table doesn't read | an incomplete table makes every answer about this supergraph a guess. The one refusal raised **at construction**, before a single query |
 | nested deeper than the router walks | past the walk's depth limit, which validation would have rejected first |
 
-A subgraph two loaded schemas both fit refuses at construction too, as a
-`ConfigurationError` rather than an `Unplannable` — it's a wiring mistake, not a
-query the router declines.
+A subgraph two loaded schemas both fit raises a `ConfigurationError` rather than
+an `Unplannable` — it's a wiring mistake, not a query the router declines — but
+it raises where every other one does, on the query that reaches the subgraph.
+Which classes happen to be loaded is not a fact about the query under test.
+Naming a class in `subgraphs:` *is* a claim, so a wrong one still fails at
+construction.
 
 A double that quietly answered *differently* from the router would be worse than
 no double at all, so
