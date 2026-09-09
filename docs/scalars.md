@@ -32,7 +32,7 @@ only warns — one registry serves a whole graph, so that name may belong to the
 subgraph next door (see
 [federation](federation.md#generating-for-a-federated-graph)).
 
-Pass a real class as `type:` and the cast/serialize are **inferred** from it by
+Pass a real class as the second argument and the cast/serialize are **inferred** from it by
 probing the deserialize side and pairing its serializer:
 
 | the class defines | cast          | serialize      |
@@ -49,9 +49,9 @@ you need to:
 - a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
 - `:itself` to force pass-through, opting out of inference (rare)
 
-`type:` also accepts a plain string (`"BigDecimal"`) when you'd rather not
+The type also accepts a plain string (`"BigDecimal"`) when you'd rather not
 reference the class. `requires:` (a string or array) names files emitted as
-`require`s atop the generated source so the cast/type resolve. When `type:` is
+`require`s atop the generated source so the cast/type resolve. When the type is
 a real class (so the runtime is loaded), each path is also `require`d at
 registration — a typo fails now, not in the generated file.
 
@@ -65,13 +65,13 @@ GraphWeaver.register_scalar("Money", Money, fake: ->(rng) { format("%.2f", rng.r
 ```
 
 A proc is handed the seeded `Random`, so `rspec --seed` still reproduces the
-run. Needed only when `type:` is a class the harness can't write for — a scalar
+run. Needed only when the type is a class the harness can't write for — a scalar
 registered as `Time`, `Date`, `Integer`, `Float`, `String` or `T::Boolean` needs
 nothing, and neither do the built-ins. Without one, [`FakeClient`](testing.md)
 and cassette anonymization refuse at fabrication time rather than handing your
 cast a placeholder.
 
-A registration whose `type:` is a class **JSON can't parse into** needs a
+A registration whose type is a class **JSON can't parse into** needs a
 `cast:` to build one — `BigDecimal` is the one people reach for, and it defines
 neither `.parse` nor `.load`, so inference finds no codec and the prop would be
 unsatisfiable. Generation refuses it where a query reads that scalar back,
@@ -107,9 +107,10 @@ same path (`Date` even carries its own `require "date"`), so a later
 ## What the wire carries
 
 The rule is one sentence: **generated code takes every JSON spelling a
-spec-compliant server may write, and refuses the rest.** The table is the whole
-of it — [`bin/round-trip`](../bin/round-trip) draws from the same lists, in both
-modes, so the two can't drift.
+spec-compliant server may write, and refuses the rest.** The tables below are
+the whole of it, and [`bin/round-trip`](../bin/round-trip) fuzzes both
+directions against them — the accepted spellings as real values, the refused
+ones under `--hostile`, where generated code has to name what it turned down.
 
 The one place "spec-compliant" is doing real work is `Float`. JSON has a single
 number type and encoders write the shortest form, so `1.0` reaches Ruby as `1`
