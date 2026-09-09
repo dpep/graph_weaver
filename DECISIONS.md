@@ -328,3 +328,23 @@ elsewhere: `GraphWeaver.client` is snapshotted and restored around *every*
 example, so the tag no longer earns its keep as a cleanup marker, and building
 a client is a plain assignment in a `before` block. `graphql_fake(**options)`
 exists only because a fake needs the schema derivation the tag was doing.
+
+## `Internal` is a name, not a `private_constant`
+
+**Considered:** `private_constant :Internal` under `GraphWeaver`, so the
+namespace holding the gem's cross-file helpers is unreachable from outside and
+Ruby enforces the rule instead of a convention.
+
+**Rejected because** most of this gem opens its classes compactly — `class
+GraphWeaver::Codegen`, `class GraphWeaver::Transport`, `class
+GraphWeaver::Testing::FakeClient` — which puts `GraphWeaver` outside their
+lexical scope. A private constant is reachable only by its bare name from
+inside the defining module, so `private_constant` would break exactly the files
+that need `Internal`, and buying it back means renesting seven files (one of
+them 1,300 lines) for a runtime guard.
+
+The enforcement lives in `spec/public_surface_spec.rb` instead, which is
+strictly better: it skips `Internal`, diffs everything else against a
+checked-in list, and fails in CI with the two things you can do about it —
+rather than at a user's runtime with a `NameError`. The rule stays one
+sentence: anything under `GraphWeaver::Internal` is not API.
