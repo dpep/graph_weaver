@@ -1186,11 +1186,8 @@ class GraphWeaver::Codegen
   # the scalar-name registration.
   def scalar_node(name, coordinate = nil, result: false)
     registry = GraphWeaver::Codegen.scalar_registry
-    scalar = (coordinate && registry[coordinate]) || registry[name.to_s]
-    if scalar.nil?
-      @untyped_scalars << name.to_s
-      scalar = GraphWeaver::Codegen.scalar(name)
-    end
+    @untyped_scalars << name.to_s unless (coordinate && registry[coordinate]) || registry[name.to_s]
+    scalar = GraphWeaver::Codegen.scalar(name, coordinate)
     refuse_uncastable!(scalar, coordinate || name) if result
     @requires.concat(scalar.requires)
     Scalar.new(scalar)
