@@ -7,6 +7,7 @@ require "json"
 require_relative "../parsing"
 require_relative "../schema_loader"
 require_relative "../selection"
+require_relative "../internal"
 require_relative "../transport"
 require_relative "subgraphs"
 
@@ -665,7 +666,7 @@ module GraphWeaver
         entry = { subgraph: name, query:, variables: variables.to_h }
         entry[:faked] = true if faked
         @trace << entry
-        tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
+        tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
 
         # a fabricated answer that passes silently is worse than a failing
         # one, so it says so every fetch rather than once at construction
@@ -675,7 +676,7 @@ module GraphWeaver
 
         GraphWeaver.log(:debug) do
           "router -> #{name} #{tag} variables=#{JSON.generate(variables)}\n" \
-            "#{GraphWeaver::Transport.truncate_for_log(query)}"
+            "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
         end
 
         GraphWeaver.log_timed(:debug, "router -> #{name} #{tag} completed") do

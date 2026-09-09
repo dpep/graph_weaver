@@ -126,7 +126,7 @@ class GraphWeaver::Retry
   private
 
   def mutation?(query)
-    !@retry_mutations && @retries.positive? && GraphWeaver::Transport.mutation?(query)
+    !@retry_mutations && @retries.positive? && GraphWeaver::Internal::Wire.mutation?(query)
   end
 
   def retryable_response?(response)

@@ -4,6 +4,7 @@
 require "json"
 
 require_relative "errors"
+require_relative "internal"
 require_relative "parsing"
 require_relative "transport"
 
@@ -45,7 +46,7 @@ class GraphWeaver::InProcess
   end
 
   def execute(query, variables: {}, operation_name: nil)
-    operation_name ||= GraphWeaver::Transport.operation_name(query)
+    operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
     payload = { url: nil, schema: @schema.to_s, operation: operation_name }
 
     GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
@@ -58,11 +59,11 @@ class GraphWeaver::InProcess
   private def perform(query, variables, operation_name, payload)
     # same tag/truncation as the network transports, so one log reads the
     # same whichever side of the seam a query ran on
-    tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
+    tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
 
     GraphWeaver.log(:debug) do
       "in-process #{@schema} #{tag} variables=#{JSON.generate(GraphWeaver.filter_variables(variables))}\n" \
-        "#{GraphWeaver::Transport.truncate_for_log(query)}"
+        "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
     result = GraphWeaver.log_timed(:debug, "in-process #{@schema} #{tag} completed") do

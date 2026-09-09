@@ -5,6 +5,7 @@ require "json"
 require "sorbet-runtime"
 
 require_relative "errors"
+require_relative "internal"
 require_relative "version"
 
 # Base class for the bundled network transports — Transport::HTTP
@@ -48,7 +49,7 @@ class GraphWeaver::Transport
   # slow-query reports on. Generated modules pass their OPERATION_NAME;
   # a raw query string falls back to the name in the document itself.
   def execute(query, variables: {}, operation_name: nil)
-    operation_name ||= GraphWeaver::Transport.operation_name(query)
+    operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
     payload = { url:, operation: operation_name }
 
     GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
@@ -61,13 +62,13 @@ class GraphWeaver::Transport
   private def perform(query, variables, operation_name, payload)
     # tag pairs this request's log lines (threads interleave), and names
     # the operation so the log says WHICH query, not just the url
-    tag = GraphWeaver.logger && GraphWeaver::Transport.log_tag(operation_name)
+    tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
 
     # full query + variables at debug only — they can carry PII, and the
     # sensitive keys are scrubbed even there (GraphWeaver.filter_parameters)
     GraphWeaver.log(:debug) do
       filtered = JSON.generate(GraphWeaver.filter_variables(variables))
-      "POST #{url} #{tag} variables=#{filtered}\n#{GraphWeaver::Transport.truncate_for_log(query)}"
+      "POST #{url} #{tag} variables=#{filtered}\n#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
     # camelCase because it's the graphql-over-http request field, not a
@@ -140,45 +141,6 @@ class GraphWeaver::Transport
     "#<#{self.class.name} url=#{url.inspect}>"
   end
   alias to_s inspect
-
-  # The name of the document's FIRST operation, nil when anonymous. Only
-  # the fallback for a raw query string handed straight to a transport —
-  # generated modules pass their OPERATION_NAME, parsed properly.
-  OPERATION_NAME_PATTERN = /\A\s*(?:query|mutation|subscription)\s+([A-Za-z_]\w*)/
-  private_constant :OPERATION_NAME_PATTERN
-  def self.operation_name(query)
-    query[OPERATION_NAME_PATTERN, 1]
-  end
-
-  # Whether this document's operation writes — what Retry asks before
-  # repeating a request. Line-anchored rather than parsed: it runs on every
-  # request, and the only way to be wrong (a field literally named
-  # `mutation` opening a line) errs toward not retrying.
-  MUTATION_PATTERN = /^[ \t]*mutation\b/
-  private_constant :MUTATION_PATTERN
-  def self.mutation?(query)
-    MUTATION_PATTERN.match?(query)
-  end
-
-  # "[req 3 FilteredPokemon]" — a per-process request id plus the
-  # operation name, when there is one
-  REQUEST_MUTEX = Mutex.new
-  private_constant :REQUEST_MUTEX
-
-  def self.log_tag(operation_name = nil)
-    id = REQUEST_MUTEX.synchronize { @request_count = (@request_count || 0) + 1 }
-    "[req #{id}#{" #{operation_name}" if operation_name}]"
-  end
-
-  # keep debug readable: a 100-line introspection query would drown the
-  # log — the INFO introspection line already carries the timing
-  LOG_QUERY_LIMIT = 600
-  private_constant :LOG_QUERY_LIMIT
-  def self.truncate_for_log(query)
-    return query if query.length <= LOG_QUERY_LIMIT
-
-    "#{query[0, LOG_QUERY_LIMIT]}... (truncated, #{query.bytesize} bytes total)"
-  end
 
   private
 

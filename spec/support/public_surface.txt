@@ -584,10 +584,6 @@ GraphWeaver::Transport#execute
 GraphWeaver::Transport#inspect
 GraphWeaver::Transport#to_s
 GraphWeaver::Transport#url
-GraphWeaver::Transport.log_tag
-GraphWeaver::Transport.mutation?
-GraphWeaver::Transport.operation_name
-GraphWeaver::Transport.truncate_for_log
 GraphWeaver::Transport::DEFAULT_HEADERS = Hash
 GraphWeaver::Transport::DEFAULT_OPEN_TIMEOUT = Integer
 GraphWeaver::Transport::DEFAULT_READ_TIMEOUT = Integer
