@@ -1,4 +1,14 @@
 ## Unreleased
+- **`schema:diff` names what changed, not just that something did.** It
+  reported `schema.json is stale` and stopped, so learning what moved meant
+  refreshing and reading a `git diff` of a 3 MB dump. It now prints one line
+  per change at its schema coordinate, breaking ones first — types, fields,
+  arguments, nullability, enum values, union members, interfaces and
+  deprecations — and still exits non-zero on any drift. Breaking is judged from
+  the client's side, so nullability is directional: an output losing `!` breaks
+  a generated struct, an input gaining one breaks a query that omits it.
+  `SchemaLoader.stale?` is now `SchemaLoader.diff`, returning the summary;
+  `diff(path).empty?` is what `stale?` answered.
 - **A Rails app whose generated code includes an autoloaded helper now
   boots.** `extend_type("Pet", PetHelpers)` and `register_enum("Species",
   PetKind)` name constants your app autoloads, so the library tells you to
