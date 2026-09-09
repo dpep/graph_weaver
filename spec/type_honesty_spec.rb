@@ -1,5 +1,6 @@
 # typed: ignore
 
+require "shellwords"
 require "tmpdir"
 
 # srb tc proves the generated code is self-consistent, never that it matches
@@ -54,5 +55,33 @@ describe "generated types tell the truth about the schema" do
 
     expect(source).to include "const :search, T::Array["
     expect(source).not_to include "const :search, T.nilable(T::Array["
+  end
+end
+
+# execute coerces in its body under `.checked(:never)`, so nothing at
+# runtime can tell a narrow kwarg from a widened one — only srb tc can, and
+# the whole point of the design is that it still does. So ask it.
+describe "execute's kwargs stay statically narrow" do
+  def typecheck(body)
+    Dir.mktmpdir do |dir|
+      file = File.join(dir, "call_site.rb")
+      File.write(file, <<~RUBY)
+        # typed: strict
+        require_relative #{File.expand_path("generated/person_query", __dir__).inspect}
+
+        #{body}
+      RUBY
+      # sorbet/config adds the repo itself, so the generated module and the
+      # gem's own sigs come along
+      `bundle exec srb tc #{file.shellescape} 2>&1`
+    end
+  end
+
+  it "rejects a loose value where the schema says String" do
+    expect(typecheck('PersonQuery.execute(id: 42)')).to match(/Expected `String` but found `Integer/)
+  end
+
+  it "accepts an untyped one — the value coercion exists for" do
+    expect(typecheck('PersonQuery.execute(id: T.unsafe(nil))')).to include "No errors!"
   end
 end
