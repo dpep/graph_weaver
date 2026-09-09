@@ -48,8 +48,12 @@ module RoundTrip
       @failures_left = @rng.rand < @opts[:propagate] ? 1 : 0
     end
 
+    # every scalar/enum position the last #response wrote: [path, type name]
+    attr_reader :leaves
+
     # {"data" => ...} — data is nil when a null propagated all the way out.
     def response
+      @leaves = []
       root = @operation.operation_type == "mutation" ? @schema.mutation : @schema.query
       { "data" => execute(@operation.selections, root) }
     rescue Propagate
@@ -109,42 +113,50 @@ module RoundTrip
     end
 
     # spec: ExecuteSelectionSet
-    def execute(selections, type)
+    def execute(selections, type, path = [])
       collect_fields(type, selections).to_h do |key, nodes|
         name = nodes.first.name
         next [key, type.graphql_name] if name == "__typename"
 
         field = @schema.get_field(type.graphql_name, name)
-        [key, complete(field.type, nodes.flat_map(&:selections))]
+        [key, complete(field.type, nodes.flat_map(&:selections), path + [key])]
       end
     end
 
     # spec: CompleteValue
-    def complete(type, selections)
-      return complete_non_null(type.of_type, selections) if type.kind.name == "NON_NULL"
+    def complete(type, selections, path)
+      return complete_non_null(type.of_type, selections, path) if type.kind.name == "NON_NULL"
       return nil if @rng.rand < @opts[:null]
 
       begin
-        complete_non_null(type, selections)
+        complete_non_null(type, selections, path)
       rescue Propagate
         nil # a nullable position absorbs the propagating null
       end
     end
 
-    def complete_non_null(type, selections)
+    def complete_non_null(type, selections, path)
       if @failures_left.positive? && @rng.rand < PROPAGATE_HERE
         @failures_left -= 1
         raise Propagate
       end
 
       case type.kind.name
-      when "LIST" then Array.new(@opts[:list_sizes].sample(random: @rng)) { complete(type.of_type, selections) }
-      when "SCALAR" then scalar_value(type.graphql_name)
-      when "ENUM" then type.values.keys.sample(random: @rng)
-      when "OBJECT" then execute(selections, type)
-      when "UNION", "INTERFACE" then execute(selections, runtime_type(type, selections))
+      when "LIST"
+        Array.new(@opts[:list_sizes].sample(random: @rng)) { |i| complete(type.of_type, selections, path + [i]) }
+      when "SCALAR" then leaf(path, type.graphql_name) { scalar_value(type.graphql_name) }
+      when "ENUM" then leaf(path, type.graphql_name) { type.values.keys.sample(random: @rng) }
+      when "OBJECT" then execute(selections, type, path)
+      when "UNION", "INTERFACE" then execute(selections, runtime_type(type, selections), path)
       else raise "unexpected kind #{type.kind.name}"
       end
+    end
+
+    # Record where each leaf landed and what type wrote it, so a hostile pass
+    # can put a wrong-shaped value in a position the query genuinely reads.
+    def leaf(path, type_name)
+      @leaves << [path, type_name]
+      yield
     end
 
     # Which concrete type is actually live. Usually one the query named (so its
@@ -157,32 +169,65 @@ module RoundTrip
       pool.sample(random: @rng)
     end
 
-    # A wire value the registered cast will accept. Unregistered scalars are
-    # T.untyped pass-through, so anything goes — send a hash, which is what an
-    # unregistered scalar most often is.
+    # One wire value a spec-compliant server may send for this scalar. Every
+    # legal spelling is in the pool, so the rare ones (a Float written whole, a
+    # timestamp with an offset, an empty string) get drawn too rather than
+    # being discovered by a user. Unregistered scalars are T.untyped
+    # pass-through, so anything goes — send a hash, the shape they usually are.
     def scalar_value(name)
-      case name
-      when "ID", "String" then "s#{@rng.rand(1000)}"
-      when "Int" then @rng.rand(10_000)
-      # JSON has one number type, so a whole Float reaches Ruby as an Integer
-      # from any encoder that drops the trailing zero — draw both shapes
-      when "Float" then @rng.rand < 0.25 ? @rng.rand(100) : (@rng.rand * 100).round(3)
-      when "Boolean" then @rng.rand < 0.5
-      else
-        LEAF_VALUES[GraphWeaver::Codegen.scalar(name).type] || { "unregistered" => name }
-      end
+      pool = LEGAL[name] || LEGAL[GraphWeaver::Codegen.scalar(name).type]
+      return { "unregistered" => name } unless pool
+
+      value = pool.sample(random: @rng)
+      value.is_a?(Proc) ? value.call(@rng) : value
     end
 
-    # by the Ruby type a scalar is registered as, since that is what casts
-    LEAF_VALUES = {
-      "Date" => "2024-01-15",
-      "Time" => "2024-01-15T10:20:30Z",
-      "DateTime" => "2024-01-15T10:20:30Z",
-      "String" => "wire",
-      "Integer" => 7,
-      "Float" => 1.5,
-      "T::Boolean" => true,
-    }.freeze
+    # Wrong-shaped values for a scalar: a spec-compliant server never sends
+    # these, and generated code has to say so rather than pass them along.
+    def self.illegal(name)
+      ILLEGAL[name] || ILLEGAL[GraphWeaver::Codegen.scalar(name).type]
+    end
+
+    # Every JSON spelling a spec-compliant server may emit, by GraphQL scalar
+    # name and — for a registered custom scalar — by the Ruby type it casts to.
+    # See docs/scalars.md, which this table is the executable half of.
+    LEGAL = {
+      # a JSON string: empty, unicode, and control characters all included
+      "String" => ["wire", "", "héllo ☃", "line\nbreak", " ", ->(r) { "s#{r.rand(1000)}" }],
+      # spec: ID serializes as a String, whatever the server stores
+      "ID" => ["1", "", "gid://app/User/1", ->(r) { "s#{r.rand(1000)}" }],
+      # spec: Int is a signed 32-bit integer, so a JSON integer — never 1.0.
+      # Beyond the range is out of spec but lossless in Ruby, so it is accepted.
+      "Int" => [0, -1, 1, 2**31 - 1, -(2**31), 2**53 + 1, ->(r) { r.rand(10_000) }],
+      # JSON has one number type, so a whole Float reaches Ruby as an Integer
+      # from any encoder that drops the trailing zero (graphql-js, Go)
+      "Float" => [0.0, -0.0, 1.5, -2.25, 1e3, 1.0e-7, 3, -8, ->(r) { (r.rand * 100).round(3) }],
+      "Boolean" => [true, false],
+      # by the Ruby type a scalar is registered as, since that is what casts
+      "Date" => ["2024-01-15", "2024-02-29", "20240115"],
+      # RFC 3339 leaves the offset, fractional seconds and the seconds field
+      # itself to the server, and real ones differ on all three
+      "Time" => [
+        "2024-01-15T10:20:30Z", "2024-01-15T10:20:30+02:00", "2024-01-15T10:20:30-05:30",
+        "2024-01-15T10:20:30.123Z", "2024-01-15T10:20:30.123456789Z", "2024-01-15T10:20Z",
+      ],
+      "Integer" => [0, -1, 7, 2**63, ->(r) { r.rand(10_000) }],
+      "T::Boolean" => [true, false],
+    }.tap { |t| t["DateTime"] = t["Time"] }.freeze
+
+    ILLEGAL = {
+      "String" => [42, 1.5, true, [], { "a" => 1 }],
+      # a server handing back its raw integer primary key: the case that
+      # actually happens, and the one users need told apart from a gem bug
+      "ID" => [42, 1.5, true, []],
+      "Int" => ["1", 1.5, 2.0, true, {}],
+      "Float" => ["not a number", true, [], { "a" => 1 }],
+      "Boolean" => ["true", 1, 0, "yes"],
+      "Date" => ["not a date", "2024-13-01", 1704067200, true],
+      "Time" => ["not a time", 1704067200, true],
+      "Integer" => ["1", 1.5, true],
+      "T::Boolean" => ["true", 1],
+    }.tap { |t| t["DateTime"] = t["Time"] }.freeze
   end
 
   # Builds valid queries against an arbitrary schema, biased toward the shapes
@@ -452,6 +497,37 @@ module RoundTrip
       trip
     end
 
+    # The mirror of #check: build a legal response, spoil exactly one leaf with
+    # a value its scalar can't mean, and require generated code to refuse it —
+    # with a GraphWeaver::TypeError that names the field, not a bare sorbet
+    # complaint. Silently passing a wrong-typed value along is the worst
+    # outcome available, so "accepted" is a failure here.
+    def check_hostile(schema:, query:, name: "Hostile", rng: Random.new(0))
+      mod =
+        begin
+          GraphWeaver::Codegen.parse(schema:, query:, module_name: name)
+        rescue GraphWeaver::Error, ArgumentError => e
+          return Trip.new(query:, failures: [], refused: "#{e.class}: #{e.message}")
+        end
+
+      # a dense response: every leaf the query reads is present, so a spoiled
+      # one is genuinely reached rather than absorbed by a null
+      responder = Responder.new(schema, query, rng:, null: 0.0, propagate: 0.0, unnamed_member: 0.0)
+      envelope = responder.response
+      targets = responder.leaves.filter_map do |path, type_name|
+        pool = Responder.illegal(type_name)
+        [path, pool] if pool
+      end
+      return Trip.new(query:, failures: [], refused: "no spoilable leaf") if targets.empty?
+
+      path, pool = targets.sample(random: rng)
+      spoiled = pool.sample(random: rng)
+      poke(envelope["data"], path, spoiled)
+      trip = Trip.new(query:, wire: envelope, failures: [])
+      trip.failures = refusal_failures(mod, envelope, path, spoiled)
+      trip
+    end
+
     # The input half: a query taking one variable per argument of `field`, a
     # Ruby value for each, and the wire hash they must serialize to.
     def check_input(schema:, field:, mutation: false, name: "InputTrip", rng: Random.new(0))
@@ -553,6 +629,26 @@ module RoundTrip
 
     private
 
+    # replace the value at `path` (response keys and list indexes) in place
+    def poke(data, path, value)
+      *parents, last = path
+      parents.reduce(data) { |node, step| node[step] }[last] = value
+    end
+
+    def refusal_failures(mod, envelope, path, spoiled)
+      at = "#{spoiled.inspect} at #{path.join(".")}"
+      mod.from_response!(envelope)
+      [Failure.new(kind: "accepted", path:, detail: "accepted #{at}")]
+    rescue GraphWeaver::TypeError => e
+      # the response key, or the prop it generates — sorbet's complaints name
+      # the latter
+      key = path.reverse.find { |step| step.is_a?(String) }
+      named = [key, GraphWeaver::Inflect.underscore(key)].any? { |n| e.message.include?(n) }
+      named ? [] : [Failure.new(kind: "unattributed", path:, detail: "refused #{at} without naming it: #{e.message}")]
+    rescue StandardError => e
+      [Failure.new(kind: "unbranded", path:, detail: "#{e.class} (not GraphWeaver::TypeError) for #{at}: #{e.message}")]
+    end
+
     def variable_query(schema, field, arguments, defaults, mutation:)
       declarations = arguments.map do |argument|
         default = defaults[argument.graphql_name]
@@ -597,13 +693,22 @@ module RoundTrip
     end
 
     # A cast leaf comes back rich (a Date, a T::Enum); it survived when it
-    # serializes back to what went in.
+    # serializes back to what went in. A timestamp is compared by re-parsing
+    # rather than by spelling: an offset, fractional seconds and a bare date
+    # all round-trip to a different string than they arrived as.
     def same_value?(object, wire)
       return true if object == wire
       return object.serialize == wire if object.is_a?(T::Enum)
-      return object.iso8601 == wire if object.respond_to?(:iso8601)
+
+      return object.iso8601 == wire || reparses?(object, wire) if object.respond_to?(:iso8601)
 
       object.to_s == wire.to_s
+    end
+
+    def reparses?(object, wire)
+      wire.is_a?(String) && object == object.class.parse(wire)
+    rescue StandardError
+      false
     end
   end
 end

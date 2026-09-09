@@ -6,6 +6,8 @@
 #   bin/round-trip                                  # the repo's fixture schemas
 #   bin/round-trip ~/schemas/github.json -c 2000    # any SDL or introspection dump
 #   bin/round-trip ~/schemas/github.json -q ~/queries  # real queries, not fuzzed
+#   bin/round-trip --hostile                        # the other half: a wire
+#     value the scalar can't mean, which generated code must refuse by name
 #
 # The spec keeps the suite fast; this is where breadth lives — point it at a
 # real schema and a directory of real queries. Exits non-zero on a failure.
@@ -29,6 +31,7 @@ OptionParser.new do |opts|
   opts.on("-q", "--queries DIR", "round-trip *.graphql here instead of fuzzing") { |v| options[:queries] = v }
   opts.on("-d", "--draws N", Integer, "responses per corpus query (default 4)") { |v| options[:draws] = v }
   opts.on("-v", "--verbose", "print every failure, not the first per bucket") { options[:verbose] = true }
+  opts.on("--hostile", "spoil one leaf per response; generated code must refuse it by name") { options[:hostile] = true }
 end.parse!
 
 def load_schema(path)
@@ -94,7 +97,12 @@ schemas.each do |label, schema|
       next skipped += 1 # unparseable corpus file
     end
 
-    trip = RoundTrip.check(schema:, query:, name: "Case#{i}", rng:)
+    trip =
+      if options[:hostile]
+        RoundTrip.check_hostile(schema:, query:, name: "Case#{i}", rng:)
+      else
+        RoundTrip.check(schema:, query:, name: "Case#{i}", rng:)
+      end
     next refused += 1 if trip.refused
 
     trips += 1
@@ -105,7 +113,7 @@ schemas.each do |label, schema|
   fields = [[schema.query, false], [schema.mutation, true]].reject { |root, _| root.nil? }
     .flat_map { |root, mutation| root.fields.each_value.reject { |f| f.arguments.empty? }.map { |f| [f, mutation] } }
   inputs = 0
-  options[:count].times do |i|
+  (options[:hostile] ? 0 : options[:count]).times do |i|
     break if fields.empty?
 
     seed = options[:seed] + i
