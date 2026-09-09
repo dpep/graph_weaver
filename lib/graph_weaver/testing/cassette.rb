@@ -182,8 +182,8 @@ module GraphWeaver
       # Replace recorded response values with fakes, preserving structure.
       # Walks each entry's query against the schema (like FakeClient,
       # but transforming what's there instead of generating from scratch).
-      def anonymize!(schema:, seed: nil, mode: nil)
-        anonymizer = Anonymizer.new(schema:, seed:, mode:)
+      def anonymize!(schema:, seed: nil, values: nil)
+        anonymizer = Anonymizer.new(schema:, seed:, values:)
         @entries.each do |entry|
           entry["response"] = anonymizer.anonymize(entry["query"], entry["response"]) if entry["response"]
         end
@@ -305,9 +305,9 @@ module GraphWeaver
       # for the same reason.
       VERBATIM_KEYS = %w[path locations code].freeze
 
-      def initialize(schema:, seed: nil, mode: nil)
+      def initialize(schema:, seed: nil, values: nil)
         @schema = schema
-        @values = Values.new(seed:, mode:)
+        @values = Values.new(seed:, values:)
       end
 
       # The whole response, not just `data`: an error message routinely

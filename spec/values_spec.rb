@@ -76,8 +76,8 @@ describe GraphWeaver::Testing::Values do
     end
   end
 
-  describe "mode: :literal" do
-    subject(:values) { described_class.new(seed: 3, mode: :literal) }
+  describe "values: :literal" do
+    subject(:values) { described_class.new(seed: 3, values: :literal) }
 
     # every one of these is cast by generated code, so the value has to be
     # something that codec accepts — iso8601 strings, not Date/Time objects
@@ -104,7 +104,7 @@ describe GraphWeaver::Testing::Values do
   # `Timestamp` registered as Time got "Timestamp-1" and every fake response
   # touching it died in Time.iso8601 — the one promise the harness makes.
   describe "a registered custom scalar" do
-    subject(:values) { described_class.new(seed: 3, mode: :literal) }
+    subject(:values) { described_class.new(seed: 3, values: :literal) }
 
     after { GraphWeaver::Codegen.reset_scalars! }
 
@@ -158,7 +158,7 @@ describe GraphWeaver::Testing::Values do
           fake: ->(rng) { format("%.2f", rng.rand(1.0..100.0)) })
 
         drawn = Array.new(3) { values.scalar("Money", "price") }
-        again = described_class.new(seed: 3, mode: :literal)
+        again = described_class.new(seed: 3, values: :literal)
 
         expect(drawn.uniq.size).to eq 3
         expect(drawn).to eq Array.new(3) { again.scalar("Money", "price") }
@@ -166,11 +166,11 @@ describe GraphWeaver::Testing::Values do
     end
   end
 
-  describe "mode" do
+  describe "values:" do
     it "asks for the gem by name when :faker was requested and isn't there" do
       hide_const("Faker")
 
-      expect { described_class.new(mode: :faker) }
+      expect { described_class.new(values: :faker) }
         .to raise_error(ArgumentError, /requires the faker gem \(add it to your Gemfile's test group\)/)
     end
 
@@ -181,7 +181,7 @@ describe GraphWeaver::Testing::Values do
     end
 
     it "uses faker when asked for it explicitly" do
-      expect(described_class.new(seed: 1, mode: :faker).scalar("String", "email")).to match(/@/)
+      expect(described_class.new(seed: 1, values: :faker).scalar("String", "email")).to match(/@/)
     end
   end
 

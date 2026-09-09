@@ -65,10 +65,9 @@ class GraphWeaver::Testing::Values
 
   attr_reader :rng
 
-  def initialize(seed: nil, mode: nil)
-    config = GraphWeaver::Testing.config
-    @rng = Random.new(seed || config.seed || Random.new_seed)
-    @mode = resolve_mode(mode || config.mode)
+  def initialize(seed: nil, values: nil)
+    @rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
+    @style = resolve_style(values)
     @sequence = 0
     @id_map = {}
     @resolved = {}
@@ -83,7 +82,7 @@ class GraphWeaver::Testing::Values
 
     prop = underscore(field_name)
 
-    if @mode == :faker
+    if @style == :faker
       # rebind per call: several Values instances may interleave (e.g. two
       # seeded fakes), and faker's rng is global
       ::Faker::Config.random = @rng
@@ -158,16 +157,17 @@ class GraphWeaver::Testing::Values
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto
   # (nil) quietly falls back to :literal
-  def resolve_mode(mode)
-    case mode
+  def resolve_style(style)
+    case style
     when :faker
-      raise ArgumentError, "mode: :faker requires the faker gem (add it to your Gemfile's test group)" unless defined?(::Faker)
+      raise ArgumentError, "values: :faker requires the faker gem (add it to your Gemfile's test group)" unless defined?(::Faker)
 
       :faker
     when :literal then :literal
     when nil then defined?(::Faker) ? :faker : :literal
     else
-      raise ArgumentError, "mode: must be one of #{GraphWeaver::Testing::MODES.inspect} (or nil for auto), got #{mode.inspect}"
+      raise ArgumentError, "values: must be one of #{GraphWeaver::Testing::VALUE_STYLES.inspect} " \
+        "(or nil for auto), got #{style.inspect}"
     end
   end
 end

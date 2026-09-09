@@ -15,8 +15,11 @@ require_relative "../parsing"
 #
 # Values are type-correct by construction (real enum values, valid
 # __typename members for unions/interfaces, iso8601 for date scalars), so
-# every fake response casts cleanly through the generated structs. See
-# Values for value fabrication (mode: :faker / :literal).
+# every fake response casts cleanly through the generated structs.
+#
+# values: how they're written — :faker (semantic, matched on the field
+# name), :literal (plain type-derived), or nil to use faker when the gem is
+# loaded. Per fake: which reads better is one example's question.
 #
 # overrides: pin fields by GraphQL name — schema vocabulary, so keys
 # survive query refactors. "Type.field" beats "field"; values are
@@ -72,8 +75,8 @@ require_relative "../parsing"
 #
 #      FakeClient.new(schema:, null_chance: 1.0)   # everything nullable, null
 #
-# seed: makes a run reproducible (also seeds faker). schema:, overrides:,
-# list_size: and mode: fall back to GraphWeaver::Testing.config — and the
+# seed: makes a run reproducible (also seeds faker). schema:, overrides:
+# and list_size: fall back to GraphWeaver::Testing.config — and the
 # config's schema falls back to the committed dump.
 class GraphWeaver::Testing::FakeClient
   include GraphWeaver::Parsing
@@ -97,7 +100,7 @@ class GraphWeaver::Testing::FakeClient
   #      expect(fake.requests.last[:variables]).to eq({ "id" => "1" })
   attr_reader :requests
 
-  def initialize(schema: nil, overrides: {}, seed: nil, mode: nil, list_size: nil, null_chance: nil,
+  def initialize(schema: nil, overrides: {}, seed: nil, values: nil, list_size: nil, null_chance: nil,
     errors: nil, fail_at: nil, corrupt: nil)
     config = GraphWeaver::Testing.config
     @schema = schema || config.schema || raise(GraphWeaver::Error,
@@ -105,7 +108,7 @@ class GraphWeaver::Testing::FakeClient
       "or commit a schema dump at #{GraphWeaver.schema_path}")
     @overrides = config.overrides.merge(overrides).transform_keys(&:to_s)
     GraphWeaver::Testing.validate_overrides!(@schema, @overrides)
-    @values = GraphWeaver::Testing::Values.new(seed:, mode:)
+    @values = GraphWeaver::Testing::Values.new(seed:, values:)
     @list_size = list_size || config.list_size
     @null_chance = null_chance || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs

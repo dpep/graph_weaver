@@ -23,26 +23,27 @@ end
 #        config.context = { current_user: }        # baseline GraphQL context
 #        config.default_mode = :fake               # untagged examples (graph_weaver/rspec)
 #        config.seed = 42                          # reproducible fakes
-#        config.mode = :faker                      # or :literal; nil = auto
 #        config.overrides = { "Person.name" => "Daniel" }
 #        config.list_size = 2..4
 #        config.cassette_dir = "spec/cassettes"
 #      end
 #
 # Anything whose honest answer differs per example belongs on the fake, not
-# here: graphql_fake(null_chance: 1.0) for the empty-state example, and
-# overrides:/list_size: to say what one example's data is.
-#
-# mode picks how values are fabricated:
-#      :faker   — semantic, field-name matched (requires the faker gem)
-#      :literal — plain type-derived values ("name-1", seeded numbers)
-#      nil      — auto: :faker when the gem is loaded, else :literal
+# here: graphql_fake(null_chance: 1.0) for the empty-state example,
+# graphql_fake(values: :literal) for the one that reads better without
+# faker's prose, and overrides:/list_size: to say what one example's data is.
 #
 # rspec users: require "graph_weaver/rspec" instead — it hooks the suite
 # (seed from rspec, a client per example from its `graphql:` tag).
 module GraphWeaver
   module Testing
-    MODES = [:faker, :literal].freeze
+    # How a fake writes its values, named by the `values:` a fake takes —
+    # graphql_fake(values: :literal), FakeClient.new(values:):
+    #
+    #      :faker   semantic, matched on the field name (needs the faker gem)
+    #      :literal plain type-derived values ("name-1", seeded numbers)
+    #      nil      auto: :faker when the gem is loaded, else :literal
+    VALUE_STYLES = %i[faker literal].freeze
 
     # What an example can run against, named by the rspec tag that selects
     # it — `it "…", graphql: :in_process` (see graph_weaver/rspec):
@@ -56,15 +57,14 @@ module GraphWeaver
       attr_accessor :overrides, :seed, :list_size, :cassette_dir, :context,
         :record, :anonymize
       # #schema is written plainly and read with a fallback (below), the way
-      # #mode, #router and #default_mode are read plainly and written with a check
+      # #router and #default_mode are read plainly and written with a check
       attr_writer :schema
-      attr_reader :mode, :router, :default_mode
+      attr_reader :router, :default_mode
 
       def initialize
         @overrides = {}
         @seed = nil
         @list_size = 1..3
-        @mode = nil # auto
         @schema = nil
         @located = nil # the committed dump, once located
         # not under spec/fixtures: `fixtures :all` globs that path for
@@ -101,14 +101,6 @@ module GraphWeaver
       # overrides at configure time doesn't force a schema load on a suite
       # that never asks for one.
       def explicit_schema = @schema
-
-      def mode=(mode)
-        unless mode.nil? || MODES.include?(mode)
-          raise ArgumentError, "mode: must be one of #{MODES.inspect} (or nil for auto), got #{mode.inspect}"
-        end
-
-        @mode = mode
-      end
 
       def default_mode=(mode)
         unless mode.nil? || CLIENT_MODES.include?(mode)

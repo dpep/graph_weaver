@@ -211,38 +211,36 @@ describe GraphWeaver::Testing do
       expect(values.scalar("String", "widget")).to match(/widget/)
     end
 
-    it "mode: :literal skips semantics even with faker loaded" do
-      literal = GraphWeaver::Testing::Values.new(seed: 3, mode: :literal)
+    it "values: :literal skips semantics even with faker loaded" do
+      literal = GraphWeaver::Testing::Values.new(seed: 3, values: :literal)
 
       expect(literal.scalar("String", "email")).to match(/^email-\d+$/)
     end
 
-    it "rejects unknown modes" do
+    it "rejects an unknown value style" do
       expect {
-        GraphWeaver::Testing::Values.new(mode: :chaos)
-      }.to raise_error(ArgumentError, /:faker, :literal/)
-
-      expect {
-        GraphWeaver::Testing.configure { |config| config.mode = :chaos }
+        GraphWeaver::Testing::Values.new(values: :chaos)
       }.to raise_error(ArgumentError, /:faker, :literal/)
     end
 
-    # the two knobs are one word apart and answer different questions, so
-    # each refusal has to name its own list rather than the other's
-    it "keeps config.mode and config.default_mode apart" do
+    # a suite-wide value style made every example's data someone else's
+    # setting; the auto-detect (faker when loaded) is the only global left
+    it "no longer takes a suite-wide value style" do
+      expect { GraphWeaver::Testing.configure { |config| config.mode = :literal } }
+        .to raise_error(NoMethodError)
+    end
+
+    it "keeps values: and the client mode apart" do
       expect {
         GraphWeaver::Testing.configure { |config| config.default_mode = :faker }
       }.to raise_error(ArgumentError, /default_mode: must be one of \[:fake, :in_process, :router\]/)
     end
 
-    it "applies config.mode to what a fake fabricates" do
-      GraphWeaver::Testing.configure do |config|
-        config.schema = Demo::Schema
-        config.mode = :literal
-      end
+    it "applies values: to what a fake fabricates" do
+      GraphWeaver::Testing.configure { |config| config.schema = Demo::Schema }
 
-      email = GraphWeaver::Testing::FakeClient.new.execute("{ people { email } }")
-        .dig("data", "people", 0, "email")
+      email = GraphWeaver::Testing::FakeClient.new(values: :literal)
+        .execute("{ people { email } }").dig("data", "people", 0, "email")
       expect(email).to match(/\Aemail-\d+\z/)
     end
   end
@@ -516,13 +514,13 @@ describe GraphWeaver::Testing do
   end
 
   # Both lists are refusals with a spellcheck-free message — "must be one of
-  # [...]" prints the constant — so a mode added here reaches the user as a
-  # valid answer the moment it exists, and docs/testing.md is where they'd
+  # [...]" prints the constant — so an answer added here reaches the user as
+  # a valid one the moment it exists, and docs/testing.md is where they'd
   # look for it.
-  it "documents every mode a suite can name" do
+  it "documents every mode and value style a spec can name" do
     docs = File.read(File.expand_path("../docs/testing.md", __dir__))
 
     expect(described_class::CLIENT_MODES.reject { |mode| docs.include?("graphql: :#{mode}") }).to be_empty
-    expect(described_class::MODES.reject { |mode| docs.include?(mode.inspect) }).to be_empty
+    expect(described_class::VALUE_STYLES.reject { |style| docs.include?(style.inspect) }).to be_empty
   end
 end

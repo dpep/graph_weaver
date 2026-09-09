@@ -103,7 +103,6 @@ GraphWeaver::Testing.configure do |config|
   # config.context = { tenant: }     # baseline context every example starts from
   # config.default_mode = :fake      # what an UNtagged example runs against
   #                                  # (graphql: false opts one back out)
-  # config.mode = :faker             # or :literal (plain typed values); nil = auto
   # config.seed = 4242               # defaults to rspec's own --seed
   # config.overrides = { "Person.name" => "Daniel" }
   # config.list_size = 1..3
@@ -112,8 +111,9 @@ end
 
 Anything whose honest answer differs per example belongs on the fake instead
 — `graphql_fake(null_chance: 1.0)` for the example that's about an empty
-state. A suite-wide `null_chance` would sprinkle nils through every *other*
-example, one run in ten, on a seed the failure doesn't name.
+state, `graphql_fake(values: :literal)` for the one that reads better without
+faker's prose. A suite-wide `null_chance` would sprinkle nils through every
+*other* example, one run in ten, on a seed the failure doesn't name.
 
 Need the schema itself inside an example — to sample a field, or build a
 query on the fly? The client in play exposes it as
@@ -128,9 +128,7 @@ scalar — a value the Ruby type you registered it as can hold, so every fake
 casts cleanly through your generated structs. `@skip`/`@include` are
 evaluated against the variables you passed (defaults included), so a field
 the server would leave out is left out. `rspec --seed 1234` reproduces the
-values along with test order. `config.mode` picks how
-they're built: `:faker` (semantic, matched on the field name — raises if the
-gem is missing), `:literal` (plain type-derived), or nil to auto-detect faker.
+values along with test order.
 
 ```ruby
 fake = GraphWeaver::Testing::FakeClient.new   # schema: falls back to Testing.config
@@ -138,6 +136,17 @@ fake = GraphWeaver::Testing::FakeClient.new   # schema: falls back to Testing.co
 person = PersonQuery.execute!(client: fake, id: "1").person
 person.name       # a plausible name, when faker is loaded
 person.birthday   # a real Date
+```
+
+Values are semantic when the [faker](https://github.com/faker-ruby/faker) gem
+is loaded — `name` gets a name, `email` an email — and plain and type-derived
+(`"name-1"`, seeded numbers) when it isn't. Say `values: :literal` on a fake
+that reads better without the prose, or `values: :faker` to insist on the
+semantic ones and get told if the gem is missing:
+
+```ruby
+graphql_fake(values: :literal)
+GraphWeaver::Testing::FakeClient.new(values: :literal)
 ```
 
 A scalar you registered as **your own class** is the one value nothing here
