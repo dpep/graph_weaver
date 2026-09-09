@@ -62,26 +62,33 @@ end
 # runtime can tell a narrow kwarg from a widened one — only srb tc can, and
 # the whole point of the design is that it still does. So ask it.
 describe "execute's kwargs stay statically narrow" do
-  def typecheck(body)
+  def typecheck(*requires, body)
     Dir.mktmpdir do |dir|
       file = File.join(dir, "call_site.rb")
-      File.write(file, <<~RUBY)
-        # typed: strict
-        require_relative #{File.expand_path("generated/person_query", __dir__).inspect}
-
-        #{body}
-      RUBY
-      # sorbet/config adds the repo itself, so the generated module and the
+      lines = requires.map { |name| "require_relative #{File.expand_path("generated/#{name}", __dir__).inspect}" }
+      File.write(file, "# typed: strict\n#{lines.join("\n")}\n\n#{body}\n")
+      # sorbet/config adds the repo itself, so the generated modules and the
       # gem's own sigs come along
       `bundle exec srb tc #{file.shellescape} 2>&1`
     end
   end
 
   it "rejects a loose value where the schema says String" do
-    expect(typecheck('PersonQuery.execute(id: 42)')).to match(/Expected `String` but found `Integer/)
+    expect(typecheck("person_query", "PersonQuery.execute(id: 42)"))
+      .to match(/Expected `String` but found `Integer/)
   end
 
   it "accepts an untyped one — the value coercion exists for" do
-    expect(typecheck('PersonQuery.execute(id: T.unsafe(nil))')).to include "No errors!"
+    expect(typecheck("person_query", "PersonQuery.execute(id: T.unsafe(nil))")).to include "No errors!"
+  end
+
+  # The two widenings that are deliberate: a wire string for an enum and a
+  # plain hash for an input object are how those are written by hand, not a
+  # loophole for untyped input.
+  it "keeps the enum and input-object kwargs wide" do
+    expect(typecheck("add_pet_mutation", "adopt_mutation", <<~RUBY)).to include "No errors!"
+      AddPetMutation.execute(name: "Rex", species: "DOG")
+      AdoptMutation.execute(input: { name: "Rex", species: "DOG" })
+    RUBY
   end
 end
