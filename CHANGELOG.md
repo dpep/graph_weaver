@@ -1,4 +1,25 @@
 ## Unreleased
+- **`retries:` takes the count you'd write, and means the same thing
+  everywhere.** `GraphWeaver.new(url, retries: 3)` raised and pointed at
+  `retries: { tries: 3 }` — a second word for the same number that disagreed
+  about whether it counted the first attempt. One word now: `retries:` is how
+  many attempts follow the first, on the client and on `Retry` alike, so
+  `retries: 0` is one attempt. **Rename** `Retry.new(tries: n)` to
+  `Retry.new(retries: n - 1)`; the default is unchanged in effect.
+- **`Response#to_h`.** Every error class answered `#to_h`; the envelope didn't.
+  It returns `{"data" =>, "errors" =>, "extensions" =>}` with each error as its
+  JSON-ready hash. `data` stays the typed struct rather than re-serialized:
+  `T::Struct#serialize` gives snake_case keys, drops nulls, and leaves a
+  registered scalar as its Ruby object — output that would pass for the
+  server's response without being one.
+- **Sensitive variables are scrubbed from the debug log.** A `login(password:)`
+  mutation's variables were one log-level switch away from the log. Matching
+  values are replaced with `[FILTERED]` at any depth, on the wire and
+  in-process paths. Rails apps configure nothing: the railtie adopts the app's
+  own `config.filter_parameters`. Elsewhere,
+  `GraphWeaver.filter_parameters = [:password, /token/]`; the default list is
+  `[:password, :token, :secret, :authorization]`, matched as case-insensitive
+  substrings, and `[]` turns filtering off.
 - **`schema:diff` names what changed, not just that something did.** It
   reported `schema.json is stale` and stopped, so learning what moved meant
   refreshing and reading a `git diff` of a 3 MB dump. It now prints one line
