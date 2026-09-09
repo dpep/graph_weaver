@@ -210,17 +210,17 @@ class GraphWeaver::Client
     GraphWeaver::Transport::Faraday.new(url, headers:, **timeouts, &middleware)
   end
 
-  # retries: is off by default — true for Retry defaults, or a
+  # retries: is off by default — a count, true for Retry defaults, or a
   # Hash of its options
   def wrap_retries(transport, retries)
     case retries
+    when Integer then GraphWeaver::Retry.new(transport, retries:)
     when true then GraphWeaver::Retry.new(transport)
     when false, nil then transport
     when Hash then GraphWeaver::Retry.new(transport, **retries)
     else
-      # retries: 3 reads as either 3 retries or 3 attempts, so name the form
-      # that says which rather than picking one
-      raise ArgumentError, "retries: takes true or a Hash of Retry options — for a count, retries: { tries: #{retries} }"
+      raise ArgumentError,
+        "retries: takes a count, true, or a Hash of Retry options — got #{retries.inspect}"
     end
   end
 end

@@ -10,7 +10,7 @@ require_relative "transport"
 #
 #      client = GraphWeaver::Retry.new(
 #        GraphWeaver::Transport::HTTP.new(url),
-#        tries: 5,                        # total attempts, first included
+#        retries: 5,                      # attempts after the first
 #        on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
 #        backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
 #        base: 0.5, max: 30,              # seconds; delays clamp at max:
@@ -18,6 +18,10 @@ require_relative "transport"
 #        retry_codes: ["THROTTLED"],      # also retry GraphQL errors by code
 #        retry_mutations: true,           # off by default — see below
 #      )
+#
+# `retries:` is how many attempts follow the first — the same word and the
+# same meaning on the client (`GraphWeaver.new(url, retries: 5)`), so
+# `retries: 0` is one attempt and no retry.
 #
 # **A mutation gets one attempt.** A failure with no answer — a read
 # timeout, a 502, a reset socket — does not say whether the server applied
@@ -35,7 +39,7 @@ require_relative "transport"
 # A server that answers with Retry-After sets the delay itself (clamped
 # to max:); otherwise the configured backoff decides.
 #
-# Exhausting tries re-raises the last error (or returns the last
+# Exhausting the retries re-raises the last error (or returns the last
 # code-matched response).
 class GraphWeaver::Retry
   BACKOFFS = {
@@ -58,13 +62,13 @@ class GraphWeaver::Retry
   MUTATION_HINT = "not retrying a mutation — a request that failed without an answer " \
     "may still have been applied; pass retry_mutations: true if yours are idempotent"
 
-  def initialize(client, tries: 3, on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
+  def initialize(client, retries: 2, on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
     backoff: :exponential, base: 0.5, max: 30, jitter: true, retry_if: DEFAULT_RETRY_IF,
     retry_codes: [], retry_mutations: false, sleeper: nil)
-    raise ArgumentError, "tries: must be >= 1" unless tries >= 1
+    raise ArgumentError, "retries: must be >= 0" unless retries.is_a?(Integer) && retries >= 0
 
     @client = client
-    @tries = tries
+    @retries = retries
     @retry_mutations = retry_mutations
     @on = on
     @backoff = if backoff.is_a?(Proc)
@@ -88,7 +92,7 @@ class GraphWeaver::Retry
   end
 
   def execute(query, variables: {}, operation_name: nil)
-    tries = mutation?(query) ? 1 : @tries
+    attempts = mutation?(query) ? 1 : @retries + 1
     attempt = 0
     failure = T.let(nil, T.nilable(Exception))
 
@@ -96,10 +100,10 @@ class GraphWeaver::Retry
       attempt += 1
       begin
         response = @client.execute(query, variables:, operation_name:)
-        return response unless attempt < tries && retryable_response?(response)
+        return response unless attempt < attempts && retryable_response?(response)
       rescue *@on => e
-        if attempt >= tries || !@retry_if.call(e)
-          GraphWeaver.log(:warn) { MUTATION_HINT } if tries < @tries
+        if attempt >= attempts || !@retry_if.call(e)
+          GraphWeaver.log(:warn) { MUTATION_HINT } if attempts == 1 && @retries.positive?
           raise
         end
 
@@ -110,7 +114,7 @@ class GraphWeaver::Retry
       # a retry is invisible otherwise: the caller sees one slow call, and the
       # log shows an error that apparently didn't stop anything
       GraphWeaver.log(:info) do
-        "retrying #{operation_name || "query"} in #{seconds.round(2)}s (attempt #{attempt + 1} of #{tries})"
+        "retrying #{operation_name || "query"} in #{seconds.round(2)}s (attempt #{attempt + 1} of #{attempts})"
       end
       @sleeper.call(seconds)
       failure = nil
@@ -120,7 +124,7 @@ class GraphWeaver::Retry
   private
 
   def mutation?(query)
-    !@retry_mutations && @tries > 1 && GraphWeaver::Transport.mutation?(query)
+    !@retry_mutations && @retries.positive? && GraphWeaver::Transport.mutation?(query)
   end
 
   def retryable_response?(response)

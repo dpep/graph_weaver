@@ -16,7 +16,7 @@ describe GraphWeaver::Retry do
   it "retries transport failures and succeeds" do
     executor = described_class.new(
       sequence(failure.transport, failure.transport, fake),
-      tries: 3,
+      retries: 2,
       sleeper:,
     )
 
@@ -36,12 +36,22 @@ describe GraphWeaver::Retry do
       end
     end.new
 
-    SearchQuery.execute(client: described_class.new(counting, tries: 2, sleeper:), term: "x")
+    SearchQuery.execute(client: described_class.new(counting, retries: 1, sleeper:), term: "x")
     expect(seen).to eq %w[Search Search]
   end
 
-  it "re-raises after tries are exhausted" do
-    executor = described_class.new(failure.transport, tries: 3, sleeper:)
+  # the count is attempts-after-the-first everywhere, so 0 means "never retry"
+  it "counts retries after the first attempt" do
+    expect { PersonQuery.execute(client: described_class.new(failure.transport, retries: 0, sleeper:), id: "1") }
+      .to raise_error(GraphWeaver::TransportError)
+    expect(slept).to be_empty
+
+    expect { described_class.new(fake, retries: -1) }.to raise_error(ArgumentError, /retries: must be >= 0/)
+    expect { described_class.new(fake, retries: 1.5) }.to raise_error(ArgumentError, /retries: must be >= 0/)
+  end
+
+  it "re-raises after the retries are exhausted" do
+    executor = described_class.new(failure.transport, retries: 2, sleeper:)
 
     expect {
       PersonQuery.execute(client: executor, id: "1")
@@ -52,7 +62,7 @@ describe GraphWeaver::Retry do
   it "backs off exponentially by default, clamped at max" do
     executor = described_class.new(
       failure.transport,
-      tries: 5, base: 1, max: 5, jitter: false, sleeper:,
+      retries: 4, base: 1, max: 5, jitter: false, sleeper:,
     )
 
     expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
@@ -60,18 +70,18 @@ describe GraphWeaver::Retry do
   end
 
   it "supports linear and custom backoff" do
-    linear = described_class.new(failure.transport, tries: 3, base: 2, backoff: :linear, jitter: false, sleeper:)
+    linear = described_class.new(failure.transport, retries: 2, base: 2, backoff: :linear, jitter: false, sleeper:)
     expect { linear.execute("q", variables: {}) }.to raise_error(GraphWeaver::TransportError)
     expect(slept).to eq [2.0, 4.0]
 
     slept.clear
-    custom = described_class.new(failure.transport, tries: 3, backoff: ->(attempt) { attempt * 0.1 }, jitter: false, sleeper:)
+    custom = described_class.new(failure.transport, retries: 2, backoff: ->(attempt) { attempt * 0.1 }, jitter: false, sleeper:)
     expect { custom.execute("q", variables: {}) }.to raise_error(GraphWeaver::TransportError)
     expect(slept.map { |s| s.round(1) }).to eq [0.1, 0.2]
   end
 
   it "jitter randomizes within 50-100% of the delay" do
-    executor = described_class.new(failure.transport, tries: 2, base: 10, sleeper:)
+    executor = described_class.new(failure.transport, retries: 1, base: 10, sleeper:)
 
     expect { executor.execute("q", variables: {}) }.to raise_error(GraphWeaver::TransportError)
     expect(slept.first).to be_between(5.0, 10.0)
@@ -80,13 +90,13 @@ describe GraphWeaver::Retry do
   it "retries 5xx but not 4xx by default" do
     five_hundred = described_class.new(
       sequence(failure.server(status: 503), fake),
-      tries: 2, sleeper:,
+      retries: 1, sleeper:,
     )
     expect(PersonQuery.execute!(client: five_hundred, id: "1").person).not_to be_nil
 
     four_oh_one = described_class.new(
       sequence(failure.server(status: 401), fake),
-      tries: 2, sleeper:,
+      retries: 1, sleeper:,
     )
     expect {
       PersonQuery.execute(client: four_oh_one, id: "1")
@@ -106,7 +116,7 @@ describe GraphWeaver::Retry do
   it "retries 429 and 408 — the server asking for later, not a bad request" do
     [429, 408].each do |status|
       executor = described_class.new(
-        sequence(failure.server(status:), fake), tries: 2, sleeper:,
+        sequence(failure.server(status:), fake), retries: 1, sleeper:,
       )
       expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
     end
@@ -114,7 +124,7 @@ describe GraphWeaver::Retry do
 
   it "waits as long as Retry-After says, in preference to its own backoff" do
     executor = described_class.new(
-      sequence(throttling("2"), fake), tries: 2, base: 30, jitter: false, sleeper:,
+      sequence(throttling("2"), fake), retries: 1, base: 30, jitter: false, sleeper:,
     )
 
     expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
@@ -122,19 +132,19 @@ describe GraphWeaver::Retry do
   end
 
   it "reads an HTTP-date Retry-After, and clamps a long one to max:" do
-    at = described_class.new(throttling((Time.now + 5).httpdate), tries: 2, sleeper:)
+    at = described_class.new(throttling((Time.now + 5).httpdate), retries: 1, sleeper:)
     expect { PersonQuery.execute(client: at, id: "1") }.to raise_error(GraphWeaver::ServerError)
     expect(slept.first).to be_within(1).of(5)
 
     slept.clear
-    hour = described_class.new(throttling("3600"), tries: 2, max: 30, sleeper:)
+    hour = described_class.new(throttling("3600"), retries: 1, max: 30, sleeper:)
     expect { PersonQuery.execute(client: hour, id: "1") }.to raise_error(GraphWeaver::ServerError)
     expect(slept).to eq [30.0]
   end
 
   it "falls back to its backoff when the server sends no Retry-After" do
     executor = described_class.new(
-      sequence(throttling(nil), fake), tries: 2, base: 3, jitter: false, sleeper:,
+      sequence(throttling(nil), fake), retries: 1, base: 3, jitter: false, sleeper:,
     )
 
     expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
@@ -157,7 +167,7 @@ describe GraphWeaver::Retry do
     end
 
     it "does not retry a mutation" do
-      executor = described_class.new(counting, tries: 3, sleeper:)
+      executor = described_class.new(counting, retries: 2, sleeper:)
 
       expect { AdoptMutation.execute(client: executor, input: { name: "Rex", species: "DOG" }) }
         .to raise_error(GraphWeaver::TransportError)
@@ -166,7 +176,7 @@ describe GraphWeaver::Retry do
     end
 
     it "retries one when the caller says it is idempotent" do
-      executor = described_class.new(counting, tries: 3, retry_mutations: true, sleeper:)
+      executor = described_class.new(counting, retries: 2, retry_mutations: true, sleeper:)
 
       expect { AdoptMutation.execute(client: executor, input: { name: "Rex", species: "DOG" }) }
         .to raise_error(GraphWeaver::TransportError)
@@ -177,7 +187,7 @@ describe GraphWeaver::Retry do
       io = StringIO.new
       GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
 
-      expect { described_class.new(counting, tries: 3, sleeper:).execute("mutation { adopt { id } }") }
+      expect { described_class.new(counting, retries: 2, sleeper:).execute("mutation { adopt { id } }") }
         .to raise_error(GraphWeaver::TransportError)
 
       expect(io.string).to include("retry_mutations: true")
@@ -189,7 +199,7 @@ describe GraphWeaver::Retry do
   it "honors a custom retry_if and error list" do
     only_transport = described_class.new(
       sequence(failure.server(status: 503), fake),
-      tries: 3, on: [GraphWeaver::TransportError], sleeper:,
+      retries: 2, on: [GraphWeaver::TransportError], sleeper:,
     )
 
     expect {
@@ -200,13 +210,13 @@ describe GraphWeaver::Retry do
   it "retries responses carrying retry_codes, returning the last on exhaustion" do
     executor = described_class.new(
       sequence(failure.throttled, fake),
-      tries: 2, retry_codes: ["THROTTLED"], sleeper:,
+      retries: 1, retry_codes: ["THROTTLED"], sleeper:,
     )
     expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
     expect(slept.size).to eq 1
 
     slept.clear
-    exhausted = described_class.new(failure.throttled, tries: 2, retry_codes: ["THROTTLED"], sleeper:)
+    exhausted = described_class.new(failure.throttled, retries: 1, retry_codes: ["THROTTLED"], sleeper:)
     response = PersonQuery.execute(client: exhausted, id: "1")
     expect(response).to have_graphql_error(code: "THROTTLED") # last response returned
   end

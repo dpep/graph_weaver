@@ -36,11 +36,23 @@ describe GraphWeaver::Client do
       end
     end
 
-    # retries: 3 reads as either 3 retries or 3 attempts, and it used to die
-    # inside a splat as "no implicit conversion of Integer into Hash"
-    it "refuses a retries: that isn't true or a Hash" do
-      expect { GraphWeaver.new(url, retries: 3) }
-        .to raise_error(ArgumentError, /retries: \{ tries: 3 \}/)
+    # the natural spelling, and the one that used to be refused
+    it "takes a retry count" do
+      slept = []
+      client = GraphWeaver.new(
+        "http://127.0.0.1:1/graphql", # nothing listens: every attempt refuses
+        retries: { retries: 3, sleeper: ->(s) { slept << s } },
+      )
+
+      expect { client.run!("query { person(id: 1) { id } }") }.to raise_error(GraphWeaver::TransportError)
+      expect(slept.size).to eq 3 # 3 retries after the first attempt
+
+      expect(GraphWeaver.new(url, retries: 2).transport).to be_a GraphWeaver::Retry
+    end
+
+    it "refuses a retries: that is neither a count, true, nor a Hash" do
+      expect { GraphWeaver.new(url, retries: "3") }
+        .to raise_error(ArgumentError, /retries: takes a count/)
     end
 
     it "stays on the built-in transport even when faraday is loaded" do
@@ -90,16 +102,10 @@ describe GraphWeaver::Client do
       expect(http.instance_variable_get(:@open_timeout)).to eq 10 # untouched default
     end
 
-    it "tunes retries with a Hash, or disables them" do
-      slept = []
-      # nothing listens on port 1: every attempt is a connection refusal
-      client = GraphWeaver.new("http://127.0.0.1:1/graphql", retries: { tries: 3, sleeper: ->(s) { slept << s } })
-
-      expect { client.run!("query { person(id: 1) { id } }") }.to raise_error(GraphWeaver::TransportError)
-      expect(slept.size).to eq 2 # the Hash reached the Retry
-
+    it "turns retries on with true, or off with false" do
       expect(GraphWeaver.new(url, retries: true).transport).to be_a GraphWeaver::Retry
       expect(GraphWeaver.new(url, retries: false).transport).to be_a GraphWeaver::Transport::HTTP
+      expect(GraphWeaver.new(url, retries: 0).transport).to be_a GraphWeaver::Retry
     end
 
     it "parses typed modules bound to its transport" do

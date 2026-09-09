@@ -45,8 +45,8 @@ contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
   scheme (`"Basic dXNlcjpwYXNz..."`)
 - `transport:` — `:http` (the default) or `:faraday`
 - `headers:` — anything else (API keys, custom headers)
-- `retries:` — off by default; `true` for a `Retry` with defaults,
-  or a Hash of its options
+- `retries:` — off by default; a count (`retries: 3`), `true` for a
+  `Retry` with defaults, or a Hash of its options
 - `open_timeout:` / `read_timeout:` — seconds, defaulting to 10 and 30 on
   either transport
 - `cache:` / `ttl:` — schema introspection caching (see
@@ -188,7 +188,7 @@ Nothing set anywhere raises, naming the two you'd usually reach for:
 ```ruby
 GraphWeaver::Retry.new(
   inner_transport,
-  tries: 5,                        # total attempts, first included
+  retries: 5,                      # attempts after the first
   backoff: :exponential,           # or :linear, or ->(attempt) { seconds }
   base: 0.5, max: 30,              # seconds; delays clamp at max:
   jitter: true,                    # randomize each delay by 50-100%
@@ -203,8 +203,13 @@ Defaults: transport failures always retry; `ServerError` on 5xx plus
 **408 and 429** — the rest of 4xx is a bug in the request, retrying
 won't fix it. `retry_codes:` re-inspects response envelopes so
 GraphQL-level throttling can retry too (off by default — pass the codes
-your API uses). Exhausting `tries:` re-raises the last error (or returns
-the last code-matched response).
+your API uses). Exhausting the retries re-raises the last error (or
+returns the last code-matched response).
+
+`retries:` counts the attempts *after* the first — the same word and the
+same meaning wherever it appears, so `GraphWeaver.new(url, retries: 3)`
+makes up to four attempts and `retries: 0` never retries. It defaults
+to 2.
 
 **A mutation gets one attempt.** A failure with no answer — a read
 timeout, a 502, a reset socket — does not say whether the server applied
@@ -230,7 +235,7 @@ rescue GraphWeaver::ServerError => e
 end
 ```
 
-Or via the client: `GraphWeaver.new(url, retries: { tries: 5, retry_codes: ["THROTTLED"] })`.
+Or via the client: `GraphWeaver.new(url, retries: { retries: 5, retry_codes: ["THROTTLED"] })`.
 
 What classifies as a transport failure is an extensible set — see
 [errors](errors.md#extending-transporterror) (`GraphWeaver.register_transport_error`).
