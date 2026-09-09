@@ -27,6 +27,23 @@ module GraphWeaver
       end
     end
 
+    # One key field's trip onto the wire: normalize whatever arrived into the
+    # type the sig promises — the sig itself is `.checked(:never)`, so this is
+    # the check — then serialize. A cast complains about the value alone
+    # ("expected an Int"), and a query can build several representations, so
+    # the refusal names this one and the field. nil passes through untouched:
+    # a missing key is `build`'s complaint to make, and it says more.
+    def self.field(type_name, name, value)
+      return if value.nil?
+
+      yield value
+    rescue StandardError => e
+      shown = value.inspect
+      got = " (got #{shown})" unless e.message.include?(shown)
+      raise InputError.new("#{type_name} representation #{name}: #{e.message}#{got}",
+        field: name, struct: type_name)
+    end
+
     def self.missing(values, paths) = paths.select { |path| dig(values, path).nil? }
     private_class_method :missing
 

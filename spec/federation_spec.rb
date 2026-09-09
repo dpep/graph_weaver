@@ -461,8 +461,19 @@ describe "federation / _entities representations" do
   it "builds a compound key, typed field by field from the schema" do
     expect(reps.product(upc: "u-1", sku: 42))
       .to eq({ "__typename" => "Product", "upc" => "u-1", "sku" => 42 })
-    # Product.sku is Int! — the sig, not the wire, is what catches a bad one
-    expect { reps.product(upc: "u-1", sku: "42") }.to raise_error(TypeError)
+  end
+
+  # a representation is built from params as often as an execute kwarg is,
+  # so it takes the same loose input and refuses the same way
+  it "coerces a key field, and names the representation and the field when it can't" do
+    expect(reps.product(upc: "u-1", sku: "42"))
+      .to eq({ "__typename" => "Product", "upc" => "u-1", "sku" => 42 })
+
+    expect { reps.product(upc: "u-1", sku: "forty-two") }
+      .to raise_error(GraphWeaver::InputError, /Product representation sku: .*forty-two/) { |error|
+        expect(error.field).to eq "sku"
+        expect(error.struct).to eq "Product"
+      }
   end
 
   it "builds a nested key, keeping only what the key set declares" do

@@ -266,7 +266,10 @@ class GraphWeaver::Codegen
         out << ""
         out << "    # #{node.graphql_type} #{node.key_fields.map { |set| "@key(fields: #{set.inspect})" }.join(" ")}"
         sig = node.params.map { |param| "#{param.kwarg}: #{param.type}" }.join(", ")
-        out << "    sig { params(#{sig}).returns(T::Hash[String, T.untyped]) }"
+        # .checked(:never), as on execute: an untyped value (a Rails param)
+        # reaches the coercion in the body instead of sorbet-runtime's
+        # argument check; srb tc still holds typed call sites.
+        out << "    sig { params(#{sig}).returns(T::Hash[String, T.untyped]).checked(:never) }"
         kwargs = node.params.map { |param| param.required ? "#{param.kwarg}:" : "#{param.kwarg}: nil" }.join(", ")
         out << "    def self.#{node.method_name}(#{kwargs})"
         out << "      GraphWeaver::Representation.build(#{node.graphql_type.inspect}, {"

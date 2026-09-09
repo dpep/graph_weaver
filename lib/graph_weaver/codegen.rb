@@ -486,7 +486,7 @@ class GraphWeaver::Codegen
       if core.kind.name == "SCALAR"
         node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
         type = required ? node.bare_type : node.prop_type
-        value = node.serialize_identity? ? kwarg : "#{kwarg}&.then { |v1| #{node.serialize("v1", 2)} }"
+        value = representation_value(entity, name, kwarg, node)
       else
         # a nested key set — or an enum/composite one — passes through as an
         # open hash, narrowed to the declared sub-paths by the runtime
@@ -497,6 +497,19 @@ class GraphWeaver::Codegen
 
       RepresentationNode::Param.new(kwarg, name, type, value, required)
     end
+  end
+
+  # The kwarg's trip onto the wire — the same normalize-then-serialize an
+  # execute kwarg gets (see Emit#variable_serialize), since the builder's sig
+  # is `.checked(:never)` too and a representation is built from params just
+  # as often. Identity both ways emits the bare kwarg.
+  def representation_value(entity, name, kwarg, node)
+    return kwarg if !node.coerce? && node.serialize_identity?
+
+    inner = node.coerce? ? node.coerce("v1") : "v1"
+    inner = node.serialize(inner, 2) unless node.serialize_identity?
+    "GraphWeaver::Representation.field(#{entity.graphql_name.inspect}, #{name.inspect}, #{kwarg}) " \
+      "{ |v1| #{inner} }"
   end
 
   # What a registry's names must be in the schema. extend_type decorates
