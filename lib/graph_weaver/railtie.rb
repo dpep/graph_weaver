@@ -15,7 +15,19 @@
 # - Zeitwerk: the generated directory is hidden from it, since the
 #   default one lives under app/ and its files define top-level
 #   constants.
+# - watch mode: in development, editing a .graphql regenerates before the
+#   next request, the way editing a route or a locale takes effect.
 class GraphWeaver::Railtie < Rails::Railtie
+  # config.graph_weaver.watch — false to never regenerate during a request.
+  # Default: development only.
+  config.graph_weaver = ActiveSupport::OrderedOptions.new
+
+  class << self
+    # The file watcher, so the to_prepare block below can ask it whether a
+    # query changed. nil when not watching.
+    attr_accessor :watcher
+  end
+
   rake_tasks do
     require "graph_weaver/tasks"
   end
@@ -50,6 +62,59 @@ class GraphWeaver::Railtie < Rails::Railtie
     GraphWeaver.filter_parameters = ActiveSupport::ParameterFilter.new(filters)
   end
 
+  # Watch mode. A .graphql edit should reach the next request the way a route
+  # or a locale change does, so the query directories and the schema dump
+  # become one of Rails' own reloaders: a change there alone triggers a reload
+  # cycle, and the to_prepare below regenerates before it loads. Off with
+  #
+  #      config.graph_weaver.watch = false
+  #
+  # after: :load_config_initializers — that's where an app moves
+  # queries_paths, and the finisher that reads app.reloaders runs later still.
+  initializer "graph_weaver.watch", after: :load_config_initializers do |app|
+    GraphWeaver::Railtie.watch!(app)
+  end
+
+  # Registers the watcher, and says so: this is the one thing GraphWeaver does
+  # that writes a checked-in file outside a rake task. Returns it, or nil when
+  # nothing is being watched.
+  def self.watch!(app)
+    watch = app.config.graph_weaver.watch
+    watch = Rails.env.development? if watch.nil?
+    # with reloading off nothing re-runs to_prepare, so a watcher could only
+    # promise something it can't do
+    return self.watcher = nil unless watch && app.config.reloading_enabled?
+
+    # a directory that doesn't exist yet is still watched — FileUpdateChecker
+    # re-globs on every check, and its keys may themselves be globs
+    watched = GraphWeaver.queries_paths + GraphWeaver.fragments_paths
+    # the dump codegen would read, or where it goes once someone takes one
+    dump = GraphWeaver::SchemaLoader.locate_path || GraphWeaver.schema_path
+
+    dirs = watched.to_h { |path| [Rails.root.join(path).to_s, %w[graphql gql]] }
+    self.watcher = app.config.file_watcher.new([Rails.root.join(dump).to_s], dirs) { regenerate! }
+    app.reloaders << watcher
+    GraphWeaver.log(:info) do
+      "watching #{(watched << dump).join(", ")} — an edit regenerates " \
+        "#{GraphWeaver.generated_paths.first} before the next request " \
+        "(config.graph_weaver.watch = false to stop)"
+    end
+    watcher
+  end
+
+  # Regenerate in place, and keep serving when a query doesn't compile: a file
+  # saved mid-edit shouldn't take the dev server down, and the modules already
+  # loaded are the ones that worked a keystroke ago. Nothing is half-written on
+  # that path — generation validates every query before it writes any file — so
+  # one error per save, and the next save that compiles takes.
+  def self.regenerate!
+    written = GraphWeaver.generate!
+    GraphWeaver.reload_generated!
+    GraphWeaver.log(:info) { "regenerated #{written.map { |path| File.basename(path) }.join(", ")}" }
+  rescue GraphWeaver::Error => e
+    GraphWeaver.log(:error) { "keeping the modules already loaded — #{e.message}" }
+  end
+
   # A generated file `include`s the type helper it was generated with, so it
   # can't load until that constant resolves — and both Zeitwerk's setup and
   # the app's own to_prepare blocks (where extend_type/register_enum are told
@@ -65,6 +130,13 @@ class GraphWeaver::Railtie < Rails::Railtie
       # extend_type leaves a dangling include, and generate depends on
       # :environment, so boot failed before the task that would regenerate it.
       next if GraphWeaver.skip_generated_load
+
+      # Regenerate first, then load — and here rather than in the watcher's own
+      # to_run, so an extend_type or register_enum the app registers in its own
+      # to_prepare is already in place (that block was registered at
+      # :load_config_initializers, so it has run by now). A run that
+      # regenerated has already reloaded what it wrote.
+      next if GraphWeaver::Railtie.watcher&.execute_if_updated
 
       # entries may be globs, so Dir[] rather than Dir.exist?
       GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir[path].any? }

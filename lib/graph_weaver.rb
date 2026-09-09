@@ -488,6 +488,45 @@ module GraphWeaver
       files
     end
 
+    # Load the generated modules again after generate! rewrote them in a
+    # running process — the second half of watch mode (see the Railtie), and
+    # what a console needs after regenerating in another terminal:
+    #
+    #      GraphWeaver.reload_generated!
+    #
+    # `require` no-ops on a file it has already seen, and re-running one whose
+    # constants still exist raises (a T::Enum refuses a second definition), so
+    # the constants generation owns go first. Same caveat as load_queries!: an
+    # object built from the previous module stays an instance of it. A module
+    # whose query was just deleted keeps its old constant until restart —
+    # nothing on disk says what it was called any more.
+    def reload_generated!
+      names = query_files.map { |path| module_name(path, File.read(path)) } << types_module
+      names.each { |name| undefine(name) }
+
+      generated_paths.each do |dir|
+        Dir[File.join(dir, "**/*.rb")].each do |file|
+          # require stores the realpath; expand_path is what load_generated!
+          # passes, and the two differ under a symlinked checkout
+          $LOADED_FEATURES.delete(File.expand_path(file))
+          $LOADED_FEATURES.delete(File.realpath(file))
+        end
+      end
+      load_generated!
+    end
+
+    # remove_const takes a bare name, and types_module may be namespaced
+    def undefine(name)
+      *outer, base = name.split("::")
+      owner = outer.reduce(Object) do |mod, part|
+        return unless mod.const_defined?(part, false)
+
+        mod.const_get(part, false)
+      end
+      owner.send(:remove_const, base) if owner.const_defined?(base, false)
+    end
+    private :undefine
+
     # Anywhere GraphWeaver takes schema:, a Client stands for its schema — so
     # the console object and the rake task point at the same thing. A path
     # (String or Pathname) or SDL loads like it does everywhere else in the

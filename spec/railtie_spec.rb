@@ -11,10 +11,25 @@ describe "GraphWeaver::Railtie" do
   # `.logger`, ...) stub_const a fresh module for just their own duration.
   module Rails; end unless defined?(Rails)
 
+  # activesupport isn't a dependency of this gem, but OrderedOptions is what
+  # every railtie hands an app, so a stand-in of the same shape stands in.
+  unless defined?(ActiveSupport::OrderedOptions)
+    Object.const_set(:ActiveSupport, Module.new) unless defined?(ActiveSupport)
+    ActiveSupport.const_set(:OrderedOptions, Class.new(Hash) do
+      def method_missing(name, *args)
+        name.end_with?("=") ? self[:"#{name[0..-2]}"] = args.first : self[name]
+      end
+
+      def respond_to_missing?(*) = true
+    end)
+  end
+
   RAILTIE_RAKE_TASKS = []
   RAILTIE_INITIALIZERS = {}
   RAILTIE_INITIALIZER_OPTIONS = {}
+  RAILTIE_CONFIG = ActiveSupport::OrderedOptions.new
   railtie_base = Class.new do
+    define_singleton_method(:config) { RAILTIE_CONFIG }
     define_singleton_method(:rake_tasks) { |&block| RAILTIE_RAKE_TASKS << block }
     define_singleton_method(:initializer) do |name, **options, &block|
       RAILTIE_INITIALIZERS[name] = block
@@ -131,7 +146,7 @@ describe "GraphWeaver::Railtie" do
   it "loads generated modules at boot when the directory exists" do
     expect(RAILTIE_INITIALIZERS.keys).to eq %w[
       graph_weaver.ignore_generated graph_weaver.logger
-      graph_weaver.filter_parameters graph_weaver.load_generated
+      graph_weaver.filter_parameters graph_weaver.watch graph_weaver.load_generated
     ]
 
     Dir.mktmpdir do |dir|
@@ -232,6 +247,155 @@ describe "GraphWeaver::Railtie" do
       boot([:passw])
 
       expect(GraphWeaver.filter_parameters).to eq [:only_this]
+    end
+  end
+
+  # A .graphql edit should reach the next request, so the query directories
+  # join Rails' own reloaders and the to_prepare block regenerates first.
+  describe "watch mode" do
+    # what watch! asks of app.config.file_watcher, plus a switch for "a file
+    # changed" — the real one polls mtimes
+    class WatcherSpy
+      attr_reader :files, :dirs
+      attr_writer :updated
+
+      def initialize(files, dirs, &block)
+        @files, @dirs, @block = files, dirs, block
+      end
+
+      def execute_if_updated
+        return false unless @updated
+
+        @updated = false
+        @block.call
+        true
+      end
+    end
+
+    around do |example|
+      Dir.mktmpdir do |dir|
+        @dir = dir
+        GraphWeaver.queries_paths = File.join(dir, "queries")
+        GraphWeaver.generated_paths = File.join(dir, "generated")
+        GraphWeaver.fragments_paths = File.join(dir, "fragments")
+        # its own namespace, so reloading can't remove a constant another
+        # spec file's fixtures defined
+        GraphWeaver.types_module = "WatchTypes"
+        GraphWeaver.schema_path = File.join(dir, "schema.graphql")
+        File.write(GraphWeaver.schema_path, Demo::Schema.to_definition)
+        FileUtils.mkdir_p(GraphWeaver.queries_paths.first)
+        example.run
+      ensure
+        %i[queries_paths generated_paths fragments_paths types_module schema_path]
+          .each { |setting| GraphWeaver.public_send(:"#{setting}=", nil) }
+        GraphWeaver::Railtie.watcher = nil
+        Object.send(:remove_const, :WatchProbeQuery) if Object.const_defined?(:WatchProbeQuery)
+      end
+    end
+
+    Env = Struct.new(:name) { def development? = name == "development" }
+
+    before do
+      @env = Env.new("development")
+      root, env = Pathname.new(@dir), -> { @env }
+      rails = Module.new
+      rails.define_singleton_method(:root) { root }
+      rails.define_singleton_method(:env) { env.call }
+      stub_const("Rails", rails)
+    end
+
+    # the pieces watch! reads off a Rails app
+    def app(watch: nil, reloading: true)
+      config = ActiveSupport::OrderedOptions.new
+      config.graph_weaver = ActiveSupport::OrderedOptions.new
+      config.graph_weaver.watch = watch
+      config.file_watcher = WatcherSpy
+      config.define_singleton_method(:reloading_enabled?) { reloading }
+
+      Struct.new(:config, :reloaders).new(config, [])
+    end
+
+    def write_query(selection)
+      File.write(File.join(@dir, "queries/watch_probe.graphql"), "query { person(id: 1) { #{selection} } }\n")
+    end
+
+    it "watches the query directories and the schema dump" do
+      host = app
+      watcher = GraphWeaver::Railtie.watch!(host)
+
+      expect(watcher.dirs).to eq(
+        File.join(@dir, "queries") => %w[graphql gql],
+        File.join(@dir, "fragments") => %w[graphql gql],
+      )
+      expect(watcher.files).to eq [File.join(@dir, "schema.graphql")]
+      # without this a .graphql edit on its own never re-runs to_prepare
+      expect(host.reloaders).to eq [watcher]
+    end
+
+    it "watches in development only, unless the app says otherwise" do
+      expect(GraphWeaver::Railtie.watch!(app)).to be_a WatcherSpy
+
+      @env = Env.new("production")
+      expect(GraphWeaver::Railtie.watch!(app)).to be_nil
+      expect(GraphWeaver::Railtie.watch!(app(watch: true))).to be_a WatcherSpy
+    end
+
+    # a file-writing side effect on request needs an off switch, and promising
+    # one where nothing re-runs to_prepare would be a promise it can't keep
+    it "doesn't watch when told not to, or when nothing would reload" do
+      expect(GraphWeaver::Railtie.watch!(app(watch: false))).to be_nil
+      expect(GraphWeaver::Railtie.watch!(app(reloading: false))).to be_nil
+    end
+
+    it "replaces the loaded module when its query changes" do
+      write_query("name")
+      GraphWeaver::Railtie.regenerate!
+      expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
+
+      write_query("name birthday")
+      GraphWeaver::Railtie.regenerate!
+
+      # require would have no-op'd on the rewritten file
+      expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name birthday]
+    end
+
+    # a query saved mid-edit shouldn't take the dev server down
+    it "logs and keeps the loaded module when a query no longer compiles" do
+      write_query("name")
+      GraphWeaver::Railtie.regenerate!
+
+      logged = []
+      GraphWeaver.logger = Logger.new(File::NULL).tap do |logger|
+        logger.define_singleton_method(:error) { |_progname, &block| logged << block.call }
+      end
+      write_query("nam")
+      expect { GraphWeaver::Railtie.regenerate! }.not_to raise_error
+
+      expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
+      expect(logged.join).to include("keeping the modules already loaded", "watch_probe.graphql", "'nam'")
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    # regenerate first, then load — and only load again when nothing did
+    it "asks the watcher before loading, and skips the load when it regenerated" do
+      write_query("name")
+      host = app
+      GraphWeaver::Railtie.watch!(host)
+      prepared = []
+      config = Object.new
+      config.define_singleton_method(:to_prepare) { |&block| prepared << block }
+      rails_app = Object.new
+      rails_app.define_singleton_method(:config) { config }
+      RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call(rails_app)
+
+      # nothing changed: no generation, just the load
+      prepared.each(&:call)
+      expect(Dir[File.join(@dir, "generated/*.rb")]).to be_empty
+
+      GraphWeaver::Railtie.watcher.updated = true
+      prepared.each(&:call)
+      expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
     end
   end
 
