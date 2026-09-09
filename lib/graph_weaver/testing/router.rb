@@ -146,7 +146,8 @@ module GraphWeaver
     #        context: { current_user: user },
     #      )
     #
-    # (`subgraphs:` is optional — see {Internal::Subgraphs}.)
+    # (`subgraphs:` is optional — they're derived from what each loaded
+    # schema defines.)
     #
     # A supergraph only **partly** local — the rest of it served by other
     # processes — needs nothing extra: the subgraphs nobody here defines are
