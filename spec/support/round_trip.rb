@@ -441,24 +441,33 @@ module RoundTrip
       [ruby, wire]
     end
 
+    # Some draws hand execute the value as an app actually has it — a String
+    # off a form for a number, a model's Integer primary key for an ID, an
+    # iso8601 string for a Date. Coercion has to land those on the wire as
+    # the same value the already-typed form would. Boolean has no loose form
+    # on purpose: the library refuses to read one (see docs/scalars.md).
     def scalar(name)
-      value =
-        case name
-        when "ID", "String" then "v#{@rng.rand(1000)}"
-        when "Int" then @rng.rand(1000)
-        when "Float" then (@rng.rand * 10).round(3)
-        when "Boolean" then @rng.rand < 0.5
-        else
-          case GraphWeaver::Codegen.scalar(name).type
-          when "Date" then return [Date.new(2024, 1, 15), "2024-01-15"]
-          when "Time" then return [Time.utc(2024, 1, 15, 10, 20, 30), "2024-01-15T10:20:30Z"]
-          when "Integer" then @rng.rand(1000)
-          when "String" then "v#{@rng.rand(100)}"
-          else { "raw" => name } # unregistered: T.untyped, straight through
-          end
+      case name
+      when "String" then twice("v#{@rng.rand(1000)}")
+      when "ID" then loose? ? id_from_integer : twice("v#{@rng.rand(1000)}")
+      when "Int" then numeric(@rng.rand(1000))
+      when "Float" then numeric((@rng.rand * 10).round(3))
+      when "Boolean" then twice(@rng.rand < 0.5)
+      else
+        case GraphWeaver::Codegen.scalar(name).type
+        when "Date" then loose? ? twice("2024-01-15") : [Date.new(2024, 1, 15), "2024-01-15"]
+        when "Time" then [Time.utc(2024, 1, 15, 10, 20, 30), "2024-01-15T10:20:30Z"]
+        when "Integer" then numeric(@rng.rand(1000))
+        when "String" then twice("v#{@rng.rand(100)}")
+        else twice({ "raw" => name }) # unregistered: T.untyped, straight through
         end
-      [value, value]
+      end
     end
+
+    def loose? = @rng.rand < 0.4
+    def twice(value) = [value, value]
+    def numeric(value) = loose? ? [value.to_s, value] : twice(value)
+    def id_from_integer = @rng.rand(1000).then { |n| [n, n.to_s] }
   end
 
   # Stands in for a transport so a round trip can read what execute put on the
