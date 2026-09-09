@@ -19,7 +19,8 @@ end
 #      GraphWeaver::Testing.configure do |config|
 #        config.schema = MySchema                  # overrides the derived schema
 #        config.router = { subgraphs: { "reviews" => :fake } }  # or supergraph:,
-#                                                  # when it isn't the dump
+#                                                  # when it isn't the dump, or
+#                                                  # fake: for how those fabricate
 #        config.context = { current_user: }        # baseline GraphQL context
 #        config.default_mode = :fake               # untagged examples (graph_weaver/rspec)
 #        config.seed = 42                          # reproducible fakes
@@ -112,13 +113,14 @@ module GraphWeaver
         @default_mode = mode
       end
 
-      # Router arguments — both keys optional, and each answers a different
+      # Router arguments — every key optional, and each answers a different
       # question. `supergraph:` is for one derivation can't find; without it
       # the conventional dump is used, when that dump is itself a supergraph.
       # `subgraphs:` is for what derivation can't settle, or for `"reviews"
       # => :fake`, which fabricates a subgraph this process doesn't serve —
       # the commonest reason to configure a router at all, and no reason to
-      # have to restate where the supergraph is.
+      # have to restate where the supergraph is. `fake:` says how those
+      # fabricate; graphql_router(fake: …) says it for one example.
       def router=(arguments)
         unless arguments.nil? || arguments.is_a?(Hash)
           raise ArgumentError, "router: must be the arguments to build one, e.g. " \
@@ -131,7 +133,7 @@ module GraphWeaver
           raise ArgumentError, "router: context: is set as config.context — the baseline every " \
             ":in_process and :router example starts from"
         end
-        unknown = (arguments&.keys || []) - %i[supergraph subgraphs]
+        unknown = (arguments&.keys || []) - %i[supergraph subgraphs fake]
         raise ArgumentError, "router: doesn't take #{unknown.join(", ")}" if unknown.any?
 
         @router = arguments
@@ -142,7 +144,11 @@ module GraphWeaver
       # #context is settable, so an example that runs as someone else sets
       # that rather than rebuilding — the rspec hook resets it each time.
       def built_router
-        @built_router ||= Router.new(supergraph: supergraph!, subgraphs: @router && @router[:subgraphs])
+        @built_router ||= Router.new(
+          supergraph: supergraph!,
+          subgraphs: @router && @router[:subgraphs],
+          fake: (@router && @router[:fake]) || {},
+        )
       end
 
       # The composed supergraph :router plans against — named, or the

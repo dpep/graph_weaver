@@ -187,6 +187,25 @@ module GraphWeaver
           GraphWeaver.client = GraphWeaver::InProcess.new(schema, **options)
         end
 
+        # Run this example against the whole federated graph. `graphql:
+        # :router` is exactly this call with no argument; `fake:` is how the
+        # subgraphs it fakes fabricate, in the options graphql_fake takes:
+        #
+        #      it "shows the carrier" do
+        #        graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" } })
+        #        …
+        #      end
+        #
+        # The router itself is built once for the suite — parsing a
+        # supergraph per example is real time — so this installs that one and
+        # tells it where this example starts.
+        def graphql_router(fake: nil)
+          claim_mode!(:router)
+          router = GraphWeaver::Testing::RSpecIntegration.client_for(:router)
+          router.fake = fake if fake
+          GraphWeaver.client = router
+        end
+
         # A tag and a helper are two spellings of one choice, so they can
         # agree (`graphql: :fake` plus `graphql_fake(overrides:)` is the
         # documented way to pass options) but must not contradict: one of the

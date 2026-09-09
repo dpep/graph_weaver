@@ -236,6 +236,33 @@ describe "graph_weaver/rspec" do
     end
   end
 
+  # The router is built once for the suite, so per-example fake data has to
+  # reach it without rebuilding it — the tag alone leaves nowhere to put it.
+  describe "graphql_router(fake:)" do
+    before do
+      require_relative "support/federation_router_graph"
+      GraphWeaver::Testing.config.router = {
+        supergraph: Object.const_get("RouterGraph::PARTIAL_SUPERGRAPH"),
+        subgraphs: { "shipping" => :fake },
+      }
+    end
+
+    def carrier = GraphWeaver.client.execute("{ shipments { carrier } }").dig("data", "shipments", 0, "carrier")
+
+    it "pins a faked subgraph's data for this example" do
+      graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" } })
+      expect(carrier).to eq "UPS"
+    end
+
+    it "takes suite-wide fake options from config.router" do
+      GraphWeaver::Testing.config.router = GraphWeaver::Testing.config.router
+        .merge(fake: { overrides: { "Shipment.carrier" => "DHL" } })
+      graphql_router
+
+      expect(carrier).to eq "DHL"
+    end
+  end
+
   describe "an untagged example" do
     it "leaves GraphWeaver.client alone by default" do
       expect(GraphWeaver.client).to be_nil

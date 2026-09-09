@@ -287,6 +287,23 @@ absent. Values come from the same engine as
 [`graphql: :fake`](testing.md#fabricated-data--graphql-fake), so `config.seed`,
 `config.overrides` and the rest apply.
 
+`fake:` says how they fabricate, in the options a fake takes — suite-wide, or
+for the one example that cares:
+
+```ruby
+Testing.config.router = { subgraphs: { "shipping" => :fake },
+                          fake: { list_size: 2 } }
+
+it "shows the carrier" do
+  graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" } })
+  ...
+end
+```
+
+`graphql_router` is `graphql: :router` with somewhere to put arguments — the
+router itself is still built once for the suite, and the options last one
+example.
+
 ### What it plans
 
 An operation that resolves in **one subgraph** goes over verbatim. One that

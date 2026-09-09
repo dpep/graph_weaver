@@ -308,6 +308,14 @@ The router is built once for the suite (parsing a supergraph per example
 would be real time) and installed as `GraphWeaver.client` for each; its
 context is reset from `config.context` every time.
 
+`graphql_router` is the tag with options, the way `graphql_fake` is — one
+option, `fake:`, saying how the subgraphs the router
+[fakes](federation.md#a-supergraph-only-partly-local) fabricate:
+
+```ruby
+graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" }, list_size: 2 })
+```
+
 What it plans, what it **refuses** and why, how subgraphs are matched to your
 schema classes, and what to do about a supergraph only partly local:
 **[federation → the local router](federation.md#the-local-router)**.

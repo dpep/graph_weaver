@@ -954,6 +954,50 @@ describe GraphWeaver::Testing::Router do
         expect(result.reviews.map { |review| review.shipment.delivered_on }).to all(be_a Date)
       end
 
+      # Fabricated data is only useful when the example can say what it is.
+      # `fake:` is the same options graphql_fake takes, applied to every
+      # subgraph the router fakes.
+      it "fabricates with the options it was built with" do
+        pinned = described_class.new(
+          supergraph: RouterGraph::PARTIAL_SUPERGRAPH,
+          subgraphs: { "shipping" => :fake },
+          fake: { overrides: { "Shipment.carrier" => "UPS" }, list_size: 2 },
+        )
+
+        shipments = pinned.execute("{ shipments { carrier } }").dig("data", "shipments")
+        expect(shipments).to eq [{ "carrier" => "UPS" }, { "carrier" => "UPS" }]
+      end
+
+      # the suite-wide half of the same vocabulary: a faked subgraph reads
+      # config the way every other fake does
+      it "fabricates with the suite's configured overrides" do
+        GraphWeaver::Testing.config.overrides = { "Shipment.carrier" => "FedEx" }
+
+        expect(described_class.new(supergraph: RouterGraph::PARTIAL_SUPERGRAPH,
+          subgraphs: { "shipping" => :fake })
+          .execute("{ shipments { carrier } }").dig("data", "shipments", 0, "carrier")).to eq "FedEx"
+      ensure
+        GraphWeaver::Testing.reset!
+      end
+
+      it "takes options for one example, and puts them back on reset" do
+        partial.fake = { overrides: { "Shipment.carrier" => "UPS" } }
+        expect(partial.execute("{ shipments { carrier } }").dig("data", "shipments", 0, "carrier"))
+          .to eq "UPS"
+
+        partial.reset!
+        expect(partial.execute("{ shipments { carrier } }").dig("data", "shipments", 0, "carrier"))
+          .not_to eq "UPS"
+      end
+
+      # an option that reaches nothing pins nothing, and the example still
+      # passes — the silent green a typo'd override key is refused for
+      it "refuses fake options when no subgraph is faked" do
+        expect {
+          described_class.new(supergraph: RouterGraph::PARTIAL_SUPERGRAPH, fake: { list_size: 2 })
+        }.to raise_error(GraphWeaver::ConfigurationError, /fake: says how faked subgraphs fabricate/)
+      end
+
       it "warns on every faked fetch, since invented data passing quietly is the risk" do
         log = StringIO.new
         GraphWeaver.logger = Logger.new(log, level: Logger::WARN)

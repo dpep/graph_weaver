@@ -252,7 +252,8 @@ module GraphWeaver
       # schema defines — see {Subgraphs}, which also checks the ones you name.
       # A subgraph nothing serves is absent (refused per query, not here);
       # `"reviews" => :fake` fabricates its answers instead.
-      def initialize(supergraph:, subgraphs: nil, context: {})
+      # fake: how those fabricate — see {#fake=}.
+      def initialize(supergraph:, subgraphs: nil, context: {}, fake: {})
         source = supergraph.to_s # a path, or the SDL itself — Pathname included
         @schema = GraphWeaver::SchemaLoader.load(source)
         @table = GraphWeaver::SchemaLoader.routing_table(source)
@@ -264,9 +265,10 @@ module GraphWeaver
         served = Subgraphs.resolve(@table, subgraphs)
         @faked = served.select { |_name, schema| schema == Subgraphs::FAKE }.keys.freeze
         @absent = (@table.subgraphs - served.keys).freeze
-        @subgraphs = served.to_h do |name, schema|
-          [name, (schema == Subgraphs::FAKE) ? FakeSubgraph.new(name, @schema) : schema]
-        end
+        @subgraphs = served.reject { |_name, schema| schema == Subgraphs::FAKE }
+        @built_fake = check_fake!(fake)
+        @fake = @built_fake
+        build_fakes
         @planner = Planner.new(table: @table, schema: @schema, absent: @absent)
       end
 
@@ -285,9 +287,23 @@ module GraphWeaver
       # which is exactly what `rspec --seed` promises it won't.
       def reset!
         reset_trace
-        @faked.each { |name| @subgraphs[name] = FakeSubgraph.new(name, @schema) }
+        @fake = @built_fake
+        build_fakes
         self
       end
+
+      # How faked subgraphs fabricate, for the example in hand: the options
+      # {FakeClient} takes (overrides:, list_size:, null_chance:, values:,
+      # seed:), merged onto the ones the router was built with. A router is
+      # built once for the suite, so this is how one example pins the data a
+      # faked subgraph answers with; {#reset!} puts it back.
+      def fake=(options)
+        @fake = check_fake!(@built_fake.merge(options.to_h))
+        build_fakes
+      end
+
+      # the options every faked subgraph is currently fabricating with
+      attr_reader :fake
 
       def execute(query, variables: {}, operation_name: nil)
         document = begin
@@ -320,6 +336,21 @@ module GraphWeaver
       alias to_s inspect
 
       private
+
+      def build_fakes
+        @faked.each { |name| @subgraphs[name] = FakeSubgraph.new(name, @schema, **@fake) }
+      end
+
+      # Options nothing fabricates with pin nothing and leave the example
+      # green — the same silent pass a typo'd override key is refused for.
+      def check_fake!(options)
+        options = options.to_h
+        return options.freeze if options.empty? || @faked.any?
+
+        raise GraphWeaver::ConfigurationError, "fake: says how faked subgraphs fabricate, and this " \
+          "router fakes none — ask for one with subgraphs: { \"#{@table.subgraphs.first}\" => " \
+          "#{Subgraphs::FAKE.inspect} }"
+      end
 
       # __schema / __type describe the COMPOSED graph; a subgraph would
       # answer with its own slice
