@@ -71,16 +71,19 @@ module FindPetsQuery
   DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
 
   sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(GraphWeaver::Response[Result]) }
-  def self.execute(where: nil, client: nil)
+  def self.execute(where: (where_omitted = true; nil), client: nil)
     variables = {}
-    variables["where"] = PetFilter.coerce(where).serialize unless where.nil?
+    variables["where"] = (where.nil? ? nil : PetFilter.coerce(where).serialize) unless where_omitted
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
 
   sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(Result) }
-  def self.execute!(where: nil, client: nil)
-    execute(where:, client:).data!
+  def self.execute!(where: (where_omitted = true; nil), client: nil)
+    variables = {}
+    variables["where"] = (where.nil? ? nil : PetFilter.coerce(where).serialize) unless where_omitted
+
+    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME)).data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

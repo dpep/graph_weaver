@@ -452,17 +452,50 @@ class GraphWeaver::Codegen
       end
       sig_params << "client: T.untyped"
 
+      # GraphQL tells an absent variable from an explicit null; a Ruby kwarg
+      # with a nil default cannot. The default expression runs exactly when
+      # the keyword was left out, which is the missing third state — so
+      # `execute(bio: nil)` clears a bio and `execute()` leaves it alone.
+      # Only where the schema permits null: a non-null variable can't take
+      # one, so nil there still means omit and let its default apply.
+      omitted = optional.reject { |var| var.node.non_null? }
+        .to_h { |var| [var, "#{var.kwarg}_omitted"] }
+
       kwargs = required.map { |var| "#{var.kwarg}:" } +
-        optional.map { |var| "#{var.kwarg}: nil" } + ["client: nil"]
+        optional.map { |var|
+          flag = omitted[var]
+          flag ? "#{var.kwarg}: (#{flag} = true; nil)" : "#{var.kwarg}: nil"
+        } + ["client: nil"]
+
+      call = "client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME)"
 
       # execute returns the full envelope; execute! is the strict shortcut for
-      # `execute(...).data!` — the typed result, or a raised QueryError.
-      # kwargs forward via hash shorthand (key == value)
-      forward = (ordered.map { |var| "#{var.kwarg}:" } + ["client:"]).join(", ")
-
+      # the typed result, or a raised QueryError.
       out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]) }"
       out << "  def self.execute(#{kwargs.join(", ")})"
+      emit_variables(out, required, optional, omitted)
+      out << ""
+      out << "    from_response(#{call})"
+      out << "  end"
+      out << ""
+      out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
+      out << "  def self.execute!(#{kwargs.join(", ")})"
+      if omitted.empty?
+        # kwargs forward via hash shorthand (key == value)
+        out << "    execute(#{(ordered.map { |var| "#{var.kwarg}:" } + ["client:"]).join(", ")}).data!"
+      else
+        # repeats the variables rather than delegating: which keywords were
+        # left out is exactly what a Ruby call can't forward
+        emit_variables(out, required, optional, omitted)
+        out << ""
+        out << "    from_response(#{call}).data!"
+      end
+      out << "  end"
+      out << ""
+      emit_from_response(out)
+    end
 
+    def emit_variables(out, required, optional, omitted)
       if required.empty?
         out << "    variables = {}"
       else
@@ -473,19 +506,15 @@ class GraphWeaver::Codegen
         out << "    }"
       end
       optional.each do |var|
-        out << "    variables[#{var.wire.inspect}] = #{variable_serialize(var)} unless #{var.kwarg}.nil?"
+        value = variable_serialize(var)
+        if (flag = omitted[var])
+          # nil is a value here, so the serializer has to be stepped around
+          value = "(#{var.kwarg}.nil? ? nil : #{value})" unless value == var.kwarg
+          out << "    variables[#{var.wire.inspect}] = #{value} unless #{flag}"
+        else
+          out << "    variables[#{var.wire.inspect}] = #{value} unless #{var.kwarg}.nil?"
+        end
       end
-
-      out << ""
-      out << "    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))"
-      out << "  end"
-      out << ""
-      out << "  sig { params(#{sig_params.join(", ")}).returns(Result) }"
-      out << "  def self.execute!(#{kwargs.join(", ")})"
-      out << "    execute(#{forward}).data!"
-      out << "  end"
-      out << ""
-      emit_from_response(out)
     end
 
     # The network-free half of execute: deserialize a raw GraphQL response

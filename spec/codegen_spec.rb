@@ -825,6 +825,84 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  # GraphQL tells an absent variable from an explicit null — `bio: null`
+  # clears a bio, leaving it out does nothing — and a Ruby kwarg with a nil
+  # default cannot.
+  describe "absent vs null" do
+    let(:capture) do
+      Class.new do
+        attr_reader :variables
+
+        def execute(_query, variables:, operation_name: nil)
+          @variables = variables
+          # every root field any query below selects; from_h reads by key
+          { "data" => { "search" => [], "adopt" => { "name" => "Rex" } } }
+        end
+      end.new
+    end
+
+    def search(declaration)
+      GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: "query Find(#{declaration}) { search(term: \"a\", first: $first) { __typename } }",
+      )
+    end
+
+    it "sends null for a nullable variable given nil, and nothing when it is left out" do
+      mod = search("$first: Int")
+
+      mod.execute(client: capture)
+      expect(capture.variables).to eq({})
+
+      mod.execute(first: nil, client: capture)
+      expect(capture.variables).to eq("first" => nil)
+
+      mod.execute(first: 2, client: capture)
+      expect(capture.variables).to eq("first" => 2)
+    end
+
+    it "makes execute! agree with execute about which keywords were left out" do
+      mod = search("$first: Int")
+
+      mod.execute!(client: capture)
+      expect(capture.variables).to eq({})
+
+      mod.execute!(first: nil, client: capture)
+      expect(capture.variables).to eq("first" => nil)
+    end
+
+    # a non-null variable can't carry null, so nil stays "leave it out" —
+    # which is also what lets the schema default apply
+    it "keeps nil meaning omitted for a non-null variable with a default" do
+      search("$first: Int! = 2").execute(first: nil, client: capture)
+
+      expect(capture.variables).to eq({})
+    end
+
+    it "steps around a variable's serializer when its value is null" do
+      schema = GraphQL::Schema.from_definition(
+        "scalar Date\ntype Q { ok(on: Date): Boolean }\nschema { query: Q }",
+      )
+      mod = GraphWeaver.parse(schema:, query: "query On($on: Date) { ok(on: $on) }")
+      mod.execute(on: nil, client: capture)
+
+      expect(capture.variables).to eq("on" => nil)
+    end
+
+    it "keeps an explicit nil in an input hash, and omits a key the hash never had" do
+      mod = GraphWeaver.parse(
+        schema: Demo::Schema,
+        query: "mutation Adopt($input: AdoptionInput!) { adopt(input: $input) { name } }",
+      )
+
+      mod.execute(input: { name: "Rex", species: "DOG", nickname: nil }, client: capture)
+      expect(capture.variables).to eq("input" => { "name" => "Rex", "species" => "DOG", "nickname" => nil })
+
+      mod.execute(input: { name: "Rex", species: "DOG" }, client: capture)
+      expect(capture.variables).to eq("input" => { "name" => "Rex", "species" => "DOG" })
+    end
+  end
+
   describe "@skip / @include directives" do
     it "makes conditional fields nilable, whatever the schema says" do
       mod = GraphWeaver.parse(

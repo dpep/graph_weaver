@@ -398,9 +398,12 @@ module RoundTrip
       @rng = rng
     end
 
-    # [ruby, wire]; wire == :omit means "leave this off entirely"
+    # [ruby, wire]; wire == :omit means "leave this off entirely". A nullable
+    # position has a third state: an explicit nil, which has to reach the wire
+    # as null — GraphQL tells that from absent, and a Ruby nil has to say which.
     def build(type, depth = 3)
       return build!(type.of_type, depth) if type.kind.name == "NON_NULL"
+      return [nil, nil] if @rng.rand < 0.15
       return [nil, :omit] if depth <= 0 || @rng.rand < 0.3
 
       build!(type, depth)

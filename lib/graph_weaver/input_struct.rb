@@ -53,21 +53,30 @@ module GraphWeaver
       base.extend(ClassMethods)
     end
 
-    # the wire hash — optional fields left nil stay off the wire
+    # Which props the caller actually named, when we know. GraphQL tells an
+    # absent input field from an explicit null, and a Hash can say which it
+    # meant — so .coerce records it. A struct built with .new can't: every
+    # unset prop is nil either way, and nil there stays "leave it out".
+    attr_accessor :supplied
+
+    # the wire hash — an optional field stays off it unless the caller
+    # supplied the nil
     def serialize
+      given = supplied
       wire = self.class.const_get(:FIELDS).each_with_object({}) do |field, out|
         value = public_send(field.prop)
-        next if value.nil? && !field.required
+        next if value.nil? && !field.required && !given&.include?(field.prop)
 
         out[field.wire] = field.serializer && !value.nil? ? field.serializer.call(value) : value
       end
 
-      # @oneOf declares "exactly one of these", but every field is nullable, so
-      # nothing before here can enforce it — not the struct's types, not the
-      # server until the round trip
-      if wire.size != 1 && self.class.const_defined?(:ONE_OF, false)
+      # @oneOf declares "exactly one of these, and not null", but every field
+      # is nullable, so nothing before here can enforce it — not the struct's
+      # types, not the server until the round trip
+      if self.class.const_defined?(:ONE_OF, false) && (wire.size != 1 || wire.values.first.nil?)
+        supplied_names = wire.empty? ? "none" : wire.keys.sort.join(", ")
         raise GraphWeaver::InputError.new(
-          "#{self.class} is @oneOf — supply exactly one field, got #{wire.empty? ? "none" : wire.keys.sort.join(", ")}",
+          "#{self.class} is @oneOf — supply exactly one field, non-null, got #{supplied_names}",
           struct: self.class,
         )
       end
@@ -97,6 +106,7 @@ module GraphWeaver
         GraphWeaver::Hints.validate_keys!(self, value)
 
         fields = T.unsafe(self).const_get(:FIELDS)
+        given = fields.select { |field| value.key?(field.prop) || value.key?(field.prop.to_s) }.map(&:prop)
         supplied = fields.to_h do |field|
           raw = value.key?(field.prop) ? value[field.prop] : value[field.prop.to_s]
           [field.prop, raw.nil? || field.coercer.nil? ? raw : field.coercer.call(raw)]
@@ -113,7 +123,7 @@ module GraphWeaver
           )
         end
 
-        T.unsafe(self).new(**supplied)
+        T.unsafe(self).new(**supplied).tap { |struct| struct.supplied = given }
       rescue GraphWeaver::InputError
         raise # already contextualized by a nested input / enum coercion
       rescue ::TypeError, ::ArgumentError, KeyError => e
