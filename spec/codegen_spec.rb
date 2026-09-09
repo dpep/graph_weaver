@@ -1175,11 +1175,14 @@ describe GraphWeaver::Codegen do
       expect(event.created_on).to be_a(Date)
     end
 
-    it "validates the coordinate names a real scalar field" do
-      GraphWeaver.register_scalar("Event.nope", Date)
+    # a coordinate this schema can't match only warns (it may name another
+    # subgraph's field — see registry_spec); one it declares as a composite
+    # is a mistake no schema in the graph could redeem
+    it "refuses a coordinate whose field isn't a scalar" do
+      GraphWeaver.register_scalar("Query.event", Date)
 
       expect { described_class.generate(schema:, query: "query E { event { startsAt } }") }
-        .to raise_error(GraphWeaver::Error, /no scalar field/)
+        .to raise_error(GraphWeaver::Error, /isn't a scalar field/)
     end
   end
 

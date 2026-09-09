@@ -25,11 +25,11 @@ A field override wins over the scalar-name registration — which is also how tw
 servers that disagree about a `DateTime` coexist in one process.
 
 Registrations are validated against the schema you generate against, and only
-what that schema can **disprove** fails generation: a coordinate whose type is
-there but whose field isn't, or a name it declares as something else
-(`register_scalar("Species")` where `Species` is an enum). A name it has nothing
-for only warns — one registry serves a whole graph, so that name may belong to
-the subgraph next door (see
+what that schema can **disprove** fails generation: a name it declares as
+something else (`register_scalar("Species")` where `Species` is an enum), or a
+coordinate whose field it declares as a composite. A name it simply can't match
+only warns — one registry serves a whole graph, so that name may belong to the
+subgraph next door (see
 [federation](federation.md#generating-for-a-federated-graph)).
 
 Pass a real class as `type:` and the cast/serialize are **inferred** from it by

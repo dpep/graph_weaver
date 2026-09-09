@@ -173,11 +173,16 @@ describe "the registration registry" do
       expect(io.string).to include(%{register_scalar("Invoice.due") matches no scalar field in Demo::Schema})
     end
 
-    it "still fails on a field the type it names doesn't have" do
+    # an entity type is declared by every subgraph that references it, and its
+    # fields are split across them, so a field missing here proves nothing
+    it "warns on a field the type it names doesn't have, suggesting the coordinate" do
       GraphWeaver.register_scalar("Person.birthdya", String)
 
-      expect { client.parse(query) }
-        .to raise_error(GraphWeaver::Error, /register_scalar\("Person.birthdya"\).*did you mean 'Person.birthday'/)
+      expect { client.parse(query) }.not_to raise_error
+      expect(io.string).to include(
+        %{register_scalar("Person.birthdya") matches no scalar field in Demo::Schema } \
+        "— a typo (did you mean 'Person.birthday'?), or a registration for another schema",
+      )
     end
 
     it "still fails on a field that isn't a scalar" do

@@ -41,11 +41,15 @@ GraphWeaver.generate!(schema: "directory.graphql",
   queries: "app/graphql/directory", output: "app/graphql/generated/directory")
 ```
 
+This holds for entity fields too, which is the case that would otherwise bite:
+every subgraph referencing an entity declares it, so a subgraph carrying
+`Person` for its `@key` alone sees `register_scalar("Person.birthday", Date)` as
+a field it doesn't own — a warning, not a failure.
+
 What a subgraph *can* disprove still fails generation: a name it declares as
-something else, and a coordinate whose type it declares **without** that field.
-The second one bites here — every subgraph referencing an entity declares it, so
-`register_scalar("Person.birthday", Date)` fails against one that carries
-`Person` for its `@key` alone. Reset between generations when that comes up.
+something else (`register_scalar("Species")` where `Species` is an enum), and a
+coordinate whose field it declares as a composite. Neither is redeemable by any
+schema in the graph.
 
 ## Generating against a supergraph
 
