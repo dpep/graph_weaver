@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+# Every public name reachable from GraphWeaver, one per line, sorted.
+#
+#      bin/public-surface            # print it
+#      bin/public-surface --update   # rewrite the checked-in list
+#
+# spec/public_surface_spec.rb runs this and diffs against
+# spec/support/public_surface.txt, so a name that becomes public without a
+# decision fails the suite. It runs as its own process on purpose: the
+# surface must depend only on the requires below, never on which specs
+# happened to run or what they registered.
+
+require "rake" # tasks.rb is a Rakefile, not a library
+
+require_relative "../lib/graph_weaver"
+require_relative "../lib/graph_weaver/rspec"
+require_relative "../lib/graph_weaver/federation"
+require_relative "../lib/graph_weaver/parsing"
+require_relative "../lib/graph_weaver/schema_diff"
+require_relative "../lib/graph_weaver/transport/faraday"
+require_relative "../lib/graph_weaver/tasks"
+
+LIST = File.expand_path("../spec/support/public_surface.txt", __dir__)
+
+# GraphWeaver::Internal is the gem talking to itself — skipped entirely, which
+# is what makes "move it under Internal" the way to take something off this
+# list. Railtie is Rails-only and never loads here.
+seen = {}
+names = []
+
+walk = lambda do |mod, path|
+  next if seen[mod.object_id]
+
+  seen[mod.object_id] = true
+
+  (mod.singleton_class.public_instance_methods(false) - Module.methods).sort.each do |m|
+    names << "#{path}.#{m}"
+  end
+  mod.public_instance_methods(false).sort.each { |m| names << "#{path}##{m}" }
+
+  mod.constants(false).sort.each do |const|
+    value = mod.const_get(const, false)
+    child = "#{path}::#{const}"
+    if value.is_a?(Module)
+      # only our own: a constant aliasing GraphQL:: or T:: belongs to them
+      next unless value.name.to_s.start_with?("GraphWeaver")
+
+      names << "#{child} (#{value.class})"
+      walk.call(value, child)
+    else
+      names << "#{child} = #{value.class}"
+    end
+  end
+end
+
+walk.call(GraphWeaver, "GraphWeaver")
+surface = "#{names.sort.join("\n")}\n"
+
+if ARGV.include?("--update")
+  File.write(LIST, surface)
+  warn "wrote #{names.size} names to #{LIST}"
+else
+  print surface
+end
