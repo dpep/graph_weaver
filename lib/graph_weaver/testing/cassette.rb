@@ -419,5 +419,9 @@ module GraphWeaver
         end
       end
     end
+
+    # the scrubbing walk anonymize! runs — reached through a cassette,
+    # never named
+    private_constant :Anonymizer
   end
 end

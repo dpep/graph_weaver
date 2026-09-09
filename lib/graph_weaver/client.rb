@@ -39,6 +39,7 @@ class GraphWeaver::Client
   # refused from two branches — a url source, and a schema source with
   # nothing to hand a context to — so the two can't word it differently
   CONTEXT_IN_PROCESS = "context: applies to a schema class executing in-process"
+  private_constant :CONTEXT_IN_PROCESS
 
   def initialize(source, auth: nil, headers: {}, retries: false, transport: nil, cache: nil, ttl: nil,
     open_timeout: nil, read_timeout: nil, context: nil, &middleware)

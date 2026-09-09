@@ -61,6 +61,7 @@ class GraphWeaver::Retry
   # said once, where the decision is made and where it is explained
   MUTATION_HINT = "not retrying a mutation — a request that failed without an answer " \
     "may still have been applied; pass retry_mutations: true if yours are idempotent"
+  private_constant :DEFAULT_RETRY_IF, :MUTATION_HINT
 
   def initialize(client, retries: 2, on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
     backoff: :exponential, base: 0.5, max: 30, jitter: true, retry_if: DEFAULT_RETRY_IF,

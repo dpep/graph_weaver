@@ -28,6 +28,7 @@ module GraphWeaver
   # How far into a file to look for it: the header sits under the `typed:` and
   # `frozen_string_literal:` magic comments, never deeper.
   HEADER_SCAN_LINES = 10
+  private_constant :GENERATED_HEADER, :HEADER_SCAN_LINES
 
   class << self
     # A client for one GraphQL server — transport, schema, and scoped
@@ -157,6 +158,7 @@ module GraphWeaver
 
     # just the module name — see generated_names
     def module_name(path, source) = generated_names(path, source).first
+    private :generated_names
 
     # "Mutation" for a mutation document, "Query" for everything else.
     def operation_suffix(source)
@@ -166,6 +168,7 @@ module GraphWeaver
     rescue GraphQL::ParseError
       "Query" # unparseable: codegen brands the real error a moment later
     end
+    private :operation_suffix
 
     # Conventional locations. Every directory setting is a LIST,
     # factory_bot-style: extra locations (a test-only dir, an engine's) can be
@@ -628,6 +631,7 @@ module GraphWeaver
     # Whether the host app has globally injected T::Sig into every module
     # (`class Module; include T::Sig`) — extracted so it's stubbable in tests.
     def global_tsig? = Module.include?(T::Sig)
+    private :global_tsig?
 
     # The closest entry in `dictionary` to `term` — a "did you mean" suggestion,
     # or nil (also nil when did_you_mean isn't loadable). One home for the guard

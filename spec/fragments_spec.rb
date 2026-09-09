@@ -123,12 +123,15 @@ RSpec.describe "shared fragments" do
     it "raises a clear error on a fragment cycle instead of overflowing the stack" do
       host = Object.new.extend(GraphWeaver::Selection)
       host.instance_variable_set(:@schema, iface_schema)
-      op = host.load_operation(
+      # send: Selection's walk is private in every host — exercising it
+      # directly is the point of this spec
+      op = host.send(
+        :load_operation,
         "query Q { node { id ...A } }\nfragment A on Node { id ...B }\nfragment B on Node { id ...A }",
       )
       node_selections = op.selections.first.selections
 
-      expect { host.each_field(iface_schema.get_type("Node"), node_selections) { |_k, _n| } }
+      expect { host.send(:each_field, iface_schema.get_type("Node"), node_selections) { |_k, _n| } }
         .to raise_error(GraphWeaver::Error, /cycle/)
     end
   end

@@ -84,6 +84,7 @@ class GraphWeaver::Testing::FakeClient
 
   # sentinel: a simulated failure bubbling up to the nearest nullable spot
   NULL_BUBBLE = Object.new.freeze
+  private_constant :NULL_BUBBLE
 
   # sentinel: no override here — distinct from an override OF nil, which
   # pins the field null

@@ -145,6 +145,7 @@ class GraphWeaver::Transport
   # the fallback for a raw query string handed straight to a transport —
   # generated modules pass their OPERATION_NAME, parsed properly.
   OPERATION_NAME_PATTERN = /\A\s*(?:query|mutation|subscription)\s+([A-Za-z_]\w*)/
+  private_constant :OPERATION_NAME_PATTERN
   def self.operation_name(query)
     query[OPERATION_NAME_PATTERN, 1]
   end
@@ -154,6 +155,7 @@ class GraphWeaver::Transport
   # request, and the only way to be wrong (a field literally named
   # `mutation` opening a line) errs toward not retrying.
   MUTATION_PATTERN = /^[ \t]*mutation\b/
+  private_constant :MUTATION_PATTERN
   def self.mutation?(query)
     MUTATION_PATTERN.match?(query)
   end
@@ -161,6 +163,7 @@ class GraphWeaver::Transport
   # "[req 3 FilteredPokemon]" — a per-process request id plus the
   # operation name, when there is one
   REQUEST_MUTEX = Mutex.new
+  private_constant :REQUEST_MUTEX
 
   def self.log_tag(operation_name = nil)
     id = REQUEST_MUTEX.synchronize { @request_count = (@request_count || 0) + 1 }
@@ -170,6 +173,7 @@ class GraphWeaver::Transport
   # keep debug readable: a 100-line introspection query would drown the
   # log — the INFO introspection line already carries the timing
   LOG_QUERY_LIMIT = 600
+  private_constant :LOG_QUERY_LIMIT
   def self.truncate_for_log(query)
     return query if query.length <= LOG_QUERY_LIMIT
 

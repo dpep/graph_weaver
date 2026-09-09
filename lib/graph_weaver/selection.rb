@@ -11,6 +11,11 @@ module GraphWeaver
   module Selection
     include Kernel # for sorbet: hosts are Objects
 
+    # Every method here becomes an instance method of its host (Codegen,
+    # FakeClient, the cassette Anonymizer) — private so the walk stays the
+    # host's own business rather than part of its API.
+    private
+
     # Parse a query, stash its fragment definitions for the walk, and
     # return the operation.
     def load_operation(query)
