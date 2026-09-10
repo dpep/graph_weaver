@@ -25,29 +25,31 @@
 require_relative "../graph_weaver"
 
 module GraphWeaver
-  # helpers the rake tasks share; not part of the library's API
-  module Tasks
-    # The composed supergraph a federation task reads: SUPERGRAPH=, else the
-    # conventional dump when that is what it is. Aborts naming the task, so
-    # the message says the command to retype.
-    def self.supergraph!(task)
-      ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path ||
-        abort("pass the composed supergraph: rake graph_weaver:federation:#{task} " \
-          "SUPERGRAPH=supergraph.graphql")
-    end
+  module Internal
+    # helpers the rake tasks share
+    module Tasks
+      # The composed supergraph a federation task reads: SUPERGRAPH=, else the
+      # conventional dump when that is what it is. Aborts naming the task, so
+      # the message says the command to retype.
+      def self.supergraph!(task)
+        ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path ||
+          abort("pass the composed supergraph: rake graph_weaver:federation:#{task} " \
+            "SUPERGRAPH=supergraph.graphql")
+      end
 
-    # Registrations the run couldn't match, once each. The logger is the
-    # runtime channel and is silent by default; this task's own output is the
-    # build channel, and the build is where someone regenerating is looking.
-    def self.report_unmatched
-      GraphWeaver.unmatched_registrations.each { |message| puts message }
-    end
+      # Registrations the run couldn't match, once each. The logger is the
+      # runtime channel and is silent by default; this task's own output is the
+      # build channel, and the build is where someone regenerating is looking.
+      def self.report_unmatched
+        GraphWeaver.unmatched_registrations.each { |message| puts message }
+      end
 
-    # Neither task that needs the committed dump can take one itself, so both
-    # say which task can — the same sentence SchemaLoader gives on refresh.
-    def self.no_dump
-      "no schema dump at #{GraphWeaver.schema_path} — take one: " \
-        "rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+      # Neither task that needs the committed dump can take one itself, so both
+      # say which task can — the same sentence SchemaLoader gives on refresh.
+      def self.no_dump
+        "no schema dump at #{GraphWeaver.schema_path} — take one: " \
+          "rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
+      end
     end
   end
 end
@@ -83,7 +85,7 @@ namespace :graph_weaver do
     # user is about to find; a run that printed nothing at all had done both
     (before - Dir[File.join(output, "**/*.rb")]).each { |path| puts "pruned #{path}" }
     puts "no queries in #{GraphWeaver.queries_paths.join(", ")}" if written.empty?
-    GraphWeaver::Tasks.report_unmatched
+    GraphWeaver::Internal::Tasks.report_unmatched
   rescue GraphWeaver::Error => e
     # a typo'd query is a user error — the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
@@ -94,7 +96,7 @@ namespace :graph_weaver do
   task verify: :environment do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
-    GraphWeaver::Tasks.report_unmatched
+    GraphWeaver::Internal::Tasks.report_unmatched
   rescue GraphWeaver::Error => e
     abort e.message
   end
@@ -105,7 +107,7 @@ namespace :graph_weaver do
 
     desc "Fail when the server's schema has drifted from the local dump"
     task diff: :environment do
-      path = GraphWeaver::SchemaLoader.locate_path or abort GraphWeaver::Tasks.no_dump
+      path = GraphWeaver::SchemaLoader.locate_path or abort GraphWeaver::Internal::Tasks.no_dump
       diff = GraphWeaver::SchemaLoader.diff(path)
       if diff.empty?
         puts "#{path} matches the server"
@@ -172,7 +174,7 @@ namespace :graph_weaver do
     task diff: :loaded do
       require "graph_weaver/federation"
 
-      supergraph = GraphWeaver::Tasks.supergraph!("diff")
+      supergraph = GraphWeaver::Internal::Tasks.supergraph!("diff")
       drift = GraphWeaver::Federation::Drift.new(supergraph:)
       puts drift.report
 
@@ -196,7 +198,7 @@ namespace :graph_weaver do
     task subgraphs: :loaded do
       require "graph_weaver/testing"
 
-      supergraph = GraphWeaver::Tasks.supergraph!("subgraphs")
+      supergraph = GraphWeaver::Internal::Tasks.supergraph!("subgraphs")
 
       # Testing::Router derives this map itself; this is for reading what
       # detection sees when it refuses, and for committing the map instead.
@@ -232,7 +234,7 @@ namespace :graph_weaver do
       require "graph_weaver/testing"
 
       puts GraphWeaver::Testing::Coverage.new(
-        supergraph: GraphWeaver::Tasks.supergraph!("coverage"),
+        supergraph: GraphWeaver::Internal::Tasks.supergraph!("coverage"),
         queries: ENV["QUERIES"] || GraphWeaver.queries_paths,
       ).report
     rescue GraphWeaver::Error => e
@@ -294,7 +296,7 @@ namespace :graph_weaver do
 
       # locate, not schema_path: the dump is whichever supported extension is
       # actually on disk, and every sibling task asks the same way
-      schema = GraphWeaver::SchemaLoader.locate or abort GraphWeaver::Tasks.no_dump
+      schema = GraphWeaver::SchemaLoader.locate or abort GraphWeaver::Internal::Tasks.no_dump
       Dir[File.join(GraphWeaver::Testing.cassette_dir, "*.yml")].sort.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
         puts "anonymized #{path}"

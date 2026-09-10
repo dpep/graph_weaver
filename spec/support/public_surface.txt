@@ -9,18 +9,14 @@ GraphWeaver.extend_t_sig?
 GraphWeaver.extend_type
 GraphWeaver.filter_parameters
 GraphWeaver.filter_parameters=
-GraphWeaver.filter_variables
 GraphWeaver.fragments_paths
 GraphWeaver.fragments_paths=
 GraphWeaver.generate!
 GraphWeaver.generated_paths
 GraphWeaver.generated_paths=
-GraphWeaver.instrument
 GraphWeaver.instrumenter
 GraphWeaver.instrumenter=
 GraphWeaver.load_generated!
-GraphWeaver.log
-GraphWeaver.log_timed
 GraphWeaver.logger
 GraphWeaver.logger=
 GraphWeaver.parse
@@ -274,10 +270,6 @@ GraphWeaver::ServerError#status
 GraphWeaver::ServerError#throttled?
 GraphWeaver::ServerError#to_h
 GraphWeaver::ServerError::REDIRECTS = Array
-GraphWeaver::Tasks (Module)
-GraphWeaver::Tasks.no_dump
-GraphWeaver::Tasks.report_unmatched
-GraphWeaver::Tasks.supergraph!
 GraphWeaver::Testing (Module)
 GraphWeaver::Testing.cassette
 GraphWeaver::Testing.cassette_dir
