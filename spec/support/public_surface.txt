@@ -1,4 +1,5 @@
 GraphWeaver.cast_data
+GraphWeaver.changed_files
 GraphWeaver.check_envelope!
 GraphWeaver.check_queries
 GraphWeaver.client

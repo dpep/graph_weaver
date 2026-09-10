@@ -10,4 +10,7 @@ GraphWeaver.generate!(
   queries: File.join(root, "spec/queries"),
   output: File.join(root, "spec/generated"),
   client: Demo::Schema,
-).each { |path| puts "wrote #{path}" }
+)
+changed = GraphWeaver.changed_files
+changed.each { |path| puts "wrote #{path}" }
+puts "already up to date" if changed.empty?

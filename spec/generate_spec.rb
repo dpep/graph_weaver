@@ -24,6 +24,17 @@ describe "GraphWeaver.generate!" do
       .to eq File.read(File.join(root, "spec/generated/person_query.rb"))
   end
 
+  it "leaves an unchanged file alone on a second run" do
+    root = File.expand_path("..", __dir__)
+    args = { schema: Demo::Schema, queries: File.join(root, "spec/queries"), output: @dir, client: Demo::Schema }
+    written = GraphWeaver.generate!(**args)
+    before = written.to_h { |path| [path, File.mtime(path)] }
+
+    expect(GraphWeaver.generate!(**args)).to eq written
+    expect(GraphWeaver.changed_files).to be_empty
+    expect(written.to_h { |path| [path, File.mtime(path)] }).to eq before
+  end
+
   # Rails.root.join(...) is how a Rails app spells a path
   it "takes a Pathname where it takes a schema path" do
     Dir.mktmpdir do |dir|
@@ -404,6 +415,8 @@ describe "GraphWeaver.verify_generated!" do
     Dir.mktmpdir do |dir|
       queries = File.join(root, "spec/queries")
       GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir, client: Demo::Schema)
+      # an identical file isn't rewritten at all, so give every one of them a diff
+      Dir[File.join(dir, "**/*.rb")].each { |path| File.write(path, "#{File.read(path)}# stale\n") }
       before = Dir[File.join(dir, "**/*.rb")].to_h { |path| [path, File.read(path)] }
 
       # what a concurrent reader would see at the last possible moment

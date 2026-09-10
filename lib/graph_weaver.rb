@@ -192,8 +192,9 @@ module GraphWeaver
     #
     #      GraphWeaver.generate!   # queries_paths -> generated_paths.first
     #
-    # person.graphql => person_query.rb defining PersonQuery. Returns the
-    # written paths. Generated files the plan no longer produces are deleted
+    # person.graphql => person_query.rb defining PersonQuery. Returns every
+    # path the plan produces; a file already byte-identical is left untouched
+    # (see #changed_files). Generated files the plan no longer produces are deleted
     # (see #orphaned), so renaming or dropping a .graphql leaves nothing
     # behind. Pair with a freshness spec (docs/generated_modules.md).
     def generate!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
@@ -208,13 +209,17 @@ module GraphWeaver
 
       plan = generation_plan(queries:, schema:, client:, types_module:)
       @unmatched_registrations = Codegen.unmatched_registrations(schema)
+      @changed_files = []
       written = plan.map do |filename, source|
         target = File.join(output, filename)
+        next target if current?(target, source)
+
         FileUtils.mkdir_p(File.dirname(target))
         # a rake task beside a watching dev server writes the same file: a
         # truncating write can leave a prefix that no longer parses, and it is
         # the running app that requires it next
         Internal::Util.atomic_write(target, source)
+        @changed_files << target
         Internal::Log.log(:info) { "generated #{target}" }
         target
       end
@@ -226,6 +231,11 @@ module GraphWeaver
 
       written
     end
+
+    # Which of those files the last generate! actually wrote — the rest were
+    # already byte-identical, so a run that changed one query touches one file
+    # and a watching dev server has one module to reload.
+    def changed_files = @changed_files || []
 
     # Generated files under output the current plan no longer produces — a
     # query renamed or deleted, a type dropped from the schema, a union no
@@ -271,9 +281,7 @@ module GraphWeaver
       @unmatched_registrations = Codegen.unmatched_registrations(schema)
       stale = plan.filter_map do |filename, source|
         target = File.join(output, filename)
-        # git's autocrlf rewrites line endings on checkout — a Windows working
-        # copy is not stale generated code, so don't fail CI over it
-        target unless File.exist?(target) && File.read(target).gsub("\r\n", "\n") == source.gsub("\r\n", "\n")
+        target unless current?(target, source)
       end
       # strays: a generated file the current schema + queries no longer produce
       stale += orphaned(output, plan.map { |filename, _| File.join(output, filename) })
@@ -284,6 +292,15 @@ module GraphWeaver
 
       true
     end
+
+    # Whether the file on disk is already what the plan would write — asked
+    # before writing it, and before calling it stale. autocrlf rewrites line
+    # endings on checkout, and a Windows working copy is neither stale
+    # generated code nor a file worth rewriting.
+    def current?(target, source)
+      File.exist?(target) && File.read(target).gsub("\r\n", "\n") == source.gsub("\r\n", "\n")
+    end
+    private :current?
 
     # What the last generate!/verify_generated! couldn't match in the schema it
     # ran against — one sentence per registration, empty after a clean run. The
