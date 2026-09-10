@@ -118,6 +118,18 @@ describe "graph_weaver rake tasks" do
       expect(generated("person_query.rb")).to include "module PersonQuery"
     end
 
+    it "says a file it left alone is up to date, rather than claiming to write it" do
+      write_schema
+      write_query("person.graphql", "query Person { person(id: \"1\") { name } }")
+      invoke("generate")
+
+      result = invoke("generate")
+
+      expect(result.status).to eq 0
+      expect(result.out).not_to include "wrote"
+      expect(result.out).to include "1 already up to date"
+    end
+
     # deleting the .graphql prunes the generated file — checked-in code, so a
     # run that removed one and printed nothing left the diff to be discovered
     it "names the file it pruned when a query is gone" do

@@ -108,9 +108,14 @@ class GraphWeaver::Railtie < Rails::Railtie
   # that path — generation validates every query before it writes any file — so
   # one error per save, and the next save that compiles takes.
   def self.regenerate!
-    written = GraphWeaver.generate!
+    GraphWeaver.generate!
     GraphWeaver.reload_generated!
-    GraphWeaver::Internal::Log.log(:info) { "regenerated #{written.map { |path| File.basename(path) }.join(", ")}" }
+    changed = GraphWeaver.changed_files
+    GraphWeaver::Internal::Log.log(:info) do
+      next "generated modules already up to date" if changed.empty?
+
+      "regenerated #{changed.map { |path| File.basename(path) }.join(", ")}"
+    end
   rescue GraphWeaver::Error => e
     GraphWeaver::Internal::Log.log(:error) { "keeping the modules already loaded — #{e.message}" }
   end

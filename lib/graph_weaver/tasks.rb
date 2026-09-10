@@ -83,7 +83,9 @@ namespace :graph_weaver do
 
     # schema auto-located at GraphWeaver.schema_path, any supported extension
     written = GraphWeaver.generate!
-    written.each { |path| puts "wrote #{path}" }
+    changed = GraphWeaver.changed_files
+    changed.each { |path| puts "wrote #{path}" }
+    puts "#{written.size - changed.size} already up to date" if changed.size < written.size
     # generated files are checked in, so a delete this task made is a diff the
     # user is about to find; a run that printed nothing at all had done both
     (before - Dir[File.join(output, "**/*.rb")]).each { |path| puts "pruned #{path}" }
