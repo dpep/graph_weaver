@@ -448,6 +448,18 @@ describe "error handling" do
         .to raise_error(GraphWeaver::TypeError, /must be an object, got String/)
     end
 
+    # #struct was the generated class from one door and a GraphQL type name
+    # from the other — two types with no method in common, for a caller
+    # branching on it to build a 422
+    it "names the refusing type the same way, whichever door refused" do
+      require_relative "generated/types"
+
+      expect { GraphQLTypes::AdoptionInput.coerce("nope") }
+        .to raise_error(GraphWeaver::InputError) { |e| expect(e.struct).to eq "GraphQLTypes::AdoptionInput" }
+      expect { GraphWeaver::Representation.field("Product", "sku", "x") { Integer(_1) } }
+        .to raise_error(GraphWeaver::InputError) { |e| expect(e.struct).to eq "Product" }
+    end
+
     it "raises InputError when an input struct is coerced from a non-Hash" do
       require_relative "generated/types"
       expect { GraphQLTypes::AdoptionInput.coerce("nope") }
