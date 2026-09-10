@@ -307,11 +307,6 @@ GraphWeaver::Testing::Cassette#path
 GraphWeaver::Testing::Cassette#record
 GraphWeaver::Testing::Cassette#size
 GraphWeaver::Testing::Cassette#variants
-GraphWeaver::Testing::Cassette.entry_key
-GraphWeaver::Testing::Cassette.key
-GraphWeaver::Testing::Cassette.normalize_query
-GraphWeaver::Testing::Cassette.normalize_variables
-GraphWeaver::Testing::Cassette.summarize
 GraphWeaver::Testing::Cassette::CREDENTIAL_SHAPES = Hash
 GraphWeaver::Testing::Cassette::Check (Class)
 GraphWeaver::Testing::Cassette::Check#checked

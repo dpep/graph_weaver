@@ -19,9 +19,9 @@ module GraphWeaver
       def initialize(path:, query:, variables:, recorded:, size:)
         super([
           "no recording for this request in #{path}",
-          "  variables: #{GraphWeaver.filter_variables(Cassette.normalize_variables(variables)).inspect}",
+          "  variables: #{GraphWeaver.filter_variables(Internal::RequestKey.normalize_variables(variables)).inspect}",
           "  #{self.class.recorded_summary(recorded, size)}",
-          "  query: #{Cassette.summarize(query)}",
+          "  query: #{Internal::RequestKey.summarize(query)}",
           "re-record it (GRAPHWEAVER_RECORD=1 with a client:), or delete the cassette to start over.",
         ].join("\n"))
       end
@@ -124,28 +124,28 @@ module GraphWeaver
       def size = @entries.size
 
       def lookup(query, variables, operation_name = nil)
-        wanted = self.class.key(query, variables, operation_name)
-        @entries.find { |entry| self.class.entry_key(entry) == wanted }
+        wanted = Internal::RequestKey.for(query, variables, operation_name)
+        @entries.find { |entry| Internal::RequestKey.for_entry(entry) == wanted }
       end
 
       # every variables hash recorded for this query — what a miss needs
       # to show, since the variables are what usually differ
       def variants(query, operation_name = nil)
-        normalized = self.class.normalize_query(query)
+        normalized = Internal::RequestKey.normalize_query(query)
         @entries.select do |entry|
-          self.class.normalize_query(entry["query"]) == normalized && entry["operationName"] == operation_name
+          Internal::RequestKey.normalize_query(entry["query"]) == normalized && entry["operationName"] == operation_name
         end.map { |entry| entry["variables"] || {} }
       end
 
       def record(query, variables, response, operation_name = nil)
         entry = { "query" => query }
         entry["operationName"] = operation_name if operation_name
-        entry["variables"] = self.class.normalize_variables(variables)
+        entry["variables"] = Internal::RequestKey.normalize_variables(variables)
         entry["response"] = response
 
-        wanted = self.class.key(query, variables, operation_name)
+        wanted = Internal::RequestKey.for(query, variables, operation_name)
         @lock.synchronize do
-          @entries.reject! { |existing| self.class.entry_key(existing) == wanted }
+          @entries.reject! { |existing| Internal::RequestKey.for_entry(existing) == wanted }
           @entries << entry
           save
         end
@@ -164,10 +164,10 @@ module GraphWeaver
       # Matching is on the query text, which is the module that sent it — a
       # recording no module sends is skipped rather than guessed at.
       def check(modules)
-        index = modules.to_h { |mod| [self.class.normalize_query(mod.const_get(:QUERY)), mod] }
+        index = modules.to_h { |mod| [Internal::RequestKey.normalize_query(mod.const_get(:QUERY)), mod] }
         checked = 0
         stale = @entries.filter_map do |entry|
-          mod = index[self.class.normalize_query(entry["query"])] or next
+          mod = index[Internal::RequestKey.normalize_query(entry["query"])] or next
           checked += 1
 
           begin
@@ -191,36 +191,6 @@ module GraphWeaver
         end
         save
         self
-      end
-
-      # The request's identity, exactly as the server sees it. operationName
-      # is part of that: it picks the operation the document runs, so two
-      # requests with identical text but different names are different
-      # requests. Derived, never stored — the file holds the request once,
-      # so a hand-edited entry can't disagree with what replay matches on.
-      def self.key(query, variables, operation_name = nil)
-        key = { "query" => normalize_query(query), "variables" => normalize_variables(variables) }
-        key["operationName"] = operation_name if operation_name
-        key
-      end
-
-      def self.entry_key(entry)
-        key(entry["query"], entry["variables"], entry["operationName"])
-      end
-
-      def self.normalize_query(query) = query.gsub(/\s+/, " ").strip
-
-      # one readable line: an error naming a 60-line query is a wall, not a hint
-      def self.summarize(query, limit: 160)
-        normalized = normalize_query(query)
-        (normalized.length > limit) ? "#{normalized[0, limit]}…" : normalized
-      end
-
-      # JSON round-trip so symbol keys become strings — otherwise YAML.dump
-      # writes Ruby symbols the safe loader rejects on the next run, and lookup
-      # keys stay stable across processes
-      def self.normalize_variables(variables)
-        JSON.parse(JSON.generate(variables || {}))
       end
 
       private

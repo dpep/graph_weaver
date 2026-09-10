@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "graphql"
+require "json"
 
 require_relative "inflect"
 
@@ -94,6 +95,41 @@ module GraphWeaver
           (operation&.operation_type == "mutation") ? "Mutation" : "Query"
         rescue GraphQL::ParseError
           "Query" # unparseable: codegen brands the real error a moment later
+        end
+      end
+    end
+
+    # What makes two GraphQL requests the same request — and how one reads
+    # when an error has to quote it. A cassette matches on this, so the
+    # rules belong somewhere both the cassette and the error that reports a
+    # miss can say, rather than on the class one of them happens to be.
+    module RequestKey
+      class << self
+        # The request's identity, exactly as the server sees it.
+        # operationName is part of that: it picks the operation the document
+        # runs, so two requests with identical text but different names are
+        # different requests. Derived, never stored — the file holds the
+        # request once, so a hand-edited entry can't disagree with what
+        # replay matches on.
+        def for(query, variables, operation_name = nil)
+          key = { "query" => normalize_query(query), "variables" => normalize_variables(variables) }
+          key["operationName"] = operation_name if operation_name
+          key
+        end
+
+        def for_entry(entry) = self.for(entry["query"], entry["variables"], entry["operationName"])
+
+        def normalize_query(query) = query.gsub(/\s+/, " ").strip
+
+        # JSON round-trip so symbol keys become strings — otherwise
+        # YAML.dump writes Ruby symbols the safe loader rejects on the next
+        # run, and lookup keys stay stable across processes
+        def normalize_variables(variables) = JSON.parse(JSON.generate(variables || {}))
+
+        # one readable line: an error naming a 60-line query is a wall, not a hint
+        def summarize(query, limit: 160)
+          normalized = normalize_query(query)
+          (normalized.length > limit) ? "#{normalized[0, limit]}…" : normalized
         end
       end
     end
