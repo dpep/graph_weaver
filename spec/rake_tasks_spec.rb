@@ -563,5 +563,17 @@ describe "graph_weaver rake tasks" do
       expect(result.status).to eq 0
       expect(result.out).to eq "anonymized #{path}\n"
     end
+
+    # silence and exit 0 read as "done"; every sibling task says where it
+    # looked, and a cassette_dir pointing somewhere else is the likely reason
+    it "says where it looked when there are no recordings" do
+      write_schema
+      GraphWeaver::Testing.config.cassette_dir = File.join(@root, "cassettes")
+
+      result = invoke("cassettes:anonymize")
+
+      expect(result.status).to eq 0
+      expect(result.out).to eq "no recordings in #{@root}/cassettes\n"
+    end
   end
 end

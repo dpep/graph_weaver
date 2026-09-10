@@ -300,10 +300,15 @@ namespace :graph_weaver do
       # locate, not schema_path: the dump is whichever supported extension is
       # actually on disk, and every sibling task asks the same way
       schema = GraphWeaver::SchemaLoader.locate or abort GraphWeaver::Internal::Tasks.no_dump
-      Dir[File.join(GraphWeaver::Testing.cassette_dir, "*.yml")].sort.each do |path|
+      dir = GraphWeaver::Testing.cassette_dir
+      paths = Dir[File.join(dir, "*.yml")].sort
+      paths.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
         puts "anonymized #{path}"
       end
+      # silence and exit 0 read as "done" — say where we looked, the way every
+      # sibling task does
+      puts "no recordings in #{dir}" if paths.empty?
     end
   end
 end
