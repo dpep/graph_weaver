@@ -57,8 +57,8 @@ stands alone.
 | `Time` | `Time.parse(v)` | `v.iso8601` | `time` |
 | `DateTime` | `DateTime.iso8601(v)` | `v.iso8601` | `date` |
 
-`Time` is what to reach for for a timestamp; Ruby's own `DateTime` is accepted
-if you register it, but never assumed. `BigDecimal(v)` is Ruby's own reader, so
+For a timestamp, reach for `Time`; Ruby's own `DateTime` is accepted if you
+register it, but never assumed. `BigDecimal(v)` is Ruby's own reader, so
 it takes what Ruby takes — `"12.5"`, `"1e3"`, a JSON number — and refuses
 `"abc"` or `"$12.50"`, naming the field or the variable.
 
