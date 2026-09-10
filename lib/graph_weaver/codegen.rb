@@ -133,6 +133,11 @@ class GraphWeaver::Codegen
     source = codegen.generate
 
     container = Module.new
+    # otherwise every runtime error names the container by address
+    # ("#<Module:0x...>::Result::Person"); assigning the module to a constant,
+    # which is the documented usage, replaces this with the real path
+    # T.unsafe: sorbet's Module RBI predates set_temporary_name (Ruby 3.3)
+    T.unsafe(container).set_temporary_name("GraphWeaver.parse")
     container.module_eval(source, "(graph_weaver)", 1)
     mod = container.const_get(codegen.name)
     GraphWeaver::Internal::Log.log(:debug) { "parsed #{codegen.name} (dynamic module, #{source.bytesize} bytes)" }

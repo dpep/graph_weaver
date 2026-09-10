@@ -34,6 +34,16 @@ describe GraphWeaver::Parsing do
     expect(router).to have_fetched_subgraphs("accounts", "reviews", "products")
   end
 
+  it "names a cast failure after the query, not an object address" do
+    mod = GraphWeaver.parse(schema: Demo::Schema, query:)
+
+    expect { mod::Result.from_h("person" => { "name" => 42 }) }
+      .to raise_error(GraphWeaver::TypeError) { |e|
+        expect(e.message).to include("GraphWeaver.parse::Who::Result::Person")
+        expect(e.message).not_to match(/0x\h+/)
+      }
+  end
+
   it "load_queries! comes with it — the directory form of the same rule" do
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "person.graphql"), "query($id: ID!) { person(id: $id) { name } }")
