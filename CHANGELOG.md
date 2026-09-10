@@ -1,4 +1,12 @@
 ## Unreleased
+- **Three rake and generator polish items.** `rake -T` no longer prints a
+  queries path it can't know — a task description is baked before
+  `:environment`, so it presented the default as your setting; it now names
+  the defaults as defaults. `cassettes:anonymize` prints `no recordings in
+  <dir>` instead of nothing. `rails g graph_weaver:install` scaffolds
+  `app/graphql/fragments/.keep`, the directory its editor config already
+  globbed; the getting-started note names `rails g graphql:install
+  --skip-query-logs` for an app without Active Record.
 - **`filter_parameters` scrubs error messages, not just the debug log.** A
   rejected value reached the log twice: on the `variables=` line at debug, and
   in the message every error writes at `warn` — above the gate, as free text.
