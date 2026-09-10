@@ -64,7 +64,7 @@ describe "round trip" do
   ROUND_TRIP_SCHEMAS.each do |label, schema|
     it "deserializes every response #{label} permits, for #{ROUND_TRIP_CASES} generated queries" do
       failures = []
-      generated = 0
+      generated = checked = 0
 
       ROUND_TRIP_CASES.times do |i|
         seed = ROUND_TRIP_SEED + i
@@ -74,11 +74,15 @@ describe "round trip" do
 
         generated += 1
         trip = RoundTrip.check(schema:, query:, name: "Case#{i}", rng:)
+        checked += 1 unless trip.refused
         failures.concat(trip.failures.map { |failure| report(failure, trip, seed) })
       end
 
-      # a fuzzer that stopped producing queries would pass this vacuously
+      # a fuzzer that stopped producing queries would pass this vacuously — and
+      # so would a codegen that refused every one of them, since the harness
+      # counts any raise as a refusal and checks nothing
       expect(generated).to be > ROUND_TRIP_CASES / 2
+      expect(checked).to be > generated / 2
       expect(failures).to be_empty, -> { failures.join("\n\n") }
     end
 

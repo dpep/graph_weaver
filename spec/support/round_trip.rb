@@ -491,7 +491,7 @@ module RoundTrip
     def check(schema:, query:, name: "RoundTrip", rng: Random.new(0), **opts)
       mod =
         begin
-          GraphWeaver::Codegen.parse(schema:, query:, module_name: name)
+          GraphWeaver::Codegen.parse(schema:, query:, name:)
         rescue GraphWeaver::Error, ArgumentError => e
           return Trip.new(query:, failures: [], refused: "#{e.class}: #{e.message}")
         end
@@ -517,7 +517,7 @@ module RoundTrip
     def check_hostile(schema:, query:, name: "Hostile", rng: Random.new(0))
       mod =
         begin
-          GraphWeaver::Codegen.parse(schema:, query:, module_name: name)
+          GraphWeaver::Codegen.parse(schema:, query:, name:)
         rescue GraphWeaver::Error, ArgumentError => e
           return Trip.new(query:, failures: [], refused: "#{e.class}: #{e.message}")
         end
@@ -554,7 +554,7 @@ module RoundTrip
 
       mod =
         begin
-          GraphWeaver::Codegen.parse(schema:, query:, module_name: name)
+          GraphWeaver::Codegen.parse(schema:, query:, name:)
         rescue GraphWeaver::Error, ArgumentError => e
           return Trip.new(query:, failures: [], refused: "#{e.class}: #{e.message}")
         end
