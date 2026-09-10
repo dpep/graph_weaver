@@ -1,4 +1,19 @@
 ## Unreleased
+- **A supergraph using federation 2.8's `@context`/`@fromContext` is refused
+  per query rather than routed with the argument unset.** `@join__field` was
+  on the routing table's known list, so its `contextArguments:` was read and
+  dropped: `Testing::Router` planned a fetch for the contextual field with the
+  argument empty. Apollo composes such a graph even when the context-setting
+  type and the contextual field sit in different subgraphs, so nothing
+  upstream caught it. The refusal fires only where the router would plan that
+  fetch itself; a subtree one subgraph answers whole still runs. New
+  `Unplannable` category `:context_argument`.
+- **The local router makes one entity fetch where it made two** when an entity
+  has two `@requires` fields crossing into the same subgraph on the same
+  `@key`. Both sent the identical representation; Apollo makes one. Specs
+  asserting on `#trace` for such a query see one fewer entry. A missing `@key`
+  on a representation now names the entity type in `InputError#struct`, as a
+  coercion failure already did.
 - **Three rake and generator polish items.** `rake -T` no longer prints a
   queries path it can't know — a task description is baked before
   `:environment`, so it presented the default as your setting; it now names
