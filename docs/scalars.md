@@ -130,6 +130,21 @@ GraphWeaver.register_scalar("User.birthday", Date)  # this field only
 A field override wins over the scalar-name registration — which is also how two
 servers that disagree about a `DateTime` coexist in one process.
 
+A coordinate takes a **type string** too, which is how you narrow `JSON`. A
+`JSON` scalar can legally be any JSON value — an object, an array, a string, a
+number — so the registry's answer for the whole scalar has to stay `T.untyped`.
+Where *you* know one field's shape, say it there:
+
+```ruby
+GraphWeaver.register_scalar("Settings.meta", "T::Hash[String, T.untyped]")
+```
+
+The prop becomes `T.nilable(T::Hash[String, T.untyped])`, so `srb tc` sees a
+Hash at every call site, and a response carrying something else is refused
+naming the struct instead of surfacing as a `NoMethodError` three layers on.
+That's a trade rather than a free win: an array the scalar allowed is now a
+hard failure — you asserted the shape, so being right about it is on you.
+
 Registrations are validated against the schema you generate against, and only
 what that schema can **disprove** fails generation: a name it declares as
 something else (`register_scalar("Species")` where `Species` is an enum), or a

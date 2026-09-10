@@ -585,3 +585,57 @@ describe "a class whose codec can't be inferred" do
     expect(capture.variables["budget"]).to eq "12.50"
   end
 end
+
+# A JSON scalar can legally be any JSON value, so the registry can only say
+# T.untyped — but a field whose shape the app knows narrows per coordinate,
+# which is what docs/scalars.md shows under "Overriding one field".
+describe "narrowing a JSON field with a type string" do
+  after { GraphWeaver::Codegen.reset_scalars! }
+
+  let(:schema) do
+    GraphQL::Schema.from_definition(<<~GRAPHQL)
+      scalar JSON
+      type Query { settings: Settings! }
+      type Settings { meta: JSON }
+    GRAPHQL
+  end
+
+  let(:query) { "query Settings { settings { meta } }" }
+
+  def source
+    GraphWeaver::Codegen.generate(schema:, query:, name: "SettingsQuery")
+  end
+
+  def meta(wire)
+    mod = Module.new
+    mod.module_eval(source)
+    mod.const_get(:SettingsQuery).from_response!("data" => { "settings" => { "meta" => wire } }).settings.meta
+  end
+
+  # exactly the registration docs/scalars.md shows
+  def narrow
+    GraphWeaver.register_scalar("Settings.meta", "T::Hash[String, T.untyped]")
+  end
+
+  it "stays untyped without a registration — the scalar really is any JSON value" do
+    expect(source).to include("const :meta, T.untyped")
+  end
+
+  it "types the prop with the string it is given" do
+    narrow
+
+    expect(source).to include("const :meta, T.nilable(T::Hash[String, T.untyped])")
+  end
+
+  it "passes a Hash through" do
+    narrow
+
+    expect(meta("theme" => "dark")).to eq({ "theme" => "dark" })
+  end
+
+  it "refuses a value that isn't one, naming the struct" do
+    narrow
+
+    expect { meta(["dark"]) }.to raise_error(GraphWeaver::TypeError, /SettingsQuery::Result::Settings/)
+  end
+end
