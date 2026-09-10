@@ -95,6 +95,12 @@ in an app that runs a hundred queries:
 $count of Compute: expected an Int, got "lots"
 ```
 
+The value is usually the whole diagnosis, so it is quoted — unless the key it
+arrived under is one your `filter_parameters` covers, in which case the message
+reads `$password of Login: [FILTERED]`. Error messages reach the log at `warn`,
+above the level that gates the variables line, so they are scrubbed by the same
+list ([logging](logging.md#filtered-variables)).
+
 A *missing* required kwarg is still a plain `ArgumentError` ("missing keyword:
 :id") — that's Ruby's, and it is a programming bug rather than bad input.
 
@@ -118,6 +124,11 @@ bare `String` where the input goes — reports the same way. A call site that
 *spells* the wrong type is caught earlier and better, by `srb tc`: the sig is
 as narrow as the schema, and only untyped values reach the runtime check
 ([why](generated_modules.md#variables-become-typed-kwargs)).
+
+`#struct` is the generated input struct *class* where generation produced one,
+and the GraphQL type *name* where it didn't — a federation representation
+builds a plain Hash, so an entity has only its name to give. `to_h`'s
+`"struct"` is the name either way, so branch on that.
 
 Business/validation failures returned *as data* (Shopify-style `userErrors { field
 message code }`) aren't errors here — they're just fields you selected, so they
