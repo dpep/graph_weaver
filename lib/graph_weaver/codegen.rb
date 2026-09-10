@@ -626,15 +626,16 @@ class GraphWeaver::Codegen
 
     GraphWeaver::Internal::Util.query_files(paths).each_with_object({}) do |file, out|
       doc = parse_document(File.read(file), file)
+      reported = GraphWeaver::Internal::Util.relative(file)
       if doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).any?
-        raise GraphWeaver::Error, "#{file}: fragment files define only fragments, no operations"
+        raise GraphWeaver::Error, "#{reported}: fragment files define only fragments, no operations"
       end
       doc.definitions.grep(GraphQL::Language::Nodes::FragmentDefinition).each do |frag|
         if (earlier = source[frag.name])
           raise GraphWeaver::Error,
-            "duplicate shared fragment '#{frag.name}' — defined in #{earlier} and #{file}; rename one"
+            "duplicate shared fragment '#{frag.name}' — defined in #{earlier} and #{reported}; rename one"
         end
-        source[frag.name] = file
+        source[frag.name] = reported
         out[frag.name] = frag
       end
     end

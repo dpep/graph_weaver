@@ -53,15 +53,17 @@ module GraphWeaver
         elsif config.record
           # record mode without a client would quietly serve the stale
           # recording — the one thing "re-record everything" didn't ask for
-          raise GraphWeaver::Error, "record mode is on but no `client:` was given for #{file.path} " \
+          raise GraphWeaver::Error, "record mode is on but no `client:` was given for " \
+            "#{GraphWeaver::Internal::Util.relative(file.path)} " \
             "— pass a live `client:` to re-record it, or turn record mode off " \
             "(GRAPHWEAVER_RECORD / Testing.config.record)."
         elsif file.exist?
           Replayer.new(file)
         else
           # a first run, not a missing recording: there is no request yet
-          raise GraphWeaver::Error, "#{file.path} doesn't exist and no `client:` was given to " \
-            "record with — pass `client:` on the first run, or commit the cassette."
+          raise GraphWeaver::Error, "#{GraphWeaver::Internal::Util.relative(file.path)} doesn't exist " \
+            "and no `client:` was given to record with — pass `client:` on the first run, " \
+            "or commit the cassette."
         end
       end
     end

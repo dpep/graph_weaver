@@ -106,7 +106,7 @@ directory. `schema_path` is the one singular setting: a run reads one schema,
 so a list would name a dump nothing ever opens. A relative path resolves
 against `GraphWeaver.root` — `Rails.root` in a Rails app, the working directory
 otherwise — so where you started the process doesn't change which files it
-reads.
+reads, and every path it reports back is relative to that same root.
 
 (Plain requires, not Zeitwerk: Zeitwerk would expect
 `Generated::PersonQuery` from `generated/person_query.rb`. In development a

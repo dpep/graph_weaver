@@ -52,7 +52,7 @@ module GraphWeaver
           end
           namespace.send(:remove_const, name)
         end
-        GraphWeaver::Internal::Log.log(:info) { "loaded #{name} from #{path}" }
+        GraphWeaver::Internal::Log.log(:info) { "loaded #{name} from #{GraphWeaver::Internal::Util.relative(path)}" }
         namespace.const_set(name, parse(path))
       end
     end
