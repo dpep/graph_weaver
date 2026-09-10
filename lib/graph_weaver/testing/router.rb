@@ -6,7 +6,7 @@ require "json"
 
 require_relative "../parsing"
 require_relative "../schema_loader"
-require_relative "../selection"
+require_relative "../internal/selection"
 require_relative "../internal"
 require_relative "../transport"
 require_relative "../internal/planner"
@@ -391,7 +391,7 @@ module GraphWeaver
       # and includes under @skip — the same way graphql-ruby resolves it.
       def included?(node, variables)
         node.directives.all? do |directive|
-          next true unless GraphWeaver::Selection::CONDITIONAL_DIRECTIVES.include?(directive.name)
+          next true unless GraphWeaver::Internal::Selection::CONDITIONAL_DIRECTIVES.include?(directive.name)
 
           argument = directive.arguments.find { |arg| arg.name == "if" } or next true
           value = argument.value

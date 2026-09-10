@@ -268,7 +268,7 @@ module GraphWeaver
     # fake values. Enums, booleans, __typename, and null positions are
     # preserved; ids map consistently so relationships survive.
     class Anonymizer
-      include GraphWeaver::Selection
+      include GraphWeaver::Internal::Selection
 
       # Keys under `errors`/`extensions` whose value describes the request
       # rather than carrying data: `path` and `locations` point into the

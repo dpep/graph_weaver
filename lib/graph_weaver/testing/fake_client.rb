@@ -80,7 +80,7 @@ require_relative "../parsing"
 # config's schema falls back to the committed dump.
 class GraphWeaver::Testing::FakeClient
   include GraphWeaver::Parsing
-  include GraphWeaver::Selection
+  include GraphWeaver::Internal::Selection
 
   # sentinel: a simulated failure bubbling up to the nearest nullable spot
   NULL_BUBBLE = Object.new.freeze
@@ -206,7 +206,7 @@ class GraphWeaver::Testing::FakeClient
   # resolves it.
   def omitted?(selection)
     selection.directives.any? do |directive|
-      next false unless GraphWeaver::Selection::CONDITIONAL_DIRECTIVES.include?(directive.name)
+      next false unless GraphWeaver::Internal::Selection::CONDITIONAL_DIRECTIVES.include?(directive.name)
 
       argument = directive.arguments.find { |arg| arg.name == "if" } or next false
       value = argument_value(argument)

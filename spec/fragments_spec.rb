@@ -121,7 +121,7 @@ RSpec.describe "shared fragments" do
     # codegen catches cycles via graphql-ruby's schema validation; the Selection
     # guard is the backstop for the walkers that skip it (FakeClient, Anonymizer)
     it "raises a clear error on a fragment cycle instead of overflowing the stack" do
-      host = Object.new.extend(GraphWeaver::Selection)
+      host = Object.new.extend(GraphWeaver::Internal::Selection)
       host.instance_variable_set(:@schema, iface_schema)
       # send: Selection's walk is private in every host — exercising it
       # directly is the point of this spec

@@ -3,7 +3,6 @@
 
 require "graphql"
 
-require_relative "../selection"
 require_relative "subgraphs"
 
 module GraphWeaver

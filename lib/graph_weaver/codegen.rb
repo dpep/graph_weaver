@@ -26,7 +26,7 @@ require_relative "input_struct"
 require_relative "schema_loader"
 require_relative "representation"
 require_relative "inflect"
-require_relative "selection"
+require_relative "internal/selection"
 require_relative "codegen/enum_type"
 require_relative "codegen/scalar_type"
 require_relative "codegen/nodes"
@@ -35,7 +35,7 @@ require_relative "codegen/emit"
 
 class GraphWeaver::Codegen
   include GraphWeaver::Inflect
-  include GraphWeaver::Selection
+  include GraphWeaver::Internal::Selection
   include Aliases
   include Emit
   # the walk's two halves, split for file size rather than for reuse
