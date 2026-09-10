@@ -16,7 +16,7 @@ describe "registered scalar wire types" do
   end
 
   def generate
-    GraphWeaver::Codegen.generate(schema:, query: "query M { price }", module_name: "PriceQuery")
+    GraphWeaver::Codegen.generate(schema:, query: "query M { price }", name: "PriceQuery")
   end
 
   it "refuses a type nothing on the wire can be, with no cast to build one" do
@@ -60,7 +60,7 @@ describe "registered scalar wire types" do
 
     expect {
       GraphWeaver::Codegen.generate(schema: input, query: "query M($at: Money) { ok(at: $at) }",
-        module_name: "OkQuery")
+        name: "OkQuery")
     }.not_to raise_error
   end
 end

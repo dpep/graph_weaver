@@ -21,7 +21,7 @@ describe "generated class naming" do
   # survives while pointing at a DIFFERENT struct still counts as a rename.
   # Props are sorted: their order follows the query, and this is about names.
   def structs(query, schema: self.schema)
-    walk(GraphWeaver::Codegen.parse(schema:, query:, module_name: "Q")::Result, "Result")
+    walk(GraphWeaver::Codegen.parse(schema:, query:, name: "Q")::Result, "Result")
   end
 
   def walk(const, path, acc = {})
@@ -120,7 +120,7 @@ describe "generated class naming" do
         type Query { pet: Pet }
         type Pet { name: String! pet: Pet }
       GRAPHQL
-      mod = GraphWeaver::Codegen.parse(schema: recursive, query: "query Q { pet { name pet { name } } }", module_name: "Q")
+      mod = GraphWeaver::Codegen.parse(schema: recursive, query: "query Q { pet { name pet { name } } }", name: "Q")
 
       expect(mod::Result::Pet::Pet2.props.keys).to eq [:name]
       expect(mod.from_response!("data" => { "pet" => { "name" => "a", "pet" => { "name" => "b" } } }).pet&.pet&.name)
@@ -160,7 +160,7 @@ describe "generated class naming" do
     end
 
     def generate(query)
-      GraphWeaver::Codegen.generate(schema: shadowy, query:, module_name: "Q")
+      GraphWeaver::Codegen.generate(schema: shadowy, query:, name: "Q")
     end
 
     it "refuses a class name that shadows the enum a sibling field reads" do

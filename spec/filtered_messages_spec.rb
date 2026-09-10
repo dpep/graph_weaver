@@ -75,7 +75,7 @@ describe "filtered messages" do
     GraphWeaver.filter_parameters = [:sku]
     sdl = FederationDemo::Catalog::Schema.execute("{ _service { sdl } }").to_h.dig("data", "_service", "sdl")
     source = GraphWeaver::Codegen.new(
-      schema: GraphWeaver::SchemaLoader.load(sdl), client: "Fake", module_name: "SkuEntities",
+      schema: GraphWeaver::SchemaLoader.load(sdl), client: "Fake", name: "SkuEntities",
       query: "query($reps: [_Any!]!) { _entities(representations: $reps) { ... on Product { upc } } }",
     ).generate
     reps = Module.new.tap { |m| m.module_eval(source, "(graph_weaver spec)", 1) }::SkuEntities::Representations

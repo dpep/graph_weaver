@@ -48,7 +48,7 @@ GraphWeaver::Client::URL = Regexp
 GraphWeaver::Codegen (Class)
 GraphWeaver::Codegen#generate
 GraphWeaver::Codegen#generate_types
-GraphWeaver::Codegen#module_name
+GraphWeaver::Codegen#name
 GraphWeaver::Codegen#used_union_names
 GraphWeaver::Codegen#variable_type_names
 GraphWeaver::Codegen.clear_scalars!

@@ -531,7 +531,7 @@ module GraphWeaver
         codegen = Codegen.new(
           schema:,
           query: Codegen.inline_fragments(source, shared, path),
-          module_name: name,
+          name:,
           client:,
           types_namespace: types_module,
           hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
@@ -544,7 +544,7 @@ module GraphWeaver
       end
 
       if used_unions.any? || used.values.any?(&:any?)
-        codegen = Codegen.new(schema:, query: "", module_name: types_module)
+        codegen = Codegen.new(schema:, query: "", name: types_module)
         plan = codegen.generate_types(
           inputs: used[:inputs], enums: used[:enums] + used[:mapped],
           unions: used_unions, fragments: shared,
@@ -687,7 +687,7 @@ module GraphWeaver
       end
       query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 
-      Codegen.parse(schema:, query:, module_name: name, client:, path:)
+      Codegen.parse(schema:, query:, name:, client:, path:)
     end
 
     # One-shot dynamic execution — a throwaway client, no build step:

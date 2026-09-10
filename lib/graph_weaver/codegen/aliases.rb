@@ -51,9 +51,9 @@ class GraphWeaver::Codegen
     # since a module and the type it queries can share a name (module Query
     # on type Query would otherwise stutter).
     def qualify(node, message)
-      return message if @module_name.nil? || @module_name == node.graphql_type
+      return message if @name.nil? || @name == node.graphql_type
 
-      "#{@module_name}: #{message}"
+      "#{@name}: #{message}"
     end
 
     # An alias emits a plain instance method, so it is held to the same bar

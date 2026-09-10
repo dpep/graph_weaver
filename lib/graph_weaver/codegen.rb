@@ -53,7 +53,7 @@ class GraphWeaver::Codegen
     "run; register from a Rails.application.config.to_prepare block, which generation " \
     "also runs first."
 
-  attr_reader :module_name
+  attr_reader :name
 
   # A client is anything responding to `execute(query, variables:)`
   # whose result `to_h`s into {"data" => ..., "errors" => ...} — a
@@ -61,11 +61,10 @@ class GraphWeaver::Codegen
   #
   # client: (a constant, or its name as a string) becomes the generated
   # module's baked default; when omitted, generated code falls back to
-  # the app default (GraphWeaver.client=). module_name:
-  # defaults to the operation's
-  # name; default_module_name: is parse's container-scoped fallback (file
-  # generation stays strict — a checked-in file deserves a deliberate
-  # name). types_namespace: is the shared-types workflow (see
+  # the app default (GraphWeaver.client=). name: is the module the file
+  # defines, defaulting to the operation's own name; default_name: is
+  # parse's container-scoped fallback (file generation stays strict — a
+  # checked-in file deserves a deliberate name). types_namespace: is the shared-types workflow (see
   # GraphWeaver.generate!): input types, schema enums, and unions hoisted from
   # shared fragments live once in that module and the query module aliases what
   # it uses. hoistable_unions: is the set of shared fragment names this query
@@ -73,13 +72,14 @@ class GraphWeaver::Codegen
   # whole-union field spread as one of them resolves to a canonical type in the
   # shared module (see used_union_names). path: is the file the query was read
   # from, named alongside line and column in validation errors.
-  def initialize(schema:, query:, module_name: nil, client: nil, default_module_name: nil,
-    types_namespace: nil, hoistable_unions: nil, path: nil)
+  def initialize(schema:, query:, name: nil, client: nil, default_name: nil,
+    types_namespace: nil, hoistable_unions: nil, path: nil, module_name: nil)
+    renamed!(module_name)
     @schema = schema
     @query = query.strip
     @path = path
-    @module_name = module_name
-    @default_module_name = default_module_name
+    @name = name
+    @default_name = default_name
     @types_namespace = types_namespace
     @hoistable_unions = hoistable_unions || []
     @used_unions = []
@@ -94,6 +94,15 @@ class GraphWeaver::Codegen
     end
   end
 
+  # 0.5 spelled it module_name:, in two of the three doors. One knob, one
+  # spelling — but a silent "unknown keyword" would send the caller hunting.
+  def renamed!(module_name)
+    return unless module_name
+
+    raise ArgumentError, "module_name: is now name: (got #{module_name.inspect})"
+  end
+  private :renamed!
+
   # The constant name a client can be referenced by in generated
   # source — nil when it can't be (live objects, anonymous modules).
   # A lambda rather than a method: both `parse` and `initialize` need it,
@@ -107,8 +116,8 @@ class GraphWeaver::Codegen
   private_constant :CLIENT_CONST
 
   # one-step shorthand
-  def self.generate(schema:, query:, module_name: nil, client: nil, path: nil)
-    new(schema:, query:, module_name:, client:, path:).generate
+  def self.generate(schema:, query:, name: nil, client: nil, path: nil, module_name: nil)
+    new(schema:, query:, name:, client:, path:, module_name:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -116,17 +125,17 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
-  def self.parse(schema:, query:, module_name: nil, client: nil, path: nil)
+  def self.parse(schema:, query:, name: nil, client: nil, path: nil, module_name: nil)
     client_const = CLIENT_CONST.call(client)
 
-    codegen = new(schema:, query:, module_name:, client: client_const, path:,
-      default_module_name: "Query")
+    codegen = new(schema:, query:, name:, client: client_const, path:, module_name:,
+      default_name: "Query")
     source = codegen.generate
 
     container = Module.new
     container.module_eval(source, "(graph_weaver)", 1)
-    mod = container.const_get(codegen.module_name)
-    GraphWeaver::Internal::Log.log(:debug) { "parsed #{codegen.module_name} (dynamic module, #{source.bytesize} bytes)" }
+    mod = container.const_get(codegen.name)
+    GraphWeaver::Internal::Log.log(:debug) { "parsed #{codegen.name} (dynamic module, #{source.bytesize} bytes)" }
     # live objects (or anonymous modules) can't be referenced from
     # generated source — set them via the module's writer instead
     mod.client = client if client && client_const.nil?
@@ -228,7 +237,7 @@ class GraphWeaver::Codegen
       claim = taken[class_name] or next
 
       raise GraphWeaver::Error,
-        "shared fragment #{name.inspect} hoists to #{@module_name}::#{class_name}, " \
+        "shared fragment #{name.inspect} hoists to #{@name}::#{class_name}, " \
         "where #{claim} already generates — rename the fragment"
     end
   end
@@ -250,10 +259,10 @@ class GraphWeaver::Codegen
   CONSTANT_NAME = /\A[A-Z]\w*(::[A-Z]\w*)*\z/
 
   def validate_module_name!(subject)
-    return if @module_name&.match?(CONSTANT_NAME)
+    return if @name&.match?(CONSTANT_NAME)
 
-    problem = "#{subject} must be a constant name, got #{@module_name.inspect}"
-    # An explicit module_name: is an argument wrong on its face. A derived one
+    problem = "#{subject} must be a constant name, got #{@name.inspect}"
+    # An explicit name: is an argument wrong on its face. A derived one
     # is a verdict on a FILE — a numeric prefix (01_home.graphql) is the usual
     # way in — so it names the file, says the fix is a rename, and brands so
     # `rake graph_weaver:generate` aborts on it instead of burying it under a
@@ -309,12 +318,12 @@ class GraphWeaver::Codegen
     operation = load_operation(@query)
     root_type = operation_root_type(operation)
 
-    @module_name ||= operation.name || @default_module_name
-    unless @module_name
-      raise ArgumentError, "module_name: required for anonymous operations"
+    @name ||= operation.name || @default_name
+    unless @name
+      raise ArgumentError, "name: required for anonymous operations"
     end
 
-    validate_module_name!("module_name:")
+    validate_module_name!("name:")
 
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
@@ -324,7 +333,7 @@ class GraphWeaver::Codegen
     # AND sent as operationName, which have to agree (a server rejects an
     # operationName the document doesn't declare). The conventional .graphql
     # file names nothing, so without this every trace arrives anonymous.
-    operation_name = operation.name || @module_name.split("::").last
+    operation_name = operation.name || @name.split("::").last
     @query = declare_operation_name(operation, operation_name) unless operation.name
 
     emit_module(root, variables, representation_nodes(operation, root_type), operation_name)

@@ -94,7 +94,7 @@ RSpec.describe "shared fragments" do
   end
 
   it "surfaces an undefined fragment as a ValidationError" do
-    expect { GraphWeaver::Codegen.generate(schema:, query: "query P { people { ...Nope } }", module_name: "P") }
+    expect { GraphWeaver::Codegen.generate(schema:, query: "query P { people { ...Nope } }", name: "P") }
       .to raise_error(GraphWeaver::ValidationError, /Nope/)
   end
 
@@ -111,7 +111,7 @@ RSpec.describe "shared fragments" do
     it "dispatches a named interface fragment holding inline ... on X conditions" do
       query = "query Q { node { ...NodeFields } }\n" \
         "fragment NodeFields on Node { __typename id ... on User { name } ... on Post { title } }"
-      src = GraphWeaver::Codegen.generate(schema: iface_schema, query:, module_name: "Q")
+      src = GraphWeaver::Codegen.generate(schema: iface_schema, query:, name: "Q")
 
       expect(src).to include("Type = T.type_alias")  # a dispatch, not one interface-level struct
       expect(src).to include("const :name, String")  # User's field survives

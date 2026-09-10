@@ -22,12 +22,20 @@ describe GraphWeaver::Codegen do
     ).to be true
   end
 
+  it "names the module with name:, and says so when given the old spelling" do
+    args = { schema: Demo::Schema, query: "query { people { name } }" }
+
+    expect(described_class.generate(**args, name: "PeopleQuery")).to include("module PeopleQuery")
+    expect { described_class.generate(**args, module_name: "PeopleQuery") }
+      .to raise_error(ArgumentError, /name:/)
+  end
+
   it "generates byte-identical source for the same inputs" do
     # the checked-in-parity spec above pins determinism ACROSS processes; this
     # pins it across calls, where a generator that leaked state between runs
     # (caches, collected requires, hoisted names) would drift
     query = File.read(File.expand_path("queries/search.graphql", __dir__))
-    args = { schema: Demo::Schema, query:, module_name: "SearchQuery" }
+    args = { schema: Demo::Schema, query:, name: "SearchQuery" }
 
     expect(described_class.generate(**args)).to eq(described_class.generate(**args))
   end
@@ -38,7 +46,7 @@ describe GraphWeaver::Codegen do
         described_class.generate(
           schema: Demo::Schema,
           query: "query People { people { name } }",
-          module_name: "Foo; end; puts :evil; module Bar",
+          name: "Foo; end; puts :evil; module Bar",
         )
       }.to raise_error(ArgumentError, /constant name/)
     end
@@ -187,7 +195,7 @@ describe GraphWeaver::Codegen do
       schema: Demo::Schema,
       client: Demo::Schema,
       query: "{ nope }",
-      module_name: "Bad",
+      name: "Bad",
     )
 
     expect { codegen.generate }.to raise_error(GraphWeaver::ValidationError, /invalid query/)
@@ -195,7 +203,7 @@ describe GraphWeaver::Codegen do
 
   it "names the file and position of each validation error" do
     expect {
-      described_class.generate(schema: Demo::Schema, module_name: "Bad", path: "queries/typo.graphql",
+      described_class.generate(schema: Demo::Schema, name: "Bad", path: "queries/typo.graphql",
         query: "query { person(id: 1) { nmae } }")
     }.to raise_error(GraphWeaver::ValidationError, %r{queries/typo\.graphql:\n  1:25  Field 'nmae'})
   end
@@ -233,7 +241,7 @@ describe GraphWeaver::Codegen do
 
     it "names a query-shorthand document too" do
       source = described_class.generate(
-        schema: Demo::Schema, module_name: "PeopleQuery", query: "{ people { name } }",
+        schema: Demo::Schema, name: "PeopleQuery", query: "{ people { name } }",
       )
 
       expect(source).to include("QUERY = T.let(<<~'GRAPHQL', String)\n    query PeopleQuery { people { name } }")
@@ -403,7 +411,7 @@ describe GraphWeaver::Codegen do
         schema: Demo::Schema,
         client: Demo::Schema,
         query: 'query { search(term: "x") { ... on Pet { species } ... on Person { email } } }',
-        module_name: "Bad",
+        name: "Bad",
       )
 
       expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
@@ -562,7 +570,7 @@ describe GraphWeaver::Codegen do
       schema = GraphQL::Schema.from_definition("enum E { active ACTIVE }\ntype Query { e: E }")
 
       # T::Enum raises "Enum values must be assigned to constants" at LOAD time
-      expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", module_name: "Q") }
+      expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", name: "Q") }
         .to raise_error(GraphWeaver::Error, /ACTIVE and active both become the constant Active/)
     end
 
@@ -571,7 +579,7 @@ describe GraphWeaver::Codegen do
       # legal Ruby, so the file died with a syntax error at load
       schema = GraphQL::Schema.from_definition("enum E { _ X }\ntype Query { e: E }")
 
-      expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", module_name: "Q") }
+      expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", name: "Q") }
         .to raise_error(GraphWeaver::Error, /value _ makes no constant name/)
     end
 
@@ -579,7 +587,7 @@ describe GraphWeaver::Codegen do
       schema = GraphQL::Schema.from_definition(
         "enum E { AB A_B IN_PROGRESS INPROGRESS }\ntype Query { e: E }",
       )
-      src = GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", module_name: "Q")
+      src = GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", name: "Q")
 
       expect(src).to include("Ab = new", "AB = new", "InProgress = new", "Inprogress = new")
     end
@@ -634,9 +642,9 @@ describe GraphWeaver::Codegen do
     it "keeps the kwarg surface stable when a query grows a variable" do
       # a lone required input object used to flatten into per-field kwargs, so
       # declaring one more variable reshaped every existing call site
-      alone = described_class.generate(schema: Demo::Schema, module_name: "M",
+      alone = described_class.generate(schema: Demo::Schema, name: "M",
         query: "mutation($input: AdoptionInput!) { adopt(input: $input) { name } }")
-      grown = described_class.generate(schema: Demo::Schema, module_name: "M", query: <<~GRAPHQL)
+      grown = described_class.generate(schema: Demo::Schema, name: "M", query: <<~GRAPHQL)
         mutation($input: AdoptionInput!, $detail: Boolean!) {
           adopt(input: $input) { name species @include(if: $detail) }
         }
@@ -978,7 +986,7 @@ describe GraphWeaver::Codegen do
     it "still requires a deliberate name when generating files" do
       expect {
         described_class.generate(schema: Demo::Schema, query: "query { people { name } }")
-      }.to raise_error(ArgumentError, /module_name/)
+      }.to raise_error(ArgumentError, /name:/)
     end
 
     it "does not leak global constants" do
@@ -1272,7 +1280,7 @@ describe GraphWeaver::Codegen do
     end
 
     it "emits one struct per named condition plus one catch-all, whatever the schema's size" do
-      src = described_class.generate(schema:, query:, module_name: "Q")
+      src = described_class.generate(schema:, query:, name: "Q")
 
       # Result + Thing1 + Thing2 + Other: bounded by the query, not by the 40
       # types that implement Node
@@ -1413,7 +1421,7 @@ describe GraphWeaver::Codegen do
   it "rejects a document holding more than one operation" do
     query = "query A { people { name } } query B { people { id } }"
 
-    expect { GraphWeaver::Codegen.generate(schema: Demo::Schema, query:, module_name: "Q") }
+    expect { GraphWeaver::Codegen.generate(schema: Demo::Schema, query:, name: "Q") }
       .to raise_error(GraphWeaver::Error, /2 operations \('A', 'B'\)/)
   end
 
@@ -1446,7 +1454,7 @@ describe GraphWeaver::Codegen do
     end
 
     def generate(selection)
-      GraphWeaver::Codegen.generate(schema:, query: "query Q { person { #{selection} } }", module_name: "Q")
+      GraphWeaver::Codegen.generate(schema:, query: "query Q { person { #{selection} } }", name: "Q")
     end
 
     it "rejects two result keys that underscore to the same prop" do
@@ -1468,7 +1476,7 @@ describe GraphWeaver::Codegen do
     schema = GraphQL::Schema.from_definition("type Query { thing(userId: ID, alt: ID): String }")
     query = "query($userId: ID, $user_id: ID) { thing(userId: $userId, alt: $user_id) }"
 
-    expect { GraphWeaver::Codegen.generate(schema:, query:, module_name: "Q") }
+    expect { GraphWeaver::Codegen.generate(schema:, query:, name: "Q") }
       .to raise_error(GraphWeaver::Error, /rename one/)
   end
 end

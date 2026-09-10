@@ -55,7 +55,7 @@ describe "federation / supergraph" do
       schema:,
       client: "FederatedSchema",
       query: "query($id: ID!) { user(id: $id) { id name petNames } }",
-      module_name: "UserQuery",
+      name: "UserQuery",
     ).generate
   end
 
@@ -407,7 +407,7 @@ describe "federation / subgraph SDL" do
       schema: GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Users::Schema)),
       client: "SubgraphSchema",
       query: "query($id: ID!) { user(id: $id) { id name } }",
-      module_name: "SubgraphUserQuery",
+      name: "SubgraphUserQuery",
     ).generate
 
     expect(source).to include("const :name, String")
@@ -424,11 +424,11 @@ describe "federation / _entities representations" do
 
   # eval'd rather than required: the generated module is the thing under
   # test, and sorbet-runtime checks its sigs as we call them
-  def build(schema, query, module_name)
-    source = GraphWeaver::Codegen.new(schema:, query:, module_name:, client: "Fake").generate
+  def build(schema, query, name)
+    source = GraphWeaver::Codegen.new(schema:, query:, name:, client: "Fake").generate
     container = Module.new
     container.module_eval(source, "(graph_weaver spec)", 1)
-    [container.const_get(module_name), source]
+    [container.const_get(name), source]
   end
 
   let(:catalog) { GraphWeaver::SchemaLoader.load(sdl_of(FederationDemo::Catalog::Schema)) }

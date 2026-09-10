@@ -52,7 +52,7 @@ describe "built-in scalar coercion" do
   end
 
   it "keeps the kwarg sig as narrow as the schema" do
-    source = GraphWeaver::Codegen.generate(schema: BuiltinDemo::Schema, query:, module_name: "ComputeQuery")
+    source = GraphWeaver::Codegen.generate(schema: BuiltinDemo::Schema, query:, name: "ComputeQuery")
 
     expect(source).to include("amount: Float, count: Integer, flag: T::Boolean, id: String, label: String")
     # the sig can't be what stops a Rails param, so it isn't the check
@@ -119,7 +119,7 @@ describe "built-in scalar coercion" do
     source = GraphWeaver::Codegen.generate(
       schema: Demo::Schema,
       query: "query Pets($where: PetFilter) { findPets(where: $where) { metadata } }",
-      module_name: "PetsQuery",
+      name: "PetsQuery",
     )
 
     expect(source).to include('Field.new(:metadata, "metadata", false, nil, nil)')

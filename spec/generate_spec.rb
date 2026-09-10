@@ -72,7 +72,7 @@ describe "GraphWeaver.generate!" do
     File.write(File.join(queries, "01_home_featured.graphql"), "query { person(id: 1) { name } }")
 
     expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
-      .to raise_error(GraphWeaver::Error, %r{\A.*/queries/01_home_featured\.graphql: module_name: must be a constant name, got "01HomeFeaturedQuery" — it comes from the file name, so rename})
+      .to raise_error(GraphWeaver::Error, %r{\A.*/queries/01_home_featured\.graphql: name: must be a constant name, got "01HomeFeaturedQuery" — it comes from the file name, so rename})
   end
 
   it "names the query file a validation error came from" do

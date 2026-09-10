@@ -174,7 +174,7 @@ describe "error handling" do
   describe "ValidationError" do
     it "is raised for invalid queries, under the Error umbrella, with structured errors" do
       expect {
-        GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", module_name: "Bad")
+        GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", name: "Bad")
       }.to raise_error(GraphWeaver::ValidationError) do |e|
         expect(e).to be_a GraphWeaver::Error # one rescue catches everything
         expect(e.message).to match(/invalid query/)
@@ -184,7 +184,7 @@ describe "error handling" do
 
     it "renders one error per line under the file it came from" do
       expect {
-        GraphWeaver::Codegen.generate(schema: Demo::Schema, module_name: "Bad", path: "queries/typo.graphql",
+        GraphWeaver::Codegen.generate(schema: Demo::Schema, name: "Bad", path: "queries/typo.graphql",
           query: "query { person(id: 1) { nmae birthdy } }")
       }.to raise_error(GraphWeaver::ValidationError) do |e|
         expect(e.message.lines.map(&:chomp)).to match [
@@ -371,7 +371,7 @@ describe "error handling" do
       expect(server.to_h).to include("error" => "GraphWeaver::ServerError", "status" => 502)
 
       validation = begin
-        GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", module_name: "Bad")
+        GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", name: "Bad")
       rescue GraphWeaver::ValidationError => e
         e
       end

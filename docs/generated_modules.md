@@ -190,7 +190,7 @@ Parsing a raw query *string* has no file to name it after, so it uses the
 operation name (`query GetPerson` → `GetPerson`); dynamic `parse` falls back to
 `Query` for an anonymous one (its constants are container-scoped, so collisions
 are impossible) while `Codegen.generate` insists on a deliberate name. Override
-with `name:` on `GraphWeaver.parse`, `module_name:` on `Codegen.generate`.
+with `name:` on either.
 
 **Every nested type is named for the response key that selects it**, camelized
 (`stargazers` → `Stargazers`, `nameWithOwner` → `NameWithOwner`, `_entities` →

@@ -91,7 +91,7 @@ describe "custom scalar deserialization" do
   end
 
   def generate
-    GraphWeaver::Codegen.generate(schema: MoneyDemo::Schema, query:, module_name: "StoreQuery")
+    GraphWeaver::Codegen.generate(schema: MoneyDemo::Schema, query:, name: "StoreQuery")
   end
 
   it "infers cast (.parse) and serialize (#to_s) from a class type" do
@@ -308,7 +308,7 @@ describe "custom scalar deserialization" do
     source = GraphWeaver::Codegen.generate(
       schema: Demo::Schema,
       query: File.read(File.expand_path("queries/person.graphql", __dir__)),
-      module_name: "PersonQuery",
+      name: "PersonQuery",
     )
 
     expect(source).to include(%(require "date"))

@@ -17,7 +17,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
   after { GraphWeaver::Codegen.reset_type_helpers! }
 
   def generate(q = query)
-    GraphWeaver::Codegen.generate(schema:, query: q, module_name: "W")
+    GraphWeaver::Codegen.generate(schema:, query: q, name: "W")
   end
 
   it "projects a nested nullable path (meta.tag) onto a typed accessor" do
@@ -53,7 +53,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
 
   it "delegates at runtime, nil-safe through a null wrapper" do
     GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
-    mod = GraphWeaver::Codegen.parse(schema:, query:, module_name: "W")
+    mod = GraphWeaver::Codegen.parse(schema:, query:, name: "W")
 
     got = mod.from_response!("data" => { "widget" => { "id" => "1", "name" => "n", "meta" => { "tag" => "T", "color" => nil } } })
     expect(got.widget.tag).to eq("T")
@@ -120,14 +120,14 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
       GRAPHQL
       GraphWeaver.extend_type("Query", alias: { pets: "findPets.first" }, optional: true)
 
-      expect { GraphWeaver::Codegen.generate(schema: wire_schema, query: "{ findPets { id } }", module_name: "Find") }
+      expect { GraphWeaver::Codegen.generate(schema: wire_schema, query: "{ findPets { id } }", name: "Find") }
         .to raise_error(GraphWeaver::Error, %(Find: alias "pets" on Query: 'findPets' is not a field of Query ) +
           %(— GraphQL fields generate snake_case props; use 'find_pets'))
     end
 
     it "doesn't stutter when the module and the type share a name" do
       GraphWeaver.extend_type("Query", alias: { w: "widget.name" })
-      expect { GraphWeaver::Codegen.generate(schema:, query: "{ widget { id } }", module_name: "Query") }
+      expect { GraphWeaver::Codegen.generate(schema:, query: "{ widget { id } }", name: "Query") }
         .to raise_error(GraphWeaver::Error, /\Aalias "w" on Query: 'name' is not a selected field/)
     end
   end
@@ -184,7 +184,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     it "reads the lone entity directly, typed as the concrete member" do
       GraphWeaver.extend_type("Query",
         alias: { entity: "_entities.first", entity_name: "_entities.first.name" }, optional: true)
-      mod = GraphWeaver::Codegen.parse(schema: fed_schema, module_name: "Fetch",
+      mod = GraphWeaver::Codegen.parse(schema: fed_schema, name: "Fetch",
         query: "query($r: [_Any!]!) { _entities(representations: $r) { ... on Widget { id name } } }")
 
       got = mod.from_response!("data" => { "_entities" => [{ "id" => "1", "name" => "Shelby" }] })
@@ -195,7 +195,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
 
     it "returns nil (not a crash) when no entity matched" do
       GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
-      mod = GraphWeaver::Codegen.parse(schema: fed_schema, module_name: "Fetch2",
+      mod = GraphWeaver::Codegen.parse(schema: fed_schema, name: "Fetch2",
         query: "query($r: [_Any!]!) { _entities(representations: $r) { ... on Widget { id name } } }")
 
       expect(mod.from_response!("data" => { "_entities" => [] }).entity).to be_nil
@@ -203,7 +203,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
 
     it "omits the accessor (optional) on a query that doesn't fetch entities" do
       GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional: true)
-      mod = GraphWeaver::Codegen.parse(schema: fed_schema, module_name: "Me", query: "query { me { id } }")
+      mod = GraphWeaver::Codegen.parse(schema: fed_schema, name: "Me", query: "query { me { id } }")
 
       expect(mod::Result.instance_methods).not_to include(:entity)
     end
@@ -223,7 +223,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
 
     def gen2(aliases, q, **opts)
       GraphWeaver.extend_type("Widget", alias: aliases, **opts)
-      GraphWeaver::Codegen.generate(schema: nested_schema, query: q, module_name: "W")
+      GraphWeaver::Codegen.generate(schema: nested_schema, query: q, name: "W")
     end
 
     it "qualifies a deep object/enum leaf with its container path (not a bare constant)" do
@@ -245,7 +245,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
 
     it "does not let optional: swallow a reserved-name/collision error" do
       GraphWeaver.extend_type("Widget", alias: { serialize: "meta.tag" }, optional: true)
-      expect { GraphWeaver::Codegen.generate(schema: nested_schema, query: "query W { widget { meta { tag } } }", module_name: "W") }
+      expect { GraphWeaver::Codegen.generate(schema: nested_schema, query: "query W { widget { meta { tag } } }", name: "W") }
         .to raise_error(GraphWeaver::Error, /collides/)
     end
 
@@ -256,7 +256,7 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
         type Meta { tag: String! }
       GRAPHQL
       GraphWeaver.extend_type("Widget", alias: { cursor: "next", tag: "next.tag" })
-      src = GraphWeaver::Codegen.generate(schema:, query: "query W { widget { next { tag } } }", module_name: "W")
+      src = GraphWeaver::Codegen.generate(schema:, query: "query W { widget { next { tag } } }", name: "W")
 
       expect(src).to include("def cursor = self.next", "def tag = self.next&.tag")
     end
