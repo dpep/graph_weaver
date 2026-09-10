@@ -19,7 +19,7 @@ module GraphWeaver
       def initialize(path:, query:, variables:, recorded:, size:)
         super([
           "no recording for this request in #{path}",
-          "  variables: #{GraphWeaver.filter_variables(Internal::RequestKey.normalize_variables(variables)).inspect}",
+          "  variables: #{GraphWeaver::Internal::Log.filter_variables(Internal::RequestKey.normalize_variables(variables)).inspect}",
           "  #{self.class.recorded_summary(recorded, size)}",
           "  query: #{Internal::RequestKey.summarize(query)}",
           "re-record it (GRAPHWEAVER_RECORD=1 with a client:), or delete the cassette to start over.",
@@ -30,7 +30,7 @@ module GraphWeaver
         return "no entry recorded for this query (#{size} in the cassette)" if recorded.empty?
 
         more = recorded.size > SHOWN ? " (+#{recorded.size - SHOWN} more)" : ""
-        shown = recorded.first(SHOWN).map { |set| GraphWeaver.filter_variables(set).inspect }
+        shown = recorded.first(SHOWN).map { |set| GraphWeaver::Internal::Log.filter_variables(set).inspect }
         "#{recorded.size} #{(recorded.size == 1) ? "entry" : "entries"} recorded for this query, " \
           "with variables #{shown.join(", ")}#{more}"
       end

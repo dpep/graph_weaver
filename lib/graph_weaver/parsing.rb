@@ -47,12 +47,12 @@ module GraphWeaver
         if namespace.const_defined?(name, false)
           # the constant moves, its instances don't — a struct built before the
           # reload keeps failing is_a? against the new module, silently
-          GraphWeaver.log(:info) do
+          GraphWeaver::Internal::Log.log(:info) do
             "replacing #{name} — objects built from the previous module stay instances of it"
           end
           namespace.send(:remove_const, name)
         end
-        GraphWeaver.log(:info) { "loaded #{name} from #{path}" }
+        GraphWeaver::Internal::Log.log(:info) { "loaded #{name} from #{path}" }
         namespace.const_set(name, parse(path))
       end
     end

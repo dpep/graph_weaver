@@ -126,7 +126,7 @@ class GraphWeaver::Codegen
     container = Module.new
     container.module_eval(source, "(graph_weaver)", 1)
     mod = container.const_get(codegen.module_name)
-    GraphWeaver.log(:debug) { "parsed #{codegen.module_name} (dynamic module, #{source.bytesize} bytes)" }
+    GraphWeaver::Internal::Log.log(:debug) { "parsed #{codegen.module_name} (dynamic module, #{source.bytesize} bytes)" }
     # live objects (or anonymous modules) can't be referenced from
     # generated source — set them via the module's writer instead
     mod.client = client if client && client_const.nil?
@@ -709,7 +709,7 @@ class GraphWeaver::Codegen
   # The build channel prints the same list once per run; see
   # GraphWeaver.unmatched_registrations.
   def validate_registrations!
-    self.class.unmatched_registrations(@schema).each { |message| GraphWeaver.log(:warn) { message } }
+    self.class.unmatched_registrations(@schema).each { |message| GraphWeaver::Internal::Log.log(:warn) { message } }
   end
 
   # The @include/@skip a fragment carries applies to what it guards, so it has
@@ -1302,7 +1302,7 @@ class GraphWeaver::Codegen
     names = @untyped_scalars.uniq.sort
     return if names.empty?
 
-    GraphWeaver.log(:info) do
+    GraphWeaver::Internal::Log.log(:info) do
       "#{names.size} unregistered custom scalar#{"s" unless names.one?} → T.untyped: " \
         "#{names.join(", ")} (register with GraphWeaver.register_scalar)"
     end

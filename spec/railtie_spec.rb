@@ -238,7 +238,7 @@ describe "GraphWeaver::Railtie" do
     it "adopts the app's list" do
       boot([:passw, :ssn])
 
-      expect(GraphWeaver.filter_variables("passwordConfirmation" => "x", "name" => "d"))
+      expect(GraphWeaver::Internal::Log.filter_variables("passwordConfirmation" => "x", "name" => "d"))
         .to eq("passwordConfirmation" => "[FILTERED]", "name" => "d")
     end
 

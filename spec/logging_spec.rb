@@ -141,8 +141,8 @@ describe "GraphWeaver.logger" do
 
   it "stays silent and lazy without a logger" do
     GraphWeaver.logger = nil
-    expect { GraphWeaver.log(:debug) { raise "never evaluated" } }.not_to raise_error
-    expect(GraphWeaver.log_timed(:debug, "label") { 42 }).to eq 42
+    expect { GraphWeaver::Internal::Log.log(:debug) { raise "never evaluated" } }.not_to raise_error
+    expect(GraphWeaver::Internal::Log.log_timed(:debug, "label") { 42 }).to eq 42
   end
 end
 
@@ -204,6 +204,6 @@ describe "GraphWeaver.instrumenter" do
   it "is a no-op when unset" do
     GraphWeaver.instrumenter = nil
 
-    expect(GraphWeaver.instrument("x", {}) { 42 }).to eq 42
+    expect(GraphWeaver::Internal::Log.instrument("x", {}) { 42 }).to eq 42
   end
 end

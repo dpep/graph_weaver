@@ -94,7 +94,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     dirs = watched.to_h { |path| [Rails.root.join(path).to_s, %w[graphql gql]] }
     self.watcher = app.config.file_watcher.new([Rails.root.join(dump).to_s], dirs) { regenerate! }
     app.reloaders << watcher
-    GraphWeaver.log(:info) do
+    GraphWeaver::Internal::Log.log(:info) do
       "watching #{(watched << dump).join(", ")} — an edit regenerates " \
         "#{GraphWeaver.generated_paths.first} before the next request " \
         "(config.graph_weaver.watch = false to stop)"
@@ -110,9 +110,9 @@ class GraphWeaver::Railtie < Rails::Railtie
   def self.regenerate!
     written = GraphWeaver.generate!
     GraphWeaver.reload_generated!
-    GraphWeaver.log(:info) { "regenerated #{written.map { |path| File.basename(path) }.join(", ")}" }
+    GraphWeaver::Internal::Log.log(:info) { "regenerated #{written.map { |path| File.basename(path) }.join(", ")}" }
   rescue GraphWeaver::Error => e
-    GraphWeaver.log(:error) { "keeping the modules already loaded — #{e.message}" }
+    GraphWeaver::Internal::Log.log(:error) { "keeping the modules already loaded — #{e.message}" }
   end
 
   # A generated file `include`s the type helper it was generated with, so it

@@ -61,7 +61,7 @@ module GraphWeaver
         # which adapter got picked decides socket reuse — Faraday's
         # default net_http one opens a connection per request. Naming it
         # is the cheapest way to make that discoverable.
-        GraphWeaver.log(:info) { "faraday transport #{@url} (adapter: #{@connection.builder.adapter})" }
+        GraphWeaver::Internal::Log.log(:info) { "faraday transport #{@url} (adapter: #{@connection.builder.adapter})" }
       end
 
       private

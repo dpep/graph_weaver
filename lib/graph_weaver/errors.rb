@@ -25,7 +25,7 @@ module GraphWeaver
     sig { params(args: T.untyped).void }
     def initialize(*args)
       super
-      GraphWeaver.log(:warn) { "#{self.class.name}: #{message}" }
+      GraphWeaver::Internal::Log.log(:warn) { "#{self.class.name}: #{message}" }
     end
 
     sig { overridable.returns(T::Hash[String, T.untyped]) }

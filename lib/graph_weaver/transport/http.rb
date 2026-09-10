@@ -120,7 +120,7 @@ module GraphWeaver
       # when idle past keep_alive_timeout, so a server-closed keep-alive
       # socket doesn't produce spurious failures.
       def connect
-        GraphWeaver.log(:debug) { "connecting to #{@uri.hostname}:#{@uri.port}" }
+        GraphWeaver::Internal::Log.log(:debug) { "connecting to #{@uri.hostname}:#{@uri.port}" }
         http = Net::HTTP.start(
           @uri.hostname, @uri.port,
           use_ssl: @uri.scheme == "https",
@@ -148,7 +148,7 @@ module GraphWeaver
         waited = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
 
         first = @lock.synchronize { !@saturated && (@saturated = true) }
-        GraphWeaver.log(first ? :warn : :debug) do
+        GraphWeaver::Internal::Log.log(first ? :warn : :debug) do
           "connection pool saturated: waited #{waited}ms for 1 of #{@pool_size} connections to " \
             "#{@uri.hostname} — raise pool_size: to this process's concurrency"
         end
@@ -157,7 +157,7 @@ module GraphWeaver
       def disconnect(http)
         return unless http
 
-        GraphWeaver.log(:debug) { "dropping connection to #{@uri.hostname}:#{@uri.port}" }
+        GraphWeaver::Internal::Log.log(:debug) { "dropping connection to #{@uri.hostname}:#{@uri.port}" }
         http.finish if http.started?
       rescue IOError
         # already closed

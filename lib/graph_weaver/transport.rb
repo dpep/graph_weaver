@@ -52,7 +52,7 @@ class GraphWeaver::Transport
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
     payload = { url:, operation: operation_name }
 
-    GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
       perform(query, variables, operation_name, payload)
     end
   end
@@ -66,8 +66,8 @@ class GraphWeaver::Transport
 
     # full query + variables at debug only — they can carry PII, and the
     # sensitive keys are scrubbed even there (GraphWeaver.filter_parameters)
-    GraphWeaver.log(:debug) do
-      filtered = JSON.generate(GraphWeaver.filter_variables(variables))
+    GraphWeaver::Internal::Log.log(:debug) do
+      filtered = JSON.generate(GraphWeaver::Internal::Log.filter_variables(variables))
       "POST #{url} #{tag} variables=#{filtered}\n#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
@@ -87,7 +87,7 @@ class GraphWeaver::Transport
     # headers is optional: a third-party subclass returning the
     # documented [status, body] pair simply has none
     status, body, headers = begin
-      GraphWeaver.log_timed(:debug, "POST #{url} #{tag} completed") do
+      GraphWeaver::Internal::Log.log_timed(:debug, "POST #{url} #{tag} completed") do
         post(encoded)
       end
     rescue *GraphWeaver.transport_errors.to_a => e
@@ -96,7 +96,7 @@ class GraphWeaver::Transport
     end
 
     payload[:status] = status
-    GraphWeaver.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
+    GraphWeaver::Internal::Log.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
 
     parsed = parse_body(body)
 

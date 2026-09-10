@@ -49,7 +49,7 @@ class GraphWeaver::InProcess
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
     payload = { url: nil, schema: @schema.to_s, operation: operation_name }
 
-    GraphWeaver.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
       perform(query, variables, operation_name, payload)
     end
   end
@@ -61,12 +61,12 @@ class GraphWeaver::InProcess
     # same whichever side of the seam a query ran on
     tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
 
-    GraphWeaver.log(:debug) do
-      "in-process #{@schema} #{tag} variables=#{JSON.generate(GraphWeaver.filter_variables(variables))}\n" \
+    GraphWeaver::Internal::Log.log(:debug) do
+      "in-process #{@schema} #{tag} variables=#{JSON.generate(GraphWeaver::Internal::Log.filter_variables(variables))}\n" \
         "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
-    result = GraphWeaver.log_timed(:debug, "in-process #{@schema} #{tag} completed") do
+    result = GraphWeaver::Internal::Log.log_timed(:debug, "in-process #{@schema} #{tag} completed") do
       # a copy per query: graphql-ruby writes a resolver's `context[...] =`
       # into the hash it is handed, and one client serves every request
       @schema.execute(query, variables:, operation_name:, context: @context.dup)

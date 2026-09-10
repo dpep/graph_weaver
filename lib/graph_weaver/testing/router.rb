@@ -638,15 +638,16 @@ module GraphWeaver
         # a fabricated answer that passes silently is worse than a failing
         # one, so it says so every fetch rather than once at construction
         if faked
-          GraphWeaver.log(:warn) { "router -> #{name} #{tag} FAKED: fabricated data, not #{name}'s" }
+          GraphWeaver::Internal::Log.log(:warn) { "router -> #{name} #{tag} FAKED: fabricated data, not #{name}'s" }
         end
 
-        GraphWeaver.log(:debug) do
-          "router -> #{name} #{tag} variables=#{JSON.generate(GraphWeaver.filter_variables(variables))}\n" \
+        GraphWeaver::Internal::Log.log(:debug) do
+          "router -> #{name} #{tag} variables=#{JSON.generate(GraphWeaver::Internal::Log.filter_variables(variables))}
+" \
             "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
         end
 
-        GraphWeaver.log_timed(:debug, "router -> #{name} #{tag} completed") do
+        GraphWeaver::Internal::Log.log_timed(:debug, "router -> #{name} #{tag} completed") do
           @subgraphs.fetch(name).execute(query, variables:, operation_name:, context: @context).to_h
         end
       end

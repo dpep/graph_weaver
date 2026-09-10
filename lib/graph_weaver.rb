@@ -203,7 +203,7 @@ module GraphWeaver
       if Internal::Util.query_files(queries).empty?
         # a brand-new app legitimately has none; a mistyped queries_paths looks
         # exactly the same, and prints nothing either way
-        log(:warn) { "no query documents under #{Array(queries).join(", ")} — nothing to generate" }
+        Internal::Log.log(:warn) { "no query documents under #{Array(queries).join(", ")} — nothing to generate" }
       end
 
       plan = generation_plan(queries:, schema:, client:, types_module:)
@@ -215,13 +215,13 @@ module GraphWeaver
         # truncating write can leave a prefix that no longer parses, and it is
         # the running app that requires it next
         Internal::Util.atomic_write(target, source)
-        log(:info) { "generated #{target}" }
+        Internal::Log.log(:info) { "generated #{target}" }
         target
       end
 
       orphaned(output, written).each do |orphan|
         File.delete(orphan)
-        log(:info) { "pruned #{orphan}" }
+        Internal::Log.log(:info) { "pruned #{orphan}" }
       end
 
       written
@@ -441,7 +441,7 @@ module GraphWeaver
         raise Error, "#{file} can't load: #{e.message}. It was generated with an extend_type or " \
           "register_enum whose constant is gone — re-add it, or regenerate: rake graph_weaver:generate"
       end
-      log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
+      Internal::Log.log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
       files
     end
 

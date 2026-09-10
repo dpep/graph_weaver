@@ -186,7 +186,7 @@ class GraphWeaver::Client
         GraphWeaver::Transport::HTTP.new(url, headers:, **timeouts)
       end
 
-    GraphWeaver.log(:info) { "transport: #{transport.class} -> #{url}" }
+    GraphWeaver::Internal::Log.log(:info) { "transport: #{transport.class} -> #{url}" }
     transport
   end
 

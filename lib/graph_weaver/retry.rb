@@ -105,7 +105,7 @@ class GraphWeaver::Retry
         return response unless attempt < attempts && retryable_response?(response)
       rescue *@retry_on => e
         if attempt >= attempts || !@retry_if.call(e)
-          GraphWeaver.log(:warn) { MUTATION_HINT } if attempts == 1 && @retries.positive?
+          GraphWeaver::Internal::Log.log(:warn) { MUTATION_HINT } if attempts == 1 && @retries.positive?
           raise
         end
 
@@ -115,7 +115,7 @@ class GraphWeaver::Retry
       seconds = delay(attempt, failure)
       # a retry is invisible otherwise: the caller sees one slow call, and the
       # log shows an error that apparently didn't stop anything
-      GraphWeaver.log(:info) do
+      GraphWeaver::Internal::Log.log(:info) do
         "retrying #{operation_name || "query"} in #{seconds.round(2)}s (attempt #{attempt + 1} of #{attempts})"
       end
       @sleeper.call(seconds)

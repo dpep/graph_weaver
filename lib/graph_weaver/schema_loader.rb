@@ -623,14 +623,14 @@ module GraphWeaver::SchemaLoader
       # schema.graphql already sits there
       existing = cache_candidates(cache).find { |candidate| fresh?(candidate, ttl) }
       if existing
-        GraphWeaver.log(:info) { "schema cache hit: #{existing}#{" (ttl #{ttl}s)" if ttl}" }
+        GraphWeaver::Internal::Log.log(:info) { "schema cache hit: #{existing}#{" (ttl #{ttl}s)" if ttl}" }
         return load(existing)
       end
 
-      GraphWeaver.log(:info) { "schema cache miss: #{cache}" }
+      GraphWeaver::Internal::Log.log(:info) { "schema cache miss: #{cache}" }
     end
 
-    result = GraphWeaver.log_timed(:info, "introspected #{endpoint(transport)}") do
+    result = GraphWeaver::Internal::Log.log_timed(:info, "introspected #{endpoint(transport)}") do
       transport.execute(GraphQL::Introspection.query, variables: {}).to_h
     end
     if (errors = result["errors"])
@@ -669,7 +669,7 @@ module GraphWeaver::SchemaLoader
           "introspected #{endpoint(transport)} but couldn't write the schema cache " \
           "to #{cache}: #{e.message}"
       end
-      GraphWeaver.log(:info) { "wrote schema cache: #{cache} (#{content.bytesize} bytes)" }
+      GraphWeaver::Internal::Log.log(:info) { "wrote schema cache: #{cache} (#{content.bytesize} bytes)" }
     end
 
     schema
