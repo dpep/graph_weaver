@@ -15,6 +15,10 @@ module GraphWeaver
   # resolves it, neither is individually required) and a nested key set
   # (`organization { id }`, a sub-hash the kwarg's Hash type doesn't pin
   # down). Both land here.
+  #
+  # `InputError#struct` is the entity's GraphQL type name here, not a class: a
+  # representation is a Hash a module function builds, so there is no generated
+  # struct to name.
   module Representation
     # `key_sets` is the entity's @key field sets as dotted paths, in
     # declaration order — [["upc", "sku"], ["id"]] for a type keyed either
@@ -78,7 +82,7 @@ module GraphWeaver
       if key_sets.one?
         InputError.new(
           "#{type_name} representation is missing @key #{gaps.first.map(&:inspect).join(", ")}",
-          field: gaps.first.one? ? gaps.first.first : nil,
+          field: gaps.first.one? ? gaps.first.first : nil, struct: type_name,
         )
       else
         alternatives = key_sets.zip(gaps).map do |paths, gap|
@@ -87,7 +91,10 @@ module GraphWeaver
           supplied = gap.size < paths.size
           "#{paths.map(&:inspect).join(" + ")}#{" (missing #{gap.map(&:inspect).join(", ")})" if supplied}"
         end
-        InputError.new("#{type_name} representation satisfies none of its @keys — supply #{alternatives.join(", or ")}")
+        InputError.new(
+          "#{type_name} representation satisfies none of its @keys — supply #{alternatives.join(", or ")}",
+          struct: type_name,
+        )
       end
     end
     private_class_method :incomplete

@@ -502,9 +502,13 @@ describe "federation / _entities representations" do
   it "raises on a representation that satisfies no key" do
     expect { reps.variant }.to raise_error(GraphWeaver::InputError, /Variant.*"id".*"serial"/)
 
-    # a single key set names the one field that's short, on the error too
+    # a single key set names the one field that's short, on the error too —
+    # and both refusals name the type, the way a coercion failure does
     expect { reps.listing(id: "1", organization: {}) }
-      .to raise_error(GraphWeaver::InputError) { |e| expect(e.field).to eq "organization.id" }
+      .to raise_error(GraphWeaver::InputError) { |e|
+        expect(e.field).to eq "organization.id"
+        expect(e.struct).to eq "Listing"
+      }
   end
 
   it "emits builders only for the entities the query reaches" do
