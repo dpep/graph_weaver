@@ -12,6 +12,10 @@ isn't what this version would write. Nothing beyond that is promised — there i
 no "generated output is stable within a minor" rule to lean on. What each release
 changed, and whether it needs a regenerate, is in the changelog.
 
+A generated file's header names the release that wrote it, so the first `verify`
+after an upgrade reports the tree as stale whether or not codegen actually
+moved. That's the reminder working, not a false alarm.
+
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
 
@@ -91,6 +95,7 @@ still means omit.
 | `GraphWeaver.new(url, retries: { retries: 5, retry_codes: […] })` | `GraphWeaver.new(url, retries: 5, retry_codes: […])` — the other retry options sit beside the count; the Hash form read as a key nested in itself |
 | `Retry.new(t, on: […])` | `Retry.new(t, retry_on: […])` |
 | `Retry.new(t, base: 0.5, max: 30)` | `Retry.new(t, base_delay: 0.5, max_delay: 30)` — beside a count, `max: 30` read as a second, larger attempt count |
+| `Codegen.generate(module_name:)` | `name:` — the spelling `GraphWeaver.parse` already used; `module_name:` now raises, naming its replacement |
 | `Testing.config.null_chance = 0.3` | `graphql_fake(null_chance: 0.3)`, on the example that wants it |
 | `Testing.config.mode = :literal` | `graphql_fake(values: :literal)`, likewise |
 | `Testing::MODES` | `Testing::VALUE_STYLES` |
@@ -105,6 +110,30 @@ confused for each other.) Every retry misspelling raises rather than being
 ignored: the Hash form names its flat replacement, and a retry option passed
 without `retries:` says so.
 
+### The internals moved behind `Internal`
+
+The public surface is now what the docs name, what generated code calls, and the
+`execute` slot; everything else sits under `GraphWeaver::Internal` or went
+`private`, and a spec diffs the two so the next accidental promotion fails CI.
+Nothing documented moved — skip this section unless `srb tc` or a
+`NoMethodError` says otherwise.
+
+What a suite might plausibly have reached for: the federation query planner and
+its IR (`Internal::Planner`), the fake-value engine (`Internal::Values`), the
+selection walk (`Internal::Selection` — so `FakeClient` no longer answers
+`each_field` or `gather`), the cassette matching rules (`Internal::RequestKey`),
+subgraph detection (was `Testing::Subgraphs`), `GraphWeaver.log` /
+`.instrument` / `.filter_variables` (`Internal::Log` — `logger=`,
+`instrumenter=` and `filter_parameters=` are unchanged), and
+`Transport.operation_name` / `.mutation?` / `.log_tag`, which left the class you
+subclass for `Internal::Wire`.
+
+Two smaller edges. `SchemaDiff::Change`, `Cassette::Check`, `Coverage::Result`
+and `InputStruct::Field` are `Data` now rather than `Struct`, so they hand out
+no writers — read one, build a new one to change a field. And generated modules
+keep their own plumbing to themselves: `DEFAULT_CLIENT`, `FIELDS` and `ONE_OF`
+are emitted `private_constant`, so **regenerate**.
+
 ### Behavior that changed under you
 
 - **A mutation is no longer retried.** A timeout doesn't say whether the server
@@ -117,6 +146,13 @@ without `retries:` says so.
   in the list `rake graph_weaver:generate` prints after the files, so read it.
 - **`verify_generated!` fails when it finds no query documents.** A mistyped
   `queries_paths` used to leave a CI gate green forever.
+- **The local router refuses a `@fromContext` argument** rather than fetching
+  the field with it unset. Federation 2.8's `@context` machinery was on the
+  routing table's known list, so the argument was read and dropped. Per query,
+  like `@interfaceObject`: a subtree one subgraph answers whole still runs.
+- **A `#trace` assertion may see one entry fewer.** Two `@requires` field sets
+  crossing into the same subgraph on the same `@key` now ride one entity fetch,
+  the way Apollo's do.
 - **Fabricating a custom scalar needs a `fake:`** when you registered it as a
   class of your own — `register_scalar("Money", Money, cast: :parse, fake:
   "12.00")`. Without one, `FakeClient` and cassette anonymization refuse rather
