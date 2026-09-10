@@ -451,6 +451,39 @@ describe "custom scalar deserialization" do
     end
   end
 
+  # Two tables in docs/scalars.md are the whole answer to "what do I have to
+  # register" — so they are read off the registry rather than kept beside it.
+  describe "docs/scalars.md" do
+    let(:docs) { File.read(File.expand_path("../docs/scalars.md", __dir__)) }
+
+    def rows(section)
+      table = docs[/^## #{section}\n(.*?)\n## /m, 1]
+      table.scan(/^\|(?!-).*\|$/)
+        .map { |row| row.split("|").map { |cell| cell.strip.delete("`") }.reject(&:empty?) }
+        .reject { |row| %w[scalar\ name Ruby\ type scalar].include?(row.first) }
+    end
+
+    it "names every scalar that needs no registration" do
+      documented = docs[/^## Already registered\n(.*?)\n## /m, 1]
+        .scan(/^\| ([^|]+) \|/).flatten.flat_map { |cell| cell.scan(/`([^`]+)`/).flatten }
+
+      expect(documented).to match_array GraphWeaver::Codegen::BUILTIN_SCALARS
+    end
+
+    it "shows the codec each stdlib type actually infers" do
+      table = rows("Registering a stdlib type")
+      expect(table.map(&:first)).to include("BigDecimal", "Date", "Time")
+
+      table.each do |type, cast, serialize, requires|
+        GraphWeaver.register_scalar("Probe", Object.const_get(type))
+        scalar = GraphWeaver::Codegen.scalar("Probe")
+
+        expect([scalar.cast("v"), scalar.serialize("v"), scalar.requires])
+          .to eq [cast, serialize, [requires]]
+      end
+    end
+  end
+
   it "rejects an anonymous class as a scalar type (would emit a literal nil)" do
     expect { GraphWeaver.register_scalar("Anon", Class.new) }
       .to raise_error(ArgumentError, /anonymous/)

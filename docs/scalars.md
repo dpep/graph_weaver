@@ -2,23 +2,108 @@
 
 Teach the generator how a GraphQL custom scalar deserializes into a rich
 Ruby object (and serializes back when used as a variable). A field typed
-`Money` then generates `const :price, T.nilable(Money)` and casts with
-`Money.parse(...)` inline — no runtime reflection:
+`Decimal` then generates `const :price, T.nilable(BigDecimal)` and casts with
+`BigDecimal(...)` inline — no runtime reflection:
 
 ```ruby
-GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
+GraphWeaver.register_scalar("Decimal", BigDecimal)
 ```
+
+Two arguments: the scalar's name in your schema, and the Ruby type it means.
+The second is the only part the library can't work out — how a wire value
+becomes a `BigDecimal`, how one goes back on the wire, and the
+`require "bigdecimal"` the generated file needs are all inferred.
 
 Registration is global and codegen-time: `rake graph_weaver:generate` reads the
 same registry an initializer writes, so register before you generate.
+
+## Already registered
+
+These names need no registration. graphql-ruby ships all but `DateTime` as its
+own scalars, and `DateTime` is what GitHub, Shopify and most hand-written
+schemas call an ISO 8601 timestamp.
+
+| scalar | Ruby type | on the wire |
+|---|---|---|
+| `ID` | `String` | the string (an `Integer` input is accepted) |
+| `String` | `String` | the string |
+| `Int` | `Integer` | a JSON integer |
+| `Float` | `Float` | any JSON number |
+| `Boolean` | `T::Boolean` | the boolean |
+| `Date`, `ISO8601Date` | `Date` | `"2024-01-15"` |
+| `DateTime`, `ISO8601DateTime` | `Time` | `"2024-01-15T10:20:30Z"` |
+| `BigInt` | `Integer` | the decimal string graphql-ruby writes; a JSON number is read too |
+| `JSON` | `T.untyped` | whatever it is, untouched |
+
+A date stays a `Date` and a timestamp a `Time`, deliberately: casting a date to
+`Time` invents a midnight the server never sent. A schema that means something
+else by one of these names fails loudly — the cast raises, naming the field —
+and one `register_scalar` overrides it, like any other entry. Names that are
+*not* a convention (`Timestamp`, `UUID`, `URL`, `Decimal`, `Money`) are left to
+you, because guessing at one would be worse than asking.
+
+## Registering a stdlib type
+
+Name the class and stop. What the library supplies is the part inference can't
+reach: the wire spelling (`BigDecimal#to_s` writes `"0.125e2"`, which is not
+what any server means by 12.5, and `Date.parse` reads far more than the ISO
+8601 a `Date` scalar carries) and the file to require, so the generated source
+stands alone.
+
+| Ruby type | cast | serialize | require |
+|---|---|---|---|
+| `BigDecimal` | `BigDecimal(v)` | `v.to_s("F")` | `bigdecimal` |
+| `Date` | `Date.iso8601(v)` | `v.iso8601` | `date` |
+| `Time` | `Time.parse(v)` | `v.iso8601` | `time` |
+| `DateTime` | `DateTime.iso8601(v)` | `v.iso8601` | `date` |
+
+`Time` is what to reach for for a timestamp; Ruby's own `DateTime` is accepted
+if you register it, but never assumed. `BigDecimal(v)` is Ruby's own reader, so
+it takes what Ruby takes — `"12.5"`, `"1e3"`, a JSON number — and refuses
+`"abc"` or `"$12.50"`, naming the field or the variable.
+
+## Registering a class of your own
+
+Pass the class and the cast/serialize are **inferred** from it, by probing the
+deserialize side and pairing its serializer:
+
+| the class defines | cast | serialize |
+|-------------------|---------------|----------------|
+| `.parse` | `Type.parse(v)` | `v.to_s` |
+| `.load` | `Type.load(v)` | `Type.dump(v)` |
+| `Kernel#Type` | `Type(v)` | — |
+
+so a value object with a `.parse` needs nothing more:
+
+```ruby
+GraphWeaver.register_scalar("Money", Money)
+```
+
+A type defining none of those stays pass-through rather than getting wrapped —
+every object has `#to_s`, so inferring a serializer off it would wrap plain
+types too. Override explicitly when you need to:
+
+- a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
+  `serialize: :to_json` → `expr.to_json`
+- an `Array`, for a method with arguments: `serialize: [:to_s, "F"]` → `expr.to_s("F")`
+- a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
+- `:itself` to force pass-through, opting out of inference (rare)
+
+The type also accepts a plain string (`"Money"`) when you'd rather not
+reference the class. `requires:` (a string or array) names files emitted as
+`require`s atop the generated source so the cast/type resolve. When the type is
+a real class (so the runtime is loaded), each path is also `require`d at
+registration — a typo fails now, not in the generated file.
+
+## Overriding one field
 
 Pass a `Type.field` **coordinate** instead of a scalar name to override just
 that one field — so the same scalar can deserialize as different Ruby types
 across fields:
 
 ```ruby
-GraphWeaver.register_scalar("ISO8601DateTime", Time)   # the default, everywhere
-GraphWeaver.register_scalar("User.birthday", Date)     # this field only
+GraphWeaver.register_scalar("Timestamp", Time)      # the default, everywhere
+GraphWeaver.register_scalar("User.birthday", Date)  # this field only
 ```
 
 A field override wins over the scalar-name registration — which is also how two
@@ -32,44 +117,21 @@ only warns — one registry serves a whole graph, so that name may belong to the
 subgraph next door (see
 [federation](federation.md#generating-for-a-federated-graph)).
 
-Pass a real class as the second argument and the cast/serialize are
-**inferred** from it by probing the deserialize side and pairing its serializer:
-
-| the class defines | cast          | serialize      |
-|-------------------|---------------|----------------|
-| `.parse`          | `Type.parse(v)` | `v.to_s`     |
-| `.load`           | `Type.load(v)`  | `Type.dump(v)` |
-
-so the common case needs nothing more. A type defining neither `.parse` nor
-`.load` stays pass-through rather than getting wrapped. Override explicitly when
-you need to:
-
-- a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
-  `serialize: :to_json` → `expr.to_json`
-- a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
-- `:itself` to force pass-through, opting out of inference (rare)
-
-The type also accepts a plain string (`"BigDecimal"`) when you'd rather not
-reference the class. `requires:` (a string or array) names files emitted as
-`require`s atop the generated source so the cast/type resolve. When the type is
-a real class (so the runtime is loaded), each path is also `require`d at
-registration — a typo fails now, not in the generated file.
-
 The testing harness can't invent a wire value for a scalar registered as your
 own class — only `Money.parse` knows what it accepts — so it refuses rather than
 guess. Say it in test config, where that answer belongs: a pin for the type,
 `GraphWeaver::Testing.config.overrides = { "Money" => "12.00" }`, or per example
-([testing → pins](testing.md#pins)). A scalar registered as `Time`, `Date`,
-`Integer`, `Float`, `String` or `T::Boolean` needs nothing.
+([testing → pins](testing.md#pins)). A scalar registered as one of the types
+above — `BigDecimal`, `Time`, `Date`, `Integer`, `Float`, `String`,
+`T::Boolean` — needs nothing.
 
-A registration whose type is a class **JSON can't parse into** needs a
-`cast:` to build one — `BigDecimal` is the one people reach for, and it defines
-neither `.parse` nor `.load`, so inference finds no codec and the prop would be
-unsatisfiable. Generation refuses it where a query reads that scalar back,
-naming the field:
+A registration whose type is a class **JSON can't parse into**, with nothing to
+build one, is refused where a query reads that scalar back: the prop would be
+unsatisfiable for every response, and finding that out at runtime is worse.
+Generation names the field:
 
 ```
-register_scalar("Money", BigDecimal) has no cast, so nothing builds a BigDecimal
+register_scalar("Money", Wallet) has no cast, so nothing builds a Wallet
 out of the JSON at Product.price — give it one ...
 ```
 
@@ -91,9 +153,6 @@ stays as narrow as the schema and the conversion happens in its body (see
 error — as it should be, since you have a `Money` right there — while
 `budget: params[:budget]` typechecks and converts.
 
-The built-in scalars (`Date`, `ID`, `Int`, …) are pre-registered through the
-same path (`Date` even carries its own `require "date"`), so a later
-`register_scalar` overrides them.
 
 ## What the wire carries
 
@@ -119,8 +178,9 @@ server writing a non-integer where the spec says integer, so it is refused.
 | `Boolean` | `true`, `false` | `"true"`, `1`, `0` |
 | `Date` | ISO-8601: `"2024-01-01"`, `"20240101"`, and a full timestamp (truncated) | any other spelling, an epoch integer |
 | `DateTime`/`Time` (registered as `Time`) | RFC 3339 with `Z` or an offset, with or without fractional seconds, seconds optional; also a bare date and `Time.parse`'s looser forms | an epoch integer, an unparseable string |
+| `BigInt` | the decimal string graphql-ruby writes, past 2⁵³ included; also a JSON integer | `1.5`, `"1.5"`, a non-numeric string, `true` |
 | an enum | a declared value, as a string | an undeclared value, a non-string |
-| unregistered | anything — `T.untyped`, straight through | nothing |
+| `JSON`, or unregistered | anything — `T.untyped`, straight through | nothing |
 
 A refusal is a [`GraphWeaver::TypeError`](errors.md) naming the field and the
 generated struct (which names the query). Two refusals carry advice rather than
@@ -148,10 +208,11 @@ the sig is `.checked(:never)`).
 | `Boolean` | `true`/`false` | nothing | the boolean |
 | `Date` | `Date` | an ISO-8601 string | `iso8601` |
 | `Time` | `Time` | a string `Time.parse` takes | `iso8601` |
+| `BigInt` | `Integer` | a decimal string | the decimal string, which is what the server writes |
 | an enum | the member **or** its wire value | — | the wire value |
 | an input object | the struct **or** a Hash | — | the wire hash |
-| a registered custom scalar | its Ruby type | whatever its `cast:` takes | its `serialize:` |
-| unregistered | `T.untyped` | anything | straight through |
+| a registered custom scalar | its Ruby type | whatever its cast takes | what its serialize writes |
+| `JSON`, or unregistered | `T.untyped` | anything | straight through |
 
 Two rows are judgment calls worth stating. **`ID` takes an `Integer`** because
 the GraphQL spec says an ID serializes as a string but accepts an integer input,
@@ -182,6 +243,10 @@ otherwise exact result type, so generation names the holes at `info` (see
 ```
 3 unregistered custom scalars → T.untyped: CountryCode, FuzzyDateInt, Json (register with GraphWeaver.register_scalar)
 ```
+
+A scalar that is *meant* to be untyped belongs in the registry too —
+`GraphWeaver.register_scalar("Json", "T.untyped")` says so once, and it leaves
+the report. `JSON` is registered that way already.
 
 ## Enums: map onto your own T::Enum
 

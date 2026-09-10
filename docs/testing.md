@@ -181,8 +181,8 @@ A **scalar type pin** is the one thing a scalar registered as *your own class*
 needs — only `Money.parse` knows what wire value it accepts — so without one
 fabrication refuses at the path it reached (`at reader.orders.0.total`) and
 names the pin to add, rather than feeding your cast a placeholder that fails
-deep inside `from_h`. A scalar registered as `Time`, `Date`, `Integer`,
-`Float`, `String` or `T::Boolean` needs nothing. Suite-wide, the same hash is
+deep inside `from_h`. A scalar registered as `BigDecimal`, `Time`, `Date`,
+`Integer`, `Float`, `String` or `T::Boolean` needs nothing. Suite-wide, the same hash is
 `config.overrides`, and the [cassette anonymizer](cassettes.md) reads it too.
 
 Pins lead and options follow — `graphql_fake("Money" => "12.00", values:
