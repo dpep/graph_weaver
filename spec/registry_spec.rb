@@ -266,6 +266,13 @@ describe "the registration registry" do
       # the override is gone, the built-in Date codec is back
       expect(GraphWeaver::Codegen.scalar("Date").cast?).to be true
     end
+
+    # a private_constant inside a method body runs on every call, so what
+    # the gem exposes would depend on what a suite happened to reset
+    it "leaves the constants Codegen exposes alone" do
+      expect { GraphWeaver::Codegen.reset_registrations! }
+        .not_to change { GraphWeaver::Codegen.constants(false).sort }
+    end
   end
 
   describe "generation paths agree" do

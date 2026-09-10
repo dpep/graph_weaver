@@ -223,11 +223,7 @@ class GraphWeaver::Codegen
     # clean slate to reach for between tests, or to undo overrides.
     def reset_scalars!
       clear_scalars!
-      # codegen's own record of a registration; users get one back from
-  # `.scalar` but never name the class
-  private_constant :ScalarType
-
-  register_builtin_scalars!
+      register_builtin_scalars!
       self
     end
 
@@ -252,6 +248,10 @@ class GraphWeaver::Codegen
     end
     private :register_builtin_scalars!
   end
+
+  # codegen's own record of a registration; users get one back from
+  # `.scalar` but never name the class
+  private_constant :ScalarType
 
   register_builtin_scalars!
 

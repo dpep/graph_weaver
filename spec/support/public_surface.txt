@@ -74,18 +74,6 @@ GraphWeaver::Codegen::AUTOLOAD_HINT = String
 GraphWeaver::Codegen::BUILTIN_SCALARS = Array
 GraphWeaver::Codegen::CONSTANT_NAME = Regexp
 GraphWeaver::Codegen::DOCUMENT_GLOB = String
-GraphWeaver::Codegen::ScalarType (Class)
-GraphWeaver::Codegen::ScalarType#cast
-GraphWeaver::Codegen::ScalarType#cast?
-GraphWeaver::Codegen::ScalarType#coerce?
-GraphWeaver::Codegen::ScalarType#coerce_input
-GraphWeaver::Codegen::ScalarType#fake
-GraphWeaver::Codegen::ScalarType#fake?
-GraphWeaver::Codegen::ScalarType#graphql_name
-GraphWeaver::Codegen::ScalarType#requires
-GraphWeaver::Codegen::ScalarType#serialize
-GraphWeaver::Codegen::ScalarType#serialize?
-GraphWeaver::Codegen::ScalarType#type
 GraphWeaver::Coerce (Module)
 GraphWeaver::Coerce.boolean
 GraphWeaver::Coerce.float
