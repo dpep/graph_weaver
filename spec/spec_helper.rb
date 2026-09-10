@@ -1,4 +1,13 @@
 # typed: ignore — conditional simplecov requires
+#
+# Naming things in a spec file: `describe` is a block, not a class body, so a
+# constant written inside one lands on Object — and the second file to want
+# that name silently reassigns the first ("warning: already initialized
+# constant"), leaving whichever ran last as the one every file sees. So a
+# spec file names things in a module of its own (`module DraftsDemo`, in
+# rspec_spec.rb), or in a `let`/local when one example is the only reader.
+# Something two spec files share is neither: it belongs in spec/support,
+# under its own module, loaded once from here.
 require "debug"
 require "rspec"
 require "simplecov"

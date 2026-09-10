@@ -42,8 +42,6 @@ end
 # inheritance. Everything here is zero-config on purpose — a suite should
 # tag an example and go.
 describe "graph_weaver/rspec" do
-  SUPERGRAPH = File.expand_path("support/federation/supergraph.graphql", __dir__)
-
   # config and GraphWeaver.client are global; an around hook is the only
   # place that runs OUTSIDE the before hooks the integration installs
   around do |example|
@@ -214,7 +212,7 @@ describe "graph_weaver/rspec" do
     around do |example|
       # the conventional dump IS the composed supergraph here, so there is
       # nothing to configure
-      GraphWeaver.schema_path = SUPERGRAPH
+      GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
       example.run
     end
 
@@ -341,7 +339,7 @@ describe "graph_weaver/rspec" do
     end
 
     it "refuses a router context that the per-example reset would overwrite" do
-      expect { config.router = { supergraph: SUPERGRAPH, context: { current_user_id: "2" } } }
+      expect { config.router = { supergraph: RouterGraph::SUPERGRAPH, context: { current_user_id: "2" } } }
         .to raise_error(ArgumentError, /config\.context/)
     end
   end
