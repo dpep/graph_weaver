@@ -383,7 +383,10 @@ router.trace.map { _1[:subgraph] }   # => ["reviews", "products", "reviews"]
 `products` owns — so the plan fetches those into hidden keys, hands them back
 in the representation, and only then asks for the estimate. One hop only: the
 key for the first fetch has to come from the subgraph already in hand, so a
-chain can't grow a chain.
+chain can't grow a chain. And two `@requires` field sets crossing into the same
+subgraph on the same `@key` ride **one** prefetch, as Apollo's do — the
+representations would be identical, so a second call would only re-run the
+resolvers.
 
 A **nested field set** — `@key(fields: "id organization { id }")`,
 `@requires(fields: "origin { lat lon }")` — is a selection set like any other,
@@ -435,7 +438,8 @@ answer production disagrees with, which is the most expensive thing this library
 can produce. Each refusal names the coordinate that stopped it and what to do —
 `examples/federation.rb` prints one.
 
-Every category, spelled as `Unplannable#category` reports it:
+Every category, in the words `Unplannable#label` uses (`#category` is the
+matching symbol):
 
 | Refusal | Why |
 |---|---|
