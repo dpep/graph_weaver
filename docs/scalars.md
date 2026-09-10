@@ -89,6 +89,27 @@ types too. Override explicitly when you need to:
 - a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
 - `:itself` to force pass-through, opting out of inference (rare)
 
+Not every class is so obliging, and the money gem's `Money` is the honest hard
+case: it defines none of those probes, and the two facts that would settle it
+are ones only your app knows. What the wire carries is one — a `Money` scalar
+is a decimal string on one API and integer cents on the next — and the currency
+is the other, because `Money.from_amount` needs one and the wire sends an
+amount alone. Say both:
+
+```ruby
+GraphWeaver.register_scalar("Money", Money,
+  cast: ->(v) { "Money.from_amount(BigDecimal(#{v}), \"USD\")" },
+  serialize: :to_s)
+```
+
+The `cast:` proc returns **source, not a value** — generated code is static, so
+what comes back is the expression inlined into `from_h`, here
+`Money.from_amount(BigDecimal(data.fetch("price")), "USD")`. `serialize: :to_s`
+is the inverse, and it's the right one of three near-identical candidates:
+`Money#to_s` writes a plain `"12.50"` — no symbol, no thousands separator, and
+it ignores your app's `default_formatting_rules` — while `#to_d` and its alias
+`#amount` hand back a `BigDecimal`, which reaches the wire as `"0.125e2"`.
+
 The type also accepts a plain string (`"Money"`) when you'd rather not
 reference the class. `requires:` (a string or array) names files emitted as
 `require`s atop the generated source so the cast/type resolve. When the type is

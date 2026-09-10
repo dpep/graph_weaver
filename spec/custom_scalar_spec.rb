@@ -489,3 +489,99 @@ describe "custom scalar deserialization" do
       .to raise_error(ArgumentError, /anonymous/)
   end
 end
+
+# The money gem's Money, without the dependency: from_amount(decimal,
+# currency) builds one and #to_s writes a plain decimal string. Top-level and
+# real rather than stub_const'd, because docs/scalars.md registers it under
+# this name and the generated cast resolves the constant it is given.
+class Money
+  def self.from_amount(decimal, currency) = new(decimal, currency)
+
+  attr_reader :amount, :currency
+
+  def initialize(amount, currency)
+    @amount = amount
+    @currency = currency
+  end
+
+  def to_s = format("%.2f", @amount)
+
+  def ==(other)
+    other.is_a?(Money) && other.amount == @amount && other.currency == @currency
+  end
+end
+
+# The registration docs/scalars.md shows for it: two facts only the app can
+# supply — which wire spelling this server's Money scalar uses, and the
+# currency from_amount needs.
+describe "a class whose codec can't be inferred" do
+  after { GraphWeaver::Codegen.reset_scalars! }
+
+  # exactly the registration docs/scalars.md shows
+  def register
+    GraphWeaver.register_scalar("Money", Money,
+      cast: ->(v) { "Money.from_amount(BigDecimal(#{v}), \"USD\")" },
+      serialize: :to_s)
+  end
+
+  let(:query) do
+    <<~GRAPHQL
+      query Store($name: String!, $budget: Money!) {
+        product(name: $name, budget: $budget) {
+          name
+          price
+        }
+      }
+    GRAPHQL
+  end
+
+  def source
+    GraphWeaver::Codegen.generate(schema: MoneyDemo::Schema, query:, name: "StoreQuery")
+  end
+
+  it "infers nothing from the class — no .parse, no .load, no Kernel#Money" do
+    GraphWeaver.register_scalar("Money", Money)
+
+    scalar = GraphWeaver::Codegen.scalar("Money")
+    expect(scalar.cast?).to be false
+    expect(scalar.serialize?).to be false
+  end
+
+  it "inlines the source the cast: proc builds, and #to_s as the serializer" do
+    register
+
+    scalar = GraphWeaver::Codegen.scalar("Money")
+    expect(scalar.cast("v")).to eq %(Money.from_amount(BigDecimal(v), "USD"))
+    expect(scalar.serialize("v")).to eq "v.to_s"
+    expect(source).to include(%(Money.from_amount(BigDecimal(data.fetch("price")), "USD")))
+  end
+
+  it "casts a decimal string off the wire into a Money" do
+    register
+    mod = Module.new
+    mod.module_eval(source)
+
+    product = mod.const_get(:StoreQuery)
+      .from_response!("data" => { "product" => { "name" => "Widget", "price" => "12.50" } })
+      .product
+
+    expect(product.price).to eq Money.from_amount(BigDecimal("12.50"), "USD")
+  end
+
+  it "writes a Money variable back as the same decimal string" do
+    register
+    capture = Class.new do
+      attr_reader :variables
+
+      def execute(_query, variables:, operation_name: nil)
+        @variables = variables
+        { "data" => nil, "errors" => [{ "message" => "captured" }] }
+      end
+    end.new
+
+    GraphWeaver.parse(schema: MoneyDemo::Schema, client: capture, query:)
+      .execute(name: "Widget", budget: Money.from_amount(BigDecimal("12.50"), "USD"))
+
+    expect(capture.variables["budget"]).to eq "12.50"
+  end
+end
