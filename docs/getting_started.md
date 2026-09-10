@@ -58,7 +58,7 @@ What it wrote:
   into generated source, so they have to run first:
 
   ```ruby
-  GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+  GraphWeaver.register_scalar("Money", Money)   # a scalar the registry can't know
   ```
 
   A registration that names one of your own constants — a `T::Enum` for

@@ -163,8 +163,8 @@ are emitted `private_constant`, so **regenerate**.
   holding a registered custom scalar: the anonymizer used to write a value the
   generated codec couldn't read back.
 - **Generation refuses four more things**, each naming its fix — a
-  `register_scalar` whose Ruby type nothing can build out of JSON (`BigDecimal`,
-  classically: give it a `cast:`), a result key that would shadow a constant the
+  `register_scalar` whose Ruby type nothing can build out of JSON (a value
+  object of your own: give it a `cast:`), a result key that would shadow a constant the
   file uses, an enum value that camelizes to nothing, and a narrowed fragment
   whose `__typename` sits behind `@skip`/`@include`.
 

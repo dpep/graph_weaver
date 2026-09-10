@@ -26,7 +26,7 @@ every build.
 that looks like an app:
 
 - [`setup.rb`](github/setup.rb) — the shared wiring an initializer would hold:
-  auth, `register_scalar("DateTime", Time)`, the client.
+  auth and the client.
 - [`queries/`](github/queries) → [`generate.rb`](github/generate.rb) →
   [`generated/`](github/generated) — the build loop `rake graph_weaver:generate`
   runs in a Rails app.

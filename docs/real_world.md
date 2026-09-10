@@ -19,10 +19,10 @@ require "graph_weaver"
 # in a header, so a stale dump says where it came from.
 github = GraphWeaver.new("https://api.github.com/graphql", auth: `gh auth token`.strip, cache: true)
 
-# map GitHub's DateTime scalar onto Time (cast inferred from Time.parse).
-# Registrations are global and codegen-time, so this line types your
-# console and your checked-in code identically (docs/scalars.md).
-GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+# GitHub's DateTime needs no registration — it is one of the names the
+# registry knows (docs/scalars.md). A scalar of your own would go here;
+# registrations are global and codegen-time, so one line types your
+# console and your checked-in code identically.
 
 RepoQuery = github.parse(<<~GRAPHQL)
   query($owner: String!, $name: String!) {
