@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.6.1  (2026-09-10)
 - **A stdlib scalar registers with nothing but its class.**
   `GraphWeaver.register_scalar("Decimal", BigDecimal)` now emits the whole
   codec: `BigDecimal(...)` reads the wire value, `to_s("F")` writes it back,
