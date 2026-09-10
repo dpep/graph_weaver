@@ -1,11 +1,8 @@
 # typed: false
 # frozen_string_literal: true
 
-# Shared wiring for the GitHub example: auth, scalar mapping, client.
+# Shared wiring for the GitHub example: auth and the client.
 require_relative "../../lib/graph_weaver"
-
-# GitHub's DateTime scalar deserializes into a real Time
-GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
 
 token = ENV["GITHUB_TOKEN"] || `gh auth token 2>/dev/null`.strip
 abort "need a token: `gh auth login`, or GITHUB_TOKEN=..." if token.empty?
