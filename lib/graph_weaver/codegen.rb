@@ -623,7 +623,7 @@ class GraphWeaver::Codegen
   def self.load_fragments(paths)
     source = {} # fragment name => the file that defined it, for the collision message
 
-    Array(paths).flat_map { |dir| Dir[File.join(dir, DOCUMENT_GLOB)].sort }.each_with_object({}) do |file, out|
+    GraphWeaver::Internal::Util.query_files(paths).each_with_object({}) do |file, out|
       doc = parse_document(File.read(file), file)
       if doc.definitions.grep(GraphQL::Language::Nodes::OperationDefinition).any?
         raise GraphWeaver::Error, "#{file}: fragment files define only fragments, no operations"

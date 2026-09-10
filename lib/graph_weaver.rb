@@ -230,7 +230,7 @@ module GraphWeaver
       @unmatched_registrations = Codegen.unmatched_registrations(schema)
       @changed_files = []
       written = plan.map do |filename, source|
-        target = File.join(output, filename)
+        target = File.join(Internal::Util.resolve(output), filename)
         next target if current?(target, source)
 
         FileUtils.mkdir_p(File.dirname(target))
@@ -261,8 +261,7 @@ module GraphWeaver
     # longer hoisted. Left alone they'd keep being required by
     # load_generated!, resolving against a query that no longer exists.
     def orphaned(output, produced)
-      current = produced.map { |path| File.expand_path(path) }
-      generated_files(output).reject { |path| current.include?(File.expand_path(path)) }
+      generated_files(output) - produced
     end
     private :orphaned
 
@@ -271,7 +270,7 @@ module GraphWeaver
     # safe: this is a real directory, and a hand-written file in it must
     # survive regeneration.
     def generated_files(output)
-      Dir[File.join(output, "**/*.rb")].sort.select do |path|
+      Dir[File.join(Internal::Util.resolve(output), "**/*.rb")].sort.select do |path|
         File.foreach(path).first(HEADER_SCAN_LINES).any? { |line| line.start_with?(GENERATED_HEADER) }
       end
     end
@@ -299,11 +298,11 @@ module GraphWeaver
       plan = generation_plan(queries:, schema:, client:, types_module:)
       @unmatched_registrations = Codegen.unmatched_registrations(schema)
       stale = plan.filter_map do |filename, source|
-        target = File.join(output, filename)
+        target = File.join(Internal::Util.resolve(output), filename)
         target unless current?(target, source)
       end
       # strays: a generated file the current schema + queries no longer produce
-      stale += orphaned(output, plan.map { |filename, _| File.join(output, filename) })
+      stale += orphaned(output, plan.map { |filename, _| File.join(Internal::Util.resolve(output), filename) })
 
       unless stale.empty?
         raise Error, "stale generated queries — regenerate (rake graph_weaver:generate): #{stale.join(", ")}"
@@ -460,9 +459,9 @@ module GraphWeaver
     # a schema migration).
     def load_generated!(path = nil)
       paths = path ? [path] : generated_paths
-      files = paths.flat_map { |dir| Dir[File.join(dir, "**/*.rb")].sort }.uniq
+      files = paths.flat_map { |dir| Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].sort }.uniq
       files.each do |file|
-        require File.expand_path(file)
+        require file
       rescue NameError => e
         # a dropped extend_type leaves this include dangling; say so here,
         # because the raw NameError points at generated code and names no fix
@@ -498,10 +497,10 @@ module GraphWeaver
       names.each { |name| undefine(name) }
 
       generated_paths.each do |dir|
-        Dir[File.join(dir, "**/*.rb")].each do |file|
-          # require stores the realpath; expand_path is what load_generated!
-          # passes, and the two differ under a symlinked checkout
-          $LOADED_FEATURES.delete(File.expand_path(file))
+        Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].each do |file|
+          # require stores the realpath; the path load_generated! passed is
+          # the other one under a symlinked checkout
+          $LOADED_FEATURES.delete(file)
           $LOADED_FEATURES.delete(File.realpath(file))
         end
       end
@@ -714,7 +713,7 @@ module GraphWeaver
       query = query.to_path if query.respond_to?(:to_path)
       path = query if query.end_with?(".graphql", ".gql")
       if path
-        query = File.read(path)
+        query = File.read(Internal::Util.resolve(path))
         name ||= Internal::Util.module_name(path, query)
       elsif !query.include?("{")
         # every document has a selection set, so this is a path we won't read

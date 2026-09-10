@@ -63,7 +63,7 @@ module GraphWeaver::SchemaLoader
   private_class_method :load_path
 
   def self.read_schema(path)
-    File.read(path)
+    File.read(GraphWeaver::Internal::Util.resolve(path))
   rescue SystemCallError => e
     raise GraphWeaver::Error, "can't read the schema at #{path}: #{e.message}"
   end
@@ -705,7 +705,7 @@ module GraphWeaver::SchemaLoader
   # `schema:refresh` is the fix for one, so it must not be the thing that
   # trips over it.
   def self.provenance(path)
-    content = File.read(path)
+    content = File.read(GraphWeaver::Internal::Util.resolve(path))
     if path.end_with?(".json")
       JSON.parse(content)["graph_weaver"]
     elsif (meta = content[/\A# graph_weaver: (\{.*\})$/, 1])
@@ -720,7 +720,7 @@ module GraphWeaver::SchemaLoader
   # that authenticates and rake tasks that 401.
   def self.auth_env(path = nil)
     # the first refresh names a dump that doesn't exist yet
-    recorded = provenance(path)&.dig("auth_env") if path && File.exist?(path)
+    recorded = provenance(path)&.dig("auth_env") if path && File.exist?(GraphWeaver::Internal::Util.resolve(path))
     recorded || DEFAULT_AUTH_ENV
   end
   private_class_method :auth_env
@@ -804,7 +804,7 @@ module GraphWeaver::SchemaLoader
   # the schema dump the generation workflow reads, so one file serves both
   # (introspect caches it, rake generate loads it).
   def self.cache_path(cache)
-    case cache
+    path = case cache
     when nil, false
       nil
     when true
@@ -822,11 +822,13 @@ module GraphWeaver::SchemaLoader
 
       cache
     end
+    path && GraphWeaver::Internal::Util.resolve(path)
   end
   private_class_method :cache_path
 
   # the requested path first, then its siblings in the other formats
   def self.cache_candidates(path)
+    path = GraphWeaver::Internal::Util.resolve(path)
     base = strip_extension(path)
     [path, *CACHE_EXTENSIONS.map { |ext| base + ext }].uniq
   end
