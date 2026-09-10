@@ -73,7 +73,10 @@ namespace :graph_weaver do
     GraphWeaver.skip_generated_load = false
   end
 
-  desc "Generate typed query modules (#{GraphWeaver.queries_paths.first} -> #{GraphWeaver.generated_paths.first})"
+  # the default, not GraphWeaver.queries_paths: a desc is baked when this file
+  # loads, which in Rails is before :environment has run an initializer that
+  # moves it — interpolating would print the default as though it were the setting
+  desc "Generate typed query modules (default app/graphql/queries -> app/graphql/generated)"
   task generate: :environment do
     output = GraphWeaver.generated_paths.first
     before = Dir[File.join(output, "**/*.rb")]

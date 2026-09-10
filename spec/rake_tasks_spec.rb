@@ -39,6 +39,14 @@ describe "graph_weaver rake tasks" do
     expect(prose.scan(/rake (graph_weaver:[\w:]+)/).flatten.uniq - described).to be_empty
   end
 
+  # A desc is baked when the Rakefile loads — in Rails that is before
+  # :environment, so before an initializer can move queries_paths. The only
+  # path it can honestly name is the default.
+  it "names the generate paths as defaults, not as the configured value" do
+    expect(TASKS["graph_weaver:generate"].comment)
+      .to match(%r{default app/graphql/queries -> app/graphql/generated})
+  end
+
   # Runs the task the way rake would, and reports both streams plus the exit
   # status — `abort` raises SystemExit, which must not escape into the suite.
   def invoke(name, out: StringIO.new, err: StringIO.new, **env)
