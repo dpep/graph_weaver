@@ -52,6 +52,11 @@ and `[]` turns filtering off. Anything answering `#filter(hash)` is used
 as-is, which is how the railtie hands over an
 `ActiveSupport::ParameterFilter`.
 
+The same list scrubs error messages, which reach the log at `warn` rather
+than `debug`: a variable, input field, or entity key whose name is filtered
+is rejected with `[FILTERED]` in place of the value — everything else keeps
+quoting it, since `expected an Int, got "lots"` is the whole diagnosis.
+
 ## Instrumentation
 
 A logger tells a human what happened; an APM needs to time it and count

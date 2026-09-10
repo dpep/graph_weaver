@@ -75,12 +75,16 @@ module GraphWeaver
       def variable(name, operation, value)
         yield value
       rescue GraphWeaver::InputError => e
-        raise GraphWeaver::InputError.new("#{at(name, operation)}: #{e.message}", field: name, struct: e.struct)
+        raise GraphWeaver::InputError.new(
+          "#{at(name, operation)}: #{Internal::Redact.detail(name, e.message)}", field: name, struct: e.struct,
+        )
       rescue StandardError => e
         # a cast complains about the value without quoting it ("invalid date")
         shown = value.inspect
         got = " (got #{shown})" unless e.message.include?(shown)
-        raise GraphWeaver::InputError.new("#{at(name, operation)}: #{e.message}#{got}", field: name)
+        raise GraphWeaver::InputError.new(
+          "#{at(name, operation)}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}", field: name,
+        )
       end
 
       private

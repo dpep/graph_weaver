@@ -27,8 +27,7 @@ module GraphWeaver
     # field — as the member or its wire value. Generated code calls these
     # rather than T::Enum.deserialize / the wire table directly: both raise a
     # bare KeyError naming an anonymous module and none of the values they
-    # would have taken, and a kwarg's KeyError escapes the umbrella entirely
-    # (nothing wraps it the way #coerce wraps an input field's).
+    # would have taken.
     def self.enum(type, value)
       return value if value.is_a?(type)
 
@@ -50,18 +49,23 @@ module GraphWeaver
     def self.field(struct, prop)
       yield
     rescue GraphWeaver::InputError => e
-      raise if e.field
+      raise if e.field && !GraphWeaver::Internal::Redact.filtered?(prop)
 
-      raise GraphWeaver::InputError.new("#{prop}: #{e.message}", field: prop.to_s, struct: e.struct || struct)
+      raise GraphWeaver::InputError.new(
+        "#{prop}: #{GraphWeaver::Internal::Redact.detail(prop, e.message)}",
+        field: e.field || prop.to_s, struct: e.struct || struct,
+      )
     rescue StandardError => e
-      raise GraphWeaver::InputError.new("#{prop}: #{e.message}", field: prop.to_s, struct:)
+      raise GraphWeaver::InputError.new(
+        "#{prop}: #{GraphWeaver::Internal::Redact.detail(prop, e.message)}", field: prop.to_s, struct:,
+      )
     end
 
+    # Raised bare, like Hints.drifted!: the enclosing .field or Coerce.variable
+    # knows the key, and so is the only layer that can decide whether this
+    # value may be named.
     def self.invalid_enum!(type, value, values)
-      raise GraphWeaver::InputError.new(
-        "#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}",
-        struct: type,
-      )
+      raise KeyError, "#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}"
     end
     private_class_method :invalid_enum!
 

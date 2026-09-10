@@ -111,6 +111,29 @@ module GraphWeaver
     end
   end
 
+  module Internal
+    # The message side of filter_parameters. One rule: a message the library
+    # composes about a value the caller supplied names that value only when
+    # the key it arrived under isn't filtered — so a password's rejection
+    # reads "[FILTERED]" in the exception, and in the warn line Error#initialize
+    # writes, exactly as it does in the debug log.
+    module Redact
+      class << self
+        # True when a value under this key must not appear in a message.
+        # Asked of filter_variables rather than of the list, so the
+        # ActiveSupport::ParameterFilter a Rails app hands over answers too.
+        def filtered?(key)
+          !key.nil? && GraphWeaver.filter_variables({ key.to_s => nil })[key.to_s] == FILTERED
+        end
+
+        # `detail` unless the key is filtered — free text a coercer or sorbet
+        # wrote can spell a value any way, so for a filtered key none of it
+        # survives, not the parts that would have been safe.
+        def detail(key, detail) = filtered?(key) ? FILTERED : detail
+      end
+    end
+  end
+
   # Rails' spelling, so a scrubbed log reads the same either side of the seam
   FILTERED = "[FILTERED]"
 

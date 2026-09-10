@@ -42,8 +42,10 @@ module GraphWeaver
     rescue StandardError => e
       shown = value.inspect
       got = " (got #{shown})" unless e.message.include?(shown)
-      raise InputError.new("#{type_name} representation #{name}: #{e.message}#{got}",
-        field: name, struct: type_name)
+      raise InputError.new(
+        "#{type_name} representation #{name}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}",
+        field: name, struct: type_name,
+      )
     end
 
     def self.missing(values, paths) = paths.select { |path| dig(values, path).nil? }
