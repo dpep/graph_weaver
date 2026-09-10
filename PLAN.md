@@ -15,7 +15,7 @@ step for CI. Runtime deps: `graphql` + `sorbet-runtime`, nothing else.
 
 ## State
 
-`0.5.1` on RubyGems. `main` carries the launch-hardening sweep — see
+`0.6.0` tagged; `gem push` is the manual step. See
 `## Unreleased` in the CHANGELOG: every entry marked **Regenerate** changes
 emitted code, so the next release is at least a minor.
 

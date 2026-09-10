@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.6.0  (2026-09-09)
 - **One rule for relative path settings: they resolve against
   `GraphWeaver.root`** — `Rails.root` in a Rails app, the working directory
   otherwise. There were two: cassettes resolved against `Rails.root` while
@@ -8,8 +8,12 @@
   `bin/rails server` or an `rspec` run from a subdirectory — loaded no
   generated modules at all. An absolute setting is untouched, and the settings
   keep returning what you configured, so `graphql.config.yml` stays portable.
-  Set `GraphWeaver.root` to override. Paths the library reports are now real
-  paths, so they are absolute whenever the setting they came from is relative.
+  Set `GraphWeaver.root` to override. The rule runs both ways: a path is
+  resolved against the root on access and reported relative to it on output,
+  so `generate!`'s return value, `changed_files`, `check_queries`' keys, the
+  rake tasks' `wrote`/`pruned` lines and the file an error names all come back
+  in the short form you configured. `cache:` also accepts a `Pathname` now,
+  as `schema:` and `query:` always have.
 - **One spelling for the generated module's name: `name:`.** `GraphWeaver.parse`
   took `name:` while `Codegen.generate` took `module_name:`. **Breaking:**
   `module_name:` now raises naming `name:`. A parsed module also names itself
