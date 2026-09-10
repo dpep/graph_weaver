@@ -804,6 +804,8 @@ module GraphWeaver::SchemaLoader
   # the schema dump the generation workflow reads, so one file serves both
   # (introspect caches it, rake generate loads it).
   def self.cache_path(cache)
+    # Rails.root.join(...) hands you a Pathname, as schema: and query: already take
+    cache = cache.to_path if cache.respond_to?(:to_path)
     path = case cache
     when nil, false
       nil

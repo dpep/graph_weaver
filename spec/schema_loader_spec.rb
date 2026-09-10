@@ -174,6 +174,16 @@ describe GraphWeaver::SchemaLoader do
       codegen_parity(second)
     end
 
+    # Rails.root.join(...) is how an app spells a path, and schema:/query:
+    # already take one
+    it "takes a Pathname cache path" do
+      path = Pathname.new(File.join(@dir, "schema-cache.json"))
+
+      described_class.introspect(counting_executor, cache: path)
+
+      expect(File).to exist(path)
+    end
+
     it "cache: true defaults to GraphWeaver.schema_path" do
       path = File.join(@dir, "schema.json")
       GraphWeaver.schema_path = path
