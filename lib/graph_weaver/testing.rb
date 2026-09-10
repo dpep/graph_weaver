@@ -293,7 +293,7 @@ module GraphWeaver
   end
 end
 
-require_relative "testing/values"
+require_relative "internal/values"
 require_relative "testing/fake_client"
 require_relative "testing/fake_subgraph"
 require_relative "testing/failure"

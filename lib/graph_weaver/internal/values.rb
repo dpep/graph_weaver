@@ -8,7 +8,7 @@ require "date"
 # matched on field names — strings (name/email/url/...) and numbers
 # (age/price/count/latitude/...) alike. Keeps a consistent id mapping so
 # the same original id always anonymizes to the same fake id.
-class GraphWeaver::Testing::Values
+class GraphWeaver::Internal::Values
   include GraphWeaver::Inflect
 
   STRING_SEMANTICS = {

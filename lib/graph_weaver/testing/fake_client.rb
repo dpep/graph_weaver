@@ -109,7 +109,7 @@ class GraphWeaver::Testing::FakeClient
       "or commit a schema dump at #{GraphWeaver.schema_path}")
     @overrides = config.overrides.merge(overrides).transform_keys(&:to_s)
     GraphWeaver::Testing.validate_overrides!(@schema, @overrides)
-    @values = GraphWeaver::Testing::Values.new(seed:, values:)
+    @values = GraphWeaver::Internal::Values.new(seed:, values:)
     @list_size = list_size || config.list_size
     @null_chance = null_chance || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs

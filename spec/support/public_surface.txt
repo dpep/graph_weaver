@@ -452,15 +452,6 @@ GraphWeaver::Testing::Unplannable#to_h
 GraphWeaver::Testing::Unplannable.unsupported!
 GraphWeaver::Testing::Unplannable::CATEGORIES = Hash
 GraphWeaver::Testing::VALUE_STYLES = Array
-GraphWeaver::Testing::Values (Class)
-GraphWeaver::Testing::Values#mapped_id
-GraphWeaver::Testing::Values#rng
-GraphWeaver::Testing::Values#scalar
-GraphWeaver::Testing::Values::NAMED_SHAPES = Hash
-GraphWeaver::Testing::Values::NUMBER_SEMANTICS = Hash
-GraphWeaver::Testing::Values::REGISTERED_SHAPES = Hash
-GraphWeaver::Testing::Values::STRING_SEMANTICS = Hash
-GraphWeaver::Testing::Values::UNREGISTERED = String
 GraphWeaver::Transport (Class)
 GraphWeaver::Transport#execute
 GraphWeaver::Transport#inspect

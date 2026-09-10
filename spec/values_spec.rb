@@ -10,7 +10,7 @@ require "graph_weaver/testing"
 # routing a field name to the right generator and returning something the
 # generated struct can actually hold — a wrong Ruby class here surfaces as a
 # TypeError from sorbet-runtime in someone else's spec, a long way from here.
-describe GraphWeaver::Testing::Values do
+describe GraphWeaver::Internal::Values do
   subject(:values) { described_class.new(seed: 3) }
 
   describe "field-name semantics" do

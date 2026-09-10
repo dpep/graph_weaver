@@ -196,8 +196,8 @@ describe GraphWeaver::Testing do
     end
   end
 
-  describe GraphWeaver::Testing::Values do
-    let(:values) { GraphWeaver::Testing::Values.new(seed: 3) }
+  describe GraphWeaver::Internal::Values do
+    let(:values) { GraphWeaver::Internal::Values.new(seed: 3) }
 
     it "gives numbers field-name semantics too" do
       expect(values.scalar("Int", "age")).to be_between(1, 99)
@@ -212,14 +212,14 @@ describe GraphWeaver::Testing do
     end
 
     it "values: :literal skips semantics even with faker loaded" do
-      literal = GraphWeaver::Testing::Values.new(seed: 3, values: :literal)
+      literal = GraphWeaver::Internal::Values.new(seed: 3, values: :literal)
 
       expect(literal.scalar("String", "email")).to match(/^email-\d+$/)
     end
 
     it "rejects an unknown value style" do
       expect {
-        GraphWeaver::Testing::Values.new(values: :chaos)
+        GraphWeaver::Internal::Values.new(values: :chaos)
       }.to raise_error(ArgumentError, /:faker, :literal/)
     end
 
