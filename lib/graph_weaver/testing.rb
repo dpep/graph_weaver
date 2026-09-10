@@ -155,7 +155,7 @@ module GraphWeaver
       # conventional dump when that's what it is. A client can't supply
       # one: its schema is the API schema a router serves, with the
       # @join__* routing table stripped out.
-      def supergraph!
+      private def supergraph!
         return @router[:supergraph] if @router&.key?(:supergraph)
 
         path = GraphWeaver::SchemaLoader.locate_path

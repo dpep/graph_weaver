@@ -210,7 +210,7 @@ module GraphWeaver
         # documented way to pass options) but must not contradict: one of the
         # two is then a mistake, and silently letting the later one win hides
         # which.
-        def claim_mode!(mode)
+        private def claim_mode!(mode)
           # only an explicit tag can contradict a helper. config.default_mode
           # is a fallback for examples that said nothing, so a helper is the
           # example finally saying something — not a disagreement.

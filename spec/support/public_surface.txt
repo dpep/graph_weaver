@@ -247,8 +247,6 @@ GraphWeaver::SchemaLoader::RoutingTable#to_s
 GraphWeaver::SchemaLoader::RoutingTable#types
 GraphWeaver::SchemaLoader::RoutingTable#unsupported
 GraphWeaver::SchemaLoader::RoutingTable.parse_field_set
-GraphWeaver::Selection (Module)
-GraphWeaver::Selection::CONDITIONAL_DIRECTIVES = Array
 GraphWeaver::ServerError (Class)
 GraphWeaver::ServerError#body
 GraphWeaver::ServerError#headers
@@ -316,7 +314,6 @@ GraphWeaver::Testing::Config#schema=
 GraphWeaver::Testing::Config#schema_class!
 GraphWeaver::Testing::Config#seed
 GraphWeaver::Testing::Config#seed=
-GraphWeaver::Testing::Config#supergraph!
 GraphWeaver::Testing::Coverage (Class)
 GraphWeaver::Testing::Coverage#elsewhere
 GraphWeaver::Testing::Coverage#inspect
@@ -364,7 +361,6 @@ GraphWeaver::Testing::RSpecIntegration.install
 GraphWeaver::Testing::RSpecIntegration.mode_for
 GraphWeaver::Testing::RSpecIntegration.set_context
 GraphWeaver::Testing::RSpecIntegration::Helpers (Module)
-GraphWeaver::Testing::RSpecIntegration::Helpers#claim_mode!
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_context
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_fake
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_in_process
