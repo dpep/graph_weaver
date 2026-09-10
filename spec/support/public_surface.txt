@@ -179,17 +179,11 @@ GraphWeaver::InputStruct::ClassMethods (Module)
 GraphWeaver::InputStruct::ClassMethods#coerce
 GraphWeaver::InputStruct::Field (Class)
 GraphWeaver::InputStruct::Field#coercer
-GraphWeaver::InputStruct::Field#coercer=
 GraphWeaver::InputStruct::Field#prop
-GraphWeaver::InputStruct::Field#prop=
 GraphWeaver::InputStruct::Field#required
-GraphWeaver::InputStruct::Field#required=
 GraphWeaver::InputStruct::Field#serializer
-GraphWeaver::InputStruct::Field#serializer=
 GraphWeaver::InputStruct::Field#wire
-GraphWeaver::InputStruct::Field#wire=
 GraphWeaver::InputStruct::Field.[]
-GraphWeaver::InputStruct::Field.keyword_init?
 GraphWeaver::InputStruct::Field.members
 GraphWeaver::Parsing (Module)
 GraphWeaver::Parsing#load_queries!
@@ -232,15 +226,11 @@ GraphWeaver::SchemaDiff#to_h
 GraphWeaver::SchemaDiff#to_s
 GraphWeaver::SchemaDiff::Change (Class)
 GraphWeaver::SchemaDiff::Change#breaking
-GraphWeaver::SchemaDiff::Change#breaking=
 GraphWeaver::SchemaDiff::Change#coordinate
-GraphWeaver::SchemaDiff::Change#coordinate=
 GraphWeaver::SchemaDiff::Change#description
-GraphWeaver::SchemaDiff::Change#description=
 GraphWeaver::SchemaDiff::Change#to_h
 GraphWeaver::SchemaDiff::Change#to_s
 GraphWeaver::SchemaDiff::Change.[]
-GraphWeaver::SchemaDiff::Change.keyword_init?
 GraphWeaver::SchemaDiff::Change.members
 GraphWeaver::SchemaLoader (Module)
 GraphWeaver::SchemaLoader.diff
@@ -310,27 +300,18 @@ GraphWeaver::Testing::Cassette#variants
 GraphWeaver::Testing::Cassette::CREDENTIAL_SHAPES = Hash
 GraphWeaver::Testing::Cassette::Check (Class)
 GraphWeaver::Testing::Cassette::Check#checked
-GraphWeaver::Testing::Cassette::Check#checked=
 GraphWeaver::Testing::Cassette::Check#ok?
 GraphWeaver::Testing::Cassette::Check#path
-GraphWeaver::Testing::Cassette::Check#path=
 GraphWeaver::Testing::Cassette::Check#report
 GraphWeaver::Testing::Cassette::Check#skipped
-GraphWeaver::Testing::Cassette::Check#skipped=
 GraphWeaver::Testing::Cassette::Check#stale
-GraphWeaver::Testing::Cassette::Check#stale=
 GraphWeaver::Testing::Cassette::Check.[]
-GraphWeaver::Testing::Cassette::Check.keyword_init?
 GraphWeaver::Testing::Cassette::Check.members
 GraphWeaver::Testing::Cassette::Stale (Class)
 GraphWeaver::Testing::Cassette::Stale#message
-GraphWeaver::Testing::Cassette::Stale#message=
 GraphWeaver::Testing::Cassette::Stale#module_name
-GraphWeaver::Testing::Cassette::Stale#module_name=
 GraphWeaver::Testing::Cassette::Stale#variables
-GraphWeaver::Testing::Cassette::Stale#variables=
 GraphWeaver::Testing::Cassette::Stale.[]
-GraphWeaver::Testing::Cassette::Stale.keyword_init?
 GraphWeaver::Testing::Cassette::Stale.members
 GraphWeaver::Testing::Config (Class)
 GraphWeaver::Testing::Config#anonymize
@@ -370,18 +351,12 @@ GraphWeaver::Testing::Coverage#servable
 GraphWeaver::Testing::Coverage#to_s
 GraphWeaver::Testing::Coverage::Result (Class)
 GraphWeaver::Testing::Coverage::Result#absent
-GraphWeaver::Testing::Coverage::Result#absent=
 GraphWeaver::Testing::Coverage::Result#category
-GraphWeaver::Testing::Coverage::Result#category=
 GraphWeaver::Testing::Coverage::Result#detail
-GraphWeaver::Testing::Coverage::Result#detail=
 GraphWeaver::Testing::Coverage::Result#path
-GraphWeaver::Testing::Coverage::Result#path=
 GraphWeaver::Testing::Coverage::Result#servable?
 GraphWeaver::Testing::Coverage::Result#subgraph
-GraphWeaver::Testing::Coverage::Result#subgraph=
 GraphWeaver::Testing::Coverage::Result.[]
-GraphWeaver::Testing::Coverage::Result.keyword_init?
 GraphWeaver::Testing::Coverage::Result.members
 GraphWeaver::Testing::Failure (Module)
 GraphWeaver::Testing::Failure.graphql

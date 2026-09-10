@@ -26,7 +26,7 @@ module GraphWeaver
       # plan stitches across a boundary. `absent` names the subgraphs that
       # plan reaches which nothing in this process serves — plannable and
       # runnable-here are different questions.
-      Result = Struct.new(:path, :subgraph, :absent, :category, :detail) do
+      Result = Data.define(:path, :subgraph, :absent, :category, :detail) do
         def servable? = category.nil? && absent.empty?
       end
 

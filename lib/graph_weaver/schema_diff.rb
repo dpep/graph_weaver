@@ -27,7 +27,7 @@ module GraphWeaver
     # One difference. `coordinate` is the schema coordinate it happened at
     # ("User", "User.email", "Query.search(first:)"), so a CI log stays
     # greppable and a line can be pasted somewhere useful on its own.
-    Change = Struct.new(:coordinate, :description, :breaking, keyword_init: true) do
+    Change = Data.define(:coordinate, :description, :breaking) do
       def to_h = { "coordinate" => coordinate, "change" => description, "breaking" => breaking }
 
       def to_s = "#{coordinate}  #{description}"

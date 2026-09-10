@@ -74,7 +74,7 @@ module GraphWeaver
       # found. `checked` is how many recordings a module claimed: a run that
       # claimed none proved nothing, which is a different answer from "all
       # good" — the same distinction `federation:diff` draws.
-      Check = Struct.new(:path, :checked, :skipped, :stale, keyword_init: true) do
+      Check = Data.define(:path, :checked, :skipped, :stale) do
         def ok? = stale.empty?
 
         def report
@@ -89,7 +89,7 @@ module GraphWeaver
       end
 
       # One recording the generated structs can no longer read.
-      Stale = Struct.new(:module_name, :variables, :message, keyword_init: true)
+      Stale = Data.define(:module_name, :variables, :message)
 
       # Shapes that are a credential whatever the field around them is
       # called. Anonymization can't cover everything a cassette holds — the

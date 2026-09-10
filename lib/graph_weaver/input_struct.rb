@@ -21,7 +21,7 @@ module GraphWeaver
 
     # serializer/coercer are code-as-data from the generated file; nil
     # means identity (the wire value passes through untouched)
-    Field = Struct.new(:prop, :wire, :required, :serializer, :coercer)
+    Field = Data.define(:prop, :wire, :required, :serializer, :coercer)
 
     # An enum reaching the library as input — an execute kwarg or an input
     # field — as the member or its wire value. Generated code calls these
