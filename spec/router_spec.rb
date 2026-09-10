@@ -716,6 +716,33 @@ describe GraphWeaver::Testing::Router do
       end
     end
 
+    # A @fromContext argument is filled by the gateway out of an ancestor's
+    # data, so a fetch this router writes leaves it unset — and the field
+    # answers from nothing. Apollo composes ContextGraph without complaint,
+    # so nothing upstream stops this.
+    describe "a @fromContext argument" do
+      subject(:contextual) do
+        described_class.new(
+          supergraph: ContextGraph::SUPERGRAPH,
+          subgraphs: { "catalog" => :fake, "reviews" => :fake },
+        )
+      end
+
+      it "refuses the query whose fetch would have to carry it" do
+        expect { contextual.execute('{ store(id: "1") { products { price } } }') }
+          .to refuse_to_plan(:context_argument).with_detail(
+            'Product.price takes "currency" from a @context an ancestor selection sets, and ' \
+            "the router would have to fetch it on its own",
+          )
+      end
+
+      # one subgraph answering the whole thing sets its own context
+      it "runs a query that never leaves the subgraph holding it" do
+        expect(contextual.execute('{ store(id: "1") { country } }').dig("data", "store")).to be_a Hash
+        expect(contextual).to have_fetched_subgraphs "catalog"
+      end
+    end
+
     # a @requires the supergraph places nowhere is a graph nothing can serve,
     # so there is no fetch to chain
     it "names a @requires field no subgraph holds" do

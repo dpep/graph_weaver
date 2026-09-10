@@ -41,6 +41,17 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(table.field("Review", "author").provides).to eq "username"
   end
 
+  # federation 2.8 composes @context/@fromContext into a @join__field argument.
+  # Reading it is what lets a planner refuse the field rather than fetch it
+  # with the argument unset.
+  it "reads the arguments a @fromContext fills" do
+    contextual = GraphWeaver::SchemaLoader.routing_table(ContextGraph::SUPERGRAPH)
+
+    expect(contextual.field("Product", "price").contextual).to eq ["currency"]
+    expect(contextual.field("Store", "products").contextual).to be_empty
+    expect(contextual.unsupported).to be_empty
+  end
+
   it "reads the @key field sets a subgraph answers on" do
     expect(table.keys("User", "accounts")).to eq [["id"]]
     expect(table.keys("Product", "reviews")).to eq [["upc"]]

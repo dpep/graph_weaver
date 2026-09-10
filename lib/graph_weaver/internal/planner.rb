@@ -352,6 +352,7 @@ module GraphWeaver
 
         here = step(subgraph, type_name)
         selections.each do |node|
+          contextual!(type_name, node)
           # a subtree that never leaves this subgraph goes over as written:
           # the boundary rules govern stitching, so they have no business
           # applying to a query that was never going to cross one
@@ -383,6 +384,20 @@ module GraphWeaver
           .map { |path| PREFIX + path.split(".").first }.uniq
         check_reserved!(type_name, selections, here.injected)
         here
+      end
+
+      # A @fromContext argument is filled by the GATEWAY, out of a selection on
+      # an ancestor — so a fetch this planner writes leaves it unset and the
+      # field resolves from nothing. Asked only of a field the planner routes
+      # itself: a subtree handed to one subgraph whole carries its own context,
+      # which is why the verbatim path never reaches here.
+      def contextual!(type_name, node)
+        names = @table.field(type_name, node.name)&.contextual
+        return if names.nil? || names.empty?
+
+        refuse :context_argument, "#{type_name}.#{node.name} takes #{names.map(&:inspect).join(", ")} " \
+          "from a @context an ancestor selection sets, and the router would have to fetch it " \
+          "on its own"
       end
 
       # The keys a fetch injects are stripped from the answer, so a caller's

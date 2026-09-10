@@ -887,8 +887,10 @@ module GraphWeaver::SchemaLoader
     # One field's routing: `graphs` resolve it, `external` declare it without
     # resolving it (an @external copy exists so that subgraph can @key or
     # @requires on it), and requires/provides/override carry the field sets and
-    # the migration marker verbatim.
-    Field = Struct.new(:graphs, :external, :requires, :provides, :override)
+    # the migration marker verbatim. `contextual` names the arguments a
+    # @fromContext fills from an ancestor selection (federation 2.8) — a fetch
+    # has to supply them, so whoever plans one needs to know they exist.
+    Field = Struct.new(:graphs, :external, :requires, :provides, :override, :contextual)
 
     # Every @join__ directive this table understands. One it doesn't is a
     # federation construct nobody has taught it to read, and it lands in
@@ -1160,6 +1162,7 @@ module GraphWeaver::SchemaLoader
           resolvable.filter_map { |d| argument(d, "requires") }.first,
           resolvable.filter_map { |d| argument(d, "provides") }.first,
           applied.filter_map { |d| argument(d, "override") }.first,
+          applied.flat_map { |d| context_arguments(d) },
         )]
       end.to_h
     end
@@ -1173,6 +1176,17 @@ module GraphWeaver::SchemaLoader
 
         @unsupported << "#{where} applies @#{directive.name}, which this table doesn't read"
       end
+    end
+
+    # The argument names a @join__field says come from a @context. The rest of
+    # each entry (the context's name, and the selection read out of it) is the
+    # gateway's business; what a planner needs is that the fetch it builds
+    # would leave these unset.
+    def context_arguments(directive)
+      entries = argument(directive, "contextArguments")
+      return [] unless entries.is_a?(Array)
+
+      entries.filter_map { |entry| argument(entry, "name") }
     end
 
     # the subgraph NAME a directive's graph: argument points at

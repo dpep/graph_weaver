@@ -44,6 +44,12 @@ module GraphWeaver
             "doesn't say which subgraph answers each of its fields. Run this one against a real " \
             "router.",
         ],
+        context_argument: [
+          "a @fromContext argument no fetch here can supply",
+          "federation 2.8's @context/@fromContext fills the argument from a selection on an " \
+            "ancestor, and only the gateway that planned the fetch knows what to put there. Run " \
+            "this one against a real router.",
+        ],
         chained_requires: [
           "a @requires whose field set names another @requires field",
           "the router satisfies a @requires with one fetch, so it can't first satisfy that " \
