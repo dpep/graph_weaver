@@ -155,7 +155,8 @@ taken from a schema class records no url, and they say so.)
 **Scaffolding the app too?** On a `rails new --skip-active-record`,
 `rails g graphql:install` writes `config.active_record.query_log_tags` lines
 into `config/application.rb` that an app without ActiveRecord can't boot
-with — a graphql-ruby bug. Delete them.
+with — a graphql-ruby bug. Run it as
+`rails g graphql:install --skip-query-logs`, or delete the lines it wrote.
 
 ### A schema dump you already have
 
