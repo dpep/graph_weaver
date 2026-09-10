@@ -95,7 +95,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     self.watcher = app.config.file_watcher.new([GraphWeaver::Internal::Util.resolve(dump)], dirs) { regenerate! }
     app.reloaders << watcher
     GraphWeaver::Internal::Log.log(:info) do
-      "watching #{(watched << dump).join(", ")} — an edit regenerates " \
+      "watching #{(watched << GraphWeaver::Internal::Util.relative(dump)).join(", ")} — an edit regenerates " \
         "#{GraphWeaver.generated_paths.first} before the next request " \
         "(config.graph_weaver.watch = false to stop)"
     end
@@ -114,7 +114,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     GraphWeaver::Internal::Log.log(:info) do
       next "generated modules already up to date" if changed.empty?
 
-      "regenerated #{changed.map { |path| File.basename(path) }.join(", ")}"
+      "regenerated #{changed.join(", ")}"
     end
   rescue GraphWeaver::Error => e
     GraphWeaver::Internal::Log.log(:error) { "keeping the modules already loaded — #{e.message}" }

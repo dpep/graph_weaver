@@ -348,6 +348,11 @@ describe "GraphWeaver::Railtie" do
       GraphWeaver.schema_path = "schema.graphql"
       write_query("name")
 
+      logged = []
+      GraphWeaver.logger = Logger.new(File::NULL).tap do |logger|
+        logger.define_singleton_method(:info) { |_progname, &block| logged << block.call }
+      end
+
       Dir.mktmpdir do |elsewhere|
         Dir.chdir(elsewhere) do
           watcher = GraphWeaver::Railtie.watch!(app)
@@ -361,6 +366,13 @@ describe "GraphWeaver::Railtie" do
 
       expect(File).to exist File.join(@dir, "generated/watch_probe_query.rb")
       expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
+      # and the log says it in the same short form the settings are written in
+      expect(logged).to include(
+        a_string_starting_with("watching queries, fragments, schema.graphql"),
+        "regenerated generated/watch_probe_query.rb",
+      )
+    ensure
+      GraphWeaver.logger = nil
     end
 
     it "watches in development only, unless the app says otherwise" do

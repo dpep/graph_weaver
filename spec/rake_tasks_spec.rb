@@ -107,6 +107,24 @@ describe "graph_weaver rake tasks" do
       expect(generated("person_query.rb")).to include "module PersonQuery"
     end
 
+    # a build log is read on another machine, and the setting it echoes is the
+    # one in graphql.config.yml — absolute paths there belong to nobody
+    it "prints the paths it wrote and pruned relative to the root" do
+      GraphWeaver.root = @root
+      GraphWeaver.queries_paths = "queries"
+      GraphWeaver.generated_paths = "generated"
+      GraphWeaver.schema_path = "schema.graphql"
+      File.write(File.join(@root, "schema.graphql"), Demo::Schema.to_definition)
+      write_query("person.graphql", "query Person { person(id: \"1\") { name } }")
+
+      expect(invoke("generate").out).to eq "wrote generated/person_query.rb\n"
+
+      File.delete(File.join(@root, "queries", "person.graphql"))
+      expect(invoke("generate").out).to include "pruned generated/person_query.rb"
+    ensure
+      GraphWeaver.root = nil
+    end
+
     it "says a file it left alone is up to date, rather than claiming to write it" do
       write_schema
       write_query("person.graphql", "query Person { person(id: \"1\") { name } }")
@@ -562,7 +580,9 @@ describe "graph_weaver rake tasks" do
       result = invoke("cassettes:anonymize")
 
       expect(result.status).to eq 0
-      expect(result.out).to eq "anonymized #{path}\n"
+      # found under the root, and reported back in the short form it was configured as
+      expect(result.out).to eq "anonymized cassettes/person.yml\n"
+      expect(File.read(path)).not_to include "Daniel Pepper"
     end
 
     # silence and exit 0 read as "done"; every sibling task says where it

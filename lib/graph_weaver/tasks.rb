@@ -88,7 +88,7 @@ namespace :graph_weaver do
     puts "#{written.size - changed.size} already up to date" if changed.size < written.size
     # generated files are checked in, so a delete this task made is a diff the
     # user is about to find; a run that printed nothing at all had done both
-    (before - Dir[glob]).each { |path| puts "pruned #{path}" }
+    (before - Dir[glob]).each { |path| puts "pruned #{GraphWeaver::Internal::Util.relative(path)}" }
     puts "no queries in #{GraphWeaver.queries_paths.join(", ")}" if written.empty?
     GraphWeaver::Internal::Tasks.report_unmatched
   rescue GraphWeaver::Error => e
@@ -114,14 +114,15 @@ namespace :graph_weaver do
     task diff: :environment do
       path = GraphWeaver::SchemaLoader.locate_path or abort GraphWeaver::Internal::Tasks.no_dump
       diff = GraphWeaver::SchemaLoader.diff(path)
+      dump = GraphWeaver::Internal::Util.relative(path)
       if diff.empty?
-        puts "#{path} matches the server"
+        puts "#{dump} matches the server"
       else
         puts diff.report
         # abort writes to unbuffered stderr; the summary above went to
         # block-buffered stdout, so a piped CI log shows it first
         $stdout.flush
-        abort "#{path} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
+        abort "#{dump} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
       end
     rescue GraphWeaver::Error => e
       # e.g. a dump with no recorded url — same clean exit as :refresh
@@ -137,7 +138,7 @@ namespace :graph_weaver do
       end
 
       path, url = GraphWeaver::SchemaLoader.refresh!(url: ENV["URL"])
-      puts "refreshed #{path} from #{url}"
+      puts "refreshed #{GraphWeaver::Internal::Util.relative(path)} from #{url}"
     rescue GraphWeaver::Error => e
       abort e.message
     end
@@ -271,6 +272,7 @@ namespace :graph_weaver do
       # Testing.cassette_dir, not config.cassette_dir: the configured path is
       # relative by default and rake runs from wherever it runs from
       dir = GraphWeaver::Testing.cassette_dir
+      shown = GraphWeaver::Internal::Util.relative(dir)
       checks = Dir[File.join(dir, "*.yml")].sort.map do |path|
         GraphWeaver::Testing::Cassette.new(path).check(modules)
       end
@@ -287,9 +289,9 @@ namespace :graph_weaver do
       if checks.sum(&:checked).zero?
         # a green run that compared nothing is worse than a failure: it would
         # pass whatever the recordings said (see federation:diff)
-        abort "this checked nothing, so it proved nothing: no recording in #{dir} carries a query " \
+        abort "this checked nothing, so it proved nothing: no recording in #{shown} carries a query " \
           "any of the #{modules.size} generated modules sends. Drop this task from CI if you " \
-          "don't record cassettes, or check that #{dir} is where yours live."
+          "don't record cassettes, or check that #{shown} is where yours live."
       end
 
       puts "every recording still casts"
@@ -306,11 +308,11 @@ namespace :graph_weaver do
       paths = Dir[File.join(dir, "*.yml")].sort
       paths.each do |path|
         GraphWeaver::Testing::Cassette.new(path).anonymize!(schema:)
-        puts "anonymized #{path}"
+        puts "anonymized #{GraphWeaver::Internal::Util.relative(path)}"
       end
       # silence and exit 0 read as "done" — say where we looked, the way every
       # sibling task does
-      puts "no recordings in #{dir}" if paths.empty?
+      puts "no recordings in #{GraphWeaver::Internal::Util.relative(dir)}" if paths.empty?
     end
   end
 end

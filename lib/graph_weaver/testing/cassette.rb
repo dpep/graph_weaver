@@ -18,7 +18,7 @@ module GraphWeaver
 
       def initialize(path:, query:, variables:, recorded:, size:)
         super([
-          "no recording for this request in #{path}",
+          "no recording for this request in #{GraphWeaver::Internal::Util.relative(path)}",
           "  variables: #{GraphWeaver::Internal::Log.filter_variables(Internal::RequestKey.normalize_variables(variables)).inspect}",
           "  #{self.class.recorded_summary(recorded, size)}",
           "  query: #{Internal::RequestKey.summarize(query)}",
@@ -81,7 +81,7 @@ module GraphWeaver
           counted = ["#{checked} checked"]
           counted << "#{skipped} not sent by any query module" if skipped.positive?
 
-          ["#{path}: #{stale.size} stale (#{counted.join(", ")})"] +
+          ["#{GraphWeaver::Internal::Util.relative(path)}: #{stale.size} stale (#{counted.join(", ")})"] +
             stale.flat_map do |entry|
               ["  #{entry.module_name} #{entry.variables.inspect}", "    #{entry.message}"]
             end
@@ -212,7 +212,7 @@ module GraphWeaver
         return if found.empty?
 
         @flagged.concat(found)
-        warn "graph_weaver: #{@path} contains #{found.join(", ")} — a cassette is committed as " \
+        warn "graph_weaver: #{GraphWeaver::Internal::Util.relative(@path)} contains #{found.join(", ")} — a cassette is committed as " \
           "written, so review this one first. Testing.config.anonymize scrubs the response; the " \
           "query and variables are the replay key and are recorded verbatim."
       end
