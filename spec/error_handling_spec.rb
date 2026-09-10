@@ -451,13 +451,23 @@ describe "error handling" do
     # #struct was the generated class from one door and a GraphQL type name
     # from the other — two types with no method in common, for a caller
     # branching on it to build a 422
-    it "names the refusing type the same way, whichever door refused" do
+    # #struct is the generated class from an input struct and the GraphQL
+    # type name from a representation, which builds a plain Hash and so has
+    # no class to hand back. to_h is the surface that reads the same either
+    # way, and the one a 422 is built from.
+    it "reports the refusing type the same way in to_h, from either door" do
       require_relative "generated/types"
 
       expect { GraphQLTypes::AdoptionInput.coerce("nope") }
-        .to raise_error(GraphWeaver::InputError) { |e| expect(e.struct).to eq "GraphQLTypes::AdoptionInput" }
+        .to raise_error(GraphWeaver::InputError) { |e|
+          expect(e.struct).to be GraphQLTypes::AdoptionInput
+          expect(e.to_h["struct"]).to eq "GraphQLTypes::AdoptionInput"
+        }
       expect { GraphWeaver::Representation.field("Product", "sku", "x") { Integer(_1) } }
-        .to raise_error(GraphWeaver::InputError) { |e| expect(e.struct).to eq "Product" }
+        .to raise_error(GraphWeaver::InputError) { |e|
+          expect(e.struct).to eq "Product"
+          expect(e.to_h["struct"]).to eq "Product"
+        }
     end
 
     it "raises InputError when an input struct is coerced from a non-Hash" do

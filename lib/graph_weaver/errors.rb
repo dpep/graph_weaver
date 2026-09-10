@@ -523,24 +523,24 @@ module GraphWeaver
     sig { returns(T.nilable(String)) }
     attr_reader :field
 
-    # Named, not the class: a federation representation builds a plain Hash,
-    # so there is no class to hand back — and a caller branching on this
-    # can't have two types. (Response casting always failed *inside* a
-    # generated struct, which is why {TypeError#struct} is the class.)
-    sig { returns(T.nilable(String)) }
+    # The generated input struct class where generation produced one, and
+    # the GraphQL type name where it didn't — a federation representation
+    # builds a plain Hash, so an entity has only its name there. Branch on
+    # #to_h's "struct" instead, which is `to_s` either way.
+    sig { returns(T.untyped) }
     attr_reader :struct
 
     sig { params(message: String, field: T.nilable(String), struct: T.untyped).void }
     def initialize(message, field: nil, struct: nil)
       @field = field
-      @struct = T.let(struct&.to_s, T.nilable(String))
+      @struct = struct
       # the message often IS a sorbet prop error — drop its frame, as TypeError does
       super(message.sub(TypeError::SORBET_CALLER, ""))
     end
 
     sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
-      super.merge("field" => field, "struct" => struct).compact
+      super.merge("field" => field, "struct" => struct&.to_s).compact
     end
   end
 
