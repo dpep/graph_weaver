@@ -1,4 +1,15 @@
 ## Unreleased
+- **One rule for relative path settings: they resolve against
+  `GraphWeaver.root`** — `Rails.root` in a Rails app, the working directory
+  otherwise. There were two: cassettes resolved against `Rails.root` while
+  the schema dump, queries and generated directories resolved against the
+  process's working directory, and the railtie patched three of the four
+  places that mattered. A Rails app started anywhere but its own root — a
+  `bin/rails server` or an `rspec` run from a subdirectory — loaded no
+  generated modules at all. An absolute setting is untouched, and the settings
+  keep returning what you configured, so `graphql.config.yml` stays portable.
+  Set `GraphWeaver.root` to override. Paths the library reports are now real
+  paths, so they are absolute whenever the setting they came from is relative.
 - **One spelling for the generated module's name: `name:`.** `GraphWeaver.parse`
   took `name:` while `Codegen.generate` took `module_name:`. **Breaking:**
   `module_name:` now raises naming `name:`. A parsed module also names itself
