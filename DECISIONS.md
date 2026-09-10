@@ -348,3 +348,48 @@ strictly better: it skips `Internal`, diffs everything else against a
 checked-in list, and fails in CI with the two things you can do about it —
 rather than at a user's runtime with a `NameError`. The rule stays one
 sentence: anything under `GraphWeaver::Internal` is not API.
+
+## What the locked surface is allowed to contain
+
+**The rule.** A name is public if the docs name it, if generated code calls it,
+or if it is the duck-typed `execute(query, variables:)` slot. Everything else is
+`private`, `private_class_method`, `private_constant`, or lives under
+`GraphWeaver::Internal`.
+
+Three corollaries the passes kept running into:
+
+- **A cross-file caller is not a reason to be public.** It is the *only* reason
+  most of the remainder was, and the fix is a home, not a keyword: a helper two
+  files share belongs under `Internal`, not on whichever class one of them
+  happens to be.
+- **Ruby's names count.** `Struct.new` hands the world a writer per member plus
+  `.[]`/`.members`/`.keyword_init?`; a record built once and read is `Data`,
+  which promises only what it means to. The lock deliberately does *not* filter
+  what Ruby adds — the moment it subtracts, a reader has to know what.
+- **Visibility is a load-time fact.** `private_constant` inside a method body
+  runs on every call, so what the gem exposes would depend on what a suite had
+  reset. `spec/registry_spec.rb` guards the one that happened.
+
+**Roads not taken, and why they stay public:**
+
+- **`SchemaLoader.{locate, locate_path, provenance, source_transport,
+  sdl_content?, federation_sdl?, refresh!}`.** Each is a real question about a
+  schema source, and each is entangled with the file's private detection tables
+  and cache-candidate logic — extracting them means dragging those out too, or a
+  delegating shim that hides nothing. Seven names is not worth shredding a
+  1,200-line file.
+- **`Codegen.{scalar_registry, enum_registry, type_registry,
+  normalize_requires!}`.** Reached across `codegen/*.rb`, which all reopen
+  `class GraphWeaver::Codegen` compactly. Fixing it means either renesting four
+  files or a `Registries` module that is only a name change.
+- **`Codegen.{clear_scalars!, reset_enums!, reset_type_helpers!}`.** Documented
+  in `docs/scalars.md` beside `reset_scalars!` — a big suite isolating one
+  registry is a real use, and the rule's first clause settles it.
+- **`Testing::Config#{explicit_schema, schema_class!, reference_schema!,
+  built_router}`.** The seam between the config object and the rspec
+  integration. The state lives on `Config`, so `Internal` can't hold them and a
+  public method is the only way one object answers another — an honest limit of
+  Ruby, not an accident of layout.
+- **`Testing::RSpecIntegration.{mode_for, client_for, context!, set_context}`.**
+  "Which client does this mode run against" is the only door a non-rspec harness
+  has to the tag system's derivations.
