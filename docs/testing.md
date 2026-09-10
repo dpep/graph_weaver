@@ -159,9 +159,10 @@ GraphWeaver.register_scalar("Money", Money, fake: "12.00")
 
 `fake:` is the **wire** value — what the server would send, before your `cast:`
 runs — and it also takes a proc, handed the seeded `Random`
-([scalars](scalars.md)). Without one, fabrication refuses and names the field,
-rather than feeding your cast a `"Money-1"` placeholder that fails deep inside
-`from_h` blaming the codec. A scalar registered as `Time`, `Date`, `Integer`,
+([scalars](scalars.md)). Without one, fabrication refuses at the path it got to
+(`at reader.orders.0.total`) and names the coordinate to override, rather than
+feeding your cast a `"Money-1"` placeholder that fails deep inside `from_h`
+blaming the codec. A scalar registered as `Time`, `Date`, `Integer`,
 `Float`, `String` or `T::Boolean` needs nothing: those the harness knows how to
 write.
 
@@ -177,7 +178,12 @@ GraphWeaver::Testing::FakeClient.new(schema:, overrides: {
 
 Keys are checked against the schema, spellchecked — `"Person.nmae"` raises
 rather than quietly pinning nothing and leaving the example green against
-random data.
+random data. Option names are checked the same way: a fake refuses one it
+doesn't take, lists the ones it does, and guesses at what you meant. That holds
+at all four doors — `FakeClient.new`, `graphql_fake`, `Router.new(fake:)` and
+`graphql_router(fake:)` — including the two that forward a hash, where a
+misspelling used to surface as a bare `unknown keyword` from inside the
+fabricator.
 
 ### The example that's *about* the data
 
@@ -337,7 +343,7 @@ PersonQuery.execute(client: Failure.graphql("boom"), id: "1")      # partial fai
 # a throttling server, with the header a backoff reads
 PersonQuery.execute(client: Failure.server(status: 429, headers: { "retry-after" => "2" }), id: "1")
 
-# retries: clients run in sequence (the last repeats) — here, two
+# testing a retry — clients run in sequence, the last one repeating: two
 # transport failures and then a FakeClient serving good responses
 fake = GraphWeaver::Testing::FakeClient.new(schema:)
 GraphWeaver::Testing::Sequence.new(Failure.transport, Failure.transport, fake)
