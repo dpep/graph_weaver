@@ -216,10 +216,12 @@ GraphQL-level throttling can retry too (off by default — pass the codes
 your API uses). Exhausting the retries re-raises the last error (or
 returns the last code-matched response).
 
-`retries:` is how many attempts follow the first; the other retry options
-sit beside it. So `GraphWeaver.new(url, retries: 3)` makes up to four
-attempts, `retries: 0` never retries, and a retry option without a count
-raises rather than quietly doing nothing. It defaults to 2.
+`retries:` counts the attempts *after* the first, so
+`GraphWeaver.new(url, retries: 3)` makes up to four and `retries: 0` never
+retries; `retries: true` takes `Retry`'s own default of 2. Every misspelling
+raises rather than quietly doing nothing — a retry option passed without a
+count says so, and the old Hash form (`retries: { retries: 5 }`) names its
+flat replacement.
 
 **A mutation gets one attempt.** A failure with no answer — a read
 timeout, a 502, a reset socket — does not say whether the server applied
