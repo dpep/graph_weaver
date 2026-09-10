@@ -1,4 +1,16 @@
 ## Unreleased
+- **`filter_parameters` scrubs error messages, not just the debug log.** A
+  rejected value reached the log twice: on the `variables=` line at debug, and
+  in the message every error writes at `warn` — above the gate, as free text.
+  One rule now covers both: a message the library composes about a value you
+  supplied names it only when the key it arrived under isn't filtered. So
+  `$password of Login: [FILTERED]`, while `$count of Compute: expected an Int,
+  got "lots"` is unchanged — the value is usually the whole diagnosis. Applies
+  to execute kwargs, input fields at any depth, federation `@key` fields, and
+  the missing-cassette report. A wrong-typed input field with no coercer now
+  says which field (`cents: expected BigDecimal, got 5`) instead of sorbet's
+  sentence, and the local federation router no longer logs variables
+  unscrubbed.
 - **The gem's internal helpers moved under `GraphWeaver::Internal`, and the
   public surface is locked by a spec.** A dozen names were public only
   because a second file in the gem reached them with a qualified receiver —
