@@ -24,6 +24,7 @@ rails g graph_weaver:install https://api.example.com/graphql
 ```
       create  config/initializers/graph_weaver.rb
       create  app/graphql/queries/.keep
+      create  app/graphql/fragments/.keep
       create  app/graphql/generated/.keep
       create  graphql.config.yml
   introspect  app/graphql/schema.json from https://api.example.com/graphql

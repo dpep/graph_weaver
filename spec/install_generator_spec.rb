@@ -85,6 +85,9 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     expect(files.keys).to eq [
       "config/initializers/graph_weaver.rb",
       "app/graphql/queries/.keep",
+      # fragments too: graphql.config.yml globs it, so an editor that follows
+      # the config would be pointed at a directory nothing had created
+      "app/graphql/fragments/.keep",
       "app/graphql/generated/.keep",
       "graphql.config.yml",
     ]

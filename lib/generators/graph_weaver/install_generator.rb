@@ -56,8 +56,11 @@ module GraphWeaver
         create_file "config/initializers/graph_weaver.rb", initializer
       end
 
+      # fragments too: the editor config below globs it, and a shared fragment
+      # then has an obvious home rather than being invented later
       def create_layout
         create_file File.join(GraphWeaver.queries_paths.first, ".keep"), ""
+        create_file File.join(GraphWeaver.fragments_paths.first, ".keep"), ""
         create_file File.join(GraphWeaver.generated_paths.first, ".keep"), ""
       end
 
