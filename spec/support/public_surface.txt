@@ -28,6 +28,8 @@ GraphWeaver.register_scalar
 GraphWeaver.register_transport_error
 GraphWeaver.reload_generated!
 GraphWeaver.reset_registrations!
+GraphWeaver.root
+GraphWeaver.root=
 GraphWeaver.run
 GraphWeaver.run!
 GraphWeaver.schema_path

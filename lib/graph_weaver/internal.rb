@@ -67,10 +67,17 @@ module GraphWeaver
         # just the module name — see generated_names
         def module_name(path, source) = generated_names(path, source).first
 
+        # A path setting, as a real path: relative to GraphWeaver.root, which
+        # is the app root and not wherever the process was started. Every
+        # filesystem access on a configured path goes through here; the
+        # settings themselves keep returning what was configured, so an error
+        # message stays short and graphql.config.yml stays portable.
+        def resolve(path) = File.expand_path(path.to_s, GraphWeaver.root)
+
         # Every query document under these directories, sorted — the files
         # generate!, verify_generated!, check_queries and load_queries! read.
         def query_files(paths = GraphWeaver.queries_paths)
-          Array(paths).flat_map { |dir| Dir[File.join(dir, Codegen::DOCUMENT_GLOB)].sort }
+          Array(paths).flat_map { |dir| Dir[File.join(resolve(dir), Codegen::DOCUMENT_GLOB)].sort }
         end
 
         # The graphql-ruby schema class the app default executes against,

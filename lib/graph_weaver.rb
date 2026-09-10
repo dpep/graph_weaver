@@ -131,6 +131,25 @@ module GraphWeaver
       raw
     end
 
+    # What every relative path setting below is relative to: Rails.root in a
+    # Rails app, the working directory otherwise. So a dev server or an rspec
+    # run started from a subdirectory reads the same files a rake task does.
+    # An absolute setting is left alone.
+    attr_writer :root
+
+    def root = (@root || rails_root || Dir.pwd).to_s
+
+    # Not memoized: Rails.root isn't set when the gem is required. const_get
+    # rather than a bare Rails — sorbet can't resolve a constant the gem
+    # doesn't depend on, and something else may be named Rails.
+    def rails_root
+      return unless Object.const_defined?(:Rails)
+
+      rails = Object.const_get(:Rails)
+      rails.root if rails.respond_to?(:root)
+    end
+    private :rails_root
+
     # Conventional locations. Every directory setting is a LIST,
     # factory_bot-style: extra locations (a test-only dir, an engine's) can be
     # appended and every reader walks them all. Entries may be glob patterns,
