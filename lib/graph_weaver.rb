@@ -620,20 +620,26 @@ module GraphWeaver
     # rich Ruby object (and serializes back onto the wire when used as a
     # variable):
     #
-    #      GraphWeaver.register_scalar("Money", Money, requires: "bigdecimal")
+    #      GraphWeaver.register_scalar("Decimal", BigDecimal)
+    #      GraphWeaver.register_scalar("Money", Money)
     #
     # A field typed `Money` then generates `const :price, T.nilable(Money)`
-    # and casts with `Money.parse(...)` in from_h. Pass a real class as
-    # type: and cast:/serialize: are inferred from it — .parse/#to_s, or
-    # .load/.dump — by probing the deserialize side (see ScalarType::CODECS).
-    # Override with a Symbol method name (safest — no string to misspell), a
-    # Proc(expr) => code string, or :itself to force pass-through. requires:
-    # (a String or Array) names files the generated code needs — validated,
-    # and actually required to confirm it resolves when type: is a real class.
+    # and casts with `Money.parse(...)` in from_h. Pass a real class as type:
+    # and cast:/serialize: are inferred from it: a stdlib type the library
+    # knows (BigDecimal, Date, Time) brings its own codec and require, and
+    # anything else is probed on the deserialize side — .parse/#to_s,
+    # .load/.dump, or a Kernel conversion of its name (see ScalarType).
+    # Override with a Symbol method name (safest — no string to misspell),
+    # an Array for a method with arguments ([:to_s, "F"]), a Proc(expr) =>
+    # code string, or :itself to force pass-through. requires: (a String or
+    # Array) names files the generated code needs — validated, and actually
+    # required to confirm it resolves when type: is a real class.
     # cast: is also what an untyped variable input coerces through, so a
     # variable of this scalar takes the value OR its raw input ("12.00") with
-    # no static loosening — see GraphWeaver::Coerce. Built-in scalars are
-    # pre-registered the same way, so this also overrides them.
+    # no static loosening — see GraphWeaver::Coerce. The spec's own scalars
+    # and the conventional names (ISO8601Date, ISO8601DateTime, DateTime,
+    # BigInt, JSON) are pre-registered the same way, so this also overrides
+    # them — see Codegen::BUILTIN_SCALARS and docs/scalars.md.
     #
     # A scalar registered as a class of your own is the one value the testing
     # harness can't invent — only your `cast:` knows what it accepts — so it
