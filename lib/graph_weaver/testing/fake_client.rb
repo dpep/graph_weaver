@@ -471,7 +471,7 @@ class GraphWeaver::Testing::FakeClient
   def core_value(type, node, selections, coordinate = nil)
     case type.kind.name
     when "SCALAR"
-      @values.scalar(type.graphql_name, node.name, coordinate)
+      @values.scalar(type.graphql_name, node.name, coordinate, at: location)
     when "ENUM"
       type.values.keys.sort.sample(random: rng)
     when "OBJECT"

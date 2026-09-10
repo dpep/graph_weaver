@@ -46,6 +46,26 @@ describe GraphWeaver::Testing::FakeClient do
       .to raise_error(ArgumentError, /overides:.*did you mean overrides:.*null_chance:/m)
   end
 
+  # The fake's other refusals say where the walk is ("at reader.orders.0"),
+  # and this one said "total" — which locates nothing on a response carrying
+  # three of them, and advises an override key that pins every one.
+  it "names the path when a scalar can't be fabricated" do
+    stub_const("Money", Class.new do
+      def self.name = "Money"
+      def self.parse(wire) = new(wire)
+      def initialize(amount) = @amount = amount
+    end)
+    GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
+    sdl = "scalar Money type Query { reader: Reader } " \
+      "type Reader { orders: [Order!]! } type Order { total: Money! }"
+    fake = described_class.new(schema: GraphQL::Schema.from_definition(sdl), seed: 1, list_size: 2)
+
+    expect { fake.execute("{ reader { orders { total } } }", variables: {}) }
+      .to raise_error(GraphWeaver::Error, /at reader\.orders\.0\.total.*"Order\.total"/m)
+  ensure
+    GraphWeaver::Codegen.reset_scalars!
+  end
+
   it "still fabricates a valid query" do
     result = described_class.new(schema:).execute("query { me { name } }", variables: {})
 

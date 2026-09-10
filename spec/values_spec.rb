@@ -145,6 +145,15 @@ describe GraphWeaver::Internal::Values do
         }
       end
 
+      # a bare "price" pins that field on every type; the coordinate the
+      # caller resolved against is the advice that pins the one that failed
+      it "advises the coordinate when the caller knew one" do
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
+
+        expect { values.scalar("Money", "price", "Order.price", at: "orders.0.price") }
+          .to raise_error(GraphWeaver::Error, /at orders\.0\.price.*"Order\.price"/m)
+      end
+
       it "uses the fake: the registration supplies" do
         GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s, fake: "12.00")
 

@@ -75,8 +75,10 @@ class GraphWeaver::Internal::Values
 
   # coordinate: the "Type.field" this value is for, so a per-field
   # register_scalar resolves the way codegen resolved it when it emitted the
-  # cast.
-  def scalar(type_name, field_name, coordinate = nil)
+  # cast — and so a refusal can advise an override key that pins this field
+  # alone. at: where the walk is ("reader.orders.0.total"), for that refusal;
+  # a walk that doesn't track one leaves it unsaid.
+  def scalar(type_name, field_name, coordinate = nil, at: nil)
     registered, shape = resolve(type_name, coordinate)
     return registered.fake(rng) if registered.fake?
 
@@ -108,7 +110,7 @@ class GraphWeaver::Internal::Values
     when :date then (Date.new(2020, 1, 1) + @rng.rand(0..2_000)).iso8601
     when :time then Time.at(1_600_000_000 + @rng.rand(0..100_000_000)).utc.iso8601
     when :unregistered then "#{type_name}-#{@sequence += 1}" # nobody registered it: prop is T.untyped
-    else unfakeable!(type_name, field_name, registered)
+    else unfakeable!(type_name, field_name, registered, coordinate, at)
     end
   end
 
@@ -147,12 +149,12 @@ class GraphWeaver::Internal::Values
   # for — `Money.parse` accepts what its author decided it accepts — and
   # guessing hands the generated cast a placeholder, which fails deep inside
   # from_h blaming the codec.
-  def unfakeable!(type_name, field_name, registered)
-    raise GraphWeaver::Error, "can't fabricate a #{type_name} for #{field_name.inspect}: it " \
-      "deserializes into #{registered.type}, and only the registration knows what wire value " \
+  def unfakeable!(type_name, field_name, registered, coordinate, at)
+    raise GraphWeaver::Error, "can't fabricate a #{type_name} #{at ? "at #{at}" : "for #{field_name.inspect}"}: " \
+      "it deserializes into #{registered.type}, and only the registration knows what wire value " \
       "that accepts. Say it there — GraphWeaver.register_scalar(#{registered.graphql_name.inspect}, " \
       "#{registered.type}, fake: -> { ... }) — or pin this one field: " \
-      "overrides: { #{field_name.inspect} => ... }"
+      "overrides: { #{(coordinate || field_name).inspect} => ... }"
   end
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto
