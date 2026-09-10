@@ -238,17 +238,18 @@ module GraphWeaver
         # truncating write can leave a prefix that no longer parses, and it is
         # the running app that requires it next
         Internal::Util.atomic_write(target, source)
-        @changed_files << target
-        Internal::Log.log(:info) { "generated #{target}" }
+        reported = Internal::Util.relative(target)
+        @changed_files << reported
+        Internal::Log.log(:info) { "generated #{reported}" }
         target
       end
 
       orphaned(output, written).each do |orphan|
         File.delete(orphan)
-        Internal::Log.log(:info) { "pruned #{orphan}" }
+        Internal::Log.log(:info) { "pruned #{Internal::Util.relative(orphan)}" }
       end
 
-      written
+      written.map { |target| Internal::Util.relative(target) }
     end
 
     # Which of those files the last generate! actually wrote — the rest were
@@ -305,7 +306,8 @@ module GraphWeaver
       stale += orphaned(output, plan.map { |filename, _| File.join(Internal::Util.resolve(output), filename) })
 
       unless stale.empty?
-        raise Error, "stale generated queries — regenerate (rake graph_weaver:generate): #{stale.join(", ")}"
+        raise Error, "stale generated queries — regenerate (rake graph_weaver:generate): " \
+          "#{stale.map { |path| Internal::Util.relative(path) }.join(", ")}"
       end
 
       true
@@ -357,7 +359,7 @@ module GraphWeaver
 
       Internal::Util.query_files(queries).each_with_object({}) do |path, failures|
         errors = validation_errors(schema, File.read(path), shared, table)
-        failures[path] = errors if errors.any?
+        failures[Internal::Util.relative(path)] = errors if errors.any?
       end
     end
 
@@ -463,21 +465,24 @@ module GraphWeaver
       files.each do |file|
         require file
       rescue NameError => e
+        reported = Internal::Util.relative(file)
         # a dropped extend_type leaves this include dangling; say so here,
         # because the raw NameError points at generated code and names no fix
         helper = e.message[/GraphWeaver::TypeHelpers::(\w+)/, 1]
         if helper
-          raise Error, "#{file} includes GraphWeaver::TypeHelpers::#{helper}, but nothing registers it — " \
+          raise Error, "#{reported} includes GraphWeaver::TypeHelpers::#{helper}, but nothing registers it — " \
             "the extend_type(#{helper.inspect}) it was generated from is gone. Re-add that registration, " \
             "or regenerate without it: rake graph_weaver:generate"
         end
 
         # an app's own mixin or enum class named by extend_type/register_enum
-        raise Error, "#{file} can't load: #{e.message}. It was generated with an extend_type or " \
+        raise Error, "#{reported} can't load: #{e.message}. It was generated with an extend_type or " \
           "register_enum whose constant is gone — re-add it, or regenerate: rake graph_weaver:generate"
       end
-      Internal::Log.log(:info) { "loaded #{files.size} generated module(s) from #{paths.join(", ")}" }
-      files
+      Internal::Log.log(:info) do
+        "loaded #{files.size} generated module(s) from #{paths.map { |dir| Internal::Util.relative(dir) }.join(", ")}"
+      end
+      files.map { |file| Internal::Util.relative(file) }
     end
 
     # Load the generated modules again after generate! rewrote them in a
@@ -558,7 +563,8 @@ module GraphWeaver
         source = File.read(path)
         name, filename = Internal::Util.generated_names(path, source)
         if (earlier = seen[name])
-          raise Error, "duplicate query module #{name} — #{earlier} and #{path} both generate it; " \
+          raise Error, "duplicate query module #{name} — #{Internal::Util.relative(earlier)} and " \
+            "#{Internal::Util.relative(path)} both generate it; " \
             "the module name comes from the file name alone (directories don't namespace it), so rename one"
         end
         seen[name] = path

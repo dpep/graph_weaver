@@ -77,7 +77,8 @@ class GraphWeaver::Codegen
     renamed!(module_name)
     @schema = schema
     @query = query.strip
-    @path = path
+    # only ever quoted in a message, so it is stored the way it is reported
+    @path = path && GraphWeaver::Internal::Util.relative(path)
     @name = name
     @default_name = default_name
     @types_namespace = types_namespace
@@ -661,7 +662,7 @@ class GraphWeaver::Codegen
   def self.parse_document(query, path = nil)
     GraphQL.parse(query)
   rescue GraphQL::ParseError => e
-    prefix = [path, e.line, e.col].compact.join(":")
+    prefix = [path && GraphWeaver::Internal::Util.relative(path), e.line, e.col].compact.join(":")
     raise GraphWeaver::ValidationError.new(
       [{ message: prefix.empty? ? e.message : "#{prefix} #{e.message}", line: e.line, column: e.col }],
     )

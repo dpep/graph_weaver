@@ -72,17 +72,46 @@ describe "GraphWeaver.root" do
       expect(GraphWeaver::SchemaLoader.locate).to be_a Class
     end
 
+    # the other half of the rule: resolved on access, reported relative — so
+    # what generate! returns is what you'd put in a Gemfile-committed setting,
+    # and reads the same on the next machine
     it "generates, verifies and loads under the root" do
       GraphWeaver.types_module = "RootTypes"
       written = GraphWeaver.generate!
 
-      expect(written).to eq [File.join(@app, "app/graphql/generated/root_probe_query.rb")]
+      expect(written).to eq ["app/graphql/generated/root_probe_query.rb"]
+      expect(GraphWeaver.changed_files).to eq written
       expect { GraphWeaver.verify_generated! }.not_to raise_error
       expect(GraphWeaver.load_generated!).to eq written
       expect(RootProbeQuery::Result::Person.props.keys).to eq %i[name]
 
       GraphWeaver.reload_generated!
       expect(defined?(RootProbeQuery)).to be_truthy
+    end
+
+    it "keys check_queries by the short path" do
+      File.write(File.join(@app, "app/graphql/queries/root_probe.graphql"),
+        "query { person(id: 1) { nmae } }\n")
+
+      expect(GraphWeaver.check_queries(schema: Demo::Schema).keys)
+        .to eq ["app/graphql/queries/root_probe.graphql"]
+    end
+
+    it "names the short path in a validation error" do
+      File.write(File.join(@app, "app/graphql/queries/root_probe.graphql"),
+        "query { person(id: 1) { nmae } }\n")
+
+      expect { GraphWeaver.generate! }
+        .to raise_error(GraphWeaver::ValidationError, %r{\Ainvalid query in app/graphql/queries/root_probe\.graphql:})
+    end
+
+    it "names the short path when a generated file is stale" do
+      GraphWeaver.types_module = "RootTypes"
+
+      expect { GraphWeaver.verify_generated! }.to raise_error(GraphWeaver::Error) do |error|
+        expect(error.message).to include "app/graphql/generated/root_probe_query.rb"
+        expect(error.message).not_to include @app
+      end
     end
 
     it "finds the cassettes" do
@@ -99,6 +128,19 @@ describe "GraphWeaver.root" do
         expect(GraphWeaver::SchemaLoader.locate_path).to eq File.join(other, "schema.graphql")
       ensure
         GraphWeaver.schema_path = nil
+      end
+    end
+
+    # reporting only shortens what is under the root: an absolute setting is
+    # deliberate, and a path relative to somewhere else names no file at all
+    it "reports an absolute setting as given" do
+      Dir.mktmpdir do |other|
+        GraphWeaver.generated_paths = other
+        GraphWeaver.types_module = "RootTypes"
+
+        expect(GraphWeaver.generate!).to eq [File.join(other, "root_probe_query.rb")]
+      ensure
+        GraphWeaver.generated_paths = nil
       end
     end
   end

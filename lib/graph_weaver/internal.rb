@@ -74,6 +74,17 @@ module GraphWeaver
         # message stays short and graphql.config.yml stays portable.
         def resolve(path) = File.expand_path(path.to_s, GraphWeaver.root)
 
+        # The other half of that rule: a path this gem REPORTS — returned,
+        # logged, or quoted in an error — comes back in the short form the
+        # settings use, so a build log reads the same on the next machine and
+        # names something you can paste. A path outside the root (an absolute
+        # setting) is left as it is: relative to somewhere else it names no file.
+        def relative(path)
+          path = path.to_s
+          prefix = File.join(GraphWeaver.root, "") # trailing separator; "/" stays "/"
+          path.start_with?(prefix) ? path.delete_prefix(prefix) : path
+        end
+
         # Every query document under these directories, sorted — the files
         # generate!, verify_generated!, check_queries and load_queries! read.
         def query_files(paths = GraphWeaver.queries_paths)
