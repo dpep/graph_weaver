@@ -103,7 +103,10 @@ GraphWeaver.generated_paths << "spec/graphql/generated"
 Assigning a String wraps it, so pointing at one directory stays a one-liner.
 `generate!` writes into the first `generated_paths` entry — one run, one output
 directory. `schema_path` is the one singular setting: a run reads one schema,
-so a list would name a dump nothing ever opens.
+so a list would name a dump nothing ever opens. A relative path resolves
+against `GraphWeaver.root` — `Rails.root` in a Rails app, the working directory
+otherwise — so where you started the process doesn't change which files it
+reads.
 
 (Plain requires, not Zeitwerk: Zeitwerk would expect
 `Generated::PersonQuery` from `generated/person_query.rb`. In development a
