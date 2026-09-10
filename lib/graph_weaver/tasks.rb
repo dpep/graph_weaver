@@ -78,8 +78,8 @@ namespace :graph_weaver do
   # moves it — interpolating would print the default as though it were the setting
   desc "Generate typed query modules (default app/graphql/queries -> app/graphql/generated)"
   task generate: :environment do
-    output = GraphWeaver.generated_paths.first
-    before = Dir[File.join(output, "**/*.rb")]
+    glob = File.join(GraphWeaver::Internal::Util.resolve(GraphWeaver.generated_paths.first), "**/*.rb")
+    before = Dir[glob]
 
     # schema auto-located at GraphWeaver.schema_path, any supported extension
     written = GraphWeaver.generate!
@@ -88,7 +88,7 @@ namespace :graph_weaver do
     puts "#{written.size - changed.size} already up to date" if changed.size < written.size
     # generated files are checked in, so a delete this task made is a diff the
     # user is about to find; a run that printed nothing at all had done both
-    (before - Dir[File.join(output, "**/*.rb")]).each { |path| puts "pruned #{path}" }
+    (before - Dir[glob]).each { |path| puts "pruned #{path}" }
     puts "no queries in #{GraphWeaver.queries_paths.join(", ")}" if written.empty?
     GraphWeaver::Internal::Tasks.report_unmatched
   rescue GraphWeaver::Error => e

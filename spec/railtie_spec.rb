@@ -190,6 +190,25 @@ describe "GraphWeaver::Railtie" do
     end
   end
 
+  # a relative generated_paths — the default — against the working directory,
+  # so a server started from a subdirectory booted with no modules at all
+  it "loads generated modules from the app root, wherever it was started" do
+    Dir.mktmpdir do |app|
+      root = Pathname.new(app)
+      stub_const("Rails", Module.new { define_singleton_method(:root) { root } })
+      FileUtils.mkdir_p(File.join(app, "generated"))
+      File.write(File.join(app, "generated/probe_query.rb"), "module RailtieRootProbe; end")
+      GraphWeaver.generated_paths = "generated"
+
+      Dir.mktmpdir { |elsewhere| Dir.chdir(elsewhere) { register_generated_load.each(&:call) } }
+
+      expect(defined?(RailtieRootProbe)).to be_truthy
+    ensure
+      GraphWeaver.generated_paths = nil
+      Object.send(:remove_const, :RailtieRootProbe) if Object.const_defined?(:RailtieRootProbe)
+    end
+  end
+
   it "boots quietly when there is nothing generated" do
     GraphWeaver.generated_paths = "no/such/dir"
     expect { register_generated_load.each(&:call) }.not_to raise_error
@@ -317,6 +336,31 @@ describe "GraphWeaver::Railtie" do
       expect(watcher.files).to eq [File.join(@dir, "schema.graphql")]
       # without this a .graphql edit on its own never re-runs to_prepare
       expect(host.reloaders).to eq [watcher]
+    end
+
+    # the dev-server case: relative settings, and a server started from a
+    # subdirectory. The watcher looked in the right place and the regeneration
+    # it triggered then read the working directory, which holds no queries.
+    it "watches and regenerates under the app root, wherever it was started" do
+      %i[queries fragments generated].each do |setting|
+        GraphWeaver.public_send(:"#{setting}_paths=", setting.to_s)
+      end
+      GraphWeaver.schema_path = "schema.graphql"
+      write_query("name")
+
+      Dir.mktmpdir do |elsewhere|
+        Dir.chdir(elsewhere) do
+          watcher = GraphWeaver::Railtie.watch!(app)
+
+          expect(watcher.dirs.keys).to eq [File.join(@dir, "queries"), File.join(@dir, "fragments")]
+          expect(watcher.files).to eq [File.join(@dir, "schema.graphql")]
+
+          GraphWeaver::Railtie.regenerate!
+        end
+      end
+
+      expect(File).to exist File.join(@dir, "generated/watch_probe_query.rb")
+      expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
     end
 
     it "watches in development only, unless the app says otherwise" do

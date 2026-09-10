@@ -41,7 +41,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     Rails.autoloaders.each do |loader|
       # patterns, not paths — generated_paths may be globs, and Zeitwerk
       # expands its own at setup (which is what this runs before)
-      GraphWeaver.generated_paths.each { |path| loader.ignore(Rails.root.join(path).to_s) }
+      GraphWeaver.generated_paths.each { |path| loader.ignore(GraphWeaver::Internal::Util.resolve(path)) }
     end
   end
 
@@ -91,8 +91,8 @@ class GraphWeaver::Railtie < Rails::Railtie
     # the dump codegen would read, or where it goes once someone takes one
     dump = GraphWeaver::SchemaLoader.locate_path || GraphWeaver.schema_path
 
-    dirs = watched.to_h { |path| [Rails.root.join(path).to_s, %w[graphql gql]] }
-    self.watcher = app.config.file_watcher.new([Rails.root.join(dump).to_s], dirs) { regenerate! }
+    dirs = watched.to_h { |path| [GraphWeaver::Internal::Util.resolve(path), %w[graphql gql]] }
+    self.watcher = app.config.file_watcher.new([GraphWeaver::Internal::Util.resolve(dump)], dirs) { regenerate! }
     app.reloaders << watcher
     GraphWeaver::Internal::Log.log(:info) do
       "watching #{(watched << dump).join(", ")} — an edit regenerates " \
@@ -144,7 +144,8 @@ class GraphWeaver::Railtie < Rails::Railtie
       next if GraphWeaver::Railtie.watcher&.execute_if_updated
 
       # entries may be globs, so Dir[] rather than Dir.exist?
-      GraphWeaver.load_generated! if GraphWeaver.generated_paths.any? { |path| Dir[path].any? }
+      generated = GraphWeaver.generated_paths.any? { |dir| Dir[GraphWeaver::Internal::Util.resolve(dir)].any? }
+      GraphWeaver.load_generated! if generated
     end
   end
 end
