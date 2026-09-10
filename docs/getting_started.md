@@ -85,8 +85,9 @@ What it wrote:
   RubyMine schema autocomplete, hover docs, and validation as you type in
   `.graphql` files — no JS project, no `npm install`. Details and the honest
   limits in [editors](editors.md).
-- **`app/graphql/queries/`, `app/graphql/generated/`.** Where you write
-  queries and where generation writes Ruby.
+- **`app/graphql/queries/`, `app/graphql/fragments/`, `app/graphql/generated/`.**
+  Where you write queries, where shared fragments live, and where generation
+  writes Ruby.
 
 Rake needs no wiring either: in Rails the `graph_weaver:*` tasks register
 themselves (a Railtie) and depend on `:environment`, so your initializer —
