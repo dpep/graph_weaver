@@ -1,3 +1,26 @@
+## Unreleased
+- **A stdlib scalar registers with nothing but its class.**
+  `GraphWeaver.register_scalar("Decimal", BigDecimal)` now emits the whole
+  codec: `BigDecimal(...)` reads the wire value, `to_s("F")` writes it back,
+  and the generated file requires `bigdecimal`. The careful spelling people
+  reached for was wrong — `serialize: :to_s` puts `"0.125e2"` on the wire —
+  so the library owns it. Cast inference gained Kernel's conversion functions
+  (`BigDecimal()`, and any `Kernel#Type` your app defines for a type the wire
+  can't already be), and `serialize:` accepts `[:method, *args]` for a
+  serializer that takes arguments. `cast:`/`serialize:`/`requires:` are
+  unchanged, for a class of your own.
+- **Scalar names that are conventions are registered already**: graphql-ruby's
+  `ISO8601Date`, `ISO8601DateTime`, `BigInt` and `JSON`, plus `DateTime` —
+  what GitHub, Shopify and most hand-written schemas call an ISO 8601
+  timestamp. A date deserializes into `Date` and a timestamp into `Time`, so
+  nothing invents a midnight; `BigInt` reads the decimal string graphql-ruby
+  writes as well as a JSON number; `JSON` is registered as `T.untyped` on
+  purpose, which also drops it from the "unregistered custom scalars" report.
+  A schema that means something else by one of these names fails loudly — the
+  cast raises, naming the field — and one `register_scalar` overrides it, as
+  it always could. **Regenerate** if a query of yours reads a scalar with one
+  of those names: its prop was `T.untyped` and now has a type.
+
 ###  v0.6.0  (2026-09-09)
 - **One rule for relative path settings: they resolve against
   `GraphWeaver.root`** — `Rails.root` in a Rails app, the working directory
