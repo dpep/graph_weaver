@@ -101,7 +101,7 @@ class GraphWeaver::Client
   attr_reader :transport
 
   # transport, when this client must be able to execute
-  def transport!
+  private def transport!
     transport or raise GraphWeaver::Error,
       "this client has no transport (built from a schema dump) — pass a url or transport:"
   end

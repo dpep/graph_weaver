@@ -48,7 +48,6 @@ GraphWeaver::Client#run
 GraphWeaver::Client#run!
 GraphWeaver::Client#schema
 GraphWeaver::Client#transport
-GraphWeaver::Client#transport!
 GraphWeaver::Client::URL = Regexp
 GraphWeaver::Codegen (Class)
 GraphWeaver::Codegen#generate
@@ -286,7 +285,6 @@ GraphWeaver::Testing.cassette_path
 GraphWeaver::Testing.config
 GraphWeaver::Testing.configure
 GraphWeaver::Testing.reset!
-GraphWeaver::Testing.validate_overrides!
 GraphWeaver::Testing::CLIENT_MODES = Array
 GraphWeaver::Testing::Cassette (Class)
 GraphWeaver::Testing::Cassette#anonymize!
