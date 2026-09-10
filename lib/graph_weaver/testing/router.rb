@@ -678,7 +678,7 @@ module GraphWeaver
         end
 
         GraphWeaver.log(:debug) do
-          "router -> #{name} #{tag} variables=#{JSON.generate(variables)}\n" \
+          "router -> #{name} #{tag} variables=#{JSON.generate(GraphWeaver.filter_variables(variables))}\n" \
             "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
         end
 

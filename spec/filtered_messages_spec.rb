@@ -85,6 +85,22 @@ describe "filtered messages" do
     expect(io.string).not_to include("forty-two")
   end
 
+  # the transport and the in-process client both scrub what they log; the
+  # router is the third thing that writes a variables= line
+  it "hides a filtered variable in the router's debug line" do
+    GraphWeaver.logger = Logger.new(io, level: Logger::DEBUG)
+    router = GraphWeaver::Testing::Router.new(
+      supergraph: RouterGraph::SUPERGRAPH, subgraphs: RouterGraph::SUBGRAPHS,
+    )
+
+    router.execute("query($password: Boolean!) { me { username @include(if: $password) } }",
+      variables: { "password" => true })
+
+    expect(io.string).to include("variables=")
+    expect(io.string).to include("[FILTERED]")
+    expect(io.string).not_to include('"password":true')
+  end
+
   it "hides a filtered variable in a missing-cassette report" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "login.yml")

@@ -74,7 +74,8 @@ module GraphWeaver
 
         representations(variables).each_with_index.map do |representation, index|
           type_name = representation["__typename"] or raise GraphWeaver::Error,
-            "a representation sent to #{@name} carries no __typename: #{representation.inspect}"
+            "a representation sent to #{@name} carries no __typename: " \
+              "#{GraphWeaver.filter_variables(representation).inspect}"
 
           here = []
           object = @client.object(type_name, field.selections, fragments:, variables:, operation:,
