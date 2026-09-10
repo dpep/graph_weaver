@@ -330,6 +330,16 @@ describe GraphWeaver::Testing::Router do
         expect(router).to have_fetched_subgraphs "reviews", "products", "reviews"
       end
 
+      # two @requires field sets crossing into the same subgraph on the same
+      # @key are one entity fetch, which is what Apollo makes
+      it "prefetches two @requires field sets in one fetch" do
+        response = router.execute("{ reviews { product { crateSize shippingEstimate } } }")
+
+        expect(response.dig("data", "reviews", 0, "product"))
+          .to eq({ "crateSize" => "60x30cm@100", "shippingEstimate" => 50 })
+        expect(router).to have_fetched_subgraphs "reviews", "products", "reviews"
+      end
+
       it "leaves no injected object in the answer" do
         response = router.execute("{ listings { name store { name } shelfCode } }")
 

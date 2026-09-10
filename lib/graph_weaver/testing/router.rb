@@ -478,18 +478,21 @@ module GraphWeaver
       # don't exist, so nothing depending on them can resolve.
       def prefetch(step, nodes, operation, variables, errors)
         blocked = []
-        step.prefetches.each do |prefetch|
-          # the field it feeds was excluded, so this is a fetch a real router
-          # never makes — and a test double that runs a resolver production
-          # wouldn't is answering a different question
-          next unless included?(prefetch.node, variables)
+        # the field it feeds was excluded, so this is a fetch a real router
+        # never makes — and a test double that runs a resolver production
+        # wouldn't is answering a different question
+        wanted = step.prefetches.select { |prefetch| included?(prefetch.node, variables) }
 
-          key = Internal::Planner.field_tree(prefetch.key)
+        # two @requires field sets that cross into the same subgraph on the
+        # same @key ride one entity fetch, as Apollo's do — the representations
+        # are identical, so a second call would only re-run resolvers
+        wanted.group_by { |prefetch| [prefetch.subgraph, prefetch.key] }.each do |(subgraph, keys), group|
+          key = Internal::Planner.field_tree(keys)
           representations = nodes.map { |(node, _)| representation(node, key, step.type_name) }
-          selections = Internal::Planner.injected_selections(prefetch.paths)
+          selections = Internal::Planner.injected_selections(group.flat_map(&:paths).uniq)
           roots = selections.map(&:alias)
 
-          result = entities_fetch(prefetch.subgraph, step.type_name, selections, representations, operation, variables)
+          result = entities_fetch(subgraph, step.type_name, selections, representations, operation, variables)
           entities = result.dig("data", "_entities") || []
           Array(result["errors"]).each { |error| errors << rewrite(error, nodes) }
 
