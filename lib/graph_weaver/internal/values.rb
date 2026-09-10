@@ -44,6 +44,7 @@ class GraphWeaver::Internal::Values
     "Date" => :date,
     "Time" => :time,
     "DateTime" => :time,
+    "BigDecimal" => :decimal,
   }.freeze
 
   # What Codegen.scalar reports for a scalar nobody registered
@@ -113,6 +114,8 @@ class GraphWeaver::Internal::Values
     when :integer then @rng.rand(0..1_000)
     when :float then @rng.rand(0.0..1_000.0).round(2)
     when :boolean then [true, false].sample(random: @rng)
+    # the plain-notation string BigDecimal() reads and #to_s("F") writes
+    when :decimal then format("%.2f", @rng.rand(0.0..10_000.0))
     when :date then (Date.new(2020, 1, 1) + @rng.rand(0..2_000)).iso8601
     when :time then Time.at(1_600_000_000 + @rng.rand(0..100_000_000)).utc.iso8601
     when :unregistered then "#{type_name}-#{@sequence += 1}" # nobody registered it: prop is T.untyped

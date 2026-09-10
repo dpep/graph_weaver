@@ -1,6 +1,7 @@
 # typed: ignore — Faker is a development dependency sorbet doesn't see
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "time"
 require "faker"
 
@@ -116,6 +117,17 @@ describe GraphWeaver::Internal::Values do
       expect(Time.iso8601(values.scalar("Timestamp", "at"))).to be_a Time
       expect(values.scalar("Ticks", "n")).to be_an Integer
       expect(values.scalar("Slug", "handle")).to be_a String
+    end
+
+    # a fake that fabricates what from_h then refuses is worse than no fake,
+    # so every type the library casts on its own has to be fabricable
+    it "fabricates what a library-known cast reads back" do
+      GraphWeaver.register_scalar("Decimal", BigDecimal)
+
+      expect(BigDecimal(values.scalar("Decimal", "total"))).to be_a BigDecimal
+      expect(Date.iso8601(values.scalar("ISO8601Date", "on"))).to be_a Date
+      expect(Time.parse(values.scalar("DateTime", "at"))).to be_a Time
+      expect(GraphWeaver::Coerce.integer(values.scalar("BigInt", "count"))).to be_an Integer
     end
 
     it "still names the type when nothing registered one" do

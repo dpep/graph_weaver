@@ -1285,21 +1285,16 @@ class GraphWeaver::Codegen
     Scalar.new(scalar)
   end
 
-  # Everything JSON.parse can hand back. A registered type outside this set
-  # has to be BUILT from one of them, which is what cast: is for.
-  WIRE_CLASSES = [String, Integer, Float, Hash, Array, TrueClass, FalseClass].freeze
-  private_constant :WIRE_CLASSES
-
   # A registered type nothing on the wire can be, with no cast to build one:
   # the prop is unsatisfiable, so every response fails — at runtime, a long
-  # way from the registration that caused it. BigDecimal is the one people
-  # reach for (it defines neither .parse nor .load, so inference finds no
-  # codec and leaves the value untouched).
+  # way from the registration that caused it. Reaches an app's own value
+  # object, since the stdlib types people reach for (BigDecimal, Time) infer
+  # a cast; see ScalarType.
   def refuse_uncastable!(scalar, where)
     return if scalar.cast?
 
     klass = Object.const_get(scalar.type)
-    return unless klass.is_a?(Class) && WIRE_CLASSES.none? { |native| native <= klass }
+    return unless klass.is_a?(Class) && ScalarType::WIRE_CLASSES.none? { |native| native <= klass }
 
     raise GraphWeaver::Error,
       "register_scalar(#{scalar.graphql_name.inspect}, #{scalar.type}) has no cast, so nothing " \

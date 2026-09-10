@@ -324,6 +324,133 @@ describe "custom scalar deserialization" do
       .to raise_error(GraphWeaver::TypeError, /not money/)
   end
 
+  # A stdlib type should take one argument beyond the name, because the
+  # careful registration is the one people get wrong: `serialize: :to_s` on a
+  # BigDecimal puts "0.125e2" on the wire.
+  describe "a stdlib type" do
+    it "infers the codec and the require from the class alone" do
+      GraphWeaver.register_scalar("Decimal", BigDecimal)
+
+      scalar = GraphWeaver::Codegen.scalar("Decimal")
+      expect(scalar.cast("v")).to eq "BigDecimal(v)"
+      expect(scalar.serialize("v")).to eq %(v.to_s("F"))
+      expect(scalar.requires).to eq ["bigdecimal"]
+    end
+
+    it "writes a decimal in plain notation, not scientific" do
+      GraphWeaver.register_scalar("Decimal", BigDecimal)
+
+      expect(GraphWeaver::Codegen.scalar("Decimal").serialize_value(BigDecimal("12.5"))).to eq "12.5"
+    end
+
+    it "reads a decimal both directions through a generated module" do
+      GraphWeaver.register_scalar("Money", BigDecimal)
+      mod = GraphWeaver.parse(schema: MoneyDemo::Schema, client: MoneyDemo::Schema, query:)
+
+      # the schema's own Money.parse reads what we serialized, and its
+      # two-decimal result casts back into a BigDecimal
+      expect(mod.execute(name: "W", budget: BigDecimal("12.5")).data!.product.price).to eq BigDecimal("12.5")
+      expect(mod.execute(name: "W", budget: "12.5").data!.product.price).to eq BigDecimal("12.5")
+      expect { mod.execute(name: "W", budget: "abc") }
+        .to raise_error(GraphWeaver::InputError, /\$budget of Store.*"abc"/)
+    end
+
+    it "sends a decimal variable as a plain decimal string" do
+      GraphWeaver.register_scalar("Money", BigDecimal)
+      capture = Class.new do
+        attr_reader :variables
+
+        def execute(_query, variables:, operation_name: nil)
+          @variables = variables
+          { "data" => nil, "errors" => [{ "message" => "captured" }] }
+        end
+      end.new
+
+      GraphWeaver.parse(schema: MoneyDemo::Schema, client: capture, query:)
+        .execute(name: "W", budget: BigDecimal("12.5"))
+
+      expect(capture.variables["budget"]).to eq "12.5"
+    end
+
+    it "lets an explicit serialize: win over what the library knows" do
+      GraphWeaver.register_scalar("Decimal", BigDecimal, serialize: :to_i, requires: "bigdecimal")
+
+      expect(GraphWeaver::Codegen.scalar("Decimal").serialize("v")).to eq "v.to_i"
+    end
+
+    it "leaves a wire class alone, Kernel conversion or not" do
+      GraphWeaver.register_scalar("Cents", Integer) # not Integer(v) — see Coerce
+
+      expect(GraphWeaver::Codegen.scalar("Cents").cast?).to be false
+      expect(GraphWeaver::Codegen.scalar("Cents").coerce_input("v")).to eq "GraphWeaver::Coerce.integer(v)"
+    end
+
+    it "rejects a malformed serialize: Array" do
+      expect { GraphWeaver.register_scalar("X", "X", serialize: ["to_s"]) }
+        .to raise_error(ArgumentError, /serialize:/)
+    end
+  end
+
+  # Names that are conventions rather than guesses: graphql-ruby ships all
+  # but DateTime as its own scalars, and DateTime is what GitHub, Shopify and
+  # most hand-written schemas call an ISO 8601 timestamp.
+  describe "conventional scalar names" do
+    let(:schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        scalar ISO8601Date
+        scalar ISO8601DateTime
+        scalar DateTime
+        scalar BigInt
+        scalar JSON
+        type Query { event: Event! }
+        type Event { on: ISO8601Date at: ISO8601DateTime seen: DateTime count: BigInt meta: JSON }
+      GRAPHQL
+    end
+
+    let(:event_query) { "query Event { event { on at seen count meta } }" }
+
+    def event(wire)
+      mod = Module.new
+      mod.module_eval(GraphWeaver::Codegen.generate(schema:, query: event_query, name: "EventQuery"))
+      mod.const_get(:EventQuery).from_response!("data" => { "event" => wire }).event
+    end
+
+    it "casts each one off a real wire value with no registration" do
+      values = event(
+        "on" => "2024-01-15", "at" => "2024-01-15T10:00:00Z", "seen" => "2024-01-15T10:00:00Z",
+        "count" => "9007199254740993", "meta" => { "a" => 1 },
+      )
+
+      expect(values.on).to eq Date.new(2024, 1, 15)
+      expect(values.at).to eq Time.utc(2024, 1, 15, 10)
+      expect(values.seen).to eq Time.utc(2024, 1, 15, 10)
+      expect(values.count).to eq 9_007_199_254_740_993
+      expect(values.meta).to eq({ "a" => 1 })
+    end
+
+    it "keeps a date a Date, so nothing invents a midnight" do
+      expect(GraphWeaver::Codegen.scalar("ISO8601Date").type).to eq "Date"
+      expect(GraphWeaver::Codegen.scalar("ISO8601DateTime").type).to eq "Time"
+    end
+
+    it "is overridden by a registration, like any other entry" do
+      GraphWeaver.register_scalar("DateTime", Date)
+
+      expect(GraphWeaver::Codegen.scalar("DateTime").cast("v")).to eq "Date.iso8601(v)"
+    end
+
+    it "says nothing about a schema that has none of them" do
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+
+      GraphWeaver.new(Demo::Schema).parse("query { person(id: 1) { birthday } }")
+
+      expect(io.string).to be_empty
+    ensure
+      GraphWeaver.logger = nil
+    end
+  end
+
   it "rejects an anonymous class as a scalar type (would emit a literal nil)" do
     expect { GraphWeaver.register_scalar("Anon", Class.new) }
       .to raise_error(ArgumentError, /anonymous/)

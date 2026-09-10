@@ -12,10 +12,12 @@ class GraphWeaver::Codegen
   # scalars and overrides go through the same path.
   #
   # cast/serialize normalize to procs that, given a Ruby expression string,
-  # return the code to inline. Left nil (the default) they are inferred
-  # from the Ruby type when it is a real class, by probing for a known
-  # deserializer and pairing its serializer (see CODECS) — so the common
-  # case needs no more than a class:
+  # return the code to inline. Left nil (the default) they are inferred from
+  # the Ruby type: a type the library already knows takes its codec from
+  # STDLIB, otherwise it is probed for a known deserializer whose serializer
+  # pairs with it (see CODECS), and failing that for a Kernel conversion
+  # function of its own name — so the common case needs no more than a class:
+  #      type: BigDecimal (Kernel#BigDecimal) => BigDecimal(expr) / expr.to_s("F")
   #      type: Money   (defines .parse)   => Money.parse(expr) / expr.to_s
   #      type: Blob    (defines .load)    => Blob.load(expr)   / Blob.dump(expr)
   # Probing the *deserialize* side is deliberate: every object has #to_s,
@@ -25,6 +27,7 @@ class GraphWeaver::Codegen
   #   - a Symbol names a method, so there is no string to misspell:
   #           cast: :load        => "Blob.load(expr)"    (class method on type)
   #           serialize: :to_json => "expr.to_json"      (instance method)
+  #   - an Array is that method with arguments: serialize: [:to_s, "F"]
   #   - a Proc handles anything a Symbol can't express:
   #           cast: ->(e) { "Money.new(#{e})" }
   #   - :itself opts out — force identity pass-through even when a codec
@@ -59,7 +62,31 @@ class GraphWeaver::Codegen
       "String" => "string",
       "T::Boolean" => "boolean",
     }.freeze
-    private_constant :Codec, :CODECS, :COERCERS
+
+    # What the library already knows about a Ruby type, so registering one
+    # takes nothing but the class. Consulted only where the registration is
+    # silent; an explicit cast:/serialize:/requires: wins. Two things the
+    # probe above can't work out on its own:
+    #   - the wire spelling. BigDecimal#to_s writes "0.125e2", which is not
+    #     what any server means by 12.5, and Date.parse reads a great deal
+    #     more than the ISO 8601 a Date scalar carries.
+    #   - the file to require, so the generated source stands alone.
+    # Only types whose wire form is unambiguous belong here.
+    STDLIB = {
+      "BigDecimal" => { serialize: [:to_s, "F"], requires: "bigdecimal" },
+      "Date" => { cast: :iso8601, serialize: :iso8601, requires: "date" },
+      "Time" => { cast: :parse, serialize: :iso8601, requires: "time" },
+      "DateTime" => { cast: :iso8601, serialize: :iso8601, requires: "date" },
+    }.freeze
+
+    # Everything JSON.parse can hand back. A registered type outside this set
+    # has to be BUILT from one of them, which is what a cast is for (and what
+    # Codegen#refuse_uncastable! insists on).
+    WIRE_CLASSES = [String, Integer, Float, Hash, Array, TrueClass, FalseClass].freeze
+
+    EMPTY = {}.freeze
+
+    private_constant :Codec, :CODECS, :COERCERS, :STDLIB, :EMPTY
 
     attr_reader :graphql_name, :type, :requires
 
@@ -67,14 +94,22 @@ class GraphWeaver::Codegen
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
-      # requires: load BEFORE codec probing — the probe method may come
-      # from the required file (core Time has no .parse until the "time"
-      # stdlib loads)
-      @requires = normalize_requires(requires)
+      known = STDLIB.fetch(@type, EMPTY)
+      # requires: load BEFORE probing — the deserializer may arrive with the
+      # file (core Time has no .parse until the "time" stdlib loads, and
+      # Kernel#BigDecimal none until "bigdecimal" does). A path from STDLIB
+      # is the library's own, so it loads even for a type: given as a String,
+      # whose dependency we otherwise can't assume is installed.
+      @requires =
+        if requires.nil?
+          GraphWeaver::Codegen.normalize_requires!(known[:requires], load: true)
+        else
+          GraphWeaver::Codegen.normalize_requires!(requires, load: !@klass.nil?)
+        end
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
-      @cast = normalize_cast(cast, codec&.cast)
-      @serialize = normalize_serialize(serialize, codec&.serialize)
-      @serialize_value = runtime_serialize(serialize, codec)
+      @cast = normalize_cast(cast || known[:cast], codec&.cast || kernel_cast)
+      @serialize = normalize_serialize(serialize || known[:serialize], codec&.serialize)
+      @serialize_value = runtime_serialize(serialize || known[:serialize], codec)
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -126,6 +161,17 @@ class GraphWeaver::Codegen
       end
     end
 
+    # Kernel's conversion functions are how a wire value becomes one of these
+    # — BigDecimal defines neither .parse nor .load, but Kernel#BigDecimal has
+    # read a decimal string all along. Only for a type the wire can't already
+    # be: Kernel#String and Kernel#Array wrap a value rather than convert it.
+    def kernel_cast
+      return unless Kernel.private_method_defined?(@type.to_sym)
+      return if WIRE_CLASSES.any? { |native| native.name == @type }
+
+      ->(type, expr) { "#{type}(#{expr})" }
+    end
+
     # nil infers via the matched codec; :itself opts out (identity); a
     # Symbol is a class method on the type — Money.parse(expr)
     def normalize_cast(cast, inferred)
@@ -138,32 +184,34 @@ class GraphWeaver::Codegen
       end
     end
 
-    # nil infers via the matched codec; :itself opts out (identity); a
-    # Symbol is an instance method on the value — expr.to_s
+    # nil infers via the matched codec; :itself opts out (identity); a Symbol
+    # is an instance method on the value — expr.to_s — and an Array is that
+    # method with arguments: [:to_s, "F"] => expr.to_s("F")
     def normalize_serialize(serialize, inferred)
       case serialize
       when :itself then nil
       when nil then inferred && ->(expr) { inferred.call(@type, expr) }
       when Proc then serialize
       when Symbol then ->(expr) { "#{expr}.#{serialize}" }
-      else raise ArgumentError, "serialize: must be a Symbol, Proc, :itself, or nil, got #{serialize.inspect}"
+      when Array
+        # a syntax error in the generated file otherwise
+        raise ArgumentError, "serialize: an Array is a method and its arguments, got #{serialize.inspect}" unless serialize.first.is_a?(Symbol)
+
+        method, *args = serialize
+        ->(expr) { "#{expr}.#{method}(#{args.map(&:inspect).join(", ")})" }
+      else raise ArgumentError, "serialize: must be a Symbol, Array, Proc, :itself, or nil, got #{serialize.inspect}"
       end
     end
 
-    # The runnable half of normalize_serialize: a Symbol names a method
-    # (:itself included, which is identity either way), an inferred codec
-    # knows its own call, and a Proc emits code there is no way to run.
+    # The runnable half of normalize_serialize: a Symbol (or Symbol with
+    # arguments) names a method — :itself included, which is identity either
+    # way — an inferred codec knows its own call, and a Proc emits code there
+    # is no way to run.
     def runtime_serialize(serialize, codec)
       case serialize
-      when Symbol then ->(value) { value.public_send(serialize) }
+      when Symbol, Array then ->(value) { value.public_send(*serialize) }
       when nil then codec && ->(value) { codec.call.call(@klass, value) }
       end
-    end
-
-    # With only a type-name string we can't assume the lib is installed at
-    # codegen time, so the paths aren't loaded — only shape-checked.
-    def normalize_requires(requires)
-      GraphWeaver::Codegen.normalize_requires!(requires, load: !@klass.nil?)
     end
   end
 
@@ -230,24 +278,42 @@ class GraphWeaver::Codegen
       self
     end
 
-    # Built-in scalars — pre-registered entries in the one registry. Most stay
-    # pass-through: their Ruby classes (String, Integer) define neither .parse
-    # nor .load, so codec inference matches nothing and leaves them identity —
-    # which is exactly why we can name them with the real class constants.
-    # Float is the exception: JSON has one number type, so a whole Float
-    # arrives as `1` from every encoder that drops the trailing zero
-    # (graphql-js and Go both do), and Coerce.float widens that without
-    # accepting the garbage `.to_f` would silently turn into 0.0. Date
-    # deserializes via ISO-8601 (it *does* define .parse, but we want iso8601
-    # specifically, so it's explicit). The rest carry no cast and coerce
-    # input by their Ruby type — see coerce_input.
+    # Pre-registered scalars — ordinary entries in the one registry, so a
+    # later register_scalar overrides any of them.
+    #
+    # The five the spec names stay pass-through: their Ruby classes (String,
+    # Integer) define neither .parse nor .load, so inference matches nothing
+    # and leaves them identity — which is exactly why we can name them with
+    # the real class constants. Float is the exception: JSON has one number
+    # type, so a whole Float arrives as `1` from every encoder that drops the
+    # trailing zero (graphql-js and Go both do), and Coerce.float widens that
+    # without accepting the garbage `.to_f` would silently turn into 0.0.
+    #
+    # The rest are names, not guesses: graphql-ruby ships all but DateTime as
+    # its own scalars, and this library runs a graphql-ruby schema in-process.
+    # DateTime is what GitHub, Shopify and most hand-written schemas call an
+    # ISO 8601 timestamp; a schema that means something else by it fails
+    # loudly (the cast raises, naming the field) and is one register_scalar
+    # away. Date and datetime are told apart by their Ruby type — a Date cast
+    # to Time would invent a midnight the server never sent.
     def register_builtin_scalars!
       register_scalar "ID", String
       register_scalar "String", String
       register_scalar "Int", Integer
       register_scalar "Float", Float, cast: ->(expr) { "GraphWeaver::Coerce.float(#{expr})" }
       register_scalar "Boolean", "T::Boolean"
-      register_scalar "Date", Date, cast: :iso8601, serialize: :iso8601, requires: "date"
+      register_scalar "Date", Date
+      register_scalar "ISO8601Date", Date
+      register_scalar "ISO8601DateTime", Time
+      register_scalar "DateTime", Time
+      # graphql-ruby writes a BigInt as a string, since JSON numbers stop
+      # being exact at 2^53 — so read either spelling and write the one the
+      # server does.
+      register_scalar "BigInt", Integer,
+        cast: ->(expr) { "GraphWeaver::Coerce.integer(#{expr})" }, serialize: :to_s
+      # untyped on purpose: registering it says so, rather than leaving JSON
+      # in the "unregistered custom scalars" report every generation
+      register_scalar "JSON", "T.untyped"
     end
     private :register_builtin_scalars!
   end

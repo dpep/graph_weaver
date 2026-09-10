@@ -7,6 +7,10 @@ require "graphql"
 # registration that satisfies neither is broken for every value, so it is
 # refused at generation rather than at 3am.
 describe "registered scalar wire types" do
+  # An app's own value object with no way in from JSON: no .parse or .load to
+  # probe, and no Kernel conversion of its name.
+  class Uncastable; end # rubocop:disable Lint/ConstantDefinitionInBlock
+
   after { GraphWeaver::Codegen.reset_scalars! }
 
   let(:schema) do
@@ -20,16 +24,23 @@ describe "registered scalar wire types" do
   end
 
   it "refuses a type nothing on the wire can be, with no cast to build one" do
-    GraphWeaver.register_scalar("Money", BigDecimal, requires: "bigdecimal")
+    GraphWeaver.register_scalar("Money", Uncastable)
 
     expect { generate }.to raise_error(GraphWeaver::Error, /no cast.*Q\.price.*cast:/m)
   end
 
   it "takes the same type once a cast builds it" do
-    GraphWeaver.register_scalar("Money", BigDecimal, cast: ->(v) { "BigDecimal(#{v})" },
-      serialize: :to_s, requires: "bigdecimal")
+    GraphWeaver.register_scalar("Money", Uncastable, cast: ->(v) { "Uncastable.build(#{v})" })
 
-    expect(generate).to include("BigDecimal(")
+    expect(generate).to include("Uncastable.build(")
+  end
+
+  # where BigDecimal used to land: the type people reach for, and the one
+  # Kernel#BigDecimal has been able to build all along
+  it "infers a cast for a stdlib type rather than refusing it" do
+    GraphWeaver.register_scalar("Money", BigDecimal)
+
+    expect(generate).to include("BigDecimal(v1)", %(require "bigdecimal"))
   end
 
   # String, Integer, Float and friends need nothing: the wire is already one

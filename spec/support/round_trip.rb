@@ -212,6 +212,9 @@ module RoundTrip
         "2024-01-15T10:20:30.123Z", "2024-01-15T10:20:30.123456789Z", "2024-01-15T10:20Z",
       ],
       "Integer" => [0, -1, 7, 2**63, ->(r) { r.rand(10_000) }],
+      # graphql-ruby writes a BigInt as a string (JSON numbers stop being
+      # exact at 2^53); a JS server writes the number
+      "BigInt" => ["0", "-1", "9007199254740993", 7, 2**63, ->(r) { r.rand(10_000) }],
       "T::Boolean" => [true, false],
     }.tap { |t| t["DateTime"] = t["Time"] }.freeze
 
@@ -226,6 +229,8 @@ module RoundTrip
       "Date" => ["not a date", "2024-13-01", 1704067200, true],
       "Time" => ["not a time", 1704067200, true],
       "Integer" => ["1", 1.5, true],
+      # a decimal string is the spelling BigInt is FOR, so only these are wrong
+      "BigInt" => ["1.5", "nine", 1.5, true, {}],
       "T::Boolean" => ["true", 1],
     }.tap { |t| t["DateTime"] = t["Time"] }.freeze
   end
@@ -453,6 +458,8 @@ module RoundTrip
       when "Int" then numeric(@rng.rand(1000))
       when "Float" then numeric((@rng.rand * 10).round(3))
       when "Boolean" then twice(@rng.rand < 0.5)
+      # a BigInt goes out as the string the server itself writes
+      when "BigInt" then @rng.rand(2**60).then { |n| [n, n.to_s] }
       else
         case GraphWeaver::Codegen.scalar(name).type
         when "Date" then loose? ? twice("2024-01-15") : [Date.new(2024, 1, 15), "2024-01-15"]
