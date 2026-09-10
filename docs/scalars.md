@@ -55,21 +55,12 @@ reference the class. `requires:` (a string or array) names files emitted as
 a real class (so the runtime is loaded), each path is also `require`d at
 registration — a typo fails now, not in the generated file.
 
-Pass `fake:` to say what the testing harness should fabricate for this scalar —
-the **wire** value, before your `cast:` runs. Only the registration can know
-one: `Money.parse` accepts what its author decided it accepts.
-
-```ruby
-GraphWeaver.register_scalar("Money", Money, fake: "12.00")
-GraphWeaver.register_scalar("Money", Money, fake: ->(rng) { format("%.2f", rng.rand(1.0..100.0)) })
-```
-
-A proc is handed the seeded `Random`, so `rspec --seed` still reproduces the
-run. Needed only when the type is a class the harness can't write for — a scalar
-registered as `Time`, `Date`, `Integer`, `Float`, `String` or `T::Boolean` needs
-nothing, and neither do the built-ins. Without one, [`FakeClient`](testing.md)
-and cassette anonymization refuse at fabrication time rather than handing your
-cast a placeholder.
+The testing harness can't invent a wire value for a scalar registered as your
+own class — only `Money.parse` knows what it accepts — so it refuses rather than
+guess. Say it in test config, where that answer belongs: a pin for the type,
+`GraphWeaver::Testing.config.overrides = { "Money" => "12.00" }`, or per example
+([testing → pins](testing.md#pins)). A scalar registered as `Time`, `Date`,
+`Integer`, `Float`, `String` or `T::Boolean` needs nothing.
 
 A registration whose type is a class **JSON can't parse into** needs a
 `cast:` to build one — `BigDecimal` is the one people reach for, and it defines

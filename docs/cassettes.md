@@ -115,9 +115,10 @@ rake graph_weaver:cassettes:anonymize   # every cassette in cassette_dir, in pla
 Anonymization preserves shape, so an anonymized cassette still passes
 `cassettes:check` — including a custom scalar, whose replacement is the same
 one [`FakeClient`](testing.md#fabricated-data--graphql-fake) would fabricate.
-A scalar registered as *your own* class needs a `fake:` at its registration
-for that; without one, anonymizing refuses rather than writing a value the
-codec can't read back.
+A scalar registered as *your own* class needs a pin for the type in
+`Testing.config.overrides` (`{ "Money" => "12.00" }` — [pins](testing.md#pins)),
+which the anonymizer reads too; without one, anonymizing refuses rather than
+writing a value the codec can't read back.
 
 ## Cassette or FakeClient?
 

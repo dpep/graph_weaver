@@ -138,8 +138,8 @@ describe GraphWeaver::Testing do
 
       describe "keyed by a scalar type" do
         let(:schema) do
-          GraphQL::Schema.from_definition("scalar Money type Query { reader: Reader } " \
-            "type Reader { orders: [Order!]! } type Order { total: Money! }")
+          GraphQL::Schema.from_definition("scalar Money type Query { person: Person } " \
+            "type Person { name: String! orders: [Order!]! } type Order { total: Money! }")
         end
 
         let(:money) do
@@ -157,17 +157,20 @@ describe GraphWeaver::Testing do
 
         after { GraphWeaver::Codegen.reset_scalars! }
 
-        def totals(pins)
+        def person(pins)
           GraphWeaver::Testing::FakeClient.new(pins, schema:, seed: 1, list_size: 2)
-            .execute("{ reader { orders { total } } }").dig("data", "reader", "orders").map { |order| order["total"] }
+            .execute("{ person { name orders { total } } }").dig("data", "person")
         end
 
         it "pins every field of that scalar, however deep" do
-          expect(totals("Money" => "12.00")).to eq %w[12.00 12.00]
+          expect(person("Money" => "12.00")["orders"]).to eq [{ "total" => "12.00" }, { "total" => "12.00" }]
         end
 
-        it "loses to a pin on the field" do
-          expect(totals("Money" => "12.00", "Order.total" => "999.00")).to eq %w[999.00 999.00]
+        # docs/testing.md's three pins, together: the field's beats the type's
+        it "runs alongside an object pin and a field pin" do
+          pinned = person("Money" => "12.00", "Person" => factory.build(:person, name: "Ada"), "Order.total" => "999.00")
+
+          expect(pinned).to eq("name" => "Ada", "orders" => [{ "total" => "999.00" }, { "total" => "999.00" }])
         end
       end
 

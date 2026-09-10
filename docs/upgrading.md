@@ -153,11 +153,12 @@ are emitted `private_constant`, so **regenerate**.
 - **A `#trace` assertion may see one entry fewer.** Two `@requires` field sets
   crossing into the same subgraph on the same `@key` now ride one entity fetch,
   the way Apollo's do.
-- **Fabricating a custom scalar needs a `fake:`** when you registered it as a
-  class of your own — `register_scalar("Money", Money, cast: :parse, fake:
-  "12.00")`. Without one, `FakeClient` and cassette anonymization refuse rather
-  than feeding your cast a `"Money-1"` placeholder. Scalars registered as
-  `Time`, `Date`, `Integer`, `Float`, `String` or `T::Boolean` need nothing.
+- **Fabricating a custom scalar registered as a class of your own needs a pin
+  for the type** — `Testing.config.overrides = { "Money" => "12.00" }`, or the
+  same key on one example's `graphql_fake`. Without one, `FakeClient` and
+  cassette anonymization refuse rather than feeding your cast a `"Money-1"`
+  placeholder. Scalars registered as `Time`, `Date`, `Integer`, `Float`,
+  `String` or `T::Boolean` need nothing.
 - **Re-run `rake graph_weaver:cassettes:anonymize`** on any committed cassette
   holding a registered custom scalar: the anonymizer used to write a value the
   generated codec couldn't read back.

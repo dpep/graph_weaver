@@ -107,15 +107,17 @@ Random data answers "does this render". When the example is *about* the data, pi
 the fields it's about and let the rest stay fabricated:
 
 ```ruby
-graphql_fake(overrides: { "Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}] })
+graphql_fake("Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}])
 
 person.name                 # => "Ada"
 person.pets.first.name      # => "Shelby"  — the second pet is still fabricated
 person.pets.size            # => 2         — a pinned list is as long as you write it
 ```
 
-Keys are schema coordinates, checked and spellchecked, so a typo raises instead of
-leaving the example green against random data. The tag also picks a *real* client
+Keys are schema names — a field, or a whole type: `"Person" => build(:person)`
+reads the selected fields off your factory's object and fabricates the rest. They
+are checked and spellchecked, so a typo raises instead of leaving the example
+green against random data. The tag also picks a *real* client
 when you want one: `:in_process` runs your resolvers, `:router` runs them across a
 federated graph. Field-level failure simulation and record/replay cassettes with
 anonymization are in [testing](docs/testing.md).

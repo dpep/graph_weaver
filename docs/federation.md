@@ -338,10 +338,9 @@ absent. Values come from the same engine as
 [`graphql: :fake`](testing.md#fabricated-data--graphql-fake), so `config.seed`,
 `config.overrides` and the rest apply.
 
-`fake:` says how they fabricate, and takes everything
-[a fake takes](testing.md#fabricated-data--graphql-fake) — `overrides:`,
-`list_size:`, `null_chance:`, `values:`. It goes on `Router.new` outside rspec,
-on `Testing.config.router` for the suite, and on `graphql_router` for the one
+`fake:` says how they fabricate — the [pins](testing.md#pins) and options a
+fake takes, in one hash. It goes on `Router.new` outside rspec, on
+`Testing.config.router` for the suite, and on `graphql_router` for the one
 example that cares:
 
 ```ruby
@@ -349,12 +348,12 @@ Testing.config.router = { subgraphs: { "shipping" => :fake },
                           fake: { list_size: 2 } }
 
 it "shows the carrier" do
-  graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" } })
+  graphql_router(fake: { "Shipment.carrier" => "UPS" })
   ...
 end
 ```
 
-One `fake:` covers every faked subgraph, because a coordinate-keyed override
+One `fake:` covers every faked subgraph, because a pin's key
 (`"Shipment.carrier"`) already says which type it means. And `graphql_router` is
 `graphql: :router` with somewhere to put arguments — the router itself is still
 built once for the suite, and the options last one example.

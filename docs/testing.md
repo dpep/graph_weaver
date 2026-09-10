@@ -104,7 +104,7 @@ GraphWeaver::Testing.configure do |config|
   # config.default_mode = :fake      # what an UNtagged example runs against
   #                                  # (graphql: false opts one back out)
   # config.seed = 4242               # defaults to rspec's own --seed
-  # config.overrides = { "Person.name" => "Daniel" }
+  # config.overrides = { "Money" => "12.00", "Person.name" => "Daniel" }
   # config.list_size = 1..3
 end
 ```
@@ -149,41 +149,49 @@ graphql_fake(values: :literal)
 GraphWeaver::Testing::FakeClient.new(values: :literal)
 ```
 
-A scalar you registered as **your own class** is the one value nothing here
-can invent — only `Money.parse` knows what it accepts — so say it once, where
-the rest of that scalar's knowledge already lives:
+### Pins
+
+**A pin says what the fake uses instead of inventing a value** — keyed by a
+scalar type, an object type, or a field; worth a wire value, an object the fake
+reads the selected fields off, or a proc handed the seeded `Random`:
 
 ```ruby
-GraphWeaver.register_scalar("Money", Money, fake: "12.00")
+graphql_fake("Money" => "12.00",            # every Money field, however deep
+             "Person" => build(:person),    # the selected fields, read off the object
+             "Order.total" => "999.00")     # this one field — and it beats the type's pin
 ```
 
-`fake:` is the **wire** value — what the server would send, before your `cast:`
-runs — and it also takes a proc, handed the seeded `Random`
-([scalars](scalars.md)). Without one, fabrication refuses at the path it got to
-(`at reader.orders.0.total`) and names the coordinate to override, rather than
-feeding your cast a `"Money-1"` placeholder that fails deep inside `from_h`
-blaming the codec. A scalar registered as `Time`, `Date`, `Integer`,
-`Float`, `String` or `T::Boolean` needs nothing: those the harness knows how to
-write.
+Keys are schema vocabulary, so they survive query refactors — a type name, or
+`"Type.field"` (a bare `"field"` pins it on every type) — and they are checked
+and spellchecked: `"Person.nmae"` raises rather than quietly pinning nothing
+and leaving the example green against random data.
 
-Pin what matters, keyed by GraphQL names (schema vocabulary — keys
-survive query refactors); `"Type.field"` beats `"field"`:
+An **object pin** is anything answering the field names — a FactoryBot build, a
+model, a `Struct`, an `OpenStruct`. For each selected field the fake calls the
+snake_cased reader, puts a Ruby value on the wire the way its
+[scalar registration](scalars.md) serializes it (a `Time` as its iso8601 string,
+a `T::Enum` as its value), recurses into nested objects and arrays of them, and
+**fabricates any field the object doesn't answer**. Readers are field names, not
+aliases; `__typename` comes from the key, so at a union or interface pin the
+concrete type (`"Person"`, never `"Named"`). One thing rspec's seed can't reach:
+a FactoryBot sequence advances on its own counter, so an object built from one
+isn't reproduced by `--seed`.
 
-```ruby
-GraphWeaver::Testing::FakeClient.new(schema:, overrides: {
-  "Person.name" => "Daniel",
-  "email" => -> { "test@example.com" },
-})
-```
+A **scalar type pin** is the one thing a scalar registered as *your own class*
+needs — only `Money.parse` knows what wire value it accepts — so without one
+fabrication refuses at the path it reached (`at reader.orders.0.total`) and
+names the pin to add, rather than feeding your cast a placeholder that fails
+deep inside `from_h`. A scalar registered as `Time`, `Date`, `Integer`,
+`Float`, `String` or `T::Boolean` needs nothing. Suite-wide, the same hash is
+`config.overrides`, and the [cassette anonymizer](cassettes.md) reads it too.
 
-Keys are checked against the schema, spellchecked — `"Person.nmae"` raises
-rather than quietly pinning nothing and leaving the example green against
-random data. Option names are checked the same way: a fake refuses one it
-doesn't take, lists the ones it does, and guesses at what you meant. That holds
-at all four doors — `FakeClient.new`, `graphql_fake`, `Router.new(fake:)` and
-`graphql_router(fake:)` — including the two that forward a hash, where a
-misspelling used to surface as a bare `unknown keyword` from inside the
-fabricator.
+Pins lead and options follow — `graphql_fake("Money" => "12.00", values:
+:literal)`. Options are lowercase words, so a key with a dot or a leading
+capital is a pin wherever it is written; `overrides:` takes the same hash by
+keyword, and the leading pins win where both name a key. A fake refuses an
+option it doesn't take, lists the ones it does, and guesses at what you meant —
+at every door: `FakeClient.new`, `graphql_fake`, `Router.new(fake:)` and
+`graphql_router(fake:)`.
 
 ### The example that's *about* the data
 
@@ -193,10 +201,8 @@ the example can say what it needs:
 
 ```ruby
 it "shows the two paid orders", graphql: :fake do
-  graphql_fake(overrides: {
-    "Reader.name" => "Ada",
-    "Reader.orders" => [{ "status" => "PAID" }, {}],
-  })
+  graphql_fake("Reader.name" => "Ada",
+               "Reader.orders" => [{ "status" => "PAID" }, {}])
 
   expect(DashboardQuery.execute!.reader.orders.size).to eq 2
 end
@@ -292,7 +298,7 @@ graphql_context(admin: true) { expect(SettingsQuery.execute!.settings).to be_pre
 Called with nothing it reads the context back. Under `graphql: :fake` it
 refuses: there are no resolvers to receive a context, and silently ignoring
 one would leave an example asserting on data nothing scoped. Pin the data
-itself instead — `graphql_fake(overrides: …)`, above.
+itself instead — `graphql_fake("Person.name" => "Ada")`, above.
 
 ## A federated graph — `graphql: :router`
 
@@ -316,10 +322,11 @@ context is reset from `config.context` every time.
 
 `graphql_router` is the tag with options, the way `graphql_fake` is — one
 option, `fake:`, saying how the subgraphs the router
-[fakes](federation.md#a-supergraph-only-partly-local) fabricate:
+[fakes](federation.md#a-supergraph-only-partly-local) fabricate: the pins and
+options `graphql_fake` takes, in one hash:
 
 ```ruby
-graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" }, list_size: 2 })
+graphql_router(fake: { "Shipment.carrier" => "UPS", list_size: 2 })
 ```
 
 What it plans, what it **refuses** and why, how subgraphs are matched to your

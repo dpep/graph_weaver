@@ -207,21 +207,29 @@
   from the initializer that caused it. Generation now refuses it where a query
   reads that scalar back, naming the field and how to give it a `cast:`.
   `docs/scalars.md` now tabulates what the wire carries in both directions.
-- **`register_scalar` takes a `fake:`, and fabrication refuses without one.**
+- **A fake takes pins, keyed by a scalar type, an object type, or a field.**
+  A pin says what the fake uses instead of inventing a value: a wire value,
+  an object it reads the selected fields off — a FactoryBot build, a model, a
+  `Struct`; a field the object doesn't answer is still fabricated, and a Ruby
+  value goes on the wire the way its scalar registration serializes it — or a
+  proc handed the seeded `Random`. Pins lead and options follow, in one call;
+  suite-wide, the same hash is `Testing.config.overrides`, and a router's
+  `fake:` takes it for the subgraphs it fakes.
+
+      graphql_fake("Money" => "12.00", "Person" => build(:person), "Order.total" => "999.00")
+
   A scalar registered as your own class — `register_scalar("Money", Money,
   cast: :parse)` — told codegen how to read the wire value but left the
   testing harness guessing what to write, so every fake response touching it
   died inside `from_h` blaming `Money.parse` for a `"Money-1"` placeholder.
-  `fake:` says it at the registration: a wire value, or a proc handed the
-  seeded `Random` so `--seed` still reproduces.
-
-      GraphWeaver.register_scalar("Money", Money, cast: :parse, fake: "12.00")
-
-  With no `fake:` and a Ruby type the harness can't write for, `FakeClient`
-  and cassette anonymization refuse, naming the scalar, the field, and both
-  fixes. Scalars registered as `Time`, `Date`, `Integer`, `Float`, `String` or
-  `T::Boolean` need nothing. Fakes also now honor a per-field
-  `register_scalar("User.birthday", Date)`, matching codegen's resolution.
+  The type pin is the answer, from every door including cassette
+  anonymization; without one, fabrication refuses, naming the scalar, the
+  field, and the pin to add. Scalars registered as `Time`, `Date`, `Integer`,
+  `Float`, `String` or `T::Boolean` need nothing. Fakes also now honor a
+  per-field `register_scalar("User.birthday", Date)`, matching codegen's
+  resolution. `graphql_fake` and `graphql_router(fake:)` refuse a per-example
+  `seed:` — `rspec --seed` is the mechanism, and `config.seed` the suite-wide
+  one for a harness that isn't rspec.
 - **`Testing.config.null_chance` and `Testing.config.mode` are gone; both
   are per-fake now.** A suite-wide answer to a per-example question nils an
   unrelated field one run in ten. **Move them:** `graphql_fake(null_chance:
