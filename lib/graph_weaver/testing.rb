@@ -229,24 +229,16 @@ module GraphWeaver
       end
 
       # resolve a cassette name ("github") against cassette_dir; paths
-      # with separators or extensions pass through
+      # with separators or extensions name the file themselves
       def cassette_path(name)
-        return name if name.include?("/") || name.end_with?(".yml", ".yaml")
+        return Internal::Util.resolve(name) if name.include?("/") || name.end_with?(".yml", ".yaml")
 
         File.join(cassette_dir, "#{name}.yml")
       end
 
-      # The configured directory, against Rails.root when there is one — a rake
-      # task runs from wherever it runs from; the cassettes don't move.
-      # const_get rather than a bare Rails: sorbet can't resolve a constant the
-      # gem doesn't depend on.
-      def cassette_dir
-        dir = config.cassette_dir
-        root = (Object.const_get(:Rails).root if Object.const_defined?(:Rails))
-        root ? File.join(root.to_s, dir) : dir
-      rescue NoMethodError
-        dir # something else named Rails
-      end
+      # The configured directory as a real path — a rake task or an rspec run
+      # starts from wherever it starts from; the cassettes don't move.
+      def cassette_dir = Internal::Util.resolve(config.cassette_dir)
     end
   end
 end

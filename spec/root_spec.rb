@@ -85,6 +85,12 @@ describe "GraphWeaver.root" do
       expect(defined?(RootProbeQuery)).to be_truthy
     end
 
+    it "finds the cassettes" do
+      expect(GraphWeaver::Testing.cassette_dir).to eq File.join(@app, "spec/cassettes")
+      expect(GraphWeaver::Testing.cassette_path("github"))
+        .to eq File.join(@app, "spec/cassettes/github.yml")
+    end
+
     it "leaves an absolute setting alone" do
       Dir.mktmpdir do |other|
         File.write(File.join(other, "schema.graphql"), Demo::Schema.to_definition)
