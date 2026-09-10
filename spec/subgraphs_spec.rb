@@ -86,23 +86,10 @@ describe GraphWeaver::Internal::Subgraphs do
   # the router derives the map itself; the task is for reading what detection
   # sees when it refuses, and for committing the map instead of deriving it
   describe "rake graph_weaver:federation:subgraphs" do
-    # Shared with every other spec file that exercises these tasks (see
-    # rake_tasks_spec's header comment on TASKS for why this must be a
-    # single process-wide load rather than one per file).
-    unless defined?(TASKS)
-      TASKS = Rake::Application.new
-      begin
-        previous, Rake.application = Rake.application, TASKS
-        require "graph_weaver/tasks"
-      ensure
-        Rake.application = previous
-      end
-    end
-
     def run_task(supergraph)
       original = Rake.application
-      Rake.application = TASKS
-      TASKS.tasks.each(&:reenable) # rake runs a task once per process otherwise
+      Rake.application = RakeHarness.application
+      RakeHarness.application.tasks.each(&:reenable) # rake runs a task once per process otherwise
       ENV["SUPERGRAPH"] = supergraph
 
       capture = StringIO.new

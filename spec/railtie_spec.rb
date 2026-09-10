@@ -39,25 +39,12 @@ describe "GraphWeaver::Railtie" do
   Rails.const_set(:Railtie, railtie_base)
   load File.expand_path("../lib/graph_weaver/railtie.rb", __dir__)
 
-  # Shared with every other spec file that exercises these tasks (see
-  # rake_tasks_spec's header comment on TASKS for why this must be a single
-  # process-wide load rather than one per file).
-  unless defined?(TASKS)
-    TASKS = Rake::Application.new
-    begin
-      previous, Rake.application = Rake.application, TASKS
-      require "graph_weaver/tasks"
-    ensure
-      Rake.application = previous
-    end
-  end
-
   # calling the captured block does `require "graph_weaver/tasks"` — already
   # required (once, above) by the time this runs, so it's a no-op here and
-  # the registration this proves happened is the one already in TASKS
+  # the registration this proves happened is the one already in RakeHarness.application
   it "registers the rake tasks with Rails when present" do
     original = Rake.application
-    Rake.application = TASKS
+    Rake.application = RakeHarness.application
 
     expect(RAILTIE_RAKE_TASKS.size).to eq 1
     RAILTIE_RAKE_TASKS.first.call
@@ -72,8 +59,8 @@ describe "GraphWeaver::Railtie" do
   # Rails app generating without its initializer's registrations.
   it "boots the app before generating, however late Rails defines :environment" do
     original = Rake.application
-    Rake.application = TASKS
-    TASKS.tasks.each(&:reenable) # rake runs a task once per process otherwise
+    Rake.application = RakeHarness.application
+    RakeHarness.application.tasks.each(&:reenable) # rake runs a task once per process otherwise
 
     expect(Rake::Task["graph_weaver:generate"].prerequisites).to eq %w[environment]
 
@@ -91,8 +78,8 @@ describe "GraphWeaver::Railtie" do
   # "checked 0 of 4 subgraphs" and exit 0 from a task sold as a CI gate.
   it "eager-loads the app before every federation task" do
     original = Rake.application
-    Rake.application = TASKS
-    TASKS.tasks.each(&:reenable)
+    Rake.application = RakeHarness.application
+    RakeHarness.application.tasks.each(&:reenable)
 
     %w[diff subgraphs coverage].each do |name|
       expect(Rake::Task["graph_weaver:federation:#{name}"].prerequisites).to eq(%w[loaded]), name

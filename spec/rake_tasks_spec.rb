@@ -12,17 +12,6 @@ require "graph_weaver/testing"
 # what status the shell sees. The suite can't boot a Rails app, but it can run
 # the tasks — and every task body here was reachable only by hand before.
 describe "graph_weaver rake tasks" do
-  # Loaded ONCE, into an application of its own. Other specs `load` tasks.rb
-  # per example, which resets Ruby's per-file coverage counters and leaves
-  # whichever example ran last as the only one measured.
-  TASKS = Rake::Application.new
-  begin
-    previous, Rake.application = Rake.application, TASKS
-    load "graph_weaver/tasks.rb"
-  ensure
-    Rake.application = previous
-  end
-
   Ran = Struct.new(:out, :err, :status)
 
   # A desc IS the claim that a task is for users — it is what `rake -T` shows —
@@ -34,7 +23,7 @@ describe "graph_weaver rake tasks" do
     prose = (Dir[File.expand_path("../docs/*.md", __dir__)] + [File.expand_path("../README.md", __dir__)])
       .map { |path| File.read(path) }.join
 
-    described = TASKS.tasks.select(&:comment).map(&:name)
+    described = RakeHarness.application.tasks.select(&:comment).map(&:name)
     expect(described.reject { |name| prose.include?(name) }).to be_empty
     expect(prose.scan(/rake (graph_weaver:[\w:]+)/).flatten.uniq - described).to be_empty
   end
@@ -43,20 +32,20 @@ describe "graph_weaver rake tasks" do
   # :environment, so before an initializer can move queries_paths. The only
   # path it can honestly name is the default.
   it "names the generate paths as defaults, not as the configured value" do
-    expect(TASKS["graph_weaver:generate"].comment)
+    expect(RakeHarness.application["graph_weaver:generate"].comment)
       .to match(%r{default app/graphql/queries -> app/graphql/generated})
   end
 
   # Runs the task the way rake would, and reports both streams plus the exit
   # status — `abort` raises SystemExit, which must not escape into the suite.
   def invoke(name, out: StringIO.new, err: StringIO.new, **env)
-    previous, Rake.application = Rake.application, TASKS
-    TASKS.tasks.each(&:reenable) # rake runs a task once per process otherwise
+    previous, Rake.application = Rake.application, RakeHarness.application
+    RakeHarness.application.tasks.each(&:reenable) # rake runs a task once per process otherwise
     env.each { |key, value| ENV[key.to_s] = value }
     status = 0
     begin
       $stdout, $stderr = out, err
-      TASKS["graph_weaver:#{name}"].invoke
+      RakeHarness.application["graph_weaver:#{name}"].invoke
     rescue SystemExit => e
       status = e.status
     ensure
@@ -71,14 +60,14 @@ describe "graph_weaver rake tasks" do
   # task can only ask for it when it runs. Defining it here reproduces that
   # ordering: tasks.rb was loaded above, long before this.
   def with_environment(boot)
-    previous, Rake.application = Rake.application, TASKS
+    previous, Rake.application = Rake.application, RakeHarness.application
     Rake::Task.define_task(:environment) { boot.call }
     Rake.application = previous
     yield
   ensure
     # Rake has no public task removal, and one left behind would boot the app
     # for every later example
-    TASKS.instance_variable_get(:@tasks).delete("environment")
+    RakeHarness.application.instance_variable_get(:@tasks).delete("environment")
   end
 
   around do |example|

@@ -169,26 +169,16 @@ end
 
 describe "rake graph_weaver:queries:check" do
   # Shared with every other spec file that exercises these tasks (see
-  # rake_tasks_spec's header comment on TASKS for why this must be a single
+  # rake_tasks_spec's header comment on RakeHarness.application for why this must be a single
   # process-wide load rather than one per file/context).
   require "rake"
-  unless defined?(TASKS)
-    TASKS = Rake::Application.new
-    begin
-      previous, Rake.application = Rake.application, TASKS
-      require "graph_weaver/tasks"
-    ensure
-      Rake.application = previous
-    end
-  end
-
   # rake refuses to run a task twice, and abort's SystemExit must not
   # escape into the suite — so run the task by hand and report both
   # streams plus the exit status the shell would see
   def run_task
     original = Rake.application
-    Rake.application = TASKS
-    TASKS.tasks.each(&:reenable) # rake runs a task once per process otherwise
+    Rake.application = RakeHarness.application
+    RakeHarness.application.tasks.each(&:reenable) # rake runs a task once per process otherwise
     out, err = StringIO.new, StringIO.new
     $stdout, $stderr = out, err
     status = 0

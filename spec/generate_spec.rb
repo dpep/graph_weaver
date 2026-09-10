@@ -347,19 +347,9 @@ end
 
 describe "GraphWeaver.verify_generated!" do
   # Shared with every other spec file that exercises these tasks (see
-  # rake_tasks_spec's header comment on TASKS for why this must be a single
+  # rake_tasks_spec's header comment on RakeHarness.application for why this must be a single
   # process-wide load rather than one per file).
   require "rake"
-  unless defined?(TASKS)
-    TASKS = Rake::Application.new
-    begin
-      previous, Rake.application = Rake.application, TASKS
-      require "graph_weaver/tasks"
-    ensure
-      Rake.application = previous
-    end
-  end
-
   let(:root) { File.expand_path("..", __dir__) }
 
   it "passes when generated files are current (our own fixtures)" do
@@ -452,7 +442,7 @@ describe "GraphWeaver.verify_generated!" do
 
   it "ships rake tasks for generate and verify" do
     original = Rake.application
-    Rake.application = TASKS
+    Rake.application = RakeHarness.application
 
     expect(Rake::Task.task_defined?("graph_weaver:generate")).to be true
     expect(Rake::Task.task_defined?("graph_weaver:verify")).to be true
