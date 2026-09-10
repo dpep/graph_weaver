@@ -15,7 +15,7 @@ step for CI. Runtime deps: `graphql` + `sorbet-runtime`, nothing else.
 
 ## State
 
-`0.6.1` tagged (`gem push` is the manual step). The `v0.6.0` CHANGELOG entry
+`0.6.1` on RubyGems. The `v0.6.0` CHANGELOG entry
 is the launch-hardening sweep: every entry marked **Regenerate** changed
 emitted code, and the upgrade guide's "Upgrading from 0.5.1" covers the rest.
 
