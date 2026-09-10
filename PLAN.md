@@ -15,9 +15,9 @@ step for CI. Runtime deps: `graphql` + `sorbet-runtime`, nothing else.
 
 ## State
 
-`0.6.0` tagged; `gem push` is the manual step. See
-`## Unreleased` in the CHANGELOG: every entry marked **Regenerate** changes
-emitted code, so the next release is at least a minor.
+`0.6.0` tagged (`gem push` is the manual step). The `v0.6.0` CHANGELOG entry
+is the launch-hardening sweep: every entry marked **Regenerate** changed
+emitted code, and the upgrade guide's "Upgrading from 0.5.1" covers the rest.
 
 Green gate is in `CLAUDE.md`; `make check` runs the core of it.
 
