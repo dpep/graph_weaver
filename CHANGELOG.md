@@ -11,18 +11,26 @@
   says which field (`cents: expected BigDecimal, got 5`) instead of sorbet's
   sentence, and the local federation router no longer logs variables
   unscrubbed.
-- **The gem's internal helpers moved under `GraphWeaver::Internal`, and the
-  public surface is locked by a spec.** A dozen names were public only
-  because a second file in the gem reached them with a qualified receiver —
-  `GraphWeaver.atomic_write`, `.did_you_mean`, `.module_name`, `.query_files`;
-  `Transport.operation_name`, `.mutation?`, `.log_tag`, `.truncate_for_log`;
-  `Testing::Subgraphs`. They now live under `GraphWeaver::Internal`, whose one
-  rule is that nothing in it is API; the `Transport` four hung off a class you
-  subclass. `spec/public_surface_spec.rb` diffs everything reachable from
+- **The public surface is what the docs name, what generated code calls, and
+  the `execute` slot — 421 names, down from about 700.** Everything else moved
+  under `GraphWeaver::Internal`, whose one rule is that nothing in it is API,
+  or went `private`. `spec/public_surface_spec.rb` diffs what's reachable from
   `GraphWeaver` against a checked-in list, so the next accidental promotion
-  fails CI instead of shipping. Generated modules also stop exposing their
-  plumbing: `DEFAULT_CLIENT`, `FIELDS` and `ONE_OF` are emitted as
-  `private_constant`. **Regenerate**; nothing you call changes.
+  fails CI instead of shipping. **Breaking** only for code reaching past the
+  documented door: the federation query planner and its IR are
+  `Internal::Planner`; the fake-value engine is `Internal::Values`; the
+  selection walk is `Internal::Selection` (so `FakeClient` no longer answers
+  to `each_field` or `gather`); the cassette matching rules are
+  `Internal::RequestKey`; `GraphWeaver.log`/`.instrument`/`.filter_variables`
+  are `Internal::Log` (`logger=`, `instrumenter=`, `filter_parameters=` are
+  unchanged); `Transport.operation_name`/`.mutation?`/`.log_tag` left the
+  class you subclass for `Internal::Wire`. `SchemaDiff::Change`,
+  `Cassette::Check`, `Coverage::Result` and `InputStruct::Field` are `Data`,
+  not `Struct`, so they no longer hand out writers. `Codegen::ScalarType` is
+  private from load rather than from the first `reset_scalars!` — the
+  `private_constant` had landed inside the method body. Generated modules also
+  stop exposing their plumbing: `DEFAULT_CLIENT`, `FIELDS` and `ONE_OF` are
+  emitted as `private_constant`. **Regenerate**; nothing you call changes.
 - **The retry options are flat.** `retries:` is how many attempts follow the
   first; every other `Retry` option now sits beside it on the client —
   `GraphWeaver.new(url, retries: 5, backoff: :linear, retry_codes:
