@@ -52,6 +52,23 @@ describe "filtered messages" do
 
       expect(io.string).not_to include("nope")
     end
+
+    # a scalar registered to a Ruby class with no coercer reaches sorbet's own
+    # prop check, whose message spells the value inside a sentence no filter
+    # can see into — so the prop, not the sentence, has to carry the report
+    it "hides a value only sorbet rejected, naming the prop" do
+      GraphWeaver.register_scalar("Metadata", Hash)
+      module_ = parse("query Pets($where: PetFilter) { findPets(where: $where) { name } }")
+
+      expect { module_.execute(where: { metadata: "brown" }) }
+        .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got "brown"/)
+
+      GraphWeaver.filter_parameters = [:metadata]
+      expect { module_.execute(where: { metadata: "brown" }) }
+        .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got \[FILTERED\]/)
+    ensure
+      GraphWeaver.reset_registrations!
+    end
   end
 
   it "hides a filtered @key value in a representation refusal" do

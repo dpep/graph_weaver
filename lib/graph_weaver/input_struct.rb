@@ -154,7 +154,35 @@ module GraphWeaver
         # a wrong-typed field, a missing required field, or an out-of-range
         # enum — surface one branded, structured error for a 422. (`::` so the
         # rescue catches Ruby's TypeError, not GraphWeaver::TypeError.)
-        raise GraphWeaver::InputError.new("invalid input for #{self}: #{e.message}", struct: self)
+        raise mistyped(supplied) ||
+          GraphWeaver::InputError.new("invalid input for #{self}: #{e.message}", struct: self)
+      end
+
+      private
+
+      # The prop whose value its own type refuses, reported the way every
+      # other input failure is. Only sorbet stands between a field with no
+      # coercer and the struct, and it names the prop and the value inside
+      # one free-text sentence — which reads as the library's own bug, and
+      # which no filter can see into.
+      def mistyped(supplied)
+        return unless supplied
+
+        T.unsafe(self).props.each do |prop, info|
+          value = supplied[prop]
+          # :type_object carries the nilable-ness the prop was declared with;
+          # :type is that unwrapped, which is the half worth naming — an
+          # absent optional field is nil and legal, and a missing required
+          # one was reported by name before we got here
+          next if T::Utils.coerce(info[:type_object]).valid?(value)
+
+          return GraphWeaver::InputError.new(
+            "#{prop}: expected #{T::Utils.coerce(info[:type])}, " \
+              "got #{GraphWeaver::Internal::Redact.detail(prop, value.inspect)}",
+            field: prop.to_s, struct: self,
+          )
+        end
+        nil
       end
     end
   end

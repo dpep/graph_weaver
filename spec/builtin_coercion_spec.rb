@@ -128,7 +128,7 @@ describe "built-in scalar coercion" do
   # A scalar registered as a Ruby type with no codec and no entry in Coerce's
   # table gets no coercer either, so the struct's own type is the only check
   # left — and sorbet's complaint is what reaches the app unless something
-  # brands it.
+  # brands it by prop, the way a coerced field is branded.
   it "brands a wrong-typed field no coercer covers" do
     GraphWeaver.register_scalar("Metadata", Hash)
     mod = GraphWeaver.parse(
@@ -137,7 +137,8 @@ describe "built-in scalar coercion" do
     )
 
     expect { mod::PetFilter.coerce({ metadata: "brown" }) }
-      .to raise_error(GraphWeaver::InputError, /invalid input for .*PetFilter/) { |error|
+      .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got "brown"/) { |error|
+        expect(error.field).to eq "metadata"
         expect(error.cause).to be_a ::TypeError
       }
   end
