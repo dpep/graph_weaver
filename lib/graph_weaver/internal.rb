@@ -98,9 +98,10 @@ module GraphWeaver
       end
     end
 
-    # What every client slot wants to know about a request before it goes
-    # out: what the document itself says, and how the log refers to it.
-    # Lived on Transport, which users subclass — the worst place for it.
+    # The GraphQL wire format, either direction: what a request document
+    # says about itself, how the log refers to it, and the shape a response
+    # carries an error in. Lived on Transport and Router, both of which
+    # users touch — the worst place for it.
     module Wire
       # The name of the document's FIRST operation, nil when anonymous. Only
       # the fallback for a raw query string handed straight to a transport —
@@ -127,6 +128,11 @@ module GraphWeaver
         def operation_name(query) = query[OPERATION_NAME_PATTERN, 1]
 
         def mutation?(query) = MUTATION_PATTERN.match?(query)
+
+        # one error in the shape a GraphQL response carries them
+        def graphql_error(message, code)
+          { "message" => message, "extensions" => { "code" => code } }
+        end
 
         # "[req 3 FilteredPokemon]" — a per-process request id plus the
         # operation name, when there is one
