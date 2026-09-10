@@ -12,4 +12,7 @@ GraphWeaver.generate!(
   schema: GraphWeaver.client.schema,
   queries: File.join(__dir__, "queries"),
   output: File.join(__dir__, "generated"),
-).each { |path| puts "wrote #{path}" }
+)
+changed = GraphWeaver.changed_files
+changed.each { |path| puts "wrote #{path}" }
+puts "already up to date" if changed.empty?
