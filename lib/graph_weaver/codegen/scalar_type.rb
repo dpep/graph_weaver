@@ -84,9 +84,7 @@ class GraphWeaver::Codegen
     # Codegen#refuse_uncastable! insists on).
     WIRE_CLASSES = [String, Integer, Float, Hash, Array, TrueClass, FalseClass].freeze
 
-    EMPTY = {}.freeze
-
-    private_constant :Codec, :CODECS, :COERCERS, :STDLIB, :EMPTY
+    private_constant :Codec, :CODECS, :COERCERS, :STDLIB
 
     attr_reader :graphql_name, :type, :requires
 
@@ -94,7 +92,7 @@ class GraphWeaver::Codegen
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
-      known = STDLIB.fetch(@type, EMPTY)
+      known = STDLIB[@type] || {}
       # requires: load BEFORE probing — the deserializer may arrive with the
       # file (core Time has no .parse until the "time" stdlib loads, and
       # Kernel#BigDecimal none until "bigdecimal" does). A path from STDLIB
@@ -194,10 +192,12 @@ class GraphWeaver::Codegen
       when Proc then serialize
       when Symbol then ->(expr) { "#{expr}.#{serialize}" }
       when Array
-        # a syntax error in the generated file otherwise
-        raise ArgumentError, "serialize: an Array is a method and its arguments, got #{serialize.inspect}" unless serialize.first.is_a?(Symbol)
-
         method, *args = serialize
+        unless method.is_a?(Symbol)
+          # a syntax error in the generated file otherwise
+          raise ArgumentError, "serialize: an Array is [method, *arguments], got #{serialize.inspect}"
+        end
+
         ->(expr) { "#{expr}.#{method}(#{args.map(&:inspect).join(", ")})" }
       else raise ArgumentError, "serialize: must be a Symbol, Array, Proc, :itself, or nil, got #{serialize.inspect}"
       end
