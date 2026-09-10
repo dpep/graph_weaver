@@ -101,21 +101,32 @@ class GraphWeaver::Testing::FakeClient
   #      expect(fake.requests.last[:variables]).to eq({ "id" => "1" })
   attr_reader :requests
 
-  def initialize(schema: nil, overrides: {}, seed: nil, values: nil, list_size: nil, null_chance: nil,
-    errors: nil, fail_at: nil, corrupt: nil)
+  # Everything a fake takes, with its default. This IS the signature — a
+  # keyword list can only refuse what reaches it, and two of the three doors
+  # onto a fake (graphql_fake, a router's fake:) forward a hash, so a
+  # misspelled key arrived as a bare "unknown keyword" from inside the
+  # fabricator, naming neither the accepted options nor the one you meant.
+  OPTIONS = {
+    schema: nil, overrides: {}, seed: nil, values: nil, list_size: nil,
+    null_chance: nil, errors: nil, fail_at: nil, corrupt: nil,
+  }.freeze
+  private_constant :OPTIONS
+
+  def initialize(**options)
+    options = check_options!(options)
     config = GraphWeaver::Testing.config
-    @schema = schema || config.schema || raise(GraphWeaver::Error,
+    @schema = options[:schema] || config.schema || raise(GraphWeaver::Error,
       "no schema to fake against — set GraphWeaver::Testing.config.schema, pass schema:, " \
       "or commit a schema dump at #{GraphWeaver.schema_path}")
-    @overrides = config.overrides.merge(overrides).transform_keys(&:to_s)
+    @overrides = config.overrides.merge(options[:overrides]).transform_keys(&:to_s)
     GraphWeaver::Internal::Overrides.validate!(@schema, @overrides)
-    @values = GraphWeaver::Internal::Values.new(seed:, values:)
-    @list_size = list_size || config.list_size
-    @null_chance = null_chance || 0.0
+    @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values])
+    @list_size = options[:list_size] || config.list_size
+    @null_chance = options[:null_chance] || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs
-    @extra_errors = wrap(errors).map { |error| normalize_error(error) }
-    @fail_at = wrap(fail_at).map { |spec| normalize_fail_spec(spec) }
-    @corrupt = wrap(corrupt)
+    @extra_errors = wrap(options[:errors]).map { |error| normalize_error(error) }
+    @fail_at = wrap(options[:fail_at]).map { |spec| normalize_fail_spec(spec) }
+    @corrupt = wrap(options[:corrupt])
     @requests = []
     @variables = nil # unknown until an execute says; see #object
   end
@@ -188,6 +199,18 @@ class GraphWeaver::Testing::FakeClient
     :gather_conditional, :applies?, :conditional?
 
   private
+
+  # A misspelled option pins nothing and leaves the example green — the same
+  # silent pass a typo'd override key is refused for.
+  def check_options!(options)
+    unknown = options.keys - OPTIONS.keys
+    return OPTIONS.merge(options) if unknown.empty?
+
+    suggestion = GraphWeaver::Internal::Util.did_you_mean(OPTIONS.keys.map(&:to_s), unknown.first.to_s)
+    hint = suggestion ? " — did you mean #{suggestion}:?" : "."
+    raise ArgumentError, "a fake doesn't take #{unknown.first}:#{hint} It takes " \
+      "#{OPTIONS.keys.map { |name| "#{name}:" }.join(", ")}"
+  end
 
   def rng = @values.rng
 

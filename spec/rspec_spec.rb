@@ -254,6 +254,13 @@ describe "graph_weaver/rspec" do
       expect(carrier).to eq "UPS"
     end
 
+    # the fake is reached through three doors and only one of them is a
+    # method signature, so the refusal has to be the fake's own
+    it "refuses an option a fake doesn't take" do
+      expect { graphql_router(fake: { overides: { "Shipment.carrier" => "UPS" } }) }
+        .to raise_error(ArgumentError, /overides:.*did you mean overrides:/m)
+    end
+
     it "takes suite-wide fake options from config.router" do
       GraphWeaver::Testing.config.router = GraphWeaver::Testing.config.router
         .merge(fake: { overrides: { "Shipment.carrier" => "DHL" } })

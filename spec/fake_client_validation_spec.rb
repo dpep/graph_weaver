@@ -39,6 +39,13 @@ describe GraphWeaver::Testing::FakeClient do
     expect(client.execute("{ me { name } }", variables: {}).dig("data", "me", "name")).to eq "Ada"
   end
 
+  # a misspelled option fabricates with the default and leaves the example
+  # green — the same silent pass a typo'd override key is refused for
+  it "refuses an option it doesn't take" do
+    expect { described_class.new(schema:, overides: { "User.name" => "Ada" }) }
+      .to raise_error(ArgumentError, /overides:.*did you mean overrides:.*null_chance:/m)
+  end
+
   it "still fabricates a valid query" do
     result = described_class.new(schema:).execute("query { me { name } }", variables: {})
 
