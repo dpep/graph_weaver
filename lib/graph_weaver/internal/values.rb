@@ -65,8 +65,14 @@ class GraphWeaver::Internal::Values
 
   attr_reader :rng
 
-  def initialize(seed: nil, values: nil)
+  # pins: what the fake uses instead of inventing a value, keyed by schema
+  # name. Only the scalar-type keys ("Money") are read here — a coordinate
+  # pin is resolved against the query, which is the fake's job. Left unsaid
+  # they are the suite's, so a scalar only the app can write for is
+  # fabricable from the cassette anonymizer too.
+  def initialize(seed: nil, values: nil, pins: nil)
     @rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
+    @pins = (pins || GraphWeaver::Testing.config.overrides).transform_keys(&:to_s)
     @style = resolve_style(values)
     @sequence = 0
     @id_map = {}
@@ -79,9 +85,9 @@ class GraphWeaver::Internal::Values
   # alone. at: where the walk is ("reader.orders.0.total"), for that refusal;
   # a walk that doesn't track one leaves it unsaid.
   def scalar(type_name, field_name, coordinate = nil, at: nil)
-    registered, shape = resolve(type_name, coordinate)
-    return registered.fake(rng) if registered.fake?
+    return GraphWeaver::Internal::Overrides.resolve(@pins[type_name], rng) if @pins.key?(type_name)
 
+    registered, shape = resolve(type_name, coordinate)
     prop = underscore(field_name)
 
     if @style == :faker
@@ -151,10 +157,10 @@ class GraphWeaver::Internal::Values
   # from_h blaming the codec.
   def unfakeable!(type_name, field_name, registered, coordinate, at)
     raise GraphWeaver::Error, "can't fabricate a #{type_name} #{at ? "at #{at}" : "for #{field_name.inspect}"}: " \
-      "it deserializes into #{registered.type}, and only the registration knows what wire value " \
-      "that accepts. Say it there — GraphWeaver.register_scalar(#{registered.graphql_name.inspect}, " \
-      "#{registered.type}, fake: -> { ... }) — or pin this one field: " \
-      "overrides: { #{(coordinate || field_name).inspect} => ... }"
+      "it deserializes into #{registered.type}, and only you know what wire value that accepts. " \
+      "Pin the type — overrides: { #{type_name.inspect} => ... } — or this one field: " \
+      "overrides: { #{(coordinate || field_name).inspect} => ... }. Suite-wide, that's " \
+      "GraphWeaver::Testing.config.overrides."
   end
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto

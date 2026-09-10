@@ -992,13 +992,13 @@ describe GraphWeaver::Testing::Router do
       end
 
       # Fabricated data is only useful when the example can say what it is.
-      # `fake:` is the same options graphql_fake takes, applied to every
-      # subgraph the router fakes.
+      # `fake:` is the pins and options graphql_fake takes, in one hash,
+      # applied to every subgraph the router fakes.
       it "fabricates with the options it was built with" do
         pinned = described_class.new(
           supergraph: RouterGraph::PARTIAL_SUPERGRAPH,
           subgraphs: { "shipping" => :fake },
-          fake: { overrides: { "Shipment.carrier" => "UPS" }, list_size: 2 },
+          fake: { "Shipment.carrier" => "UPS", list_size: 2 },
         )
 
         shipments = pinned.execute("{ shipments { carrier } }").dig("data", "shipments")

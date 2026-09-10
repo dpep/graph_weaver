@@ -137,11 +137,12 @@ describe GraphWeaver::Internal::Values do
 
       before { stub_const("Money", money) }
 
-      it "refuses, naming the field and both fixes" do
+      it "refuses, naming the field and both pins" do
         GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
 
         expect { values.scalar("Money", "price") }.to raise_error(GraphWeaver::Error) { |error|
-          expect(error.message).to include("Money", "price", "fake:", "overrides:")
+          expect(error.message).to include('overrides: { "Money" => ... }', 'overrides: { "price" => ... }',
+            "config.overrides")
         }
       end
 
@@ -154,21 +155,33 @@ describe GraphWeaver::Internal::Values do
           .to raise_error(GraphWeaver::Error, /at orders\.0\.price.*"Order\.price"/m)
       end
 
-      it "uses the fake: the registration supplies" do
-        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s, fake: "12.00")
+      it "takes the type's pin" do
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
+        pinned = described_class.new(seed: 3, values: :literal, pins: { "Money" => "12.00" })
 
-        expect(Money.parse(values.scalar("Money", "price")).amount).to eq 12.0
+        expect(Money.parse(pinned.scalar("Money", "price")).amount).to eq 12.0
       end
 
-      # a fake that varies has to vary off the seeded rng, or --seed stops
+      # the cassette anonymizer builds its Values with no pins of its own,
+      # so the suite's have to be the default
+      it "reads the suite's pins when handed none" do
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
+        GraphWeaver::Testing.config.overrides = { "Money" => "12.00" }
+
+        expect(described_class.new(seed: 3).scalar("Money", "price")).to eq "12.00"
+      ensure
+        GraphWeaver::Testing.reset!
+      end
+
+      # a pin that varies has to vary off the seeded rng, or --seed stops
       # reproducing the run
       it "hands a proc the seeded rng" do
-        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s,
-          fake: ->(rng) { format("%.2f", rng.rand(1.0..100.0)) })
+        GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
+        pins = { "Money" => ->(rng) { format("%.2f", rng.rand(1.0..100.0)) } }
+        pinned = described_class.new(seed: 3, values: :literal, pins:)
+        again = described_class.new(seed: 3, values: :literal, pins:)
 
-        drawn = Array.new(3) { values.scalar("Money", "price") }
-        again = described_class.new(seed: 3, values: :literal)
-
+        drawn = Array.new(3) { pinned.scalar("Money", "price") }
         expect(drawn.uniq.size).to eq 3
         expect(drawn).to eq Array.new(3) { again.scalar("Money", "price") }
       end

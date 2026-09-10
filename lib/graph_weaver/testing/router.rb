@@ -272,9 +272,9 @@ module GraphWeaver
         self
       end
 
-      # How faked subgraphs fabricate, for the example in hand: the options
-      # {FakeClient} takes (overrides:, list_size:, null_chance:, values:,
-      # seed:), merged onto the ones the router was built with. A router is
+      # How faked subgraphs fabricate, for the example in hand: the pins and
+      # options {FakeClient} takes, in one hash (`"Shipment.carrier" => "UPS",
+      # list_size: 2`), merged onto the ones the router was built with. A router is
       # built once for the suite, so this is how one example pins the data a
       # faked subgraph answers with; {#reset!} puts it back.
       def fake=(options)

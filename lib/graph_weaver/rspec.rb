@@ -140,14 +140,18 @@ module GraphWeaver
       # whether or not this example took a client from the hook
       module Helpers
         # The fake this example runs against, built here rather than by the
-        # tag — which is how it takes options. `graphql: :fake` is exactly
-        # this call with none:
+        # tag — which is how it takes pins and options. `graphql: :fake` is
+        # exactly this call with none:
         #
         #      it "shows the two paid orders" do
-        #        graphql_fake(overrides: { "Reader.name" => "Ada",
-        #                                  "Reader.orders" => [{ "status" => "PAID" }, {}] })
+        #        graphql_fake("Reader.name" => "Ada",
+        #                     "Reader.orders" => [{ "status" => "PAID" }, {}])
         #        expect(DashboardQuery.execute!.reader.orders.size).to eq 2
         #      end
+        #
+        # Pins lead, options follow: `graphql_fake("Money" => "12.00",
+        # values: :literal)`. Options are lowercase words, so a key with a
+        # dot or a leading capital is a pin wherever it is written.
         #
         # Returns the client, for the assertions that are about the request:
         #
@@ -157,10 +161,11 @@ module GraphWeaver
         #
         # Installed as GraphWeaver.client and restored after the example,
         # like a tagged one — so the tag is optional here, not required.
-        def graphql_fake(**options)
+        def graphql_fake(pins = {}, **options)
           claim_mode!(:fake)
+          refuse_seed!(options)
           options[:schema] ||= GraphWeaver::Testing.config.reference_schema!
-          GraphWeaver.client = GraphWeaver::Testing::FakeClient.new(**options)
+          GraphWeaver.client = GraphWeaver::Testing::FakeClient.new(pins, **options)
         end
 
         # Run this example against one schema class's real resolvers.
@@ -188,10 +193,11 @@ module GraphWeaver
 
         # Run this example against the whole federated graph. `graphql:
         # :router` is exactly this call with no argument; `fake:` is how the
-        # subgraphs it fakes fabricate, in the options graphql_fake takes:
+        # subgraphs it fakes fabricate — the pins and options graphql_fake
+        # takes, in one hash:
         #
         #      it "shows the carrier" do
-        #        graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" } })
+        #        graphql_router(fake: { "Shipment.carrier" => "UPS" })
         #        …
         #      end
         #
@@ -200,6 +206,7 @@ module GraphWeaver
         # tells it where this example starts.
         def graphql_router(fake: nil)
           claim_mode!(:router)
+          refuse_seed!(fake) if fake
           router = GraphWeaver::Testing::RSpecIntegration.client_for(:router)
           router.fake = fake if fake
           GraphWeaver.client = router
@@ -224,6 +231,17 @@ module GraphWeaver
           end
 
           @__graph_weaver_mode = mode
+        end
+
+        # rspec's own --seed already drives the fake (config.seed takes it
+        # at suite start), so a per-example seed: is a second answer to one
+        # question — and the one that stops `rspec --seed` reproducing the run.
+        private def refuse_seed!(options)
+          return unless options.to_h.key?(:seed) || options.to_h.key?("seed")
+
+          Kernel.raise GraphWeaver::Error, "seed: isn't a per-example option — `rspec --seed 1234` " \
+            "reproduces the fabricated data along with the test order. For a suite that isn't " \
+            "rspec, set GraphWeaver::Testing.config.seed."
         end
 
         # The GraphQL context this example's resolvers see — merged onto

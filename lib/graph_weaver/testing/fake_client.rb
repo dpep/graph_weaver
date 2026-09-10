@@ -21,31 +21,37 @@ require_relative "../parsing"
 # name), :literal (plain type-derived), or nil to use faker when the gem is
 # loaded. Per fake: which reads better is one example's question.
 #
-# overrides: pin fields by GraphQL name — schema vocabulary, so keys
-# survive query refactors. "Type.field" beats "field"; values are
-# literals or zero-arg procs. Keys are checked against the schema, since
-# a typo'd one would pin nothing and leave the test green. (An override
-# with a wrong-typed value is also the way to simulate a corrupt
-# payload — casting raises GraphWeaver::TypeError.)
+# pins: what the fake uses instead of inventing a value, keyed by GraphQL
+# name — schema vocabulary, so keys survive query refactors. A scalar type
+# ("Money"), an object type ("Person"), or a field ("Order.total", or a
+# bare field name on any type). The value is a wire value, an object the
+# fake reads the selected fields off — a FactoryBot build, a model, a
+# Struct — or a proc returning either, handed the seeded Random when it
+# takes one. Keys are checked against the schema, since a typo'd one would
+# pin nothing and leave the test green. (A pin with a wrong-typed value is
+# also the way to simulate a corrupt payload — casting raises
+# GraphWeaver::TypeError.)
 #
-#      FakeClient.new(schema:, overrides: {
-#        "Person.name" => "Daniel",
-#        "email" => -> { "test@example.com" },
-#      })
+#      FakeClient.new({ "Money" => "12.00", "Person" => build(:person),
+#                       "email" => -> { "test@example.com" } }, schema:)
 #
-# An override pins a whole subtree as readily as a leaf, and **merges**
-# rather than replaces: name the fields the test is about and the rest of
-# the selection is still fabricated. A list pins its own length, so "two
+# Options are lowercase words, so a key with a dot or a leading capital is
+# a pin wherever it is written — `overrides:` is the same hash by keyword,
+# and the leading one wins where both name a key.
+#
+# A pin covers a whole subtree as readily as a leaf, and **merges** rather
+# than replaces: name the fields the test is about and the rest of the
+# selection is still fabricated. A list pins its own length, so "two
 # orders, the first one paid" is the literal thing you write:
 #
-#      FakeClient.new(schema:, overrides: {
-#        "Reader.name" => "Ada",
-#        "Reader.orders" => [{ "status" => "PAID" }, {}],
-#      })
+#      FakeClient.new({ "Reader.name" => "Ada",
+#                       "Reader.orders" => [{ "status" => "PAID" }, {}] }, schema:)
 #
-# Keys inside a pinned subtree are response keys — what comes back on the
+# Keys inside a pinned Hash are response keys — what comes back on the
 # wire, aliases included — and one the query doesn't select is refused,
-# for the same reason a typo'd coordinate is.
+# for the same reason a typo'd coordinate is. An object pin is read the
+# other way round: the reader is the snake_cased field name, not the alias,
+# and a field it doesn't answer is fabricated.
 #
 # requests: every execute, in order ({ query:, variables:, operation_name: })
 # — "did we send the right variables", and "did we call it at all".
@@ -110,17 +116,40 @@ class GraphWeaver::Testing::FakeClient
     schema: nil, overrides: {}, seed: nil, values: nil, list_size: nil,
     null_chance: nil, errors: nil, fail_at: nil, corrupt: nil,
   }.freeze
-  private_constant :OPTIONS
 
-  def initialize(**options)
-    options = check_options!(options)
+  # One rule tells a pin from an option: options are lowercase words, and
+  # anything with a dot or a leading capital names something in the schema.
+  # Ruby 3 hands every braceless pair to **options — String keys included —
+  # so `FakeClient.new("Order.total" => "9", seed: 1)` arrives whole and is
+  # split here, as is a quoted symbol (`"Order.total":`) or a hash forwarded
+  # by a router's fake:.
+  PIN_KEY = /\A[A-Z]|\./
+
+  # JSON's own types are already on the wire: at a leaf they skip the
+  # registry's serializer, and at a composite position (a Hash aside, which
+  # is response keys) they pin the field as written — nil is null, the rest
+  # is the corrupt payload the example asked for.
+  WIRE = [NilClass, TrueClass, FalseClass, Numeric, String, Symbol, Array, Hash].freeze
+
+  # Methods every Ruby object answers aren't fields: a schema does have a
+  # `hash` or a `count`, and a Struct answers both with plausible nonsense
+  # where fabricating is right.
+  RUBY_OWN = [BasicObject, Kernel, Object, Comparable, Enumerable, Struct, Data].freeze
+  private_constant :OPTIONS, :PIN_KEY, :WIRE, :RUBY_OWN
+
+  def initialize(pins = {}, **options)
+    pins, options = check_options!(pins, options)
     config = GraphWeaver::Testing.config
     @schema = options[:schema] || config.schema || raise(GraphWeaver::Error,
       "no schema to fake against — set GraphWeaver::Testing.config.schema, pass schema:, " \
       "or commit a schema dump at #{GraphWeaver.schema_path}")
-    @overrides = config.overrides.merge(options[:overrides]).transform_keys(&:to_s)
+    # last wins, narrowest last: the suite's, then overrides:, then the pins
+    # this fake was handed outright
+    @overrides = [config.overrides, options[:overrides], pins]
+      .map { |hash| hash.transform_keys(&:to_s) }.reduce(:merge)
     GraphWeaver::Internal::Overrides.validate!(@schema, @overrides)
-    @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values])
+    @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values],
+      pins: @overrides)
     @list_size = options[:list_size] || config.list_size
     @null_chance = options[:null_chance] || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs
@@ -202,9 +231,14 @@ class GraphWeaver::Testing::FakeClient
 
   # A misspelled option pins nothing and leaves the example green — the same
   # silent pass a typo'd override key is refused for.
-  def check_options!(options)
+  def check_options!(pins, options)
+    options, keyed_pins = options.partition { |key, _| !PIN_KEY.match?(key.to_s) }.map(&:to_h)
+    # what was written as a leading hash wins: it is the one form that can
+    # only ever be a pin
+    pins = keyed_pins.merge(pins.to_h)
+
     unknown = options.keys - OPTIONS.keys
-    return OPTIONS.merge(options) if unknown.empty?
+    return [pins, OPTIONS.merge(options)] if unknown.empty?
 
     suggestion = GraphWeaver::Internal::Util.did_you_mean(OPTIONS.keys.map(&:to_s), unknown.first.to_s)
     hint = suggestion ? " — did you mean #{suggestion}:?" : "."
@@ -335,7 +369,7 @@ class GraphWeaver::Testing::FakeClient
   # fabricated, so pinning one nested field never means hand-writing the
   # subtree around it. A pinned list is exactly as long as it is written.
   def pinned_value(type, node, selections, value, source)
-    value = value.call if value.is_a?(Proc)
+    value = GraphWeaver::Internal::Overrides.resolve(value, rng)
 
     case type.kind.name
     when "NON_NULL" then pinned_value(type.of_type, node, selections, value, source)
@@ -350,12 +384,62 @@ class GraphWeaver::Testing::FakeClient
           @path.pop
         end
       end
-    when "OBJECT", "UNION", "INTERFACE"
-      return value unless value.is_a?(Hash)
-
-      object_value(pinned_type(type, value, source), selections, pins: value, source:)
+    when "OBJECT", "UNION", "INTERFACE" then pinned_object(type, selections, value, source)
     else
       value
+    end
+  end
+
+  # A pinned composite is a Hash of response keys, or an object the fake
+  # reads them off — a FactoryBot build, a model, a Struct. Either way it
+  # MERGES: what it doesn't answer is fabricated.
+  def pinned_object(type, selections, value, source)
+    return value if !value.is_a?(Hash) && wire?(value)
+
+    concrete = pinned_type(type, value, source)
+    pins = value.is_a?(Hash) ? value : read_fields(concrete, selections, value)
+    object_value(concrete, selections, pins:, source:)
+  end
+
+  # The response keys an object pin answers, read off it. The reader is the
+  # snake_cased FIELD name, not the alias — the object belongs to the domain,
+  # not to this query — and its Ruby values go through the scalar registry on
+  # the way to the wire.
+  def read_fields(type, selections, object)
+    gather(type, selections).each_with_object({}) do |(key, nodes), pins|
+      name = nodes.first.name
+      next if name == "__typename"
+
+      reader = GraphWeaver::Inflect.underscore(name)
+      next unless reader?(object, reader)
+
+      field_type = @schema.get_field(type.graphql_name, name).type
+      pins[key] = wire_value(field_type, object.public_send(reader),
+        "#{type.graphql_name}.#{name}")
+    end
+  end
+
+  # what the object itself answers — see RUBY_OWN
+  def reader?(object, name)
+    object.respond_to?(name) && !RUBY_OWN.include?(object.method(name).owner)
+  end
+
+  def wire?(value) = WIRE.any? { |klass| value.is_a?(klass) }
+
+  # An object pin holds Ruby values — a Time, a Money, a T::Enum — where the
+  # wire holds what the registration says they serialize to. A value that
+  # is already wire-shaped is taken as written.
+  def wire_value(type, value, coordinate)
+    case type.kind.name
+    when "NON_NULL" then wire_value(type.of_type, value, coordinate)
+    when "LIST"
+      value.is_a?(Array) ? value.map { |element| wire_value(type.of_type, element, coordinate) } : value
+    when "SCALAR"
+      return value if wire?(value)
+
+      GraphWeaver::Codegen.scalar(type.graphql_name, coordinate).serialize_value(value)
+    when "ENUM" then value.is_a?(T::Enum) ? value.serialize : value
+    else value # a composite: pinned_object reads it, one level down
     end
   end
 
@@ -364,16 +448,19 @@ class GraphWeaver::Testing::FakeClient
   # a shape the pinned keys don't fit, in whichever fraction of runs the
   # seed lands there.
   def pinned_type(type, value, source)
-    named = value["__typename"]
+    named = value["__typename"] if value.is_a?(Hash)
     return type if named == type.graphql_name
 
     members = (type.kind.name == "OBJECT") ? [type] : @schema.possible_types(type)
     if named.nil?
       return type if members.one?
 
+      # an object pin has no "__typename" to carry, so it says which by
+      # being keyed on the type it is
+      hint = value.is_a?(Hash) ? "name the one you mean with \"__typename\"" :
+        "pin it by type instead — { #{members.first.graphql_name.inspect} => ... }"
       raise GraphWeaver::Error, "override #{source.inspect} pins an object at #{location}, where " \
-        "the query can return #{members.map(&:graphql_name).sort.join(" or ")} — name the one you " \
-        "mean with \"__typename\"."
+        "the query can return #{members.map(&:graphql_name).sort.join(" or ")} — #{hint}."
     end
 
     found = members.find { |member| member.graphql_name == named }
@@ -468,17 +555,31 @@ class GraphWeaver::Testing::FakeClient
     end
   end
 
+  # A pin keyed by a concrete type name says what an object of that type is,
+  # wherever the query reaches one — at a union or interface, that is the
+  # member the walk landed on, so the pin never has to disambiguate.
+  def composite_value(type, selections)
+    name = type.graphql_name
+    return object_value(type, selections) unless @overrides.key?(name)
+
+    pinned_object(type, selections, GraphWeaver::Internal::Overrides.resolve(@overrides[name], rng), name)
+  end
+
+  # the scalar-type pin lives in Values, which the cassette anonymizer
+  # shares; the enum one has no second reader
   def core_value(type, node, selections, coordinate = nil)
     case type.kind.name
     when "SCALAR"
       @values.scalar(type.graphql_name, node.name, coordinate, at: location)
     when "ENUM"
+      return GraphWeaver::Internal::Overrides.resolve(@overrides[type.graphql_name], rng) if @overrides.key?(type.graphql_name)
+
       type.values.keys.sort.sample(random: rng)
     when "OBJECT"
-      object_value(type, selections)
+      composite_value(type, selections)
     when "UNION", "INTERFACE"
       member = @schema.possible_types(type).sort_by(&:graphql_name).sample(random: rng)
-      object_value(member, selections)
+      composite_value(member, selections)
     else
       raise NotImplementedError, "cannot fake kind: #{type.kind.name}"
     end

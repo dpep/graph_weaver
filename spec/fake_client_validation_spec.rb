@@ -86,15 +86,20 @@ describe GraphWeaver::Testing::FakeClient do
       def initialize(label) = @label = label
       attr_reader :label
     end)
-    GraphWeaver.register_scalar("Metadata", Tag, cast: :parse, serialize: :to_h,
-      fake: ->(rng) { { "label" => "tag-#{rng.rand(100)}" } })
+    GraphWeaver.register_scalar("Metadata", Tag, cast: :parse, serialize: :to_h)
     tagged = GraphWeaver.parse(schema: Demo::Schema, name: "Tagged",
       query: "query Tagged { people { pets { metadata } } }")
 
     modules = [PersonQuery, SearchQuery, FindPetsQuery, NamedQuery, AddPetMutation, AdoptMutation, tagged]
+    # and an object pin, read wherever the walk reaches a Person — under a
+    # list, a union, an interface — with its Ruby values put on the wire
+    pins = {
+      "Metadata" => ->(rng) { { "label" => "tag-#{rng.rand(100)}" } },
+      "Person" => Struct.new(:name, :birthday).new("Ada", Date.new(1990, 6, 15)),
+    }
 
     40.times do |seed|
-      fake = described_class.new(schema: Demo::Schema, seed:, null_chance: 0.3, list_size: 0..3)
+      fake = described_class.new(pins, schema: Demo::Schema, seed:, null_chance: 0.3, list_size: 0..3)
 
       modules.each do |mod|
         response = fake.execute(mod::QUERY, variables: {})

@@ -107,6 +107,49 @@ describe "graph_weaver/rspec" do
         expect(fake.requests.size).to eq 1
         expect(fake.requests.first[:query]).to include "drafts"
       end
+
+      # pins lead and options follow, in one call — Ruby 3 hands every
+      # braceless pair to **options, so the fake sorts them, not the parser
+      it "takes pins first and options after" do
+        graphql_fake("Draft.owner" => "ada", "Query.drafts" => [{}, {}], values: :literal)
+
+        drafts = DraftsDemo::QUERY.execute!.drafts
+        expect(drafts.map(&:owner)).to eq %w[ada ada]
+        expect(drafts.map(&:id)).to all(match(/\A\d+\z/))
+      end
+
+      it "reads a quoted-symbol key as a pin" do
+        graphql_fake("Draft.owner": "ada")
+
+        expect(DraftsDemo::QUERY.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+      end
+
+      # rspec's --seed already drives the fake; a second seed is the one
+      # that stops it reproducing the run
+      it "refuses a per-example seed, naming rspec's" do
+        expect { graphql_fake(seed: 1) }
+          .to raise_error(GraphWeaver::Error, /seed: isn't a per-example option.*rspec --seed 1234.*config\.seed/m)
+      end
+    end
+  end
+
+  # the README's example, as written there
+  describe "the README's pins", graphql: :fake do
+    around do |example|
+      app_client!(Demo::Schema)
+      example.run
+    end
+
+    it "runs" do
+      person_query = GraphWeaver.parse(schema: Demo::Schema, name: "ReadmePersonQuery",
+        query: "query Person($id: ID!) { person(id: $id) { name pets { name } } }")
+
+      graphql_fake("Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}])
+      person = person_query.execute!(id: "1").person
+
+      expect(person.name).to eq "Ada"
+      expect(person.pets.first.name).to eq "Shelby"
+      expect(person.pets.size).to eq 2
     end
   end
 
@@ -248,8 +291,13 @@ describe "graph_weaver/rspec" do
     def carrier = GraphWeaver.client.execute("{ shipments { carrier } }").dig("data", "shipments", 0, "carrier")
 
     it "pins a faked subgraph's data for this example" do
-      graphql_router(fake: { overrides: { "Shipment.carrier" => "UPS" } })
+      graphql_router(fake: { "Shipment.carrier" => "UPS" })
       expect(carrier).to eq "UPS"
+    end
+
+    it "refuses a per-example seed, naming rspec's" do
+      expect { graphql_router(fake: { seed: 1 }) }
+        .to raise_error(GraphWeaver::Error, /seed: isn't a per-example option.*rspec --seed 1234/m)
     end
 
     # the fake is reached through three doors and only one of them is a

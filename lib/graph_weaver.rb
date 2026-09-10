@@ -635,13 +635,11 @@ module GraphWeaver
     # no static loosening — see GraphWeaver::Coerce. Built-in scalars are
     # pre-registered the same way, so this also overrides them.
     #
-    # fake: is the wire value the testing harness fabricates for this scalar
-    # — a literal, or a proc handed the seeded Random so `rspec --seed` still
-    # reproduces. Needed only when type: is a class the harness can't invent
-    # a value for (your own Money, not Time/Integer/String), and it refuses
-    # at fabrication time rather than feeding your cast a placeholder:
-    #
-    #      GraphWeaver.register_scalar("Money", Money, fake: "12.00")
+    # A scalar registered as a class of your own is the one value the testing
+    # harness can't invent — only your `cast:` knows what it accepts — so it
+    # refuses rather than feed the cast a placeholder. Say it in test config,
+    # where the rest of that answer lives: `overrides: { "Money" => "12.00" }`
+    # (see docs/testing.md).
     #
     # Pass a `Type.field` coordinate instead of a scalar name to override just
     # that one field — so the same scalar can deserialize as different Ruby
@@ -651,8 +649,8 @@ module GraphWeaver
     #
     # A field-level override wins over the scalar-name registration. Same
     # signature either way. Call before generating.
-    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, fake: nil)
-      Codegen.register_scalar(graphql_name, type, cast:, serialize:, requires:, fake:)
+    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil)
+      Codegen.register_scalar(graphql_name, type, cast:, serialize:, requires:)
     end
 
     # Map a GraphQL enum onto an app-owned T::Enum, so generated code

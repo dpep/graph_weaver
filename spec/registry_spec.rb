@@ -53,10 +53,10 @@ describe "the registration registry" do
         .to raise_error(GraphWeaver::Error, /register_scalar\("Species"\) names an enum, not a scalar/)
     end
 
-    # the ArgumentError this would raise at fabrication time names no scalar
-    it "refuses a fake: proc it couldn't call" do
-      expect { GraphWeaver.register_scalar("Date", String, fake: ->(rng, extra) { [rng, extra] }) }
-        .to raise_error(ArgumentError, /fake: takes no arguments, or one/)
+    # fabrication is a test concern, said in test config — see the pin specs
+    it "takes no fake:" do
+      expect { GraphWeaver.register_scalar("Date", String, fake: "2020-01-01") }
+        .to raise_error(ArgumentError, /unknown keyword: :fake/)
     end
   end
 

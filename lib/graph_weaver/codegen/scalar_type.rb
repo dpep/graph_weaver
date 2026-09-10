@@ -34,15 +34,19 @@ class GraphWeaver::Codegen
   class ScalarType
     # Inferred (deserialize, serialize) codecs, tried in order; the first
     # whose probe the Ruby type defines as a class method wins, and its
-    # serialize is paired with it. Builders take (type_name, expr) => code.
-    Codec = Struct.new(:probe, :cast, :serialize)
+    # serialize is paired with it. Builders take (type_name, expr) => code;
+    # `call` is the same serialization run rather than emitted, for the
+    # testing harness (see #serialize_value).
+    Codec = Struct.new(:probe, :cast, :serialize, :call)
     CODECS = [
       Codec.new(:parse, # Type.parse(wire) <-> value.to_s
         ->(type, expr) { "#{type}.parse(#{expr})" },
-        ->(_type, expr) { "#{expr}.to_s" }),
+        ->(_type, expr) { "#{expr}.to_s" },
+        ->(_klass, value) { value.to_s }),
       Codec.new(:load, # Type.load(wire) <-> Type.dump(value)
         ->(type, expr) { "#{type}.load(#{expr})" },
-        ->(type, expr) { "#{type}.dump(#{expr})" }),
+        ->(type, expr) { "#{type}.dump(#{expr})" },
+        ->(klass, value) { klass.dump(value) }),
     ].freeze
 
     # A scalar with no `cast:` to run input through: its Ruby type is the
@@ -59,7 +63,7 @@ class GraphWeaver::Codegen
 
     attr_reader :graphql_name, :type, :requires
 
-    def initialize(graphql_name, type, cast: nil, serialize: nil, requires: nil, fake: nil)
+    def initialize(graphql_name, type, cast: nil, serialize: nil, requires: nil)
       @graphql_name = graphql_name.to_s
       @klass = type.is_a?(Module) ? type : nil
       @type = type_name(type)
@@ -70,8 +74,7 @@ class GraphWeaver::Codegen
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
       @cast = normalize_cast(cast, codec&.cast)
       @serialize = normalize_serialize(serialize, codec&.serialize)
-      @fake = fake
-      validate_fake!
+      @serialize_value = runtime_serialize(serialize, codec)
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -79,16 +82,15 @@ class GraphWeaver::Codegen
     def serialize(expr) = @serialize&.call(expr)
     def serialize? = !@serialize.nil?
     def coerce? = !coerce_input("v").nil?
-    def fake? = !@fake.nil?
 
-    # The wire value the testing harness fabricates for this scalar. Only the
-    # registration can know one: an app class's `cast` accepts whatever its
-    # author decided it accepts. A proc is handed the seeded Random, so a
-    # varying fake still reproduces under `rspec --seed`.
-    def fake(rng)
-      return @fake unless @fake.is_a?(Proc)
+    # #serialize run rather than emitted: the wire value for a Ruby one. The
+    # testing harness reads app objects — a Time, a Money — off an object pin
+    # and has to write what the server would. A `serialize:` proc builds code
+    # and can't be run, so its value passes through and the cast complains.
+    def serialize_value(value)
+      return value if value.nil? || @serialize_value.nil?
 
-      @fake.arity.zero? ? @fake.call : @fake.call(rng)
+      @serialize_value.call(value)
     end
 
     # The code that normalizes a loose input — a Rails param — into this
@@ -148,19 +150,20 @@ class GraphWeaver::Codegen
       end
     end
 
+    # The runnable half of normalize_serialize: a Symbol names a method
+    # (:itself included, which is identity either way), an inferred codec
+    # knows its own call, and a Proc emits code there is no way to run.
+    def runtime_serialize(serialize, codec)
+      case serialize
+      when Symbol then ->(value) { value.public_send(serialize) }
+      when nil then codec && ->(value) { codec.call.call(@klass, value) }
+      end
+    end
+
     # With only a type-name string we can't assume the lib is installed at
     # codegen time, so the paths aren't loaded — only shape-checked.
     def normalize_requires(requires)
       GraphWeaver::Codegen.normalize_requires!(requires, load: !@klass.nil?)
-    end
-
-    # A proc taking anything else can't be called at fabrication time, and
-    # the ArgumentError it would raise there names no scalar.
-    def validate_fake!
-      return unless @fake.is_a?(Proc) && @fake.arity > 1
-
-      raise ArgumentError, "fake: takes no arguments, or one — the seeded Random " \
-        "(fake: ->(rng) { ... }); #{@graphql_name}'s takes #{@fake.arity}"
     end
   end
 
@@ -193,9 +196,9 @@ class GraphWeaver::Codegen
     # the accepted cast:/serialize:/requires: forms. Later registrations
     # win, so an app can override a built-in (e.g. map Date onto its own
     # type).
-    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil, fake: nil)
+    def register_scalar(graphql_name, type, cast: nil, serialize: nil, requires: nil)
       scalar_registry[graphql_name.to_s] =
-        ScalarType.new(graphql_name, type, cast:, serialize:, requires:, fake:)
+        ScalarType.new(graphql_name, type, cast:, serialize:, requires:)
     end
 
     # The ScalarType in play for a scalar, most specific first: the

@@ -118,6 +118,176 @@ describe GraphWeaver::Testing do
       end
     end
 
+    # A pin says what the fake uses instead of inventing a value, keyed by a
+    # scalar type, an object type, or a field. The object form is what lets
+    # a FactoryBot build be the fixture: the selected fields are read off it
+    # and the rest is fabricated.
+    describe "pins" do
+      # what FactoryBot's looks like from here: a `build` that hands back
+      # an object answering the fields
+      let(:factory) do
+        Module.new do
+          def self.build(_name, **attributes) = Struct.new(*attributes.keys).new(*attributes.values)
+        end
+      end
+
+      def person(pins = {}, query: "query { person(id: 1) { name email birthday pets { name species } } }", **options)
+        client = GraphWeaver::Testing::FakeClient.new(pins, schema: Demo::Schema, seed: 1, **options)
+        GraphWeaver.parse(schema: Demo::Schema, name: "Pinned", query:).execute!(client:).person
+      end
+
+      describe "keyed by a scalar type" do
+        let(:schema) do
+          GraphQL::Schema.from_definition("scalar Money type Query { reader: Reader } " \
+            "type Reader { orders: [Order!]! } type Order { total: Money! }")
+        end
+
+        let(:money) do
+          Class.new do
+            def self.name = "Money"
+            def self.parse(wire) = new(wire)
+            def initialize(amount) = @amount = amount
+          end
+        end
+
+        before do
+          stub_const("Money", money) # the generated cast names it
+          GraphWeaver.register_scalar("Money", money, cast: :parse, serialize: :to_s)
+        end
+
+        after { GraphWeaver::Codegen.reset_scalars! }
+
+        def totals(pins)
+          GraphWeaver::Testing::FakeClient.new(pins, schema:, seed: 1, list_size: 2)
+            .execute("{ reader { orders { total } } }").dig("data", "reader", "orders").map { |order| order["total"] }
+        end
+
+        it "pins every field of that scalar, however deep" do
+          expect(totals("Money" => "12.00")).to eq %w[12.00 12.00]
+        end
+
+        it "loses to a pin on the field" do
+          expect(totals("Money" => "12.00", "Order.total" => "999.00")).to eq %w[999.00 999.00]
+        end
+      end
+
+      it "pins every value of an enum" do
+        expect(person("Species" => "CAT", list_size: 3).pets.map { |pet| pet.species.serialize }).to eq %w[CAT CAT CAT]
+      end
+
+      describe "keyed by an object type" do
+        it "reads the selected fields off the object and fabricates the rest" do
+          result = person("Person" => factory.build(:person, name: "Ada"))
+
+          expect(result.name).to eq "Ada"
+          expect(result.email).to be_a String
+          expect(result.pets).not_to be_empty
+        end
+
+        it "fabricates a field the object doesn't answer" do
+          require "ostruct"
+          result = person("Person" => OpenStruct.new(name: "Ada"))
+
+          expect(result.name).to eq "Ada"
+          expect(result.email).to match(/@/)
+        end
+
+        it "recurses into nested objects and arrays of them" do
+          pets = [factory.build(:pet, name: "Shelby", species: AddPetMutation::Species::Dog), factory.build(:pet, name: "Rex")]
+          result = person("Person" => factory.build(:person, name: "Ada", pets:))
+
+          expect(result.pets.map(&:name)).to eq %w[Shelby Rex]
+          expect(result.pets.first.species.serialize).to eq "DOG" # a T::Enum, put on the wire
+          expect(result.pets.last.species).to be_truthy # fabricated
+        end
+
+        # the object holds Ruby values where the wire holds what the
+        # registration serializes them to — resolved per field, as codegen does
+        it "serializes a Ruby value through the scalar registry" do
+          GraphWeaver.register_scalar("Person.email", Time, cast: :iso8601, serialize: :iso8601, requires: "time")
+          at = Time.utc(2024, 1, 2, 3, 4, 5)
+          result = person("Person" => factory.build(:person, email: at, birthday: Date.new(1990, 6, 15)))
+
+          expect(result.email).to eq at
+          expect(result.birthday).to eq Date.new(1990, 6, 15)
+        ensure
+          GraphWeaver::Codegen.reset_scalars!
+        end
+
+        it "takes a wire value the object already holds as written" do
+          expect(person("Person" => factory.build(:person, birthday: "1990-06-15")).birthday).to eq Date.new(1990, 6, 15)
+        end
+
+        # every Ruby object answers `hash`, and a Struct answers `count`
+        it "leaves a field only Ruby answers to be fabricated" do
+          schema = GraphQL::Schema.from_definition("type Query { order: Order } type Order { hash: String! count: Int! }")
+          order = GraphWeaver::Testing::FakeClient.new({ "Order" => Struct.new(:total).new(1) }, schema:, seed: 1)
+            .execute("{ order { hash count } }").dig("data", "order")
+
+          expect(order["hash"]).to be_a String
+          expect(order["count"]).to be_an Integer
+        end
+
+        it "is read wherever the walk reaches that type, a union member included" do
+          mod = GraphWeaver.parse(schema: Demo::Schema, name: "PinnedMembers",
+            query: 'query { search(term: "x") { __typename ... on Named { name } } }')
+          pinned = GraphWeaver::Testing::FakeClient.new({ "Person" => factory.build(:person, name: "Ada"),
+            "Pet" => factory.build(:pet, name: "Rex") }, schema: Demo::Schema, seed: 1, list_size: 6)
+
+          result = mod.execute!(client: pinned).search
+          expect(result.size).to eq 6
+          expect(result.map { |member| [member.__typename, member.name] })
+            .to all(eq(%w[Person Ada]).or(eq(%w[Pet Rex])))
+        end
+
+        it "reproduces a proc's object under the seed" do
+          pins = { "Person" => ->(rng) { factory.build(:person, name: "ada-#{rng.rand(1_000)}") } }
+
+          expect(person(pins).name).to eq person(pins).name
+        end
+
+        it "says to pin by type when a field pin's object lands at an abstract position" do
+          fake = GraphWeaver::Testing::FakeClient.new({ "Query.search" => [factory.build(:person, name: "Ada")] },
+            schema: Demo::Schema, seed: 1)
+
+          expect { fake.execute('query { search(term: "x") { ... on Named { name } } }') }
+            .to raise_error(GraphWeaver::Error, /pins an object at search\.0.*pin it by type instead — \{ "Person" => \.\.\. \}/m)
+        end
+      end
+
+      it "refuses a key on an abstract type, naming the members" do
+        expect { person("Named" => factory.build(:person, name: "Ada")) }
+          .to raise_error(GraphWeaver::Error, /"Named" names interface Named.*pin the concrete type — "Person", "Pet"/)
+      end
+
+      describe "how pins and options are told apart" do
+        it "merges the positional hash over overrides:, and both over the suite's" do
+          GraphWeaver::Testing.configure { |config| config.overrides = { "Person.email" => "suite@example.com", "Person.name" => "Suite" } }
+          result = person({ "Person.name" => "Positional" }, overrides: { "Person.name" => "Keyword", "Person.email" => "keyword@example.com" })
+
+          expect(result.name).to eq "Positional"
+          expect(result.email).to eq "keyword@example.com"
+        end
+
+        it "routes a quoted-symbol key to the pins" do
+          expect(GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, "Person.name": "Ada")
+            .execute("{ person(id: 1) { name } }").dig("data", "person", "name")).to eq "Ada"
+        end
+
+        it "tells an unknown option from an unknown pin" do
+          expect { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, overides: {}) }
+            .to raise_error(ArgumentError, /a fake doesn't take overides:.*did you mean overrides:/)
+          expect { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, Persn: "Ada") }
+            .to raise_error(GraphWeaver::Error, /override key "Persn" matches no type or field.*did you mean 'Person'/)
+        end
+
+        it "refuses a proc it couldn't call" do
+          expect { person("Person.name" => ->(rng, extra) { [rng, extra] }) }
+            .to raise_error(GraphWeaver::Error, /pin for "Person.name" takes no arguments, or one/)
+        end
+      end
+    end
+
     it "picks a union member from the pinned __typename" do
       mod = GraphWeaver.parse(schema: Demo::Schema, name: "PinnedUnion",
         query: 'query { search(term: "x") { __typename ... on Person { name } ... on Pet { species } } }')
@@ -155,7 +325,7 @@ describe GraphWeaver::Testing do
         expect { fake_with("Person.nmae" => "Daniel") }
           .to raise_error(GraphWeaver::Error, /"Person.nmae" is not a field of Person — did you mean 'name'\?/)
         expect { fake_with("nmae" => "Daniel") }
-          .to raise_error(GraphWeaver::Error, /matches no field in this schema — did you mean 'name'\?/)
+          .to raise_error(GraphWeaver::Error, /matches no type or field in this schema — did you mean 'name'\?/)
       end
 
       it "rejects a key whose type isn't in the schema" do
