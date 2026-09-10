@@ -140,7 +140,7 @@ so two products cost one fetch. Anything it can't answer *faithfully* it refuses
 at plan time rather than guessing — the example prints one of those too, naming
 the coordinate that stopped it and what to rename. And it's diffed against a real
 `@apollo/gateway` over the same supergraph:
-currently 72 queries identical, 2 refused, 0 wrong
+currently 73 queries identical, 2 refused, 0 wrong
 ([`spec/integration/router_parity_spec.rb`](spec/integration/router_parity_spec.rb)).
 See [federation](docs/federation.md).
 

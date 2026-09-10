@@ -104,6 +104,7 @@ describe "Testing::Router parity with a real Apollo gateway", :integration do
     "@skip on a fragment over an abstract type" => ['query($hide: Boolean!) { search(term: "all") { ... on Product @skip(if: $hide) { name } ... on Review { body } } }', { "hide" => true }],
     "an interface fragment inside the concrete type it covers" => ["{ topProducts(first: 1) { ... on Purchasable { name } reviews { body } } }", {}],
     "@skip inside an abstract branch" => ['query($hide: Boolean!) { search(term: "all") { ... on User { username reviews @skip(if: $hide) { body } } } }', { "hide" => true }],
+    "a named fragment below a boundary" => ['query { me { username reviews { author { ...ids } } } } fragment ids on User { id username }', {}],
   }.freeze
 
   # Probes where a subgraph *fails*. A stitched fetch can leave a null where
