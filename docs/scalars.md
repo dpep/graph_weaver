@@ -265,7 +265,8 @@ Input-object fields go through this table too, so `{first: "20"}` inside a
 filter hash reads the same as `first: "20"` as a kwarg.
 
 `GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
-scalars restored, enum mappings and type helpers dropped. To reset one registry
+scalars restored, enum mappings and type helpers dropped. `GraphWeaver.reset_graphs!`
+is its twin for graphs declared with `GraphWeaver.graph`. To reset one registry
 rather than all of them,
 `GraphWeaver::Codegen` has the pieces —
 `reset_scalars!` (restore the built-ins), `clear_scalars!` (empty the registry

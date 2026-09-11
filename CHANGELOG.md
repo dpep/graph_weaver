@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.7.0  (2026-09-11)
 - **A `cast:` or `serialize:` proc that returns a value is refused at
   registration.** A proc there builds *source* for the generated file, so
   `cast: ->(v) { v.to_sym }` interpolated to nothing and every response
