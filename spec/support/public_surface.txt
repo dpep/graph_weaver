@@ -28,6 +28,7 @@ GraphWeaver.queries_paths=
 GraphWeaver.register_enum
 GraphWeaver.register_scalar
 GraphWeaver.register_transport_error
+GraphWeaver.registry_for
 GraphWeaver.reload_generated!
 GraphWeaver.reset_graphs!
 GraphWeaver.reset_registrations!
@@ -146,7 +147,6 @@ GraphWeaver::Graph#named_schema?
 GraphWeaver::Graph#namespace
 GraphWeaver::Graph#output
 GraphWeaver::Graph#queries
-GraphWeaver::Graph#register!
 GraphWeaver::Graph#registry
 GraphWeaver::Graph#schema
 GraphWeaver::Graph#types_module

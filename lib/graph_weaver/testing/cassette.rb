@@ -281,7 +281,7 @@ module GraphWeaver
 
       def initialize(schema:, seed: nil, values: nil)
         @schema = schema
-        @values = Internal::Values.new(seed:, values:)
+        @values = Internal::Values.new(seed:, values:, schema:)
       end
 
       # The whole response, not just `data`: an error message routinely

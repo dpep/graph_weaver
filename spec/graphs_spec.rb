@@ -1,5 +1,6 @@
 # typed: ignore — exercises eval-defined constants
 require "bigdecimal"
+require "graph_weaver/testing"
 require "rake"
 require "stringio"
 require "tmpdir"
@@ -155,6 +156,22 @@ describe "GraphWeaver.graph" do
     expect(listed).to include("pets", "billing", "Pets", "Billing")
 
     expect(run_task("generate")).to match(/wrote.*pets.*\n(.*\n)*.*billing/)
+  end
+
+  # A fake fabricates a wire value from the scalar registrations — so with two
+  # graphs it has to use the ones the module it is answering was generated
+  # with, or it hands a generated cast a value that cast can't read.
+  it "fabricates a scalar the way the graph that owns the schema reads it" do
+    schema = GraphQL::Schema.from_definition(BILLING_SDL)
+    GraphWeaver.graph :billing, schema:, queries: File.join(@dir, "billing/queries"),
+      output: output(:billing), namespace: "Billing" do
+        register_scalar "Money", Date
+      end
+
+    fake = GraphWeaver::Testing::FakeClient.new(schema:)
+    total = fake.execute("query { invoice(id: 1) { total } }").dig("data", "invoice", "total")
+
+    expect { Date.iso8601(total) }.not_to raise_error
   end
 
   # the default graph is the settings, so an app that never calls .graph is

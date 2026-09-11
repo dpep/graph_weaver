@@ -71,7 +71,10 @@ class GraphWeaver::Internal::Values
   # pin is resolved against the query, which is the fake's job. Left unsaid
   # they are the suite's, so a scalar only the app can write for is
   # fabricable from the cassette anonymizer too.
-  def initialize(seed: nil, values: nil, pins: nil)
+  # schema: which server is being faked, so the scalar registrations consulted
+  # are the ones the graph that named that schema generated with.
+  def initialize(seed: nil, values: nil, pins: nil, schema: nil)
+    @registry = GraphWeaver.registry_for(schema)
     @rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
     @pins = (pins || GraphWeaver::Testing.config.overrides).transform_keys(&:to_s)
     @style = resolve_style(values)
@@ -134,7 +137,7 @@ class GraphWeaver::Internal::Values
   # per coordinate, where a field-level registration overrides it).
   def resolve(type_name, coordinate)
     @resolved[coordinate || type_name] ||= begin
-      registered = GraphWeaver::Codegen.scalar(type_name, coordinate)
+      registered = @registry.scalar(type_name, coordinate)
       [registered, shape_of(type_name, registered.type)]
     end
   end

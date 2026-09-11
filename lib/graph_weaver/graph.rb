@@ -15,7 +15,7 @@ module GraphWeaver
   class Graph
     # nil for the default graph — the one the settings describe, which has
     # nothing to be called because there is nothing to tell it apart from.
-    attr_reader :name, :registry
+    attr_reader :name
 
     # Each of these falls back to the matching top-level setting, so a graph
     # says only what differs. output is one directory (a graph writes to one
@@ -89,14 +89,17 @@ module GraphWeaver
       [namespace ? "#{namespace}::#{module_name}" : module_name, filename]
     end
 
-    # Run the registration block, once. Called at the top of a generation, when
-    # the app's own constants resolve.
-    def register!
-      return self unless @registrations
-
-      @registry.instance_exec(&@registrations)
-      @registrations = nil
-      self
+    # This graph's registrations, with its block applied. The block runs the
+    # first time anything asks — generation, or a fake deciding what a scalar
+    # looks like on the wire — rather than at declaration, so an autoloaded
+    # constant has resolved by then. Idempotent: it fills a registry built for
+    # it, once.
+    def registry
+      if @registrations
+        registrations, @registrations = @registrations, nil
+        @registry.instance_exec(&registrations)
+      end
+      @registry
     end
 
     # How a message names this graph: " in graph :billing", or nothing at all

@@ -149,7 +149,7 @@ class GraphWeaver::Testing::FakeClient
       .map { |hash| hash.transform_keys(&:to_s) }.reduce(:merge)
     GraphWeaver::Internal::Overrides.validate!(@schema, @overrides)
     @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values],
-      pins: @overrides)
+      pins: @overrides, schema: @schema)
     @list_size = options[:list_size] || config.list_size
     @null_chance = options[:null_chance] || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs
@@ -437,7 +437,7 @@ class GraphWeaver::Testing::FakeClient
     when "SCALAR"
       return value if wire?(value)
 
-      GraphWeaver::Codegen.scalar(type.graphql_name, coordinate).serialize_value(value)
+      GraphWeaver.registry_for(@schema).scalar(type.graphql_name, coordinate).serialize_value(value)
     when "ENUM" then value.is_a?(T::Enum) ? value.serialize : value
     else value # a composite: pinned_object reads it, one level down
     end
