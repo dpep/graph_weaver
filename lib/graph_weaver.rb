@@ -721,7 +721,7 @@ module GraphWeaver
         )
         # these land in the graph's output like any other file, so they collide
         # with another graph's the same way
-        types.each_key { |filename| refuse_duplicate_file!(seen, filename, graph, filename) }
+        types.each_key { |filename| refuse_duplicate_file!(seen, filename, graph, graph.types_module) }
         plan = types.to_a + plan
       end
 
@@ -739,16 +739,18 @@ module GraphWeaver
     # defines, so two graphs sharing an output directory still collide there.
     def refuse_duplicate!(seen, name, filename, graph, path)
       refuse_collision!(seen[:modules], name, graph, path, "query module #{name}",
-        "give one of the graphs a namespace:, or rename one of the files",
-        "the module name comes from the file name alone (directories don't namespace it), so rename one")
+        across: "give one of the graphs a namespace:, or rename one of the files",
+        within: "the module name comes from the file name alone (directories don't " \
+          "namespace it), so rename one")
       refuse_duplicate_file!(seen, filename, graph, path)
     end
     private :refuse_duplicate!
 
     def refuse_duplicate_file!(seen, filename, graph, path)
       target = File.join(Internal::Util.resolve(graph.output), filename)
-      refuse_collision!(seen[:files], target, graph, path, "generated file #{Internal::Util.relative(target)}",
-        "give one of the graphs its own output:", "rename one of the files")
+      refuse_collision!(seen[:files], target, graph, path,
+        "generated file #{Internal::Util.relative(target)}",
+        across: "give one of the graphs its own output:", within: "rename one of the files")
     end
     private :refuse_duplicate_file!
 
@@ -768,7 +770,9 @@ module GraphWeaver
     end
     private :refuse_duplicate_types!
 
-    def refuse_collision!(seen, key, graph, path, subject, across, within)
+    # `across` is the fix when the two are in different graphs, `within` when
+    # they are the same graph — two situations with two different answers.
+    def refuse_collision!(seen, key, graph, path, subject, across:, within:)
       earlier_graph, earlier = seen[key]
       seen[key] = [graph, path]
       return unless earlier
