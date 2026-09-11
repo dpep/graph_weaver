@@ -292,6 +292,21 @@ describe "GraphWeaver.graph" do
     expect(Dir[File.join(output(:pets), "**/*.rb")].to_h { |path| [path, File.read(path)] }).to eq before
   end
 
+  # "renaming or dropping a .graphql leaves nothing behind" — an empty types/
+  # directory is something behind
+  it "prunes a directory whose last generated file it removed" do
+    two_graphs
+    GraphWeaver.generate!
+    expect(Dir).to exist File.join(output(:pets), "types")
+
+    # the enum was the only thing being hoisted
+    write_query(:pets, "person", "query { person(id: 1) { name } }\n")
+    GraphWeaver.generate!
+
+    expect(Dir).not_to exist File.join(output(:pets), "types")
+    expect(Dir).to exist output(:pets)
+  end
+
   # the default graph is the settings, so an app that never calls .graph is
   # exactly where it was
   it "leaves an app with no declared graph alone" do

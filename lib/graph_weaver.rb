@@ -367,14 +367,28 @@ module GraphWeaver
         target
       end
 
-      orphaned(graph.output, written).each do |orphan|
+      pruned = orphaned(graph.output, written)
+      pruned.each do |orphan|
         File.delete(orphan)
         Internal::Log.log(:info) { "pruned #{Internal::Util.relative(orphan)}" }
       end
+      prune_empty!(graph, pruned)
 
       written.map { |target| Internal::Util.relative(target) }
     end
     private :write_plan!
+
+    # Pruning promises to leave nothing behind, and the types/ directory whose
+    # last file just went is something behind. One level deep is the whole of
+    # it: a generated file's name is its base name, so types/ is the only
+    # subdirectory generation makes.
+    def prune_empty!(graph, pruned)
+      output = Internal::Util.resolve(graph.output)
+      pruned.map { |orphan| File.dirname(orphan) }.uniq.each do |dir|
+        Dir.rmdir(dir) if dir != output && Dir.exist?(dir) && Dir.empty?(dir)
+      end
+    end
+    private :prune_empty!
 
     # Which of those files the last generate! actually wrote — the rest were
     # already byte-identical, so a run that changed one query touches one file

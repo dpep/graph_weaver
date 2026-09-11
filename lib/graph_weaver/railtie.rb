@@ -116,13 +116,15 @@ class GraphWeaver::Railtie < Rails::Railtie
   # one error per save, and the next save that compiles takes.
   def self.regenerate!
     GraphWeaver.generate!
-    GraphWeaver.reload_generated!
     changed = GraphWeaver.changed_files
+    # before reloading, not after: reloading logs a line of its own, and
+    # "loaded 4 generated module(s)" ahead of "regenerated ..." reads backwards
     GraphWeaver::Internal::Log.log(:info) do
       next "generated modules already up to date" if changed.empty?
 
       "regenerated #{changed.join(", ")}"
     end
+    GraphWeaver.reload_generated!
   rescue GraphWeaver::Error => e
     GraphWeaver::Internal::Log.log(:error) { "keeping the modules already loaded — #{e.message}" }
   end
