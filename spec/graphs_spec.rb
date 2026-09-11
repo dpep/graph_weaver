@@ -195,6 +195,19 @@ describe "GraphWeaver.graph" do
       .to raise_error(GraphWeaver::Error, /2 graphs.*graphql_fake\(schema:/m)
   end
 
+  # branding is read off the graph's own dump, so a graph that names a
+  # supergraph keeps it — knowing whose code to look at is half the answer, and
+  # it costs no network
+  it "names the subgraphs behind a validation error in a federated graph" do
+    FileUtils.mkdir_p(File.join(@dir, "fed"))
+    File.write(File.join(@dir, "fed/federated.graphql"), "{ product(upc: \"1\") { colour } }\n")
+    GraphWeaver.graph :storefront, schema: RouterGraph::SUPERGRAPH,
+      queries: File.join(@dir, "fed"), output: output(:fed), namespace: "Storefront"
+
+    errors = GraphWeaver.check_queries.fetch(File.join(@dir, "fed/federated.graphql"))
+    expect(errors.first["subgraphs"]).to eq %w[products reviews]
+  end
+
   # the default graph is the settings, so an app that never calls .graph is
   # exactly where it was
   it "leaves an app with no declared graph alone" do
