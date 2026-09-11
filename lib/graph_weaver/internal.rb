@@ -98,6 +98,18 @@ module GraphWeaver
           graph ? graph.registry : Codegen.registry
         end
 
+        # Where generated modules are READ from: the configured patterns, plus
+        # any graph writing somewhere they don't already cover. generated_paths'
+        # default glob (app/graphql/*/generated) covers the conventional layout,
+        # so listing a graph's output as well would name the same directory
+        # twice — in the log, and in the globbing.
+        def generated_dirs
+          extra = GraphWeaver.graphs.map(&:output).reject do |dir|
+            GraphWeaver.generated_paths.any? { |pattern| File.fnmatch?(resolve(pattern), resolve(dir)) }
+          end
+          GraphWeaver.generated_paths | extra
+        end
+
         # Every query document under these directories, sorted — the files
         # generate!, verify_generated!, check_queries and load_queries! read.
         def query_files(paths = GraphWeaver.queries_paths)
