@@ -208,6 +208,20 @@ describe "GraphWeaver.graph" do
     expect(errors.first["subgraphs"]).to eq %w[products reviews]
   end
 
+  # the report is keyed by file, and two graphs may legitimately share a
+  # queries directory — the same operations against two subgraphs — so the
+  # second graph's verdict must not replace the first's
+  it "keeps both graphs' errors when they share a queries directory" do
+    two_graphs
+    write_query(:pets, "broken", "query { person(id: 1) { nope } }\n")
+    GraphWeaver.graph :sibling, schema: Demo::Schema, queries: File.join(@dir, "pets/queries"),
+      output: output(:sibling), namespace: "Sibling"
+
+    errors = GraphWeaver.check_queries.fetch(File.join(@dir, "pets/queries/broken.graphql"))
+    expect(errors.size).to eq 1 # both graphs say the same thing, said once
+    expect(errors.first["message"]).to match(/nope/)
+  end
+
   # the default graph is the settings, so an app that never calls .graph is
   # exactly where it was
   it "leaves an app with no declared graph alone" do

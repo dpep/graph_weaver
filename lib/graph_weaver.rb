@@ -161,9 +161,9 @@ module GraphWeaver
     #      GraphWeaver.queries_paths = "app/graphql/operations"
     #      GraphWeaver.generated_paths << "spec/graphql/generated"
     #
-    # schema_path is the exception, and singular on purpose: one generate! run
-    # reads ONE schema, so a second dump in a list is a file nothing would ever
-    # read. A second schema is a second generate! (schema: names it).
+    # schema_path is the exception, and singular on purpose: these settings
+    # describe ONE graph, so a second dump in a list is a file nothing would
+    # ever read. A second schema is a second graph (see #graph).
     attr_writer :schema_path
 
     def queries_paths = @queries_paths ||= ["app/graphql/queries"]
@@ -443,7 +443,13 @@ module GraphWeaver
         table = checked_routing_table(graph)
         Internal::Util.query_files(graph.queries).each do |path|
           errors = validation_errors(checked, File.read(path), shared, table)
-          failures[Internal::Util.relative(path)] = errors if errors.any?
+          next if errors.empty?
+
+          # keyed by file, as it has always been — and two graphs may share a
+          # queries directory (the same operations against two subgraphs), so
+          # the second one's errors join the first's rather than replacing them
+          key = Internal::Util.relative(path)
+          failures[key] = failures.key?(key) ? failures[key] | errors : errors
         end
       end
     end
