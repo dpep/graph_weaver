@@ -33,10 +33,8 @@ module GraphWeaver
       # rather than now: an app declaring its graphs in one initializer and
       # registering a scalar in another shouldn't depend on which ran first.
       @registry = registry
-      # deferred: an app registers its own constants, and in Rails those don't
-      # resolve while config/initializers run (Codegen::AUTOLOAD_HINT). Running
-      # at generation time also keeps re-running it idempotent — the block only
-      # ever fills a registry that was built for it.
+      # deferred to #registry: an app registers its own constants, and in Rails
+      # those don't resolve while config/initializers run (Codegen::AUTOLOAD_HINT)
       @registrations = registrations
     end
 
