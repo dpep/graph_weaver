@@ -232,12 +232,12 @@ module GraphWeaver
     # app either has graphs or has settings, never a silent third thing.
     def graph(name, schema: nil, queries: nil, output: nil, client: nil,
       namespace: nil, types_module: nil, &registrations)
+      # no registry: — a declared graph copies the top-level registrations when
+      # it is first read. They apply to every graph, because federation composes
+      # by name and an app that registered Money before it had two schemas
+      # shouldn't lose it; the block adds this graph's own on top.
       (@graphs ||= []) << Graph.new(
-        name:, schema:, queries:, output:, client:, namespace:, types_module:,
-        # top-level registrations apply to every graph — federation composes by
-        # name, and an app that registered Money before it had two schemas
-        # shouldn't lose it. The block adds this graph's own on top.
-        registry: Codegen.registry.dup, &registrations
+        name:, schema:, queries:, output:, client:, namespace:, types_module:, &registrations
       )
       @graphs.last
     end

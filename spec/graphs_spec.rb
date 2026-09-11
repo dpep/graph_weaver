@@ -54,7 +54,7 @@ describe "GraphWeaver.graph" do
   # the two graphs the rest of the examples share: same file name in both, so
   # only the namespaces keep them apart
   def two_graphs(namespace: true)
-    write_query(:pets, "person", "query { person(id: 1) { pets { species } } }\n")
+    write_query(:pets, "person", "query { person(id: 1) { birthday pets { species } } }\n")
     write_query(:billing, "person", "query { invoice(id: 1) { id total } }\n")
 
     GraphWeaver.graph :pets,
@@ -172,6 +172,17 @@ describe "GraphWeaver.graph" do
     total = fake.execute("query { invoice(id: 1) { total } }").dig("data", "invoice", "total")
 
     expect { Date.iso8601(total) }.not_to raise_error
+  end
+
+  # graphs are declared in one initializer and scalars registered in another,
+  # so a graph that copied the top-level registrations when it was DECLARED
+  # would depend on which of the two ran first
+  it "takes the top-level registrations as they are when it generates" do
+    two_graphs
+    GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
+    GraphWeaver.generate!
+
+    expect(File.read(File.join(output(:pets), "person_query.rb"))).not_to include("Date.iso8601")
   end
 
   # the default graph is the settings, so an app that never calls .graph is

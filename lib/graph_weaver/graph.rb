@@ -29,7 +29,10 @@ module GraphWeaver
       @client = client
       @namespace = namespace
       @types_module = types_module
-      @registry = registry || GraphWeaver::Codegen::Registry.new
+      # nil means "a copy of the top-level registrations", taken on first read
+      # rather than now: an app declaring its graphs in one initializer and
+      # registering a scalar in another shouldn't depend on which ran first.
+      @registry = registry
       # deferred: an app registers its own constants, and in Rails those don't
       # resolve while config/initializers run (Codegen::AUTOLOAD_HINT). Running
       # at generation time also keeps re-running it idempotent — the block only
@@ -95,6 +98,7 @@ module GraphWeaver
     # constant has resolved by then. Idempotent: it fills a registry built for
     # it, once.
     def registry
+      @registry ||= GraphWeaver::Codegen.registry.dup
       if @registrations
         registrations, @registrations = @registrations, nil
         @registry.instance_exec(&registrations)
