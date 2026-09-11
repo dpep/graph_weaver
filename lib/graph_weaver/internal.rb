@@ -91,6 +91,25 @@ module GraphWeaver
           Array(paths).flat_map { |dir| Dir[File.join(resolve(dir), Codegen::DOCUMENT_GLOB)].sort }
         end
 
+        # Anywhere GraphWeaver takes schema:, a Client stands for its schema — so
+        # the console object and the rake task point at the same thing. A path
+        # (String or Pathname) or SDL loads like it does everywhere else in the
+        # library; without that it reached `schema.validate` as itself and failed
+        # as `undefined method 'validate' for an instance of String`.
+        def schema_for(source)
+          return source.schema if source.is_a?(Client)
+          return SchemaLoader.load(source) if source.is_a?(String) || source.respond_to?(:to_path)
+
+          source
+        end
+
+        # the conventional schema dump, required
+        def locate_schema!
+          SchemaLoader.locate or raise GraphWeaver::Error,
+            "no schema dump at #{GraphWeaver.schema_path} (.json/.graphql/.gql) — pass schema:, " \
+            "or cache one: GraphWeaver.new(url, cache: true).schema"
+        end
+
         # The graphql-ruby schema class the app default executes against,
         # when it runs in-process — a Client wrapping one, or the class in
         # the slot bare. nil for every network client. Not memoized: in dev

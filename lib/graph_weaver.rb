@@ -11,6 +11,7 @@ require_relative "graph_weaver/query_module"
 require_relative "graph_weaver/response"
 require_relative "graph_weaver/inflect"
 require_relative "graph_weaver/codegen"
+require_relative "graph_weaver/graph"
 require_relative "graph_weaver/client"
 require_relative "graph_weaver/in_process"
 require_relative "graph_weaver/transport/http"
@@ -203,6 +204,71 @@ module GraphWeaver
 
     def types_module = @types_module || "GraphQLTypes"
 
+    # Declare a second schema — and a third, and the rest. Each graph says
+    # where its queries live, where its Ruby goes, which client its modules
+    # call, and what its custom scalars and enums mean:
+    #
+    #      GraphWeaver.graph :billing,
+    #        schema:    Billing::Schema,
+    #        queries:   "app/graphql/billing/queries",
+    #        output:    "app/graphql/billing/generated",
+    #        client:    Billing::Schema,
+    #        namespace: "Billing" do
+    #          register_scalar "Money", BigDecimal
+    #        end
+    #
+    # Every entry point then walks the list: one `rake graph_weaver:generate`
+    # does the app, one `verify` gates it, `check_queries` checks each graph
+    # against its own schema.
+    #
+    # Each keyword falls back to the matching top-level setting, so a graph
+    # says only what differs; `namespace:` nests everything that graph
+    # generates (the query modules and its shared types module) so two schemas
+    # with a person.graphql don't fight over one constant. The block's
+    # registrations reach this graph alone, on top of the top-level ones —
+    # it runs at generation time, so an autoloaded constant resolves.
+    #
+    # Declaring any graph replaces the implicit one the settings describe: an
+    # app either has graphs or has settings, never a silent third thing.
+    def graph(name, schema: nil, queries: nil, output: nil, client: nil,
+      namespace: nil, types_module: nil, &registrations)
+      (@graphs ||= []) << Graph.new(
+        name:, schema:, queries:, output:, client:, namespace:, types_module:,
+        # top-level registrations apply to every graph — federation composes by
+        # name, and an app that registered Money before it had two schemas
+        # shouldn't lose it. The block adds this graph's own on top.
+        registry: Codegen.registry.dup, &registrations
+      )
+      @graphs.last
+    end
+
+    # Every graph an entry point walks: the declared ones, or the single graph
+    # the top-level settings describe. Never empty.
+    def graphs = @graphs&.dup || [default_graph]
+
+    # Forget every declared graph — back to the settings alone.
+    def reset_graphs!
+      @graphs = nil
+      self
+    end
+
+    # The graph the settings describe. Built fresh each time: the settings are
+    # writable, and it holds the default registry rather than a copy so a
+    # top-level register_scalar reaches it.
+    def default_graph = Graph.new(registry: Codegen.registry)
+    private :default_graph
+
+    # The graphs one generate!/verify run covers. Explicit arguments describe
+    # one graph inline — the call generate! has always taken — and otherwise
+    # it is every graph.
+    def graphs_for(**overrides)
+      overrides = overrides.compact
+      return graphs if overrides.empty?
+
+      [Graph.new(registry: Codegen.registry, **overrides)]
+    end
+    private :graphs_for
+
     # Generate every query in a directory — .graphql/.gql, subdirectories
     # included — into checked-in Ruby files. Paths default to the conventions
     # above; schema: defaults to the dump at schema_path (any supported
@@ -216,40 +282,43 @@ module GraphWeaver
     # (see #changed_files). Generated files the plan no longer produces are deleted
     # (see #orphaned), so renaming or dropping a .graphql leaves nothing
     # behind. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
-      types_module: nil)
-      schema = schema ? schema_for(schema) : locate_schema!
-
-      if Internal::Util.query_files(queries).empty?
-        # a brand-new app legitimately has none; a mistyped queries_paths looks
-        # exactly the same, and prints nothing either way
-        Internal::Log.log(:warn) { "no query documents under #{Array(queries).join(", ")} — nothing to generate" }
-      end
-
-      plan = generation_plan(queries:, schema:, client:, types_module:)
-      @unmatched_registrations = Codegen.unmatched_registrations(schema)
+    def generate!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
       @changed_files = []
-      written = plan.map do |filename, source|
-        target = File.join(Internal::Util.resolve(output), filename)
-        next target if current?(target, source)
+      @unmatched_registrations = []
+      seen = {} # module name => [graph, file], across every graph in the run
 
-        FileUtils.mkdir_p(File.dirname(target))
-        # a rake task beside a watching dev server writes the same file: a
-        # truncating write can leave a prefix that no longer parses, and it is
-        # the running app that requires it next
-        Internal::Util.atomic_write(target, source)
-        reported = Internal::Util.relative(target)
-        @changed_files << reported
-        Internal::Log.log(:info) { "generated #{reported}" }
-        target
+      graphs_for(schema:, queries:, output:, client:, types_module:).flat_map do |graph|
+        if Internal::Util.query_files(graph.queries).empty?
+          # a brand-new app legitimately has none; a mistyped queries_paths looks
+          # exactly the same, and prints nothing either way
+          Internal::Log.log(:warn) do
+            "no query documents under #{Array(graph.queries).join(", ")}#{graph.described} — nothing to generate"
+          end
+        end
+
+        plan = generation_plan(graph, seen)
+        written = plan.map do |filename, source|
+          target = File.join(Internal::Util.resolve(graph.output), filename)
+          next target if current?(target, source)
+
+          FileUtils.mkdir_p(File.dirname(target))
+          # a rake task beside a watching dev server writes the same file: a
+          # truncating write can leave a prefix that no longer parses, and it is
+          # the running app that requires it next
+          Internal::Util.atomic_write(target, source)
+          reported = Internal::Util.relative(target)
+          @changed_files << reported
+          Internal::Log.log(:info) { "generated #{reported}" }
+          target
+        end
+
+        orphaned(graph.output, written).each do |orphan|
+          File.delete(orphan)
+          Internal::Log.log(:info) { "pruned #{Internal::Util.relative(orphan)}" }
+        end
+
+        written.map { |target| Internal::Util.relative(target) }
       end
-
-      orphaned(output, written).each do |orphan|
-        File.delete(orphan)
-        Internal::Log.log(:info) { "pruned #{Internal::Util.relative(orphan)}" }
-      end
-
-      written.map { |target| Internal::Util.relative(target) }
     end
 
     # Which of those files the last generate! actually wrote — the rest were
@@ -286,28 +355,31 @@ module GraphWeaver
     #      it "generated queries are current" do
     #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema: nil, queries: queries_paths, output: generated_paths.first, client: nil,
-      types_module: nil)
-      if Internal::Util.query_files(queries).empty?
-        # green over nothing is worse than red: a CI gate stays passing
-        # forever because someone typed app/graphql/querys
-        raise Error, "no query documents under #{Array(queries).join(", ")} — this checked nothing, " \
-          "so it proved nothing (set GraphWeaver.queries_paths, or pass queries:)"
-      end
+    def verify_generated!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
+      @unmatched_registrations = []
+      seen = {}
 
-      schema = schema ? schema_for(schema) : locate_schema!
-      plan = generation_plan(queries:, schema:, client:, types_module:)
-      @unmatched_registrations = Codegen.unmatched_registrations(schema)
-      stale = plan.filter_map do |filename, source|
-        target = File.join(Internal::Util.resolve(output), filename)
-        target unless current?(target, source)
-      end
-      # strays: a generated file the current schema + queries no longer produce
-      stale += orphaned(output, plan.map { |filename, _| File.join(Internal::Util.resolve(output), filename) })
+      graphs_for(schema:, queries:, output:, client:, types_module:).each do |graph|
+        if Internal::Util.query_files(graph.queries).empty?
+          # green over nothing is worse than red: a CI gate stays passing
+          # forever because someone typed app/graphql/querys
+          raise Error, "no query documents under #{Array(graph.queries).join(", ")}#{graph.described} — " \
+            "this checked nothing, so it proved nothing (set GraphWeaver.queries_paths, or pass queries:)"
+        end
 
-      unless stale.empty?
-        raise Error, "stale generated queries — regenerate (rake graph_weaver:generate): " \
-          "#{stale.map { |path| Internal::Util.relative(path) }.join(", ")}"
+        plan = generation_plan(graph, seen)
+        resolved = ->(filename) { File.join(Internal::Util.resolve(graph.output), filename) }
+        stale = plan.filter_map do |filename, source|
+          target = resolved.call(filename)
+          target unless current?(target, source)
+        end
+        # strays: a generated file the current schema + queries no longer produce
+        stale += orphaned(graph.output, plan.map { |filename, _| resolved.call(filename) })
+
+        unless stale.empty?
+          raise Error, "stale generated queries#{graph.described} — regenerate (rake graph_weaver:generate): " \
+            "#{stale.map { |path| Internal::Util.relative(path) }.join(", ")}"
+        end
       end
 
       true
@@ -350,18 +422,25 @@ module GraphWeaver
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
     # graph_weaver:queries:check` prints this and exits non-zero.
-    def check_queries(schema: nil, queries: queries_paths, fragments: fragments_paths)
-      # subgraph branding comes from the local supergraph dump, so a caller
-      # supplying its own schema opts out of it
-      table = schema ? nil : checked_routing_table
-      schema = schema ? schema_for(schema) : refreshed_schema
+    def check_queries(schema: nil, queries: nil, fragments: fragments_paths)
       shared = Codegen.load_fragments(fragments)
 
-      Internal::Util.query_files(queries).each_with_object({}) do |path, failures|
-        errors = validation_errors(schema, File.read(path), shared, table)
-        failures[Internal::Util.relative(path)] = errors if errors.any?
+      graphs_for(schema:, queries:).each_with_object({}) do |graph, failures|
+        checked = checked_schema(graph)
+        table = checked_routing_table(graph)
+        Internal::Util.query_files(graph.queries).each do |path|
+          errors = validation_errors(checked, File.read(path), shared, table)
+          failures[Internal::Util.relative(path)] = errors if errors.any?
+        end
       end
     end
+
+    # What this graph is checked against. A graph that names its schema is
+    # checked against exactly that, so nothing touches the network; the default
+    # graph names none, so its dump is re-introspected first (see
+    # refreshed_schema).
+    def checked_schema(graph) = graph.named_schema? ? graph.schema : refreshed_schema
+    private :checked_schema
 
     # The routing table behind the schema check_queries is about to use,
     # when there is one: a composed supergraph dump says who resolves what,
@@ -369,10 +448,10 @@ module GraphWeaver
     # for every other source — a plain schema is entirely unaffected — and
     # nil when a live schema class is what gets checked, since the dump then
     # isn't what the errors came from.
-    def checked_routing_table
-      return if Internal::Util.live_schema
+    def checked_routing_table(graph)
+      return if graph.live_schema
 
-      path = SchemaLoader.locate_path
+      path = graph.dump_path
       return unless path&.end_with?(".graphql", ".gql")
 
       sdl = File.read(path)
@@ -392,8 +471,8 @@ module GraphWeaver
       live = Internal::Util.live_schema
       return live if live
 
-      # locate_schema! raises the conventional "no schema dump" message
-      path = SchemaLoader.locate_path or locate_schema!
+      # Internal::Util.locate_schema! raises the conventional "no schema dump" message
+      path = SchemaLoader.locate_path or Internal::Util.locate_schema!
       return SchemaLoader.load(path) unless SchemaLoader.provenance(path)&.key?("url")
 
       # source_transport rather than one built here: it reads the auth ENV var
@@ -460,7 +539,7 @@ module GraphWeaver
     # generated code only changes on regeneration anyway (restart, like
     # a schema migration).
     def load_generated!(path = nil)
-      paths = path ? [path] : generated_paths
+      paths = path ? [path] : (generated_paths | graphs.map(&:output))
       files = paths.flat_map { |dir| Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].sort }.uniq
       files.each do |file|
         require file
@@ -498,10 +577,15 @@ module GraphWeaver
     # whose query was just deleted keeps its old constant until restart —
     # nothing on disk says what it was called any more.
     def reload_generated!
-      names = Internal::Util.query_files.map { |path| Internal::Util.module_name(path, File.read(path)) } << types_module
+      names = graphs.flat_map do |graph|
+        modules = Internal::Util.query_files(graph.queries).map do |path|
+          graph.generated_names(path, File.read(path)).first
+        end
+        modules << graph.types_module
+      end
       names.each { |name| undefine(name) }
 
-      generated_paths.each do |dir|
+      (generated_paths | graphs.map(&:output)).each do |dir|
         Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].each do |file|
           # require stores the realpath; the path load_generated! passed is
           # the other one under a symlinked checkout
@@ -524,26 +608,6 @@ module GraphWeaver
     end
     private :undefine
 
-    # Anywhere GraphWeaver takes schema:, a Client stands for its schema — so
-    # the console object and the rake task point at the same thing. A path
-    # (String or Pathname) or SDL loads like it does everywhere else in the
-    # library; without that it reached `schema.validate` as itself and failed
-    # as `undefined method 'validate' for an instance of String`.
-    def schema_for(source)
-      return source.schema if source.is_a?(Client)
-      return SchemaLoader.load(source) if source.is_a?(String) || source.respond_to?(:to_path)
-
-      source
-    end
-    private :schema_for
-
-    # the conventional schema dump, required
-    def locate_schema!
-      SchemaLoader.locate or raise Error,
-        "no schema dump at #{schema_path} (.json/.graphql/.gql) — pass schema:, or cache one: GraphWeaver.new(url, cache: true).schema"
-    end
-    private :locate_schema!
-
     # (filename, source) per artifact. Types a schema shares across queries —
     # input types, schema enums, and each named shared fragment spread as a
     # whole-union field — are emitted once into the shared module, with query
@@ -551,32 +615,33 @@ module GraphWeaver
     # duplicated bool_exp structs (or one Ruby class per query for the same
     # schema enum) and one copy per schema. (Single-query parse inlines
     # everything — there's no cross-query set to share against.)
-    def generation_plan(queries:, schema:, client:, types_module: nil, fragments: fragments_paths)
-      types_module ||= self.types_module
+    # `seen` is the module names this run has already produced — shared across
+    # every graph, because constants are global and two graphs generating
+    # PersonQuery would silently overwrite each other at load.
+    def generation_plan(graph, seen = {}, fragments: fragments_paths)
+      graph.register!
+      schema = graph.schema
+      registry = graph.registry
+      @unmatched_registrations |= registry.unmatched_registrations(schema)
+
       used = { inputs: [], enums: [], mapped: [] }
       used_unions = []
       shared = Codegen.load_fragments(fragments)
 
-      seen = {} # module name => the file that produced it, for the collision message
-
-      plan = Internal::Util.query_files(queries).map do |path|
+      plan = Internal::Util.query_files(graph.queries).map do |path|
         source = File.read(path)
-        name, filename = Internal::Util.generated_names(path, source)
-        if (earlier = seen[name])
-          raise Error, "duplicate query module #{name} — #{Internal::Util.relative(earlier)} and " \
-            "#{Internal::Util.relative(path)} both generate it; " \
-            "the module name comes from the file name alone (directories don't namespace it), so rename one"
-        end
-        seen[name] = path
+        name, filename = graph.generated_names(path, source)
+        refuse_duplicate!(seen, name, graph, path)
 
         codegen = Codegen.new(
           schema:,
           query: Codegen.inline_fragments(source, shared, path),
           name:,
-          client:,
-          types_namespace: types_module,
+          client: graph.client,
+          types_namespace: graph.types_module,
           hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
           path:,
+          registry:,
         )
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
@@ -585,7 +650,7 @@ module GraphWeaver
       end
 
       if used_unions.any? || used.values.any?(&:any?)
-        codegen = Codegen.new(schema:, query: "", name: types_module)
+        codegen = Codegen.new(schema:, query: "", name: graph.types_module, registry:)
         plan = codegen.generate_types(
           inputs: used[:inputs], enums: used[:enums] + used[:mapped],
           unions: used_unions, fragments: shared,
@@ -595,6 +660,25 @@ module GraphWeaver
       plan
     end
     private :generation_plan
+
+    # Two files that generate one constant. Within a graph the fix is a rename,
+    # as it has always been; across two graphs it is `namespace:`, which is what
+    # that keyword is for — so the message names whichever one applies.
+    def refuse_duplicate!(seen, name, graph, path)
+      earlier_graph, earlier = seen[name]
+      seen[name] = [graph, path]
+      return unless earlier
+
+      fix = if earlier_graph.equal?(graph)
+        "the module name comes from the file name alone (directories don't namespace it), so rename one"
+      else
+        "give one of the graphs a namespace:, or rename one of the files"
+      end
+      raise Error, "duplicate query module #{name} — " \
+        "#{Internal::Util.relative(earlier)}#{earlier_graph.described} and " \
+        "#{Internal::Util.relative(path)}#{graph.described} both generate it; #{fix}"
+    end
+    private :refuse_duplicate!
 
     # Whether generated modules/structs emit `extend T::Sig` (so `sig`
     # resolves standalone). Default (nil) auto-detects: an app that globally
@@ -716,7 +800,7 @@ module GraphWeaver
     # the module's default client/transport.
     def parse(schema:, query:, name: nil, client: nil, fragments: fragments_paths)
       client ||= schema if schema.is_a?(Client)
-      schema = schema_for(schema)
+      schema = Internal::Util.schema_for(schema)
       # Rails.root.join(...) hands you a Pathname, and to_path is the
       # ecosystem's "I am a path" — the same conversion schema: gets through
       # SchemaLoader.load. Without it end_with? below is a NoMethodError.

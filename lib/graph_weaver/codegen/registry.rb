@@ -122,6 +122,17 @@ class GraphWeaver::Codegen
     end
 
     def initialize = register_builtin_scalars!
+
+    # A graph starts from the top-level registrations and adds its own, so the
+    # three tables are copied rather than shared — an app that registered Money
+    # before it had a second schema keeps it, and a graph block can't reach back.
+    def initialize_copy(other)
+      super
+      @scalar_registry = other.scalar_registry.dup
+      @enum_registry = other.enum_registry.dup
+      # the entry is a hash of mutable arrays, so each one is copied too
+      @type_registry = other.type_registry.transform_values { |e| e.transform_values(&:dup) }
+    end
   end
 
   # The default graph's registrations — where a top-level

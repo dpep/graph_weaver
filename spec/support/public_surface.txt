@@ -15,6 +15,8 @@ GraphWeaver.fragments_paths=
 GraphWeaver.generate!
 GraphWeaver.generated_paths
 GraphWeaver.generated_paths=
+GraphWeaver.graph
+GraphWeaver.graphs
 GraphWeaver.instrumenter
 GraphWeaver.instrumenter=
 GraphWeaver.load_generated!
@@ -27,6 +29,7 @@ GraphWeaver.register_enum
 GraphWeaver.register_scalar
 GraphWeaver.register_transport_error
 GraphWeaver.reload_generated!
+GraphWeaver.reset_graphs!
 GraphWeaver.reset_registrations!
 GraphWeaver.root
 GraphWeaver.root=
@@ -132,6 +135,21 @@ GraphWeaver::Federation::Drift#uncomposed
 GraphWeaver::Federation::Drift#vacuous?
 GraphWeaver::Federation::Drift::STALE = String
 GraphWeaver::Federation::Drift::UNCOMPOSED = String
+GraphWeaver::Graph (Class)
+GraphWeaver::Graph#client
+GraphWeaver::Graph#described
+GraphWeaver::Graph#dump_path
+GraphWeaver::Graph#generated_names
+GraphWeaver::Graph#live_schema
+GraphWeaver::Graph#name
+GraphWeaver::Graph#named_schema?
+GraphWeaver::Graph#namespace
+GraphWeaver::Graph#output
+GraphWeaver::Graph#queries
+GraphWeaver::Graph#register!
+GraphWeaver::Graph#registry
+GraphWeaver::Graph#schema
+GraphWeaver::Graph#types_module
 GraphWeaver::GraphQLError (Class)
 GraphWeaver::GraphQLError#code
 GraphWeaver::GraphQLError#extensions
