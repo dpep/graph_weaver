@@ -103,7 +103,11 @@ describe "GraphWeaver::Railtie" do
   # the generated directory is inside an autoload root, so eager loading (production)
   # raised until the loader was told to skip it.
   it "hides the generated directory from Zeitwerk, before it is set up" do
-    expect(RAILTIE_INITIALIZER_OPTIONS["graph_weaver.ignore_generated"]).to eq(before: :setup_main_autoloader)
+    # after the app's own initializers, because that is where it declares its
+    # graphs — an output: outside the conventional glob is otherwise eager
+    # loaded on top of load_generated!, and dies on a redefined enum
+    expect(RAILTIE_INITIALIZER_OPTIONS["graph_weaver.ignore_generated"])
+      .to eq(after: :load_config_initializers, before: :setup_main_autoloader)
 
     ignored = []
     loader = Object.new
@@ -115,6 +119,23 @@ describe "GraphWeaver::Railtie" do
     RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
 
     expect(ignored).to eq GraphWeaver.generated_paths.map { |path| "/app/#{path}" }
+  end
+
+  it "hides a graph's output when it lies outside the conventional glob" do
+    GraphWeaver.graph :odd, schema: Demo::Schema, output: "app/graphql/odd_output"
+
+    ignored = []
+    loader = Object.new
+    loader.define_singleton_method(:ignore) { |path| ignored << path }
+    stub_const("Rails", Module.new)
+    Rails.define_singleton_method(:autoloaders) { [loader] }
+    Rails.define_singleton_method(:root) { Pathname.new("/app") }
+
+    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+
+    expect(ignored).to include "/app/app/graphql/odd_output"
+  ensure
+    GraphWeaver.reset_graphs!
   end
 
   # The initializer only registers; the to_prepare block it hands back is what
@@ -146,6 +167,36 @@ describe "GraphWeaver::Railtie" do
     ensure
       GraphWeaver.generated_paths = nil
       Object.send(:remove_const, :RailtieBootProbe) if Object.const_defined?(:RailtieBootProbe)
+    end
+  end
+
+  # The dev-reload case for a namespaced graph. `namespace: "Accounts"` is
+  # normally a module Zeitwerk owns (app/graphql/accounts/ implies Accounts),
+  # so unloading it takes the generated module nested inside with it — and
+  # require, having read the file once, restores nothing. Every request then
+  # 500s on "uninitialized constant Accounts::PersonQuery" until a .graphql
+  # edit happens to trigger the watcher.
+  it "reloads rather than requires when a graph is namespaced" do
+    Dir.mktmpdir do |dir|
+      queries = File.join(dir, "queries")
+      FileUtils.mkdir_p(queries)
+      File.write(File.join(queries, "probe.graphql"), "query { person(id: 1) { name } }\n")
+      generated = File.join(dir, "generated")
+      GraphWeaver.graph :probe, schema: Demo::Schema, queries:, output: generated,
+        namespace: "RailtieNamespaceProbe"
+      GraphWeaver.generate!
+
+      register_generated_load.each(&:call)
+      expect(defined?(RailtieNamespaceProbe::ProbeQuery)).to eq "constant"
+
+      # what Zeitwerk does to the namespace it owns
+      Object.send(:remove_const, :RailtieNamespaceProbe)
+      register_generated_load.each(&:call)
+
+      expect(defined?(RailtieNamespaceProbe::ProbeQuery)).to eq "constant"
+    ensure
+      GraphWeaver.reset_graphs!
+      Object.send(:remove_const, :RailtieNamespaceProbe) if Object.const_defined?(:RailtieNamespaceProbe)
     end
   end
 

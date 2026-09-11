@@ -37,7 +37,14 @@ class GraphWeaver::Railtie < Rails::Railtie
   # inside an autoload root by default, so eager loading raised
   # "uninitialized constant Generated::PersonQuery" in production while
   # development (lazy) was fine. load_generated! below requires them.
-  initializer "graph_weaver.ignore_generated", before: :setup_main_autoloader do
+  #
+  # after: :load_config_initializers as well as before Zeitwerk's setup — a
+  # graph's output: is only known once the app has declared its graphs, and
+  # with only the `before:` constraint this ran ~20 initializers too early, so
+  # an output outside the conventional glob was eager loaded on top of
+  # load_generated! and died on a redefined enum.
+  initializer "graph_weaver.ignore_generated",
+    after: :load_config_initializers, before: :setup_main_autoloader do
     Rails.autoloaders.each do |loader|
       # patterns, not paths — generated_paths may be globs, and Zeitwerk
       # expands its own at setup (which is what this runs before)
@@ -145,7 +152,21 @@ class GraphWeaver::Railtie < Rails::Railtie
 
       # entries may be globs, so Dir[] rather than Dir.exist?
       generated = GraphWeaver.generated_dirs.any? { |dir| Dir[GraphWeaver::Internal::Util.resolve(dir)].any? }
-      GraphWeaver.load_generated! if generated
+      next unless generated
+
+      # `require` no-ops on a file it has already read — which is what we want,
+      # except when the constant that file defined is gone. A graph's
+      # `namespace:` is normally a module Zeitwerk owns (app/graphql/accounts/
+      # implies Accounts), and unloading it on a dev reload takes the generated
+      # module nested inside it with it; require then restores nothing and every
+      # request 500s on "uninitialized constant Accounts::PersonQuery" until a
+      # .graphql edit happens to trigger the watcher. An un-namespaced module
+      # defines a top-level constant Zeitwerk never manages, so it survives.
+      if GraphWeaver.graphs.any?(&:namespace)
+        GraphWeaver.reload_generated!
+      else
+        GraphWeaver.load_generated!
+      end
     end
   end
 end

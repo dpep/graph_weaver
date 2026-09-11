@@ -266,7 +266,7 @@ GraphWeaver.graph :billing,
   schema:    -> { Billing::Schema },
   queries:   "app/graphql/billing/queries",
   output:    "app/graphql/billing/generated",
-  client:    Billing::Schema,
+  client:    "Billing::Schema",
   namespace: "Billing" do
     register_scalar "Money", BigDecimal
   end
