@@ -264,12 +264,16 @@ the operation and the value — `$count of Compute: expected an Int, got "lots"`
 Input-object fields go through this table too, so `{first: "20"}` inside a
 filter hash reads the same as `first: "20"` as a kwarg.
 
-`GraphWeaver.reset_registrations!` is the clean slate between tests, or between
-generations for different schemas: built-in scalars restored, enum mappings and
-type helpers dropped. To reset one registry rather than all of them,
+`GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
+scalars restored, enum mappings and type helpers dropped. To reset one registry
+rather than all of them,
 `GraphWeaver::Codegen` has the pieces —
 `reset_scalars!` (restore the built-ins), `clear_scalars!` (empty the registry
 entirely), `reset_enums!`, `reset_type_helpers!`.
+
+Scoping registrations to one of several schemas is not what this is for — a
+[graph](getting_started.md#more-than-one-schema) block does that, and holds both
+sets at once instead of resetting between them.
 
 A scalar you never register is not an error — it generates as `T.untyped` and
 the wire value passes through untouched. It is, though, the one hole in an
