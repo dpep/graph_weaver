@@ -32,6 +32,8 @@ require_relative "codegen/scalar_type"
 require_relative "codegen/nodes"
 require_relative "codegen/aliases"
 require_relative "codegen/emit"
+# after the three files that fill Registrations in — it gives them a home
+require_relative "codegen/registry"
 
 class GraphWeaver::Codegen
   include GraphWeaver::Inflect
@@ -73,9 +75,13 @@ class GraphWeaver::Codegen
   # shared module (see used_union_names). path: is the file the query was read
   # from, named alongside line and column in validation errors.
   def initialize(schema:, query:, name: nil, client: nil, default_name: nil,
-    types_namespace: nil, hoistable_unions: nil, path: nil, module_name: nil)
+    types_namespace: nil, hoistable_unions: nil, path: nil, module_name: nil,
+    registry: GraphWeaver::Codegen.registry)
     renamed!(module_name)
     @schema = schema
+    # the registrations this generation reads — one graph's, or the default
+    # graph's, which is what every top-level register_scalar writes to
+    @registry = registry
     @query = query.strip
     # only ever quoted in a message, so it is stored the way it is reported
     @path = path && GraphWeaver::Internal::Util.relative(path)
@@ -146,16 +152,6 @@ class GraphWeaver::Codegen
     # generated source — set them via the module's writer instead
     mod.client = client if client && client_const.nil?
     mod
-  end
-
-  # Every registry back to its starting state — scalars (built-ins restored),
-  # enum mappings, and type helpers. The clean slate between tests, and the
-  # one call that stays right when a fourth kind of registration shows up.
-  def self.reset_registrations!
-    reset_scalars!
-    reset_enums!
-    reset_type_helpers!
-    self
   end
 
   # The schema-level types this walk touched, by GraphQL name — the generate!
@@ -528,96 +524,6 @@ class GraphWeaver::Codegen
       "{ |v1| #{inner} }"
   end
 
-  # What a registry's names must be in the schema. extend_type decorates
-  # whatever composite a query reaches, so it demands no particular kind.
-  REGISTERED_KIND = { "scalar" => "SCALAR", "enum" => "ENUM" }.freeze
-  # the type registry is reached via extend_type; scalars/enums via register_*
-  REGISTRATION_METHOD = { "type" => "extend_type", "scalar" => "register_scalar", "enum" => "register_enum" }.freeze
-  private_constant :REGISTERED_KIND, :REGISTRATION_METHOD
-
-  # Every registration this schema can't match, one sentence each. The answer
-  # depends on the schema and the registry alone, not on any one document, so
-  # a whole generate! run gets the same list — which is what lets the build
-  # report it once (see GraphWeaver.unmatched_registrations).
-  #
-  # The built-in scalars are pre-registered entries in the same table rather
-  # than user intent, so they're exempt — a schema with no Date scalar is not
-  # a mistake.
-  def self.unmatched_registrations(schema)
-    {
-      "enum" => enum_registry,
-      "scalar" => scalar_registry.except(*BUILTIN_SCALARS),
-      "type" => type_registry,
-    }.flat_map do |kind, registry|
-      registry.keys.filter_map { |name| validate_registration!(schema, kind, name) }
-    end
-  end
-
-  # One registry serves the whole graph, but a generation sees one schema — so
-  # a registration fails generation only where THIS schema can disprove it: a
-  # name it declares as something else, or a coordinate whose field it declares
-  # as a composite. A name it can't match at all proves nothing, because an
-  # entity type is declared by every subgraph that references it while its
-  # fields are split among them; that returns the sentence to say instead.
-  def self.validate_registration!(schema, kind, name)
-    method = REGISTRATION_METHOD.fetch(kind)
-    # register_scalar("Type.field", ...) overrides one field's scalar — validate
-    # the field, not that a type named "Type.field" exists.
-    return validate_scalar_field!(schema, name, method) if kind == "scalar" && name.include?(".")
-
-    type = schema.get_type(name)
-    return unmatched(schema, method, name, kind, GraphWeaver::Internal::Util.did_you_mean(schema.types.keys, name)) unless type
-
-    expected = REGISTERED_KIND[kind]
-    return if expected.nil? || type.kind.name == expected
-
-    found = type.kind.name.downcase.tr("_", " ")
-    # a leaf registered as the other kind has a method that would have worked
-    other = REGISTERED_KIND.key(type.kind.name)
-    raise GraphWeaver::Error,
-      "#{method}(#{name.inspect}) names #{article(found)} #{found}, not #{article(kind)} " \
-      "#{kind}#{other ? " — use #{REGISTRATION_METHOD.fetch(other)}" : ""}"
-  end
-  private_class_method :validate_registration!
-
-  # A per-field override, register_scalar("Type.field", ...). Neither an absent
-  # type nor an absent field is disprovable here; what is, is a field this
-  # schema declares as something a scalar codec could never read.
-  def self.validate_scalar_field!(schema, name, method)
-    type_name, field_name = name.split(".", 2)
-    type = schema.get_type(type_name)
-    unless type
-      near = GraphWeaver::Internal::Util.did_you_mean(schema.types.keys, type_name)
-      return unmatched(schema, method, name, "scalar field", near && "#{near}.#{field_name}")
-    end
-
-    fields = type.respond_to?(:fields) ? type.fields : {}
-    field = fields[field_name]
-    unless field
-      near = GraphWeaver::Internal::Util.did_you_mean(fields.keys, field_name)
-      return unmatched(schema, method, name, "scalar field", near && "#{type_name}.#{near}")
-    end
-    return if field.type.unwrap.kind.name == "SCALAR"
-
-    raise GraphWeaver::Error,
-      "#{method}(#{name.inspect}): #{name} isn't a scalar field (it's #{field.type.unwrap.kind.name.downcase})"
-  end
-  private_class_method :validate_scalar_field!
-
-  # What to say about a name this schema has nothing for. Registrations are
-  # graph-scoped — federation composes by name, so one `Money` codec serves
-  # every subgraph that declares it — which is exactly why this schema can't
-  # tell a typo from a registration for the subgraph next door. Say both.
-  def self.unmatched(schema, method, name, what, suggestion)
-    hint = suggestion ? " (did you mean '#{suggestion}'?)" : ""
-    "#{method}(#{name.inspect}) matches no #{what} in #{schema.name || "this schema"} " \
-      "— a typo#{hint}, or a registration for another schema"
-  end
-  private_class_method :unmatched
-
-  def self.article(word) = word.downcase.start_with?(/[aeiou]/) ? "an" : "a"
-  private_class_method :article
-
   # Parse every fragment file under `paths` into one { name => FragmentDefinition }
   # map — reusable fragments a query can spread. Fragment files hold only
   # fragments (no operations); names are unique across them.
@@ -725,7 +631,7 @@ class GraphWeaver::Codegen
   # The build channel prints the same list once per run; see
   # GraphWeaver.unmatched_registrations.
   def validate_registrations!
-    self.class.unmatched_registrations(@schema).each { |message| GraphWeaver::Internal::Log.log(:warn) { message } }
+    @registry.unmatched_registrations(@schema).each { |message| GraphWeaver::Internal::Log.log(:warn) { message } }
   end
 
   # The @include/@skip a fragment carries applies to what it guards, so it has
@@ -1255,7 +1161,7 @@ class GraphWeaver::Codegen
 
   # Registered helper-module names for a GraphQL type, collecting their requires.
   def type_mixins(graphql_name)
-    entry = GraphWeaver::Codegen.type_registry[graphql_name]
+    entry = @registry.type_registry[graphql_name]
     return [] unless entry
 
     @requires.concat(entry[:requires])
@@ -1265,7 +1171,7 @@ class GraphWeaver::Codegen
   # The MappedEnum node for a schema enum with a registered app-enum
   # mapping; nil when unregistered, falling back to a generated T::Enum.
   def mapped_enum_node(core)
-    enum_type = GraphWeaver::Codegen.enum_registry[core.graphql_name]
+    enum_type = @registry.enum_registry[core.graphql_name]
     return unless enum_type
 
     @requires.concat(enum_type.requires)
@@ -1277,9 +1183,9 @@ class GraphWeaver::Codegen
   # Resolution, most specific first: a per-field override (`Type.field`), then
   # the scalar-name registration.
   def scalar_node(name, coordinate = nil, result: false)
-    registry = GraphWeaver::Codegen.scalar_registry
-    @untyped_scalars << name.to_s unless (coordinate && registry[coordinate]) || registry[name.to_s]
-    scalar = GraphWeaver::Codegen.scalar(name, coordinate)
+    scalars = @registry.scalar_registry
+    @untyped_scalars << name.to_s unless (coordinate && scalars[coordinate]) || scalars[name.to_s]
+    scalar = @registry.scalar(name, coordinate)
     refuse_uncastable!(scalar, coordinate || name) if result
     @requires.concat(scalar.requires)
     Scalar.new(scalar)

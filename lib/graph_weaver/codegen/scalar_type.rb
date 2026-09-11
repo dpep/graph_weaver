@@ -238,7 +238,10 @@ class GraphWeaver::Codegen
         end
       end
     end
+  end
 
+  # The scalar half of one graph's registrations — see Codegen::Registry.
+  class Registry
     # Register (or override) how a GraphQL custom scalar deserializes into
     # a Ruby object and serializes back onto the wire. See ScalarType for
     # the accepted cast:/serialize:/requires: forms. Later registrations
@@ -321,11 +324,4 @@ class GraphWeaver::Codegen
   # codegen's own record of a registration; users get one back from
   # `.scalar` but never name the class
   private_constant :ScalarType
-
-  register_builtin_scalars!
-
-  # Pre-registered rather than user intent, so generation doesn't hold a schema
-  # to them (validate_registration! skips these). Read off the registry the line
-  # above just filled: a seventh built-in shouldn't have to be named twice.
-  BUILTIN_SCALARS = scalar_registry.keys.freeze
 end

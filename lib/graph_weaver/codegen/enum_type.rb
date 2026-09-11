@@ -78,7 +78,8 @@ class GraphWeaver::Codegen
     end
   end
 
-  class << self
+  # The enum half of one graph's registrations — see Codegen::Registry.
+  class Registry
     # Map a GraphQL enum onto an app-owned T::Enum (see EnumType). The one
     # implementation — GraphWeaver.register_enum is a delegate, so the same
     # call reaches it whichever door you came in by.

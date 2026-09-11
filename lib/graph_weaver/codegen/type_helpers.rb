@@ -11,7 +11,8 @@
 # path is resolved against an actual selection).
 
 class GraphWeaver::Codegen
-  class << self
+  # The extend_type half of one graph's registrations — see Codegen::Registry.
+  class Registry
     # Attach app-owned helper modules to every struct generated from a
     # GraphQL type — the logic stays in your code, generation wires it in:
     #

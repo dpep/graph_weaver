@@ -72,7 +72,7 @@ class GraphWeaver::Codegen
 
     # Registered aliases for a GraphQL type (see extend_type alias:).
     def type_aliases(graphql_name)
-      GraphWeaver::Codegen.type_registry[graphql_name]&.dig(:aliases) || {}
+      @registry.type_registry[graphql_name]&.dig(:aliases) || {}
     end
 
     # The CLASS methods a generated struct defines; STRUCT_METHODS covers the
