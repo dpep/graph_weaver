@@ -263,7 +263,7 @@ An app with a second schema declares it:
 ```ruby
 # config/initializers/graph_weaver.rb
 GraphWeaver.graph :billing,
-  schema:    Billing::Schema,
+  schema:    -> { Billing::Schema },
   queries:   "app/graphql/billing/queries",
   output:    "app/graphql/billing/generated",
   client:    Billing::Schema,
@@ -283,6 +283,18 @@ One `rake graph_weaver:generate` does the app, one `rake graph_weaver:verify`
 gates it, and `rake graph_weaver:graphs` lists what is configured. Each keyword
 falls back to the matching top-level setting, so a graph says only what differs.
 
+**In Rails, declare graphs in the initializer itself, and name an autoloaded
+schema class with a lambda** — `schema: -> { Billing::Schema }` — as above.
+Zeitwerk is set up *after* `config/initializers` run, so a bare
+`Billing::Schema` there raises `uninitialized constant`; the lambda is resolved
+when generation asks, and resolved again after a dev reload has replaced the
+class object. (`client:` takes the constant's *name* as a string for the same
+reason — `client: "Billing::Schema"` — since it is baked into generated source
+either way.) A `to_prepare` block works too, and is safe to re-run, but it runs
+too late for watch mode and Zeitwerk to see the graph: an edit to that graph's
+`.graphql` then won't regenerate, and an `output:` outside
+`app/graphql/*/generated` won't be hidden from eager loading.
+
 Two things are worth knowing:
 
 - **`namespace:` nests everything that graph generates** — `person.graphql`
@@ -292,12 +304,14 @@ Two things are worth knowing:
   name. Without a namespace the collision is refused at generation, naming both
   files.
 - **The block's registrations reach that graph alone**, on top of any
-  registered at the top level. It runs at generation time, so an autoloaded
-  constant resolves. That is what makes the build quiet: `Money` is checked
-  against the schema it was registered for, and against no other.
+  registered at the top level. It runs the first time anything reads them, so
+  an autoloaded constant resolves. That is what makes the build quiet: `Money`
+  is checked against the schema it was registered for, and against no other.
 
 Declaring any graph replaces the implicit one the settings describe — an app
-either has graphs or has settings, never a silent third thing.
+either has graphs or has settings, never a silent third thing. The name is the
+identity, so re-declaring `:billing` replaces it rather than adding a second
+one; a `to_prepare` block that re-runs on every reload is safe.
 
 ## 5. Verify in CI
 

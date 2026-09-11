@@ -33,8 +33,9 @@ GraphWeaver.graph :directory,
 ```
 
 One `rake graph_weaver:generate` generates both, and each subgraph is held only
-to the registrations declared for it. See
-[getting started](getting_started.md#more-than-one-schema).
+to the registrations declared for it. (Naming a live subgraph *class* from a
+Rails initializer takes a lambda — `schema: -> { Billing::Schema }` — see
+[getting started](getting_started.md#more-than-one-schema).)
 
 Registrations made at the *top* level still reach every graph, because names
 compose by identity across a graph — `Money` is one Ruby type wherever it

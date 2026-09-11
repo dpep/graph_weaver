@@ -53,10 +53,14 @@ module GraphWeaver
     end
 
     # The graphql-ruby schema, however it was named: a class, a Client, a path
-    # to a dump, SDL. Resolved each time rather than memoized — in dev the
-    # class object is replaced on reload, as Internal::Util.live_schema notes.
+    # to a dump, SDL, or a callable returning one. Resolved each time rather
+    # than memoized — in dev the class object is replaced on reload, as
+    # Internal::Util.live_schema notes, and a callable is how an initializer
+    # names a class Zeitwerk hasn't loaded yet.
     def schema
-      @schema ? GraphWeaver::Internal::Util.schema_for(@schema) : GraphWeaver::Internal::Util.locate_schema!
+      return GraphWeaver::Internal::Util.locate_schema! unless @schema
+
+      GraphWeaver::Internal::Util.schema_for(named_source)
     end
 
     # Whether this graph names its own schema. The default graph doesn't — it
@@ -70,7 +74,8 @@ module GraphWeaver
     def dump_path
       return GraphWeaver::SchemaLoader.locate_path unless @schema
 
-      path = @schema.respond_to?(:to_path) ? @schema.to_path : @schema
+      source = named_source
+      path = source.respond_to?(:to_path) ? source.to_path : source
       path if path.is_a?(String) && File.exist?(path)
     end
 
@@ -79,8 +84,15 @@ module GraphWeaver
     def live_schema
       return GraphWeaver::Internal::Util.live_schema unless @schema
 
-      @schema if @schema.is_a?(Class) && @schema <= GraphQL::Schema
+      source = named_source
+      source if source.is_a?(Class) && source <= GraphQL::Schema
     end
+
+    # What `schema:` was given, with a callable called. A Proc is how an
+    # initializer names an autoloaded class; calling it here rather than at
+    # declaration is the whole point of allowing one.
+    def named_source = @schema.respond_to?(:call) ? @schema.call : @schema
+    private :named_source
 
     # The module `path` generates, and the file it lands in. The namespace is
     # the only thing a graph adds to the naming rule; the rest is the file name,

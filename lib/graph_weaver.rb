@@ -229,18 +229,31 @@ module GraphWeaver
     # runs the first time anything reads them, not at declaration, so an
     # autoloaded constant has resolved by then.
     #
-    # Declaring any graph replaces the implicit one the settings describe: an
-    # app either has graphs or has settings, never a silent third thing.
+    # `schema:` also takes a callable, which is how a Rails app names an
+    # autoloaded schema class from an initializer: `schema: -> { Billing::Schema }`
+    # resolves when generation asks, and resolves again after a dev reload has
+    # replaced the class object.
+    #
+    # The name is the graph's identity, so re-declaring one REPLACES it —
+    # declaring from a `to_prepare` block, which re-runs on every reload, is
+    # safe. Declaring any graph replaces the implicit one the settings
+    # describe: an app either has graphs or has settings, never a silent third
+    # thing.
     def graph(name, schema: nil, queries: nil, output: nil, client: nil,
       namespace: nil, types_module: nil, &registrations)
       # no registry: — a declared graph copies the top-level registrations when
       # it is first read. They apply to every graph, because federation composes
       # by name and an app that registered Money before it had two schemas
       # shouldn't lose it; the block adds this graph's own on top.
-      (@graphs ||= []) << Graph.new(
+      graph = Graph.new(
         name:, schema:, queries:, output:, client:, namespace:, types_module:, &registrations
       )
-      @graphs.last
+      @graphs ||= []
+      # replace in place, so the declaration order an app wrote is the order
+      # generate! reports in however many times the initializer has re-run
+      existing = @graphs.index { |candidate| candidate.name == name }
+      existing ? @graphs[existing] = graph : @graphs << graph
+      graph
     end
 
     # Every graph an entry point walks: the declared ones, or the single graph
@@ -304,7 +317,11 @@ module GraphWeaver
       @unmatched_registrations = []
       seen = new_seen
 
-      graphs_for(schema:, queries:, output:, client:, types_module:).flat_map do |graph|
+      # Every plan first, then every write. Generation refusing must leave the
+      # tree exactly as it was — the railtie's watch mode regenerates on a
+      # request and promises a failed save changes nothing, and that promise
+      # was true within a graph and false across them.
+      planned = graphs_for(schema:, queries:, output:, client:, types_module:).map do |graph|
         if Internal::Util.query_files(graph.queries).empty?
           # a brand-new app legitimately has none; a mistyped queries_paths looks
           # exactly the same, and prints nothing either way
@@ -313,30 +330,37 @@ module GraphWeaver
           end
         end
 
-        plan = generation_plan(graph, seen)
-        written = plan.map do |filename, source|
-          target = File.join(Internal::Util.resolve(graph.output), filename)
-          next target if current?(target, source)
-
-          FileUtils.mkdir_p(File.dirname(target))
-          # a rake task beside a watching dev server writes the same file: a
-          # truncating write can leave a prefix that no longer parses, and it is
-          # the running app that requires it next
-          Internal::Util.atomic_write(target, source)
-          reported = Internal::Util.relative(target)
-          @changed_files << reported
-          Internal::Log.log(:info) { "generated #{reported}" }
-          target
-        end
-
-        orphaned(graph.output, written).each do |orphan|
-          File.delete(orphan)
-          Internal::Log.log(:info) { "pruned #{Internal::Util.relative(orphan)}" }
-        end
-
-        written.map { |target| Internal::Util.relative(target) }
+        [graph, generation_plan(graph, seen)]
       end
+
+      planned.flat_map { |graph, plan| write_plan!(graph, plan) }
     end
+
+    # One graph's plan onto disk, pruning what it no longer produces.
+    def write_plan!(graph, plan)
+      written = plan.map do |filename, source|
+        target = File.join(Internal::Util.resolve(graph.output), filename)
+        next target if current?(target, source)
+
+        FileUtils.mkdir_p(File.dirname(target))
+        # a rake task beside a watching dev server writes the same file: a
+        # truncating write can leave a prefix that no longer parses, and it is
+        # the running app that requires it next
+        Internal::Util.atomic_write(target, source)
+        reported = Internal::Util.relative(target)
+        @changed_files << reported
+        Internal::Log.log(:info) { "generated #{reported}" }
+        target
+      end
+
+      orphaned(graph.output, written).each do |orphan|
+        File.delete(orphan)
+        Internal::Log.log(:info) { "pruned #{Internal::Util.relative(orphan)}" }
+      end
+
+      written.map { |target| Internal::Util.relative(target) }
+    end
+    private :write_plan!
 
     # Which of those files the last generate! actually wrote — the rest were
     # already byte-identical, so a run that changed one query touches one file
@@ -641,7 +665,7 @@ module GraphWeaver
     # What one run has already produced, shared across every graph in it:
     # constants are global and output files are just files, so two graphs
     # landing on either would overwrite each other silently.
-    def new_seen = { modules: {}, files: {} }
+    def new_seen = { modules: {}, files: {}, types: {} }
     private :new_seen
 
     def generation_plan(graph, seen = new_seen, fragments: fragments_paths)
@@ -675,11 +699,16 @@ module GraphWeaver
       end
 
       if used_unions.any? || used.values.any?(&:any?)
+        refuse_duplicate_types!(seen, graph)
         codegen = Codegen.new(schema:, query: "", name: graph.types_module, registry:)
-        plan = codegen.generate_types(
+        types = codegen.generate_types(
           inputs: used[:inputs], enums: used[:enums] + used[:mapped],
           unions: used_unions, fragments: shared,
-        ).to_a + plan
+        )
+        # these land in the graph's output like any other file, so they collide
+        # with another graph's the same way
+        types.each_key { |filename| refuse_duplicate_file!(seen, filename, graph, filename) }
+        plan = types.to_a + plan
       end
 
       plan
@@ -695,15 +724,35 @@ module GraphWeaver
     # `person_query.rb` is named after `person.graphql` whatever module it
     # defines, so two graphs sharing an output directory still collide there.
     def refuse_duplicate!(seen, name, filename, graph, path)
-      target = File.join(Internal::Util.resolve(graph.output), filename)
       refuse_collision!(seen[:modules], name, graph, path, "query module #{name}",
         "give one of the graphs a namespace:, or rename one of the files",
         "the module name comes from the file name alone (directories don't namespace it), so rename one")
-      refuse_collision!(seen[:files], target, graph, path, "generated file #{Internal::Util.relative(target)}",
-        "give one of the graphs its own output:",
-        "rename one of the files")
+      refuse_duplicate_file!(seen, filename, graph, path)
     end
     private :refuse_duplicate!
+
+    def refuse_duplicate_file!(seen, filename, graph, path)
+      target = File.join(Internal::Util.resolve(graph.output), filename)
+      refuse_collision!(seen[:files], target, graph, path, "generated file #{Internal::Util.relative(target)}",
+        "give one of the graphs its own output:", "rename one of the files")
+    end
+    private :refuse_duplicate_file!
+
+    # Two graphs hoisting shared types into one module. Unlike a query module
+    # there is no file to rename — the name is a setting — and the failure it
+    # replaces was the worst kind: generation succeeded, and the app died at
+    # boot on sorbet-runtime's "Enum GraphQLTypes::Status was already
+    # initialized", which names neither graph.
+    def refuse_duplicate_types!(seen, graph)
+      earlier = seen[:types][graph.types_module]
+      seen[:types][graph.types_module] = graph
+      return if earlier.nil? || earlier.equal?(graph)
+
+      raise Error, "two graphs hoist shared types into #{graph.types_module} — " \
+        "#{earlier.name.inspect} and #{graph.name.inspect} both generate it, and a generated " \
+        "enum refuses a second definition; give one of the graphs a namespace: (or its own types_module:)"
+    end
+    private :refuse_duplicate_types!
 
     def refuse_collision!(seen, key, graph, path, subject, across, within)
       earlier_graph, earlier = seen[key]

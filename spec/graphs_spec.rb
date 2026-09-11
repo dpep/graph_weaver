@@ -236,6 +236,62 @@ describe "GraphWeaver.graph" do
       .to raise_error(GraphWeaver::Error, /person_query\.rb.*own output:/m)
   end
 
+  # the name is the identity, so a to_prepare block that re-runs on every dev
+  # reload must not stack up copies — it did, and the next regeneration then
+  # refused on a graph colliding with ITSELF, wedging the dev server
+  it "replaces a graph declared again under the same name" do
+    2.times { two_graphs }
+
+    expect(GraphWeaver.graphs.map(&:name)).to eq %i[pets billing]
+    expect { GraphWeaver.generate! }.not_to raise_error
+  end
+
+  # `schema: Accounts::Schema` can't be written at the top of a Rails
+  # initializer — Zeitwerk is set up in a finisher, after initializers run — and
+  # declaring from to_prepare is too late for watch mode to see the graph
+  it "takes a callable schema, resolved when it is asked for" do
+    write_query(:pets, "person", "query { person(id: 1) { name } }\n")
+    resolved = 0
+    GraphWeaver.graph :pets, schema: -> { resolved += 1; Demo::Schema },
+      queries: File.join(@dir, "pets/queries"), output: output(:pets), namespace: "Pets"
+
+    expect(resolved).to be_zero # not at declaration
+    GraphWeaver.generate!
+    expect(resolved).to be_positive
+    expect(File.read(File.join(output(:pets), "person_query.rb"))).to include("module Pets::PersonQuery")
+  end
+
+  # two schemas hoisting an enum into one GraphQLTypes is a certainty, not a
+  # chance — and a T::Enum refuses a second definition, so without this the app
+  # died at boot with sorbet-runtime's "already initialized", naming no graph
+  it "refuses two graphs that hoist into the same shared types module" do
+    write_query(:pets, "person", "query { person(id: 1) { pets { species } } }\n")
+    write_query(:billing, "invoice", "query { person(id: 1) { pets { species } } }\n")
+    %i[pets billing].each do |name|
+      GraphWeaver.graph name, schema: Demo::Schema,
+        queries: File.join(@dir, "#{name}/queries"), output: output(name)
+    end
+
+    expect { GraphWeaver.generate! }
+      .to raise_error(GraphWeaver::Error, /GraphQLTypes.*namespace:/m)
+  end
+
+  # watch mode regenerates on a request and keeps serving when a query doesn't
+  # compile, which needs generation to be all-or-nothing — it was per graph,
+  # so a refused run left the first graph rewritten and the second stale
+  it "writes nothing when a later graph refuses" do
+    two_graphs
+    GraphWeaver.generate!
+    before = Dir[File.join(output(:pets), "**/*.rb")].to_h { |path| [path, File.read(path)] }
+
+    # a second pets query whose module collides with the first
+    write_query(:pets, "person", "query { person(id: 1) { name } }\n")
+    write_query(:billing, "person", "query { invoice(id: 1) { nope } }\n")
+
+    expect { GraphWeaver.generate! }.to raise_error(GraphWeaver::Error)
+    expect(Dir[File.join(output(:pets), "**/*.rb")].to_h { |path| [path, File.read(path)] }).to eq before
+  end
+
   # the default graph is the settings, so an app that never calls .graph is
   # exactly where it was
   it "leaves an app with no declared graph alone" do
