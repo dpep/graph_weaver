@@ -196,6 +196,12 @@ file holding two operations, since one file can't name two modules. Change a
 file's `query` to `mutation` and its constant changes with it; the next
 `generate!` prunes the old file, and `verify` fails until you regenerate.
 
+**A graph's `namespace:` nests what it generates**, and is the answer when two
+schemas in one app each have a `person.graphql`: `namespace: "Billing"` makes
+that one `Billing::PersonQuery` in the same `person_query.rb`, and its shared
+types module `Billing::GraphQLTypes`. Nothing else about the rule changes — the
+file still names the module. See [getting started](getting_started.md#more-than-one-schema).
+
 Parsing a raw query *string* has no file to name it after, so it uses the
 operation name (`query GetPerson` → `GetPerson`); dynamic `parse` falls back to
 `Query` for an anonymous one (its constants are container-scoped, so collisions

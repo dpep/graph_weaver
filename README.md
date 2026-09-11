@@ -63,6 +63,11 @@ You then rarely type `rake graph_weaver:generate` again: while the dev server is
 up, a `.graphql` edit regenerates and reloads before the next request, the way a
 route change does. Run it when you're ready to commit the Ruby.
 
+A second schema is a second `GraphWeaver.graph` — its own queries, output,
+client, namespace and scalar registrations — and the same one command generates
+and verifies the app: **[more than one
+schema](docs/getting_started.md#more-than-one-schema)**.
+
 Or skip the build step and poke at an API from a console —
 anything holding a schema parses, and the module runs on what parsed it:
 

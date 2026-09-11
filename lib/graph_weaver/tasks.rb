@@ -14,6 +14,7 @@
 # queries — so which question you're asking is the task name:
 #
 #      rake graph_weaver:generate        # queries_paths -> generated_paths.first
+#      rake graph_weaver:graphs          # which graphs this app has, and where each writes
 #      rake graph_weaver:verify          # fail if generated files are stale (CI)
 #      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
 #      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
@@ -78,8 +79,10 @@ namespace :graph_weaver do
   # moves it — interpolating would print the default as though it were the setting
   desc "Generate typed query modules (default app/graphql/queries -> app/graphql/generated)"
   task generate: :environment do
-    glob = File.join(GraphWeaver::Internal::Util.resolve(GraphWeaver.generated_paths.first), "**/*.rb")
-    before = Dir[glob]
+    # every graph's output, not just the default one's: this is the "pruned"
+    # report, and a file deleted in one graph is as much a diff as in another
+    globs = GraphWeaver.graphs.map { |graph| File.join(GraphWeaver::Internal::Util.resolve(graph.output), "**/*.rb") }
+    before = globs.flat_map { |glob| Dir[glob] }
 
     # schema auto-located at GraphWeaver.schema_path, any supported extension
     written = GraphWeaver.generate!
@@ -88,13 +91,27 @@ namespace :graph_weaver do
     puts "#{written.size - changed.size} already up to date" if changed.size < written.size
     # generated files are checked in, so a delete this task made is a diff the
     # user is about to find; a run that printed nothing at all had done both
-    (before - Dir[glob]).each { |path| puts "pruned #{GraphWeaver::Internal::Util.relative(path)}" }
-    puts "no queries in #{GraphWeaver.queries_paths.join(", ")}" if written.empty?
+    (before - globs.flat_map { |glob| Dir[glob] }).each do |path|
+      puts "pruned #{GraphWeaver::Internal::Util.relative(path)}"
+    end
+    puts "no queries in #{GraphWeaver.graphs.flat_map(&:queries).uniq.join(", ")}" if written.empty?
     GraphWeaver::Internal::Tasks.report_unmatched
   rescue GraphWeaver::Error => e
     # a typo'd query is a user error — the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
     abort e.message
+  end
+
+  # `rake -T` can't name them: a desc is baked when this file loads, and in
+  # Rails that is before :environment, so before the initializer that declares
+  # them has run. This is the task that can.
+  desc "List the configured graphs and where each one generates"
+  task graphs: :environment do
+    GraphWeaver.graphs.each do |graph|
+      name = graph.name ? graph.name.inspect : "(the default graph — GraphWeaver's own settings)"
+      puts "#{name}  #{Array(graph.queries).join(", ")} -> #{GraphWeaver::Internal::Util.relative(graph.output)}"
+      puts "  namespace: #{graph.namespace}" if graph.namespace
+    end
   end
 
   desc "Verify generated query modules are up to date"

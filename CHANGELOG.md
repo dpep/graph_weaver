@@ -1,4 +1,34 @@
 ## Unreleased
+- **An app can have more than one schema.** `GraphWeaver.graph` declares one —
+  a schema, where its queries live, where its Ruby goes, the client its modules
+  call, a `namespace:`, and a block of `register_scalar`/`register_enum`/
+  `extend_type` calls that reach that graph alone:
+
+  ```ruby
+  GraphWeaver.graph :billing,
+    schema: Billing::Schema, queries: "app/graphql/billing/queries",
+    output: "app/graphql/billing/generated", client: Billing::Schema,
+    namespace: "Billing" do
+      register_scalar "Money", BigDecimal
+    end
+  ```
+
+  `generate!`, `verify_generated!`, `check_queries`, `load_generated!`,
+  `reload_generated!`, the rake tasks and watch mode all walk every graph, so
+  one `rake graph_weaver:generate` does the app and one `rake
+  graph_weaver:verify` gates it. `rake graph_weaver:graphs` lists what is
+  configured (`rake -T` can't: a task description is baked before
+  `:environment`). The hand-rolled recipe this replaces — N `generate!` calls
+  with `reset_registrations!` between them — is gone from
+  [docs/federation.md](docs/federation.md).
+
+  **Nothing changes for a single-schema app**: the top-level settings *are* the
+  default graph, and top-level registrations still reach every graph, so a
+  `register_scalar` in an initializer can't be dropped by declaring a second
+  schema. `namespace:` nests everything a graph generates, including its shared
+  types module (`Billing::GraphQLTypes`); without one, two files that generate
+  the same module refuse as they always have, and the message now names the
+  graphs and the fix.
 - **A router's `fake:` refuses `seed:`**, as `graphql_fake` and
   `graphql_router` already did — rspec's `--seed` drives the fake, and a
   router is built once for the suite, so a seed there would pin every example

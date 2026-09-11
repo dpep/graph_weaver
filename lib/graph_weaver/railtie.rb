@@ -41,7 +41,8 @@ class GraphWeaver::Railtie < Rails::Railtie
     Rails.autoloaders.each do |loader|
       # patterns, not paths — generated_paths may be globs, and Zeitwerk
       # expands its own at setup (which is what this runs before)
-      GraphWeaver.generated_paths.each { |path| loader.ignore(GraphWeaver::Internal::Util.resolve(path)) }
+      paths = GraphWeaver.generated_paths | GraphWeaver.graphs.map(&:output)
+      paths.each { |path| loader.ignore(GraphWeaver::Internal::Util.resolve(path)) }
     end
   end
 
@@ -87,7 +88,7 @@ class GraphWeaver::Railtie < Rails::Railtie
 
     # a directory that doesn't exist yet is still watched — FileUpdateChecker
     # re-globs on every check, and its keys may themselves be globs
-    watched = GraphWeaver.queries_paths + GraphWeaver.fragments_paths
+    watched = GraphWeaver.graphs.flat_map(&:queries) | GraphWeaver.fragments_paths
     # the dump codegen would read, or where it goes once someone takes one
     dump = GraphWeaver::SchemaLoader.locate_path || GraphWeaver.schema_path
 
@@ -96,7 +97,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     app.reloaders << watcher
     GraphWeaver::Internal::Log.log(:info) do
       "watching #{(watched << GraphWeaver::Internal::Util.relative(dump)).join(", ")} — an edit regenerates " \
-        "#{GraphWeaver.generated_paths.first} before the next request " \
+        "#{GraphWeaver.graphs.map(&:output).uniq.join(", ")} before the next request " \
         "(config.graph_weaver.watch = false to stop)"
     end
     watcher
@@ -144,7 +145,8 @@ class GraphWeaver::Railtie < Rails::Railtie
       next if GraphWeaver::Railtie.watcher&.execute_if_updated
 
       # entries may be globs, so Dir[] rather than Dir.exist?
-      generated = GraphWeaver.generated_paths.any? { |dir| Dir[GraphWeaver::Internal::Util.resolve(dir)].any? }
+      dirs = GraphWeaver.generated_paths | GraphWeaver.graphs.map(&:output)
+      generated = dirs.any? { |dir| Dir[GraphWeaver::Internal::Util.resolve(dir)].any? }
       GraphWeaver.load_generated! if generated
     end
   end

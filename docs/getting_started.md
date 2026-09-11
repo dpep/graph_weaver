@@ -255,6 +255,50 @@ out in `spec/rails_helper.rb`, so uncomment it — or put the require in
 `rails_helper.rb` itself. Nothing warns you that a support file went
 unread.
 
+## More than one schema
+
+The settings above describe one graph — a schema, its queries, its output.
+An app with a second schema declares it:
+
+```ruby
+# config/initializers/graph_weaver.rb
+GraphWeaver.graph :billing,
+  schema:    Billing::Schema,
+  queries:   "app/graphql/billing/queries",
+  output:    "app/graphql/billing/generated",
+  client:    Billing::Schema,
+  namespace: "Billing" do
+    register_scalar "Money", BigDecimal
+  end
+
+GraphWeaver.graph :github,
+  schema:    "db/github.json",
+  queries:   "app/graphql/github/queries",
+  output:    "app/graphql/github/generated",
+  client:    "GITHUB",
+  namespace: "GitHub"
+```
+
+One `rake graph_weaver:generate` does the app, one `rake graph_weaver:verify`
+gates it, and `rake graph_weaver:graphs` lists what is configured. Each keyword
+falls back to the matching top-level setting, so a graph says only what differs.
+
+Two things are worth knowing:
+
+- **`namespace:` nests everything that graph generates** — `person.graphql`
+  becomes `Billing::PersonQuery`, and its shared types module becomes
+  `Billing::GraphQLTypes`. Constants are global, so two schemas that both have a
+  `person.graphql`, or that both hoist an enum, would otherwise fight over one
+  name. Without a namespace the collision is refused at generation, naming both
+  files.
+- **The block's registrations reach that graph alone**, on top of any
+  registered at the top level. It runs at generation time, so an autoloaded
+  constant resolves. That is what makes the build quiet: `Money` is checked
+  against the schema it was registered for, and against no other.
+
+Declaring any graph replaces the implicit one the settings describe — an app
+either has graphs or has settings, never a silent third thing.
+
 ## 5. Verify in CI
 
 Four questions, four tasks — the last only on a federated graph:
@@ -265,6 +309,9 @@ Four questions, four tasks — the last only on a federated graph:
 | has the server's schema drifted from the dump? | `rake graph_weaver:schema:diff` | yes |
 | did that drift break any of my queries? | `rake graph_weaver:queries:check` | yes |
 | did a subgraph change without a recompose? | `rake graph_weaver:federation:diff` | no |
+
+(`rake graph_weaver:graphs` answers a fifth, when an app has more than one
+schema: which graphs are configured, and where each generates.)
 
 `verify` compares the committed generated files against what the current
 schema + queries + registrations would produce, so it belongs in every CI

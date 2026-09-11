@@ -16,40 +16,46 @@ or an introspection dump.
 whole graph in one schema, so every registration matches and there is nothing
 else to decide.
 
-**Calling subgraphs directly?** One client per subgraph, one `generate!` each.
-Registrations stay in one global registry, because names compose by identity
-across a graph — `Money` is one Ruby type wherever it appears, and `Person` is
-one entity even though a single subgraph owns `birthday`. So a registration a
-given subgraph doesn't declare is not an error; generation warns and carries on.
-`rake graph_weaver:generate` and `verify` print the list once per run, after the
-files:
+**Calling subgraphs directly?** One graph per subgraph, declared once:
+
+```ruby
+GraphWeaver.graph :billing,
+  schema: "billing.graphql", queries: "app/graphql/billing",
+  output: "app/graphql/generated/billing", namespace: "Billing" do
+    register_scalar "Money", Money
+  end
+
+GraphWeaver.graph :directory,
+  schema: "directory.graphql", queries: "app/graphql/directory",
+  output: "app/graphql/generated/directory", namespace: "Directory" do
+    register_scalar "Person.birthday", Date
+  end
+```
+
+One `rake graph_weaver:generate` generates both, and each subgraph is held only
+to the registrations declared for it. See
+[getting started](getting_started.md#more-than-one-schema).
+
+Registrations made at the *top* level still reach every graph, because names
+compose by identity across a graph — `Money` is one Ruby type wherever it
+appears, and `Person` is one entity even though a single subgraph owns
+`birthday`. So a registration a given subgraph doesn't declare is not an error;
+generation warns and carries on. `rake graph_weaver:generate` and `verify` print
+the list once per run, after the files:
 
 ```
 register_scalar("Money") matches no scalar in Billing::Schema — a typo, or a registration for another schema
 ```
 
 `GraphWeaver.unmatched_registrations` is that same list as data, for a Rakefile
-or a spec that would rather gate on it than read it.
-
-Register everything once and read those lines, or scope each generation to what
-it needs and get a silent build:
-
-```ruby
-GraphWeaver.register_scalar("Money", Money)
-GraphWeaver.generate!(schema: "billing.graphql",
-  queries: "app/graphql/billing", output: "app/graphql/generated/billing")
-
-GraphWeaver.reset_registrations!
-
-GraphWeaver.register_scalar("Person.birthday", Date)
-GraphWeaver.generate!(schema: "directory.graphql",
-  queries: "app/graphql/directory", output: "app/graphql/generated/directory")
-```
+or a spec that would rather gate on it than read it. Moving a registration into
+the graph block that needs it is what makes those lines go away.
 
 This holds for entity fields too, which is the case that would otherwise bite:
 every subgraph referencing an entity declares it, so a subgraph carrying
-`Person` for its `@key` alone sees `register_scalar("Person.birthday", Date)` as
-a field it doesn't own — a warning, not a failure.
+`Person` for its `@key` alone sees a top-level
+`register_scalar("Person.birthday", Date)` as a field it doesn't own — a
+warning, not a failure.
 
 What a subgraph *can* disprove still fails generation: a name it declares as
 something else (`register_scalar("Species")` where `Species` is an enum), and a

@@ -338,6 +338,19 @@ describe "GraphWeaver::Railtie" do
       expect(host.reloaders).to eq [watcher]
     end
 
+    # every graph's queries reach the watcher, or an edit in the second one
+    # silently never regenerates
+    it "watches every graph's query directories" do
+      GraphWeaver.graph :second, schema: Demo::Schema,
+        queries: File.join(@dir, "second"), output: File.join(@dir, "second_generated")
+
+      watcher = GraphWeaver::Railtie.watch!(app)
+
+      expect(watcher.dirs.keys).to include File.join(@dir, "second")
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
     # the dev-server case: relative settings, and a server started from a
     # subdirectory. The watcher looked in the right place and the regeneration
     # it triggered then read the working directory, which holds no queries.

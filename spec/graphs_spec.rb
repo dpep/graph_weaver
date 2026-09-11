@@ -1,5 +1,7 @@
 # typed: ignore — exercises eval-defined constants
 require "bigdecimal"
+require "rake"
+require "stringio"
 require "tmpdir"
 
 # An app with more than one schema. The top-level settings are the one graph
@@ -32,6 +34,19 @@ describe "GraphWeaver.graph" do
   end
 
   def output(graph) = File.join(@dir, graph.to_s, "generated")
+
+  # the task as rake runs it, stdout captured
+  def run_task(name)
+    previous, Rake.application = Rake.application, RakeHarness.application
+    RakeHarness.application.tasks.each(&:reenable)
+    out = StringIO.new
+    $stdout = out
+    RakeHarness.application["graph_weaver:#{name}"].invoke
+    out.string
+  ensure
+    $stdout = STDOUT
+    Rake.application = previous
+  end
 
   def billing_schema = File.join(@dir, "billing.graphql").tap { |p| File.write(p, BILLING_SDL) }
 
@@ -130,6 +145,16 @@ describe "GraphWeaver.graph" do
 
     expect(File.read(File.join(output(:pets), "person_query.rb"))).to include("Demo::Schema")
     expect(File.read(File.join(output(:billing), "person_query.rb"))).not_to include("DEFAULT_CLIENT")
+  end
+
+  # `rake -T` is baked before :environment, so the task list can't name the
+  # graphs an initializer declared — this is the task that can.
+  it "lists every graph, and what rake generate covers" do
+    two_graphs
+    listed = run_task("graphs")
+    expect(listed).to include("pets", "billing", "Pets", "Billing")
+
+    expect(run_task("generate")).to match(/wrote.*pets.*\n(.*\n)*.*billing/)
   end
 
   # the default graph is the settings, so an app that never calls .graph is
