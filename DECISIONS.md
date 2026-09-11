@@ -439,6 +439,30 @@ the registrations block bought nothing while `schema:` was still eager, and a
 lambda is *more* correct than a captured class either way: Zeitwerk replaces the
 class object on reload, so a graph holding one holds a stale object.
 
+## A namespaced graph reloads; an un-namespaced one requires
+
+**Considered:** leaving the railtie's `to_prepare` on `load_generated!` for
+every app, since `require` is idempotent and that is exactly what you want on a
+dev reload — and, at the other end, switching every app to
+`reload_generated!` so there is one path.
+
+**Rejected because** neither is right for both. `namespace: "Accounts"` is
+normally a module *Zeitwerk owns* — `app/graphql/accounts/` implies `Accounts`
+whether or not the generated subdirectory is ignored — so unloading it on a
+reload takes the generated module nested inside it with it. `require`, having
+read the file once, then restores nothing: every request 500s on
+`uninitialized constant Accounts::PersonQuery` and never recovers, because only
+a `.graphql` edit reaches the watcher that would have reloaded. An
+un-namespaced module defines a top-level constant Zeitwerk never manages, so it
+survives the unload and re-requiring it every reload would be pure cost — and
+would swap out struct classes that live objects are instances of.
+
+So the branch is on `namespace:`, which is the fact that decides it. The wider
+version of this is worth remembering: **a constant we `require` into a namespace
+Rails autoloads is not ours to keep.** Ignoring the generated directory stops
+Zeitwerk trying to *define* what is in it; it does not stop Zeitwerk removing
+the parent.
+
 ## `rake -T` can't name the graphs
 
 **Considered:** interpolating the configured graphs into the `desc` of
