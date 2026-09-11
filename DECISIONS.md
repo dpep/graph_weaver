@@ -349,6 +349,81 @@ checked-in list, and fails in CI with the two things you can do about it —
 rather than at a user's runtime with a `NameError`. The rule stays one
 sentence: anything under `GraphWeaver::Internal` is not API.
 
+## The settings are the default graph, not a graph beside the others
+
+**Considered:** `GraphWeaver.graphs` as a list an app fills, with the top-level
+`schema_path`/`queries_paths`/`generated_paths` left as what a single-schema app
+uses and generation walking both.
+
+**Rejected because** it is two configurations for one question, and every entry
+point would have to say which it meant. `GraphWeaver.graph` declaring one
+*replaces* the implicit graph instead, so the rule is one sentence — an app has
+graphs, and by default it has the one its settings describe — and a
+single-schema app's behavior is not "a special case that happens to work" but
+literally the same code path.
+
+The same reasoning keeps `generate!(schema:, queries:, ...)`: those arguments
+have always described one generation, and they now build one graph inline. There
+is no third thing.
+
+Top-level registrations still reach every graph, on top of which each graph's
+block adds its own. The alternative — a graph starts empty — would silently drop
+the `register_scalar` an app already had in an initializer the moment it declared
+a second schema, which is precisely the failure mode graphs exist to remove.
+
+## A graph is declared, not constructed
+
+**Considered:** a public `GraphWeaver::Graph.new(...)` users build and push onto
+a list, or a per-schema registry object (`registry = GraphWeaver::Registry.new;
+registry.register_scalar(...)`) passed to `generate!`.
+
+**Rejected because** both make the user hold a thing whose only purpose is to be
+handed straight back. `GraphWeaver.graph :billing, ... do ... end` says the same
+thing once, and the block is what scopes the registrations — no object to name,
+no second call to remember to make. `Codegen::Registry` still exists, because the
+scoping has to live somewhere, but an app never names it.
+
+The registry is threaded to codegen rather than swapped in around each graph.
+Swapping is the smaller diff, and it was rejected on "no spooky action at a
+distance": a `register_scalar` in an initializer must reach the default graph and
+nothing else, and that is a guarantee about *when* a global is set rather than
+about what the code in front of you says. A `Codegen` instance is handed the
+registry it generates with, so there is no window in which the answer depends on
+what ran first.
+
+## `namespace:` nests a graph's constants; a collision otherwise refuses
+
+**Considered:** requiring `namespace:` whenever more than one graph exists, and
+at the other end leaving it out entirely and refusing every cross-graph collision
+by name.
+
+**Rejected because** requiring it taxes the app that has two schemas with no
+overlapping file names, and leaving it out has no fix to offer the app that does:
+"rename one of these files" is poor advice when the two belong to different
+vendors. So `namespace:` is optional, an un-namespaced collision refuses naming
+both files *and* the graphs, and the message names `namespace:` as the fix.
+
+The shared types module settles it either way: two schemas both hoisting an enum
+into `::GraphQLTypes` is a certainty, not a chance, so `namespace:` carries that
+too (`Billing::GraphQLTypes`) rather than being a second knob beside
+`types_module:`.
+
+Generated files open each outer segment on its own line (`module Billing; end`)
+rather than nesting the body, so adding `namespace:` to an existing graph diffs
+as one added line per file instead of reindenting everything.
+
+## `rake -T` can't name the graphs
+
+**Considered:** interpolating the configured graphs into the `desc` of
+`graph_weaver:generate`, so `rake -T` shows what a run would cover.
+
+**Rejected because** it is not knowable there. A `desc` is baked when `tasks.rb`
+loads, which in Rails is inside a railtie's `rake_tasks` block — before
+`:environment`, so before the initializer that declares the graphs has run.
+Interpolating would print the defaults as though they were the configuration,
+which is the same trap the generate task's `desc` already sidesteps.
+`rake graph_weaver:graphs` runs after `:environment` and can answer honestly.
+
 ## What the locked surface is allowed to contain
 
 **The rule.** A name is public if the docs name it, if generated code calls it,
@@ -393,3 +468,14 @@ Three corollaries the passes kept running into:
 - **`Testing::RSpecIntegration.{mode_for, client_for, context!, set_context}`.**
   "Which client does this mode run against" is the only door a non-rspec harness
   has to the tag system's derivations.
+- **`Graph#{described, generated_names, dump_path, named_schema?, live_schema}`.**
+  The declarative half of `Graph` (`name`, `schema`, `queries`, `output`,
+  `namespace`, `types_module`, `registry`) is genuinely public — it is the
+  configuration read back, and `rake graph_weaver:graphs` prints it. These five
+  are mechanism `GraphWeaver` asks of a graph from another file, and the same
+  limit applies as to `Testing::Config`: the state lives on the object, so a
+  public method is the only way one object answers another.
+- **`Codegen::Registry#*`.** Every one mirrors a `Codegen.` class method the
+  rule's first clause already makes public, and a graph block calls them
+  directly — the block is `instance_exec`'d on a registry, so
+  `register_scalar`/`register_enum`/`extend_type` there *are* this interface.

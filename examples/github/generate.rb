@@ -8,11 +8,12 @@
 #      examples/github/generate.rb
 require_relative "setup"
 
-GraphWeaver.generate!(
+GraphWeaver.graph :github,
   schema: GraphWeaver.client.schema,
   queries: File.join(__dir__, "queries"),
-  output: File.join(__dir__, "generated"),
-)
+  output: File.join(__dir__, "generated")
+
+GraphWeaver.generate!
 changed = GraphWeaver.changed_files
 changed.each { |path| puts "wrote #{path}" }
 puts "already up to date" if changed.empty?
