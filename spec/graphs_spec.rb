@@ -222,6 +222,20 @@ describe "GraphWeaver.graph" do
     expect(errors.first["message"]).to match(/nope/)
   end
 
+  # a namespace keeps the CONSTANTS apart; the file is still named after the
+  # query file, so a shared output: overwrites one module with the other
+  it "refuses two graphs that write the same file, namespaces notwithstanding" do
+    write_query(:pets, "person", "query { person(id: 1) { name } }\n")
+    write_query(:billing, "person", "query { person(id: 1) { name } }\n")
+    %i[pets billing].each do |name|
+      GraphWeaver.graph name, schema: Demo::Schema, queries: File.join(@dir, "#{name}/queries"),
+        output: output(:shared), namespace: name.to_s.capitalize
+    end
+
+    expect { GraphWeaver.generate! }
+      .to raise_error(GraphWeaver::Error, /person_query\.rb.*own output:/m)
+  end
+
   # the default graph is the settings, so an app that never calls .graph is
   # exactly where it was
   it "leaves an app with no declared graph alone" do

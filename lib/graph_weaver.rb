@@ -290,6 +290,10 @@ module GraphWeaver
     #
     #      GraphWeaver.generate!   # queries_paths -> generated_paths.first
     #
+    # With no arguments it generates every graph (see #graph) — which, for an
+    # app that declared none, is the one the settings above describe. Arguments
+    # describe one graph inline instead.
+    #
     # person.graphql => person_query.rb defining PersonQuery. Returns every
     # path the plan produces; a file already byte-identical is left untouched
     # (see #changed_files). Generated files the plan no longer produces are deleted
@@ -298,7 +302,7 @@ module GraphWeaver
     def generate!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
       @changed_files = []
       @unmatched_registrations = []
-      seen = {} # module name => [graph, file], across every graph in the run
+      seen = new_seen
 
       graphs_for(schema:, queries:, output:, client:, types_module:).flat_map do |graph|
         if Internal::Util.query_files(graph.queries).empty?
@@ -370,7 +374,7 @@ module GraphWeaver
     #      end
     def verify_generated!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
       @unmatched_registrations = []
-      seen = {}
+      seen = new_seen
 
       graphs_for(schema:, queries:, output:, client:, types_module:).each do |graph|
         if Internal::Util.query_files(graph.queries).empty?
@@ -634,10 +638,13 @@ module GraphWeaver
     # duplicated bool_exp structs (or one Ruby class per query for the same
     # schema enum) and one copy per schema. (Single-query parse inlines
     # everything — there's no cross-query set to share against.)
-    # `seen` is the module names this run has already produced — shared across
-    # every graph, because constants are global and two graphs generating
-    # PersonQuery would silently overwrite each other at load.
-    def generation_plan(graph, seen = {}, fragments: fragments_paths)
+    # What one run has already produced, shared across every graph in it:
+    # constants are global and output files are just files, so two graphs
+    # landing on either would overwrite each other silently.
+    def new_seen = { modules: {}, files: {} }
+    private :new_seen
+
+    def generation_plan(graph, seen = new_seen, fragments: fragments_paths)
       schema = graph.schema
       registry = graph.registry
       @unmatched_registrations |= registry.unmatched_registrations(schema)
@@ -649,7 +656,7 @@ module GraphWeaver
       plan = Internal::Util.query_files(graph.queries).map do |path|
         source = File.read(path)
         name, filename = graph.generated_names(path, source)
-        refuse_duplicate!(seen, name, graph, path)
+        refuse_duplicate!(seen, name, filename, graph, path)
 
         codegen = Codegen.new(
           schema:,
@@ -679,24 +686,36 @@ module GraphWeaver
     end
     private :generation_plan
 
-    # Two files that generate one constant. Within a graph the fix is a rename,
-    # as it has always been; across two graphs it is `namespace:`, which is what
-    # that keyword is for — so the message names whichever one applies.
-    def refuse_duplicate!(seen, name, graph, path)
-      earlier_graph, earlier = seen[name]
-      seen[name] = [graph, path]
-      return unless earlier
-
-      fix = if earlier_graph.equal?(graph)
-        "the module name comes from the file name alone (directories don't namespace it), so rename one"
-      else
-        "give one of the graphs a namespace:, or rename one of the files"
-      end
-      raise Error, "duplicate query module #{name} — " \
-        "#{Internal::Util.relative(earlier)}#{earlier_graph.described} and " \
-        "#{Internal::Util.relative(path)}#{graph.described} both generate it; #{fix}"
+    # Two query files landing on one constant, or on one output file. Within a
+    # graph the fix is a rename, as it has always been; across two graphs it is
+    # `namespace:` for the constant and `output:` for the file — so the message
+    # names whichever one applies.
+    #
+    # The two checks are separate because a namespace fixes only the first:
+    # `person_query.rb` is named after `person.graphql` whatever module it
+    # defines, so two graphs sharing an output directory still collide there.
+    def refuse_duplicate!(seen, name, filename, graph, path)
+      target = File.join(Internal::Util.resolve(graph.output), filename)
+      refuse_collision!(seen[:modules], name, graph, path, "query module #{name}",
+        "give one of the graphs a namespace:, or rename one of the files",
+        "the module name comes from the file name alone (directories don't namespace it), so rename one")
+      refuse_collision!(seen[:files], target, graph, path, "generated file #{Internal::Util.relative(target)}",
+        "give one of the graphs its own output:",
+        "rename one of the files")
     end
     private :refuse_duplicate!
+
+    def refuse_collision!(seen, key, graph, path, subject, across, within)
+      earlier_graph, earlier = seen[key]
+      seen[key] = [graph, path]
+      return unless earlier
+
+      raise Error, "duplicate #{subject} — " \
+        "#{Internal::Util.relative(earlier)}#{earlier_graph.described} and " \
+        "#{Internal::Util.relative(path)}#{graph.described} both generate it; " \
+        "#{earlier_graph.equal?(graph) ? within : across}"
+    end
+    private :refuse_collision!
 
     # Whether generated modules/structs emit `extend T::Sig` (so `sig`
     # resolves standalone). Default (nil) auto-detects: an app that globally
