@@ -170,13 +170,30 @@ class GraphWeaver::Codegen
       ->(type, expr) { "#{type}(#{expr})" }
     end
 
+    # A Proc here builds SOURCE for the generated file, so a proc that
+    # converts a value (`->(v) { v.to_sym }`) can't work — it interpolates to
+    # nothing and every response fails far from the registration. Probe it
+    # once now, where the message can name the spelling.
+    def source_builder!(option, proc)
+      probe = proc.arity.zero? ? proc.call : proc.call("v")
+      return proc if probe.is_a?(String)
+
+      raise ArgumentError, "#{option}: a Proc must return the Ruby source to emit — " \
+        "e.g. #{option}: ->(v) { \"#{@type}.parse(\#{v})\" } — got #{probe.inspect}; " \
+        "a Symbol names a method instead (#{option}: :parse)"
+    rescue ArgumentError => e
+      raise if e.message.start_with?("#{option}:")
+
+      raise ArgumentError, "#{option}: a Proc takes one argument, the expression to wrap — #{e.message}"
+    end
+
     # nil infers via the matched codec; :itself opts out (identity); a
     # Symbol is a class method on the type — Money.parse(expr)
     def normalize_cast(cast, inferred)
       case cast
       when :itself then nil
       when nil then inferred && ->(expr) { inferred.call(@type, expr) }
-      when Proc then cast
+      when Proc then source_builder!(:cast, cast)
       when Symbol then ->(expr) { "#{@type}.#{cast}(#{expr})" }
       else raise ArgumentError, "cast: must be a Symbol, Proc, :itself, or nil, got #{cast.inspect}"
       end
@@ -189,7 +206,7 @@ class GraphWeaver::Codegen
       case serialize
       when :itself then nil
       when nil then inferred && ->(expr) { inferred.call(@type, expr) }
-      when Proc then serialize
+      when Proc then source_builder!(:serialize, serialize)
       when Symbol then ->(expr) { "#{expr}.#{serialize}" }
       when Array
         method, *args = serialize

@@ -46,6 +46,15 @@ describe "the registration registry" do
       expect(birthday).to be_a String
     end
 
+    # a cast: proc builds source; one that converts a value emits nothing and
+    # fails on every response, blaming the codec
+    it "refuses a cast: or serialize: proc that returns a value instead of source" do
+      expect { GraphWeaver.register_scalar("Sku", "Symbol", cast: ->(v) { v.to_sym }) }
+        .to raise_error(ArgumentError, /cast: a Proc must return the Ruby source to emit.*got :v/)
+      expect { GraphWeaver.register_scalar("Sku", "Symbol", serialize: ->(v) { v.length }) }
+        .to raise_error(ArgumentError, /serialize: a Proc must return the Ruby source/)
+    end
+
     it "refuses a name this schema declares as something other than a scalar" do
       GraphWeaver.register_scalar("Species", String)
 

@@ -1,4 +1,9 @@
 ## Unreleased
+- **A `cast:` or `serialize:` proc that returns a value is refused at
+  registration.** A proc there builds *source* for the generated file, so
+  `cast: ->(v) { v.to_sym }` interpolated to nothing and every response
+  failed far from the registration, blaming the codec. The proc is now probed
+  once when registered, and a non-String return names the spelling to use.
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one —
   a schema, where its queries live, where its Ruby goes, the client its modules
   call, a `namespace:`, and a block of `register_scalar`/`register_enum`/
