@@ -80,8 +80,16 @@ this page leaves out.
 Each mode works out what to run against, and **refuses — naming what it
 looked for — rather than guessing**:
 
-- **the schema** is `config.schema` if you set one, else the committed dump
-  at `GraphWeaver.schema_path`, else the schema `GraphWeaver.client` talks to.
+- **the schema** is `config.schema` if you set one, else the one your single
+  [graph](getting_started.md#more-than-one-schema) names, else the committed
+  dump at `GraphWeaver.schema_path`, else the schema `GraphWeaver.client` talks
+  to. An app with **more than one graph** is refused rather than guessed at:
+  which schema an example fakes against varies, so name it —
+  `graphql_fake(schema: Accounts::Schema)` or
+  `graphql_in_process(Accounts::Schema)`. A fake built that way also reads the
+  scalar registrations of the graph that owns that schema, so it invents the
+  wire value the generated module's cast expects. (Pins and `overrides:`
+  stay suite-wide, keyed by scalar name — one `"Money"` override for the run.)
 - **`:in_process`** needs the live schema *class*, since only that has
   resolvers: the one your client already runs in-process, else the loaded
   class that defines everything the schema declares — the same

@@ -185,6 +185,16 @@ describe "GraphWeaver.graph" do
     expect(File.read(File.join(output(:pets), "person_query.rb"))).not_to include("Date.iso8601")
   end
 
+  # `graphql: :fake` derives one schema for the suite; with two graphs that
+  # answer varies per example, and picking one would fake one schema's shapes
+  # at the other's module
+  it "refuses to guess which schema a bare fake means" do
+    two_graphs
+
+    expect { GraphWeaver::Testing.config.reference_schema! }
+      .to raise_error(GraphWeaver::Error, /2 graphs.*graphql_fake\(schema:/m)
+  end
+
   # the default graph is the settings, so an app that never calls .graph is
   # exactly where it was
   it "leaves an app with no declared graph alone" do

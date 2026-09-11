@@ -183,10 +183,26 @@ module GraphWeaver
             "names the subgraph it means, per example; graphql: :router runs the graph stitched.")
       end
 
-      # The schema everything else derives from: the one you set, else the
-      # committed dump, else the schema the app's client talks to.
+      # The schema everything else derives from: the one you set, else the one
+      # this app's single graph names, else the committed dump, else the schema
+      # the app's client talks to.
       def reference_schema!
-        found = schema || (GraphWeaver.client.schema if GraphWeaver.client.respond_to?(:schema))
+        return explicit_schema if explicit_schema
+
+        declared = GraphWeaver.graphs
+        # more than one graph and nothing named: the honest answer varies per
+        # example, and picking the first would fake one schema's shapes at
+        # another's module — a wrong answer that looks authoritative
+        if declared.size > 1
+          raise GraphWeaver::Error, "this app has #{declared.size} graphs " \
+            "(#{declared.map { |graph| graph.name.inspect }.join(", ")}), so which schema to fake " \
+            "against varies per example — name it: graphql_fake(schema: MySchema) or " \
+            "graphql_in_process(MySchema). Set GraphWeaver::Testing.config.schema only if the whole " \
+            "suite means one of them."
+        end
+
+        found = (declared.first.schema if declared.first.named_schema?)
+        found ||= schema || (GraphWeaver.client.schema if GraphWeaver.client.respond_to?(:schema))
         return found if found
 
         raise GraphWeaver::Error, "no schema to run against — GraphWeaver.client isn't set, " \
