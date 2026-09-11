@@ -15,8 +15,9 @@
 class GraphWeaver::Codegen
   # The registrations one graph generates with: the scalar codecs, the enum
   # mappings and the type helpers, plus what a schema can say about them.
-  # Users never name this class — they write register_scalar/register_enum/
-  # extend_type, at the top level (the default graph) or in a graph block.
+  # Not API (private_constant below) — an app writes register_scalar/
+  # register_enum/extend_type, at the top level (the default graph) or in a
+  # graph block, and never names the object holding them.
   # codegen/{scalar,enum,type_helpers}.rb fill in the registering half.
   class Registry
     # What a registry's names must be in the schema. extend_type decorates
@@ -165,4 +166,9 @@ class GraphWeaver::Codegen
     # their value has always been something you can keep chaining off.
     def reset_registrations! = registry.reset_registrations! && self
   end
+
+  # Nothing outside the gem names it, and it can't move under Internal either:
+  # its methods build a ScalarType and an EnumType, which are private here.
+  # Private at load, not in a method body — see spec/registry_spec.rb.
+  private_constant :Registry
 end

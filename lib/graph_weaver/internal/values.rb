@@ -74,7 +74,7 @@ class GraphWeaver::Internal::Values
   # schema: which server is being faked, so the scalar registrations consulted
   # are the ones the graph that named that schema generated with.
   def initialize(seed: nil, values: nil, pins: nil, schema: nil)
-    @registry = GraphWeaver.registry_for(schema)
+    @registry = GraphWeaver::Internal::Util.registry_for(schema)
     @rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
     @pins = (pins || GraphWeaver::Testing.config.overrides).transform_keys(&:to_s)
     @style = resolve_style(values)

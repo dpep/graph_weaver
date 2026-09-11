@@ -18,6 +18,10 @@
     end
   ```
 
+  The block's three calls are the ones you already write at the top level, and
+  the object scoping them has no public name — nothing new to learn beyond
+  `GraphWeaver.graph` itself.
+
   `generate!`, `verify_generated!`, `check_queries`, `load_generated!`,
   `reload_generated!`, the rake tasks and watch mode all walk every graph, so
   one `rake graph_weaver:generate` does the app and one `rake

@@ -29,7 +29,6 @@ GraphWeaver.queries_paths=
 GraphWeaver.register_enum
 GraphWeaver.register_scalar
 GraphWeaver.register_transport_error
-GraphWeaver.registry_for
 GraphWeaver.reload_generated!
 GraphWeaver.reset_graphs!
 GraphWeaver.reset_registrations!
@@ -83,20 +82,6 @@ GraphWeaver::Codegen::AUTOLOAD_HINT = String
 GraphWeaver::Codegen::BUILTIN_SCALARS = Array
 GraphWeaver::Codegen::CONSTANT_NAME = Regexp
 GraphWeaver::Codegen::DOCUMENT_GLOB = String
-GraphWeaver::Codegen::Registry (Class)
-GraphWeaver::Codegen::Registry#clear_scalars!
-GraphWeaver::Codegen::Registry#enum_registry
-GraphWeaver::Codegen::Registry#extend_type
-GraphWeaver::Codegen::Registry#register_enum
-GraphWeaver::Codegen::Registry#register_scalar
-GraphWeaver::Codegen::Registry#reset_enums!
-GraphWeaver::Codegen::Registry#reset_registrations!
-GraphWeaver::Codegen::Registry#reset_scalars!
-GraphWeaver::Codegen::Registry#reset_type_helpers!
-GraphWeaver::Codegen::Registry#scalar
-GraphWeaver::Codegen::Registry#scalar_registry
-GraphWeaver::Codegen::Registry#type_registry
-GraphWeaver::Codegen::Registry#unmatched_registrations
 GraphWeaver::Coerce (Module)
 GraphWeaver::Coerce.boolean
 GraphWeaver::Coerce.float

@@ -274,18 +274,6 @@ module GraphWeaver
       generated_paths | extra
     end
 
-    # The registrations a schema generates with: the graph that named it, or the
-    # default graph's. The testing fakes ask, so a fabricated scalar is the
-    # shape the module generated against that schema will cast — a `Money`
-    # registered for one graph is not a `Money` for the next one along. Matched
-    # on the schema class a graph runs in-process, which is the only identity
-    # cheap enough to ask per fake; anything else falls back to the default,
-    # which is where a single-schema app has always read from.
-    def registry_for(schema)
-      graph = schema && graphs.find { |candidate| candidate.live_schema.equal?(schema) }
-      graph ? graph.registry : Codegen.registry
-    end
-
     # Forget every declared graph — back to the settings alone.
     def reset_graphs!
       @graphs = nil

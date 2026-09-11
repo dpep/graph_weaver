@@ -504,10 +504,12 @@ Three corollaries the passes kept running into:
   and cache-candidate logic — extracting them means dragging those out too, or a
   delegating shim that hides nothing. Seven names is not worth shredding a
   1,200-line file.
-- **`Codegen.{scalar_registry, enum_registry, type_registry,
+- **`Codegen.{scalar_registry, enum_registry, type_registry, registry,
   normalize_requires!}`.** Reached across `codegen/*.rb`, which all reopen
   `class GraphWeaver::Codegen` compactly. Fixing it means either renesting four
-  files or a `Registries` module that is only a name change.
+  files or a `Registries` module that is only a name change. `registry` returns
+  the default graph's `Registry`, whose class is private — so it is a handle the
+  gem passes around, not a type anyone can name.
 - **`Codegen.{clear_scalars!, reset_enums!, reset_type_helpers!}`.** Documented
   in `docs/scalars.md` beside `reset_scalars!` — a big suite isolating one
   registry is a real use, and the rule's first clause settles it.
@@ -521,12 +523,18 @@ Three corollaries the passes kept running into:
   has to the tag system's derivations.
 - **`Graph#{described, generated_names, dump_path, named_schema?, live_schema}`.**
   The declarative half of `Graph` (`name`, `schema`, `queries`, `output`,
-  `namespace`, `types_module`, `registry`) is genuinely public — it is the
-  configuration read back, and `rake graph_weaver:graphs` prints it. These five
+  `client`, `namespace`, `types_module`, `registry`) is genuinely public — it is
+  every `GraphWeaver.graph` keyword read back, and `rake graph_weaver:graphs`
+  prints four of them. These five
   are mechanism `GraphWeaver` asks of a graph from another file, and the same
   limit applies as to `Testing::Config`: the state lives on the object, so a
   public method is the only way one object answers another.
-- **`Codegen::Registry#*`.** Every one mirrors a `Codegen.` class method the
-  rule's first clause already makes public, and a graph block calls them
-  directly — the block is `instance_exec`'d on a registry, so
-  `register_scalar`/`register_enum`/`extend_type` there *are* this interface.
+**`Codegen::Registry` is a private constant.** It landed public — the class plus
+thirteen instance methods — which said the opposite of what the graph decision
+above intends ("an app never names it"). A graph block reaches the same methods
+by `instance_exec`, and a top-level `register_scalar` by delegation, so both
+documented doors keep working with the name shut. It stays *inside* `Codegen`
+rather than moving under `Internal`: its methods build a `ScalarType` and an
+`EnumType`, which are private constants there, so only a lexical child can see
+them. `GraphWeaver.registry_for` went with it, to `Internal::Util` — the fakes
+were its only callers.

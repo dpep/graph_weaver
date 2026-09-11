@@ -437,7 +437,7 @@ class GraphWeaver::Testing::FakeClient
     when "SCALAR"
       return value if wire?(value)
 
-      GraphWeaver.registry_for(@schema).scalar(type.graphql_name, coordinate).serialize_value(value)
+      GraphWeaver::Internal::Util.registry_for(@schema).scalar(type.graphql_name, coordinate).serialize_value(value)
     when "ENUM" then value.is_a?(T::Enum) ? value.serialize : value
     else value # a composite: pinned_object reads it, one level down
     end
