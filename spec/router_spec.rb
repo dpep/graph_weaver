@@ -1035,6 +1035,11 @@ describe GraphWeaver::Testing::Router do
         }.to raise_error(GraphWeaver::ConfigurationError, /fake: says how faked subgraphs fabricate/)
       end
 
+      it "refuses a seed, which rspec's --seed already supplies" do
+        expect { partial.fake = { seed: 7 } }
+          .to raise_error(GraphWeaver::ConfigurationError, /seed: isn't a fake: option.*rspec --seed/)
+      end
+
       # A simulated failure that nulls the field but reports no error is a
       # response no server gives, and the app under test can't tell it from
       # data that is legitimately absent.

@@ -326,6 +326,12 @@ module GraphWeaver
       # green — the same silent pass a typo'd override key is refused for.
       def check_fake!(options)
         options = options.to_h
+        # rspec's --seed already drives the fake, and a router is built once
+        # for the suite — a seed here would pin every example to one run
+        if options.key?(:seed) || options.key?("seed")
+          raise GraphWeaver::ConfigurationError, "seed: isn't a fake: option — `rspec --seed 1234` " \
+            "reproduces a run, and GraphWeaver::Testing.config.seed sets one for a harness that isn't rspec"
+        end
         return options.freeze if options.empty? || @faked.any?
 
         raise GraphWeaver::ConfigurationError, "fake: says how faked subgraphs fabricate, and this " \

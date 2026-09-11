@@ -1,3 +1,10 @@
+## Unreleased
+- **A router's `fake:` refuses `seed:`**, as `graphql_fake` and
+  `graphql_router` already did — rspec's `--seed` drives the fake, and a
+  router is built once for the suite, so a seed there would pin every example
+  to one run. `GraphWeaver::Testing.config.seed` remains the override for a
+  harness that isn't rspec.
+
 ###  v0.6.1  (2026-09-10)
 - **A stdlib scalar registers with nothing but its class.**
   `GraphWeaver.register_scalar("Decimal", BigDecimal)` now emits the whole
