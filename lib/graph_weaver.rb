@@ -225,8 +225,9 @@ module GraphWeaver
     # says only what differs; `namespace:` nests everything that graph
     # generates (the query modules and its shared types module) so two schemas
     # with a person.graphql don't fight over one constant. The block's
-    # registrations reach this graph alone, on top of the top-level ones —
-    # it runs at generation time, so an autoloaded constant resolves.
+    # registrations reach this graph alone, on top of the top-level ones — it
+    # runs the first time anything reads them, not at declaration, so an
+    # autoloaded constant has resolved by then.
     #
     # Declaring any graph replaces the implicit one the settings describe: an
     # app either has graphs or has settings, never a silent third thing.
