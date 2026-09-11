@@ -13,6 +13,7 @@ GraphWeaver.filter_parameters=
 GraphWeaver.fragments_paths
 GraphWeaver.fragments_paths=
 GraphWeaver.generate!
+GraphWeaver.generated_dirs
 GraphWeaver.generated_paths
 GraphWeaver.generated_paths=
 GraphWeaver.graph

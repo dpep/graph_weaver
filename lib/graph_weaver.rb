@@ -260,6 +260,20 @@ module GraphWeaver
     # the top-level settings describe. Never empty.
     def graphs = @graphs&.dup || [default_graph]
 
+    # Where generated modules are READ from: the configured patterns, plus any
+    # graph writing somewhere they don't already cover. generated_paths' default
+    # glob (app/graphql/*/generated) covers the conventional layout, so listing
+    # a graph's output as well would name the same directory twice — in the log,
+    # and in the globbing.
+    def generated_dirs
+      extra = graphs.map(&:output).reject do |dir|
+        generated_paths.any? do |pattern|
+          File.fnmatch?(Internal::Util.resolve(pattern), Internal::Util.resolve(dir))
+        end
+      end
+      generated_paths | extra
+    end
+
     # The registrations a schema generates with: the graph that named it, or the
     # default graph's. The testing fakes ask, so a fabricated scalar is the
     # shape the module generated against that schema will cast — a `Money`
@@ -586,7 +600,7 @@ module GraphWeaver
     # generated code only changes on regeneration anyway (restart, like
     # a schema migration).
     def load_generated!(path = nil)
-      paths = path ? [path] : (generated_paths | graphs.map(&:output))
+      paths = path ? [path] : generated_dirs
       files = paths.flat_map { |dir| Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].sort }.uniq
       files.each do |file|
         require file
@@ -632,7 +646,7 @@ module GraphWeaver
       end
       names.each { |name| undefine(name) }
 
-      (generated_paths | graphs.map(&:output)).each do |dir|
+      generated_dirs.each do |dir|
         Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].each do |file|
           # require stores the realpath; the path load_generated! passed is
           # the other one under a symlinked checkout

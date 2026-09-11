@@ -412,6 +412,33 @@ Generated files open each outer segment on its own line (`module Billing; end`)
 rather than nesting the body, so adding `namespace:` to an existing graph diffs
 as one added line per file instead of reindenting everything.
 
+## A graph's name is its identity, and `schema:` takes a lambda
+
+Both of these come from driving a scratch Rails app, and neither was visible to
+the suite — it is not a Rails app and it does not re-run an initializer.
+
+**Considered:** `GraphWeaver.graph` appending unconditionally, with the docs
+telling a Rails app to declare its graphs from a `to_prepare` block (which is
+where `register_enum` and `GraphWeaver.client =` are already told to go, since
+an autoloaded constant doesn't resolve while `config/initializers` run).
+
+**Rejected because** `to_prepare` re-runs on every dev reload, so appending
+turned two graphs into six and the next regeneration refused on a graph
+colliding with *itself* — after which the dev server served 500s permanently,
+because the failed `generate!` meant `reload_generated!` never ran. And
+`to_prepare` is too late for two things that need the graph list earlier:
+`Railtie.watch!` (which must register a reloader before the finisher that reads
+`app.reloaders`) and the Zeitwerk ignore. A graph declared there is invisible to
+watch mode, so editing its `.graphql` silently never regenerates.
+
+So the name is the identity — re-declaring replaces in place — which makes
+`to_prepare` safe, and `schema:` accepts a callable, which makes it unnecessary:
+`schema: -> { Billing::Schema }` at the top of the initializer resolves when
+generation asks. That is not a second way to say the same thing. Deferring only
+the registrations block bought nothing while `schema:` was still eager, and a
+lambda is *more* correct than a captured class either way: Zeitwerk replaces the
+class object on reload, so a graph holding one holds a stale object.
+
 ## `rake -T` can't name the graphs
 
 **Considered:** interpolating the configured graphs into the `desc` of

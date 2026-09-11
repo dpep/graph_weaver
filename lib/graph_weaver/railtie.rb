@@ -41,8 +41,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     Rails.autoloaders.each do |loader|
       # patterns, not paths — generated_paths may be globs, and Zeitwerk
       # expands its own at setup (which is what this runs before)
-      paths = GraphWeaver.generated_paths | GraphWeaver.graphs.map(&:output)
-      paths.each { |path| loader.ignore(GraphWeaver::Internal::Util.resolve(path)) }
+      GraphWeaver.generated_dirs.each { |path| loader.ignore(GraphWeaver::Internal::Util.resolve(path)) }
     end
   end
 
@@ -145,8 +144,7 @@ class GraphWeaver::Railtie < Rails::Railtie
       next if GraphWeaver::Railtie.watcher&.execute_if_updated
 
       # entries may be globs, so Dir[] rather than Dir.exist?
-      dirs = GraphWeaver.generated_paths | GraphWeaver.graphs.map(&:output)
-      generated = dirs.any? { |dir| Dir[GraphWeaver::Internal::Util.resolve(dir)].any? }
+      generated = GraphWeaver.generated_dirs.any? { |dir| Dir[GraphWeaver::Internal::Util.resolve(dir)].any? }
       GraphWeaver.load_generated! if generated
     end
   end

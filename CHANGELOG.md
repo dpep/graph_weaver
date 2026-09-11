@@ -22,6 +22,14 @@
   with `reset_registrations!` between them — is gone from
   [docs/federation.md](docs/federation.md).
 
+  **In Rails, declare graphs in the initializer and name an autoloaded schema
+  class with a lambda** — `schema: -> { Billing::Schema }`. Zeitwerk is set up
+  after `config/initializers` run, so a bare constant there raises; the lambda
+  resolves when generation asks, and again after a dev reload has replaced the
+  class object. A `to_prepare` block works and is safe to re-run (the graph's
+  name is its identity, so re-declaring replaces it), but it runs too late for
+  watch mode and Zeitwerk to see the graph.
+
   **Nothing changes for a single-schema app**: the top-level settings *are* the
   default graph, and top-level registrations still reach every graph, so a
   `register_scalar` in an initializer can't be dropped by declaring a second
