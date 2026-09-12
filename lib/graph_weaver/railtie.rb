@@ -191,6 +191,32 @@ class GraphWeaver::Railtie < Rails::Railtie
     GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
   end
 
+  # An APM sees every GraphQL call without the app configuring anything:
+  # the ActiveSupport::Notifications adapter from docs/logging.md, plus the
+  # LogSubscriber that turns its event into one line. Measured at ~4.5µs per
+  # execution all told (0.13µs of that ActiveSupport::Notifications itself
+  # with nothing subscribed; the rest is its Event machinery) — 0.05% of a
+  # 10ms round trip, so there is nothing to weigh.
+  #
+  # An instrumenter the app set is never replaced: assigned before this (in
+  # config/application.rb) the nil check leaves it, assigned after (in
+  # config/initializers, which run later) it wins on its own.
+  initializer "graph_weaver.instrumentation" do
+    next unless defined?(ActiveSupport::Notifications)
+
+    if GraphWeaver.instrumenter.nil?
+      GraphWeaver.instrumenter = lambda do |event, payload, &block|
+        ActiveSupport::Notifications.instrument(event, payload, &block)
+      end
+    end
+
+    # ActiveSupport::LogSubscriber is one of ActiveSupport's own eager
+    # autoloads, so naming it is enough — no require of theirs needed
+    require "graph_weaver/log_subscriber"
+    # idempotent — Subscriber.add_event_subscriber skips a pattern it already has
+    GraphWeaver::LogSubscriber.attach_to :graph_weaver
+  end
+
   # The app already declared what is sensitive, so variables logged at debug
   # honour the same list as its request logs — including the Procs and dotted
   # paths only ParameterFilter understands. after: :load_config_initializers,

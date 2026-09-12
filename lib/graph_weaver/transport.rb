@@ -56,7 +56,7 @@ class GraphWeaver::Transport
   # a raw query string falls back to the name in the document itself.
   def execute(query, variables: {}, operation_name: nil)
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
-    payload = { url:, operation: operation_name }
+    payload = { url:, operation: operation_name, client: self.class }
 
     GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
       perform(query, variables, operation_name, payload)
@@ -95,7 +95,7 @@ class GraphWeaver::Transport
       raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
     end
 
-    payload[:status] = status
+    payload[:http_status] = status
     GraphWeaver::Internal::Log.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
 
     parsed = parse_body(body)

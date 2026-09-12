@@ -101,7 +101,11 @@ class GraphWeaver::Retry
     loop do
       attempt += 1
       begin
-        response = @client.execute(query, variables:, operation_name:)
+        # each attempt is its own EXECUTE_EVENT; :retries says which one,
+        # so "slow" and "slow after two 502s" don't read the same in an APM
+        response = GraphWeaver::Internal::Log.with_retries(attempt - 1) do
+          @client.execute(query, variables:, operation_name:)
+        end
         return response unless attempt < attempts && retryable_response?(response)
       rescue *@retry_on => e
         if attempt >= attempts || !@retry_if.call(e)

@@ -191,12 +191,6 @@ Said plainly.
 - **No `@defer`, no file uploads, no persisted queries, no batching.** artemis
   has multiplex batching;<!-- lib/artemis/client.rb .multiplex --> this gem has
   none of the four.
-- **Nothing subscribes for you.** `GraphWeaver.instrumenter` is one callable
-  wrapping every request, and `ActiveSupport::Notifications` is a two-line
-  adapter ([logging](logging.md#instrumentation)) — but that's where it stops.
-  graphql-client emits `query.graphql` and `error.graphql` events, and artemis's
-  railtie wires a log subscriber on boot.<!-- lib/graphql/client.rb:362,381; lib/artemis/railtie.rb -->
-  For a gem that ships a railtie, the two lines could be zero.
 - **One author, and it's new.** First commit July 2026, 4 stars, pre-1.0, and 28
   breaking-change notes in the changelog so far.<!-- gh api repos/dpep/graph_weaver created_at 2026-07-07, stargazers_count 4; grep -c breaking CHANGELOG.md -->
   Codegen is unforgiving and there is a lot of surface to get wrong.

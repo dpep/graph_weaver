@@ -45,18 +45,20 @@ module GraphWeaver
 
     # One callable wrapping every request GraphWeaver makes — over the
     # wire or in-process — so an APM can time it and count errors. A
-    # no-op until you set one:
+    # no-op until you set one (Rails sets this one for you):
     #
     #      GraphWeaver.instrumenter = lambda do |event, payload, &block|
     #        ActiveSupport::Notifications.instrument(event, payload, &block)
     #      end
     #
-    # It must call the block and return its value. The only event today
-    # is EXECUTE_EVENT; its payload carries :url (nil in-process),
-    # :schema (in-process only), :operation (the document's operation
-    # name, nil for an anonymous one), and — added after the response
-    # lands — :status. Never the query text or the variables: those
-    # carry PII and belong at debug on the logger, where they're gated.
+    # It must call the block and return its value. The only event today is
+    # EXECUTE_EVENT; its payload is the contract in docs/logging.md —
+    # :operation, :client, :status, :duration_ms always; :url/:http_status
+    # over the wire, :schema in-process, :error/:code on a failure,
+    # :retries when a Retry wrapped it. Never the query text or the
+    # variables: the payload fans out to subscribers that know none of the
+    # filtering rules, so PII belongs at debug on the logger, where the
+    # level gates it and filter_parameters scrubs it.
     attr_accessor :instrumenter
   end
 
@@ -105,14 +107,21 @@ module GraphWeaver
   self.filter_parameters = DEFAULT_FILTER_PARAMETERS
 
   # The one instrumentation event: a single GraphQL request, start to
-  # parsed response, whichever client slot served it.
-  EXECUTE_EVENT = "graph_weaver.execute"
+  # parsed response, whichever client slot served it. `<event>.<namespace>`
+  # is how every notification in this ecosystem is spelled
+  # (sql.active_record, execute_multiplex.graphql) — it's what
+  # ActiveSupport::LogSubscriber.attach_to and an APM's namespace routing
+  # key on, so a backwards name made both of them a puzzle.
+  EXECUTE_EVENT = "execute.graph_weaver"
 
   module Internal
     # The emitting half of the narration the three accessors above
     # configure. Setting a logger is API; writing to it is not, and the
     # two read as a pair when they sit on the same object.
     module Log
+      # fiber-local, set only for the duration of one attempt (with_retries)
+      RETRIES = :graph_weaver_retries
+
       class << self
         # Level-gated and lazy — the block only runs when a logger is
         # listening. Messages carry "graph_weaver" as progname.
@@ -132,13 +141,56 @@ module GraphWeaver
           result
         end
 
-        # Wrap the block in the instrumenter, if one is set. The payload is
-        # a plain Hash the caller may add to inside the block.
+        # Wrap the block in the instrumenter, if one is set. The caller
+        # supplies what only it knows (:url, :schema, :client); this fills
+        # in the half every path shares — how it ended, how long it took,
+        # what a Retry had already spent — so one subscriber reads one
+        # shape whichever client slot served the request.
         def instrument(event, payload)
           hook = GraphWeaver.instrumenter
           return yield unless hook
 
-          hook.call(event, payload) { yield }
+          start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          retries = Thread.current[RETRIES]
+          payload[:retries] = retries if retries
+          # pessimistic, so :status is set even for what a rescue can't
+          # see — an Interrupt, a killed thread — and never silently absent
+          payload[:status] = :failed
+
+          hook.call(event, payload) do
+            result = yield
+            errors = response_errors(result)
+            if errors.empty?
+              payload[:status] = :ok
+            else
+              payload[:status] = :errors
+              payload[:code] = errors.grep(Hash).filter_map { |e| GraphWeaver::GraphQLError.from_h(e).code }.first
+            end
+            result
+          rescue => e
+            payload[:error] = e.class.name
+            # the one key an alert groups by, whichever kind of failure it was
+            payload[:code] = e.status if e.is_a?(GraphWeaver::ServerError)
+            raise
+          ensure
+            payload[:duration_ms] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000).round(2)
+          end
+        end
+
+        # What a Retry has already spent, read by the attempt it is about
+        # to make. A dynamic extent rather than a global: the count is only
+        # visible while the call it describes is on the stack, so a client
+        # that never reaches instrument can't leave a stale one behind.
+        def with_retries(count)
+          return yield unless GraphWeaver.instrumenter
+
+          previous = Thread.current[RETRIES]
+          Thread.current[RETRIES] = count
+          begin
+            yield
+          ensure
+            Thread.current[RETRIES] = previous
+          end
         end
 
         # The variables as one JSON line for a log: filtered, and unable to
@@ -162,6 +214,17 @@ module GraphWeaver
         end
 
         private
+
+        # The GraphQL errors a response carries, whatever answered it — a
+        # Hash from a transport, a graphql-ruby Result in-process, a fake.
+        # Never raises: an instrumenter that decides which exception a
+        # caller sees is worse than a missing tag.
+        def response_errors(result)
+          errors = result.to_h["errors"] if result.respond_to?(:to_h)
+          errors.is_a?(Array) ? errors : []
+        rescue StandardError
+          []
+        end
 
         def scrub(value, filters)
           case value

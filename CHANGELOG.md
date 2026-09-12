@@ -1,4 +1,50 @@
 ###  Unreleased
+<!-- lane: observability -->
+- **A Rails app now sees its GraphQL calls without configuring anything.** The
+  railtie sets `GraphWeaver.instrumenter` to the `ActiveSupport::Notifications`
+  adapter (an instrumenter the app set is never replaced) and attaches
+  `GraphWeaver::LogSubscriber`, so every execution — over the wire and
+  in-process — is one notification an APM can subscribe to and one line in the
+  log: `GraphWeaver PersonQuery (12.3ms) ok`, `… errors [THROTTLED]`, `…
+  failed GraphWeaver::TransportError`. **One rule: the summary is info, the
+  wire is debug** — this is the only GraphWeaver line at info, so a production
+  log gets one per operation and nothing that can carry PII, and turning the
+  logger up to debug adds the query and variables *beneath* it rather than
+  repeating it. The subscriber writes through `GraphWeaver.logger`, so
+  `GraphWeaver.logger = nil` still silences everything. Measured at ~4.5µs per
+  execution all told (0.13µs of that `ActiveSupport::Notifications` itself with
+  nothing subscribed), against a round trip measured in milliseconds.
+- **Breaking: `GraphWeaver::EXECUTE_EVENT` is now `"execute.graph_weaver"`,
+  and the payload `:status` is a Symbol.** `<event>.<namespace>` is how every
+  notification in this ecosystem is spelled (`sql.active_record`,
+  `execute_multiplex.graphql`) and it is what `LogSubscriber.attach_to` and an
+  APM's namespace routing key on — backwards, the gem could not attach its own
+  log subscriber without a puzzle. **Subscribe via the constant and nothing
+  changes**; a hardcoded `"graph_weaver.execute"` silently stops matching, so
+  grep for it. `:status` is now `:ok` / `:errors` (the response carried GraphQL
+  errors) / `:failed` (it raised) rather than the HTTP status, which moved to
+  `:http_status` — a 200 carrying errors is not a success, and only a symbol
+  says that on both sides of the seam.
+- **The instrumentation payload is a documented contract** ([logging](docs/logging.md#the-payload)),
+  the same shape whichever client slot ran the request: `:operation`,
+  `:client`, `:status` and `:duration_ms` always; `:url`/`:http_status` over
+  the wire, `:schema` in-process; `:error` (the exception's class name) and
+  `:code` — the first GraphQL error's code, or a `ServerError`'s status, the
+  one key to group an alert by — when there is one; and `:retries` under a
+  `Retry`, where each attempt is its own event reading 0, 1, 2, so a call that
+  took three goes no longer reads as three unrelated slow requests. The query
+  text and the variables are still deliberately absent, and now pinned by a
+  spec: `filter_parameters` governs the log, which GraphWeaver writes itself,
+  but the payload fans out to subscribers that know none of those rules.
+- **In-process no longer fakes `:status => 200`.** It was there so one
+  subscriber could read both sides of the seam; `:status` does that honestly
+  now, and `:http_status` is nil where there was no HTTP.
+- `docs/logging.md` gains the payload table, the log line, and two-line
+  adapters for OpenTelemetry (`in_span`) and Datadog (`Datadog::Tracing.trace`)
+  — both run against the real gems. Datadog's Net::HTTP and Faraday contribs
+  already trace the transport; the instrumenter adds the span *above* it, named
+  for the operation, which is the one that means anything when every call is a
+  POST to the same url.
 <!-- lane: unused -->
 - **New: `rake graph_weaver:unused`, the over-fetch the other checks can't see.**
   `verify` says the Ruby matches the query; this asks whether the query still

@@ -146,6 +146,7 @@ describe "GraphWeaver.logger" do
   end
 end
 
+
 describe "GraphWeaver.instrumenter" do
   include_context "graphql http server"
 
@@ -162,36 +163,84 @@ describe "GraphWeaver.instrumenter" do
     GraphWeaver.instrumenter = nil
   end
 
-  it "wraps a request over the wire, naming the operation and the status" do
+  def payload = events.first.last
+
+  it "wraps a request over the wire, naming the operation and how it ended" do
     result = GraphWeaver::Transport::HTTP.new(url).execute("query Wired { people { name } }")
 
     expect(result).to have_key "data" # the block's value passes through
     expect(events.size).to eq 1
-    event, payload = events.first
-    expect(event).to eq GraphWeaver::EXECUTE_EVENT
+    expect(events.first.first).to eq GraphWeaver::EXECUTE_EVENT
     expect(payload[:url]).to eq url
     expect(payload[:operation]).to eq "Wired"
-    expect(payload[:status]).to eq 200 # set inside the block, APM-style
+    expect(payload[:client]).to eq GraphWeaver::Transport::HTTP
+    expect(payload[:status]).to eq :ok
+    expect(payload[:http_status]).to eq 200
+    expect(payload[:duration_ms]).to be_a(Float).and be >= 0
   end
 
-  # one subscriber has to work both sides of the seam, so a success reports
-  # the status a 200 over the wire would
+  # the whole point of one seam: a subscriber reads one shape, and the keys
+  # that vary are the ones that can't mean anything on the other side
   it "wraps an in-process request through the same seam" do
     GraphWeaver::InProcess.new(Demo::Schema).execute("query Local { people { name } }")
 
-    _event, payload = events.first
     expect(payload[:schema]).to eq "Demo::Schema"
+    expect(payload[:client]).to eq GraphWeaver::InProcess
     expect(payload[:operation]).to eq "Local"
+    expect(payload[:status]).to eq :ok
     expect(payload[:url]).to be_nil
-    expect(payload[:status]).to eq 200
+    expect(payload[:http_status]).to be_nil
   end
 
-  it "carries the query text and variables nowhere near the payload (PII)" do
-    GraphWeaver::Transport::HTTP.new(url).execute(
-      "query { person(id: $id) { name } }", variables: { "id" => "1" }
+  # a 200 carrying GraphQL errors is not a success, and the code is what an
+  # alert groups by — a THROTTLED spike and a broken deploy look identical
+  # from the status alone
+  it "separates a response that carried GraphQL errors from a clean one" do
+    GraphWeaver::InProcess.new(Demo::Schema).execute("query Broken { nope }")
+
+    expect(payload[:status]).to eq :errors
+    expect(payload[:code]).to eq "undefinedField"
+  end
+
+  it "names the error class on a failure, and a ServerError's status as the code" do
+    bad = GraphWeaver::Transport::HTTP.new(throttled_url)
+
+    expect { bad.execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
+    expect(payload[:status]).to eq :failed
+    expect(payload[:error]).to eq "GraphWeaver::ServerError"
+    expect(payload[:code]).to eq 429
+    expect(payload[:duration_ms]).to be_a Float
+  end
+
+  # a retried call is three events, and without this they read as three
+  # unrelated slow requests rather than one that took three goes
+  it "counts the retries an attempt follows" do
+    client = GraphWeaver::Retry.new(
+      GraphWeaver::Transport::HTTP.new(throttled_url), retries: 2, sleeper: ->(_) {}
     )
 
-    expect(events.first.last.values.join).not_to include("person")
+    expect { client.execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
+    expect(events.map { |_, p| p[:retries] }).to eq [0, 1, 2]
+  end
+
+  # the count describes the call on the stack, so a client that never
+  # reaches the instrumenter can't leave a stale one for the next request
+  it "carries no retry count when nothing retried" do
+    GraphWeaver::Transport::HTTP.new(url).execute("query { people { name } }")
+
+    expect(payload).not_to have_key :retries
+  end
+
+  # The payload fans out to subscribers that know nothing of
+  # filter_parameters, so the rule can't be "scrub it" — it's "never put it
+  # there". An added key is a decision, not an accident.
+  it "carries the documented keys and nothing else" do
+    GraphWeaver::Transport::HTTP.new(url).execute(
+      "query Pinned($id: ID!) { person(id: $id) { name } }", variables: { "id" => "1" }
+    )
+
+    expect(payload.keys).to match_array %i[url operation client status http_status duration_ms]
+    expect(payload.values.join).not_to include("person", "id")
   end
 
   it "lets a failure propagate, so the hook can record it" do

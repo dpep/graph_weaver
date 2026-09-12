@@ -14,7 +14,7 @@ What logs at which level — pick the level, get the story:
 | Level | What you see |
 |-------|--------------|
 | `debug` | the wire: query + variables per call (long queries truncated), response status/bytes, request timing, connection open/drop, dynamically parsed modules |
-| `info` | schema introspection (with timing) and cache hits/misses, the transport a client built, generated files written and any unregistered scalars, query modules loaded, a retry's wait and attempt number — and in development, what's being watched and what a save regenerated |
+| `info` | one line per operation in Rails (see Instrumentation), schema introspection (with timing) and cache hits/misses, the transport a client built, generated files written and any unregistered scalars, query modules loaded, a retry's wait and attempt number — and in development, what's being watched and what a save regenerated |
 | `warn` | every GraphWeaver error raised — `TransportError`, `ServerError`, `QueryError`, `QueryValidationError`, `CastError` — registrations the schema being generated against can't match, a retry skipped because the operation was a mutation, and every fetch the test router answered with fabricated data |
 | `error` | development only: a `.graphql` edit that won't compile, with its file and position — the modules already loaded keep serving |
 
@@ -64,31 +64,105 @@ since `expected an Int, got "lots"` is the whole diagnosis.
 A logger tells a human what happened; an APM needs to time it and count
 it. `GraphWeaver.instrumenter` is one callable wrapping every request —
 over the wire *and* in-process, one seam for both paths. It's a no-op
-until you set one, and `ActiveSupport::Notifications` is a two-line
-adapter:
+until you set one, and in Rails the railtie sets the
+`ActiveSupport::Notifications` adapter for you:
 
 ```ruby
 GraphWeaver.instrumenter = lambda do |event, payload, &block|
   ActiveSupport::Notifications.instrument(event, payload, &block)
 end
+```
 
+An instrumenter you set yourself is never replaced. Yours **must** call
+the block and return its value; a failure propagates through it, so the
+hook sees the exception and can record it.
+
+The one event is `GraphWeaver::EXECUTE_EVENT` (`"execute.graph_weaver"`)
+— one request, start to parsed response, whichever client slot served
+it, so a single subscriber covers both sides of the seam:
+
+```ruby
 ActiveSupport::Notifications.subscribe(GraphWeaver::EXECUTE_EVENT) do |*, payload|
-  StatsD.timing("graphql.#{payload[:operation] || "anonymous"}", ...)
+  StatsD.timing("graphql.#{payload[:operation] || "anonymous"}", payload[:duration_ms],
+    tags: ["status:#{payload[:status]}", "code:#{payload[:code]}"])
 end
 ```
 
-The one event is `GraphWeaver::EXECUTE_EVENT`
-(`"graph_weaver.execute"`), a single request from start to parsed
-response. Its payload carries:
+### The payload
 
-| Key | |
-|-----|--|
-| `:url` | the endpoint — nil in-process |
-| `:schema` | the schema class's name, in-process only — a String, so a payload logs as it stands |
-| `:operation` | the operation name sent with the request (a generated module always has one) — what a trace keys on |
-| `:status` | the HTTP status, added once the response lands |
+| Key | When | |
+|-----|------|--|
+| `:operation` | always | the operation name sent with the request, nil for an anonymous document — what a trace keys on (a generated module always has one) |
+| `:client` | always | the class that ran it: `GraphWeaver::Transport::HTTP`, `GraphWeaver::InProcess`, your own |
+| `:status` | always | `:ok`, `:errors` (a response carrying GraphQL errors), or `:failed` (it raised) |
+| `:duration_ms` | always | start to parsed response |
+| `:url` | over the wire | the endpoint; nil in-process |
+| `:http_status` | over the wire | what the server answered with, success or not; nil in-process |
+| `:schema` | in-process | the schema class's name, as a String, so a payload logs as it stands |
+| `:code` | when there is one | the machine-readable reason — the first GraphQL error's `code`, or a `ServerError`'s status. The one key to group an alert by |
+| `:error` | on `:failed` | the exception's class name |
+| `:retries` | under a `Retry` | how many retries this attempt follows. Each attempt is its own event, so one retried call is three events reading 0, 1, 2 — present at 0 rather than absent, so its absence means nothing was retrying |
 
-Your callable **must** call the block and return its value. A failure
-propagates through it, so the hook sees the exception and can record it.
-The query text and the variables are deliberately absent: they carry
-PII, and belong at debug on the logger where the level gates them.
+Every key is filled in before your callable's block returns, so a
+subscriber reads a complete payload. `ActiveSupport::Notifications` adds
+`:exception` and `:exception_object` of its own when the block raises.
+
+**Never the query text or the variables.** `filter_parameters` scrubs
+what reaches the log, which GraphWeaver writes itself; the payload fans
+out to subscribers that know none of those rules, so here the rule isn't
+"scrub it", it's that it was never there. Queries and variables stay at
+debug on the logger, where the level gates them.
+
+### One line per operation
+
+In Rails the railtie also attaches `GraphWeaver::LogSubscriber`, which
+turns each event into one line — the shape ActiveRecord uses for a query:
+
+```
+GraphWeaver PersonQuery (12.3ms) ok
+GraphWeaver PersonQuery (8.1ms) errors [THROTTLED]
+GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::TransportError
+GraphWeaver PersonQuery (5.0ms) ok (retry 2)
+```
+
+**One rule: the summary is info, the wire is debug.** This is the only
+GraphWeaver line at info, so a production log gets one per operation and
+nothing that can carry PII; turning the logger up to debug adds the
+query, the variables and the response *beneath* it rather than repeating
+it. It writes through `GraphWeaver.logger`, so `GraphWeaver.logger = nil`
+silences this along with everything else.
+
+### OpenTelemetry
+
+```ruby
+tracer = OpenTelemetry.tracer_provider.tracer("graph_weaver")
+
+GraphWeaver.instrumenter = lambda do |_event, payload, &block|
+  tracer.in_span("graphql #{payload[:operation] || "query"}") do |span|
+    block.call
+  ensure
+    span.add_attributes(payload.compact.transform_keys { "graphql.#{_1}" }.transform_values(&:to_s))
+  end
+end
+```
+
+`ensure` rather than after the call: the payload is only complete once
+the block has returned, and a failed span needs the attributes most.
+`in_span` records the exception and sets the span status itself.
+
+### Datadog
+
+```ruby
+GraphWeaver.instrumenter = lambda do |event, payload, &block|
+  Datadog::Tracing.trace(event, resource: payload[:operation], service: "graphql") do |span|
+    block.call
+  ensure
+    payload.compact.each { |key, value| span.set_tag("graphql.#{key}", value.to_s) }
+  end
+end
+```
+
+Datadog's Net::HTTP and Faraday contribs already trace the transport
+layer, so with them on you have a span for the POST. This adds the span
+*above* it, named for the operation — the one that means anything, since
+every GraphQL call is a POST to the same url.

@@ -406,7 +406,7 @@ describe "GraphWeaver::Railtie" do
 
   it "loads generated modules at boot when the directory exists" do
     expect(RAILTIE_INITIALIZERS.keys).to eq %w[
-      graph_weaver.ignore_generated graph_weaver.logger
+      graph_weaver.ignore_generated graph_weaver.logger graph_weaver.instrumentation
       graph_weaver.filter_parameters graph_weaver.watch graph_weaver.load_generated
     ]
 
@@ -793,6 +793,70 @@ describe "GraphWeaver::Railtie" do
       GraphWeaver::Railtie.watcher.updated = true
       prepared.each(&:call)
       expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
+    end
+  end
+
+  # An app that installs the gem and configures nothing should still be able
+  # to see its GraphQL calls — an APM, and one log line per operation.
+  describe "instrumentation" do
+    # ActiveSupport::Notifications, in the one call the railtie makes of it.
+    # Stubbed per example rather than globally: other gems feature-detect
+    # that constant, and a suite-wide stand-in would change what they do.
+    let(:notifications) do
+      Class.new do
+        def self.published = @published ||= []
+
+        def self.instrument(name, payload)
+          published << [name, payload]
+          yield
+        end
+      end
+    end
+
+    before { stub_const("ActiveSupport::Notifications", notifications) }
+
+    after { GraphWeaver.instrumenter = nil }
+
+    def boot = RAILTIE_INITIALIZERS["graph_weaver.instrumentation"].call
+
+    it "wires the ActiveSupport::Notifications adapter" do
+      boot
+      GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, { operation: "Q" }) { :done }
+
+      expect(notifications.published.map(&:first)).to eq [GraphWeaver::EXECUTE_EVENT]
+      expect(notifications.published.first.last).to include(operation: "Q", status: :ok)
+    end
+
+    # an app with its own APM hook keeps it — assigned before this (in
+    # config/application.rb) the nil check leaves it, assigned after (in
+    # config/initializers) it wins on its own
+    it "never replaces an instrumenter the app set" do
+      mine = ->(_event, _payload, &block) { block.call }
+      GraphWeaver.instrumenter = mine
+
+      boot
+
+      expect(GraphWeaver.instrumenter).to be mine
+    end
+
+    # attach_to subscribes "#{method}.#{namespace}" and ActiveSupport::
+    # Subscriber#call dispatches on the half before the dot — so the event
+    # name, the namespace, and the method name are one decision, and a
+    # rename of any of them silently unsubscribes the log line.
+    it "attaches the log subscriber to the namespace EXECUTE_EVENT names" do
+      boot
+
+      expect(GraphWeaver::LogSubscriber.attached).to include :graph_weaver
+      expect(GraphWeaver::EXECUTE_EVENT).to eq "execute.graph_weaver"
+      expect(GraphWeaver::LogSubscriber.public_method_defined?(:execute)).to be true
+    end
+
+    it "does nothing where ActiveSupport isn't" do
+      hide_const("ActiveSupport::Notifications")
+
+      boot
+
+      expect(GraphWeaver.instrumenter).to be_nil
     end
   end
 

@@ -51,16 +51,16 @@ class GraphWeaver::InProcess
 
   def execute(query, variables: {}, operation_name: nil)
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
-    payload = { url: nil, schema: @schema.to_s, operation: operation_name }
+    payload = { url: nil, schema: @schema.to_s, operation: operation_name, client: self.class }
 
     GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
-      perform(query, variables, operation_name, payload)
+      perform(query, variables, operation_name)
     end
   end
 
   # The query itself. Separate from execute so the instrumenter wraps a
   # call rather than a block this method returns out of.
-  private def perform(query, variables, operation_name, payload)
+  private def perform(query, variables, operation_name)
     # same tag/truncation as the network transports, so one log reads the
     # same whichever side of the seam a query ran on
     tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
@@ -77,10 +77,6 @@ class GraphWeaver::InProcess
         context: GraphWeaver::Internal::Util.context!(@context).dup)
     end
 
-    # the same key the network transports set, so one instrumenter
-    # subscriber reads both sides of the seam without branching — a
-    # resolver raise rides the ServerError(500) the hook already sees
-    payload[:status] = 200
     result
   rescue GraphWeaver::Error
     raise

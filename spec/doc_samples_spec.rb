@@ -43,9 +43,6 @@ module DocSamples
     "docs/i18n.md" => [
       ["# before the wire", "two call sites, each shown without the method around it"],
     ],
-    "docs/logging.md" => [
-      ["StatsD.timing", "... for the tags you'd send"],
-    ],
     "docs/transports.md" => [
       ["headers: { ... },", "... for the headers, and for the app default"],
       ["retry_if:", "... for the body of the predicate"],
