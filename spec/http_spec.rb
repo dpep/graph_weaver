@@ -1,6 +1,7 @@
 require "socket"
 require "tempfile"
 require "webrick/https"
+require_relative "generated/add_pet_mutation"
 require_relative "generated/person_query"
 require_relative "generated/search_query"
 
@@ -163,6 +164,48 @@ describe GraphWeaver::Transport::HTTP do
 
     it "rejects a pool that can't hold a connection" do
       expect { described_class.new(url, pool_size: 0) }.to raise_error(ArgumentError, /pool_size/)
+    end
+
+    # The documented boot path — Puma preload_app! plus an initializer that
+    # introspects — leaves a warm socket in the pool at fork time, and every
+    # worker inherits that one fd. Without a per-process check they interleave
+    # requests on it and a caller receives a well-formed answer to ANOTHER
+    # process's query, with no exception anywhere.
+    it "never lets a forked child use the parent's socket", if: Process.respond_to?(:fork) do
+      # read_timeout so a regression fails in seconds: a child reading another
+      # process's socket usually blocks rather than erroring
+      transport = described_class.new(url, pool_size: 4, read_timeout: 5)
+      AddPetMutation.execute(client: transport, name: "parent", species: "DOG")
+      expect(transport.instance_variable_get(:@idle).size).to eq 1
+
+      read, write = IO.pipe
+      3.times do
+        fork do
+          read.close
+          begin
+            # addPet echoes the name back, so a response belonging to another
+            # process shows up as a value this one never sent
+            crossed = Array.new(4) { |thread|
+              Thread.new do
+                (1..5).count do |i|
+                  sent = "#{Process.pid}-#{thread}-#{i}"
+                  AddPetMutation.execute(client: transport, name: sent, species: "DOG").data!.add_pet.name != sent
+                end
+              end
+            }.sum(&:value)
+            write.puts crossed
+          rescue Exception => e # rubocop:disable Lint/RescueException
+            write.puts "#{e.class}: #{e.message}"
+          end
+          write.close
+          exit!(0)
+        end
+      end
+      write.close
+      reported = read.read.split("\n")
+      Process.waitall
+
+      expect(reported).to eq %w[0 0 0]
     end
   end
 

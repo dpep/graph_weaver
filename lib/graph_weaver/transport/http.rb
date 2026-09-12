@@ -74,7 +74,8 @@ module GraphWeaver
         # live connections, LIFO — a warm socket beats opening a cold one,
         # so a single-threaded caller keeps reusing the same one
         @idle = []
-        @lock = Mutex.new # guards @idle and @saturated
+        @pid = Process.pid
+        @lock = Mutex.new # guards @idle, @pid and @saturated
       end
 
       private
@@ -105,6 +106,7 @@ module GraphWeaver
       # the whole trip — opening the socket included — so pool_size really
       # is the concurrency ceiling.
       def with_connection
+        @lock.synchronize { reset_after_fork }
         acquire_permit
         # nothing between acquiring the permit and the ensure that returns it:
         # an async interrupt (Rack::Timeout, a fiber cancel) landing in that
@@ -125,6 +127,24 @@ module GraphWeaver
         ensure
           @permits.push(true)
         end
+      end
+
+      # A pool belongs to the process that built it. A socket idle at fork
+      # time is inherited by every child — and nothing in a round trip says
+      # which process opened it, so workers interleave requests on one fd and
+      # a caller receives a well-formed answer to another process's query.
+      # The inherited sockets are dropped WITHOUT #finish (closing would take
+      # down the fd the parent is still using; they go with the child when it
+      # exits), and the permits are rebuilt, since any held at fork time went
+      # with the threads that held them.
+      def reset_after_fork
+        return if @pid == Process.pid
+
+        @idle.clear
+        @permits = SizedQueue.new(@pool_size)
+        @pool_size.times { @permits.push(true) }
+        @saturated = false
+        @pid = Process.pid
       end
 
       # A fresh persistent connection. net/http proactively reconnects

@@ -86,6 +86,17 @@
   README + `docs/` and resolves every link between them, so the next one
   can't ship.
 <!-- /lane: docs -->
+<!-- lane: transport -->
+- **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
+  time was inherited by every child, and a round trip carries nothing saying
+  which process opened it — so forked workers interleaved requests on one fd and
+  a caller could receive a well-formed GraphQL response to *another process's*
+  query, with no exception anywhere. The trigger is the documented boot path:
+  Puma `preload_app!` (or Sidekiq) plus an initializer that introspects, which
+  leaves exactly one warm socket in the pool. The pool now belongs to the
+  process that built it — on the first request after a fork the inherited
+  sockets are abandoned (not closed: that would take down the fd the parent is
+  still using) and the pool's permits are rebuilt.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
