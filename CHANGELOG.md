@@ -118,6 +118,20 @@
   `Federation::Drift` needs `require "graph_weaver/federation"` — and
   `spec/doc_samples_spec.rb` parses every fenced Ruby sample in README +
   `docs/` and resolves every link between them, so the next one can't ship.
+- **A graph declared from `config.to_prepare` is watched in development**: its
+  query directories reach the file watcher, so an edit to its `.graphql`
+  regenerates before the next request. The watcher was built from an
+  initializer, before any `to_prepare` block had run.
+- **A graph declared from `config.to_prepare` whose `output` lies outside
+  `GraphWeaver.generated_paths` is refused at boot**, naming the graph and the
+  two fixes. Rails sets Zeitwerk up before `to_prepare` runs and Zeitwerk reads
+  its ignore list only then, so such a directory cannot be hidden from
+  autoloading — it used to fail in every environment with a Zeitwerk error that
+  blamed a dropped `extend_type`.
+- **`config.graph_weaver` refuses a key the railtie doesn't read.** It takes
+  `watch`; `config.graph_weaver.queries_paths = ...` was taken silently and did
+  nothing. The refusal names `GraphWeaver.queries_paths =` as the setting that
+  works.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

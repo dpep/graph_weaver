@@ -340,10 +340,14 @@ end
 ```
 
 Re-running is safe — the name is the identity, so the second declaration
-replaces the first — but `to_prepare` runs too late for watch mode to see the
-graph: an edit to that graph's `.graphql` won't regenerate on the next request.
-An `output` under the conventional `app/graphql/*/generated` is still hidden
-from eager loading.
+replaces the first — and watch mode sees the graph either way.
+
+One constraint: `to_prepare` runs after Rails has set Zeitwerk up, and Zeitwerk
+reads its ignore list only then, so an `output` declared there can't be hidden
+from autoloading. Under the conventional `app/graphql/*/generated` it already
+is; anywhere else is refused at boot, naming the two fixes — declare the graph
+in `config/initializers` with `schema -> { Billing::Schema }`, or add the
+directory to `GraphWeaver.generated_paths` there.
 
 Two things are worth knowing:
 
