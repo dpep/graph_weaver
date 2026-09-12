@@ -25,6 +25,7 @@ end
 
 it "renders the empty state", graphql: :fake do … end
 it "authorizes drafts",       graphql: :in_process do … end
+it "sends the caller tag",    graphql: :wire do … end
 ```
 
 | mode | reach for it when | what it costs |
@@ -32,6 +33,7 @@ it "authorizes drafts",       graphql: :in_process do … end
 | [`:fake`](#fabricated-data--graphql-fake) | most unit tests — you need *a* well-shaped response | no resolver code runs |
 | [`:in_process`](#real-resolvers--graphql-in_process) | the point of the test is that your resolver logic works | slower; needs a live schema class |
 | [`:router`](#a-federated-graph--graphql-router) | the same, across a federated graph | needs a composed supergraph; [refuses](federation.md#what-it-refuses) shapes it can't plan faithfully |
+| [`:wire`](#over-the-wire--graphql-wire) | the test is about your own transport — headers, middleware, deserialization | needs webmock and an http client |
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
 The tag installs its client as `GraphWeaver.client` for that example, so

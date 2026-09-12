@@ -40,12 +40,14 @@ Gem::Specification.new do |s|
   s.add_development_dependency "debug"
   s.add_development_dependency "faker"
   s.add_development_dependency "faraday"
+  s.add_development_dependency "rack" # WebMock's to_rack needs it; webmock doesn't depend on it
   s.add_development_dependency "rake"
   s.add_development_dependency "redcarpet" # yard --markup markdown
   s.add_development_dependency "rspec"
   s.add_development_dependency "simplecov"
   s.add_development_dependency "sorbet"
   s.add_development_dependency "tapioca"
+  s.add_development_dependency "webmock" # graphql: :wire serves its Rack app through it
   s.add_development_dependency "webrick"
   s.add_development_dependency "yard"
 end

@@ -52,7 +52,9 @@ module GraphWeaver
     #      :fake        fabricated, schema-correct data; no resolvers run
     #      :in_process  your resolvers, one live schema class, in-process
     #      :router      your resolvers, across a federated graph
-    CLIENT_MODES = %i[fake in_process router].freeze
+    #      :wire        your resolvers, served at your client's endpoint so
+    #                   your real transport runs
+    CLIENT_MODES = %i[fake in_process router wire].freeze
 
     class Config
       attr_accessor :overrides, :seed, :list_size, :cassette_dir, :context,
@@ -151,6 +153,16 @@ module GraphWeaver
         )
       end
 
+      # Whether there is a composed supergraph to plan against — what
+      # decides whether :wire serves the router or the live schema class,
+      # the same question :router and :in_process each answer for themselves.
+      def supergraph?
+        supergraph!
+        true
+      rescue GraphWeaver::Error
+        false
+      end
+
       # The composed supergraph :router plans against — named, or the
       # conventional dump when that's what it is. A client can't supply
       # one: its schema is the API schema a router serves, with the
@@ -159,7 +171,7 @@ module GraphWeaver
         return @router[:supergraph] if @router&.key?(:supergraph)
 
         path = GraphWeaver::SchemaLoader.locate_path
-        return path if path && supergraph?(path)
+        return path if path && composed?(path)
 
         raise GraphWeaver::Error, ":router needs the composed supergraph SDL — a client's schema " \
           "is the API schema the router serves, with the @join__* routing table stripped out, so " \
@@ -218,7 +230,9 @@ module GraphWeaver
         schema if schema.is_a?(Class) && schema <= GraphQL::Schema
       end
 
-      def supergraph?(source)
+      # whether this source carries the @join__* routing table, i.e. is a
+      # composed supergraph rather than an API schema
+      def composed?(source)
         GraphWeaver::SchemaLoader.routing_table(source)
         true
       rescue GraphWeaver::Error

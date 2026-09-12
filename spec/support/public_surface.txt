@@ -336,6 +336,7 @@ GraphWeaver::Testing::Config#schema=
 GraphWeaver::Testing::Config#schema_class!
 GraphWeaver::Testing::Config#seed
 GraphWeaver::Testing::Config#seed=
+GraphWeaver::Testing::Config#supergraph?
 GraphWeaver::Testing::Coverage (Class)
 GraphWeaver::Testing::Coverage#elsewhere
 GraphWeaver::Testing::Coverage#inspect
@@ -383,14 +384,18 @@ GraphWeaver::Testing::MissingRecording.recorded_summary
 GraphWeaver::Testing::RSpecIntegration (Module)
 GraphWeaver::Testing::RSpecIntegration.client_for
 GraphWeaver::Testing::RSpecIntegration.context!
+GraphWeaver::Testing::RSpecIntegration.endpoint!
 GraphWeaver::Testing::RSpecIntegration.install
 GraphWeaver::Testing::RSpecIntegration.mode_for
+GraphWeaver::Testing::RSpecIntegration.serve!
 GraphWeaver::Testing::RSpecIntegration.set_context
+GraphWeaver::Testing::RSpecIntegration.unserve!
 GraphWeaver::Testing::RSpecIntegration::Helpers (Module)
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_context
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_fake
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_in_process
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_router
+GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_wire
 GraphWeaver::Testing::RSpecIntegration::TAG = Symbol
 GraphWeaver::Testing::Recorder (Class)
 GraphWeaver::Testing::Recorder#execute

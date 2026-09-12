@@ -406,7 +406,7 @@ describe GraphWeaver::Testing do
     it "keeps values: and the client mode apart" do
       expect {
         GraphWeaver::Testing.configure { |config| config.default_mode = :faker }
-      }.to raise_error(ArgumentError, /default_mode: must be one of \[:fake, :in_process, :router\]/)
+      }.to raise_error(ArgumentError, /default_mode: must be one of \[:fake, :in_process, :router, :wire\]/)
     end
 
     it "applies values: to what a fake fabricates" do
