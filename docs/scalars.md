@@ -35,8 +35,12 @@ schemas call an ISO 8601 timestamp.
 | `BigInt` | `Integer` | the decimal string graphql-ruby writes; a JSON number is read too |
 | `JSON` | `T.untyped` | whatever it is, untouched |
 
-A date stays a `Date` and a timestamp a `Time`, deliberately: casting a date to
-`Time` invents a midnight the server never sent. A schema that means something
+A date stays a `Date` and a timestamp a `Time`, deliberately, and that holds in
+both directions: casting a date to `Time` invents a midnight the server never
+sent, and sending a `Time` for a date variable drops the time of day. Give one
+for the other and it is refused, naming the class —
+`$on of Report: expected a Date, got a Time — pass .to_date if dropping the
+time of day is what you meant`. A schema that means something
 else by one of these names fails loudly — the cast raises, naming the field —
 and one `register_scalar` overrides it, like any other entry. Names that are
 *not* a convention (`Timestamp`, `UUID`, `URL`, `Decimal`, `Money`) are left to
@@ -53,6 +57,7 @@ stands alone.
 | Ruby type | cast | serialize | require |
 |---|---|---|---|
 | `BigDecimal` | `BigDecimal(v)` | `v.to_s("F")` | `bigdecimal` |
+| `Float` | `GraphWeaver::Coerce.float(v)` | — | — |
 | `Date` | `Date.iso8601(v)` | `v.strftime("%F")` | `date` |
 | `Time` | `Time.parse(v)` | `v.iso8601` | `time` |
 | `DateTime` | `DateTime.iso8601(v)` | `v.iso8601` | `date` |
@@ -242,8 +247,8 @@ the sig is `.checked(:never)`).
 | `String` | `String` | nothing | the string |
 | `ID` | `String` | an `Integer` — `execute(id: user.id)` | the string |
 | `Boolean` | `true`/`false` | nothing | the boolean |
-| `Date` | `Date` | an ISO-8601 string, a `DateTime` (its date) | `"2024-01-15"` |
-| `Time` | `Time` | a string `Time.parse` takes | `iso8601` |
+| `Date` | `Date` | an ISO-8601 string | `"2024-01-15"` |
+| `Time` | `Time` | a string `Time.parse` takes, a `DateTime`, `Time.zone.now` | `iso8601` |
 | `BigInt` | `Integer` | a decimal string | the decimal string, which is what the server writes |
 | an enum | the member **or** its wire value | — | the wire value |
 | an input object | the struct **or** a Hash | — | the wire hash |
@@ -256,7 +261,11 @@ and `execute(id: user.id)` off a model is the everyday call; `String` gets no
 such license, since an `Integer` where a `String` belongs is more often a bug
 than a spelling. **`Boolean` takes no string** — Ruby has no `Kernel#Boolean`,
 so every rule for reading `"0"`, `"off"`, `"no"` is somebody's convention, and
-the library will not pick one for you; convert at the call site.
+the library will not pick one for you; convert at the call site. **A `Date` and
+a `Time` are not each other** — one converts to the other only by dropping the
+time of day or inventing a midnight, so a cross-type value is refused rather
+than truncated. What *is* accepted for a `Time` is anything that already is one:
+a `DateTime`, or the `ActiveSupport::TimeWithZone` that `Time.zone.now` returns.
 
 Anything the table refuses raises `GraphWeaver::InputError` naming the variable,
 the operation and the value — `$count of Compute: expected an Int, got "lots"`

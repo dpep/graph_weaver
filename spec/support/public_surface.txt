@@ -85,10 +85,12 @@ GraphWeaver::Codegen::CONSTANT_NAME = Regexp
 GraphWeaver::Codegen::DOCUMENT_GLOB = String
 GraphWeaver::Coerce (Module)
 GraphWeaver::Coerce.boolean
+GraphWeaver::Coerce.date
 GraphWeaver::Coerce.float
 GraphWeaver::Coerce.id
 GraphWeaver::Coerce.integer
 GraphWeaver::Coerce.string
+GraphWeaver::Coerce.time
 GraphWeaver::Coerce.variable
 GraphWeaver::Coerce::INTEGER = Regexp
 GraphWeaver::Coerce::NUMBER = Regexp

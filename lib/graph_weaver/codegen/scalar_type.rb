@@ -61,6 +61,8 @@ class GraphWeaver::Codegen
       "Float" => "float",
       "String" => "string",
       "T::Boolean" => "boolean",
+      "Date" => "date",
+      "Time" => "time",
     }.freeze
 
     # What the library already knows about a Ruby type, so registering one

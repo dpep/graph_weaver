@@ -129,6 +129,20 @@
   `Float::INFINITY` is refused as well as a string that parses to one — and
   `register_scalar "Ratio", Float` now reads a whole number off the wire
   exactly as the built-in `Float` does, which it didn't before.
+- **A date and a timestamp are refused for each other, both ways.** v0.7.0 made
+  a date stay a `Date` and a timestamp a `Time` off the wire; the same rule now
+  holds for variables. A `Time` (or `Time.zone.now`) for an `ISO8601Date` used
+  to surface Ruby's raw *"no implicit conversion of Time into String"*, and a
+  `Date` for an `ISO8601DateTime` likewise. Both now raise an `InputError`
+  naming the variable and the class: `$on of Report: expected a Date, got a
+  Time — pass .to_date if dropping the time of day is what you meant`.
+
+  **This replaces v0.7.0's "a `DateTime` given for a `Date` variable is sent as
+  a date"**, which was the same silent truncation arriving through Ruby's
+  `DateTime < Date`: `.to_date` at the call site says you meant it. What a
+  timestamp variable now *accepts* grew to match — a `DateTime` and the
+  `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert losslessly,
+  and both used to raise.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

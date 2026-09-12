@@ -1,6 +1,15 @@
 # typed: false
 require "bigdecimal"
+require "delegate"
 require "graphql"
+
+# What ActiveSupport::TimeWithZone is — the everyday value `Time.zone.now`
+# hands you: not a Time, acts_like? one, converts to one losslessly. (The
+# real class also answers is_a?(Time); nothing here leans on that.)
+class TimeWithZoneAlike < SimpleDelegator
+  def acts_like?(sym) = sym == :time
+  def to_time = __getobj__
+end
 
 # A rich Ruby value object we want GraphQL `Money` fields cast into, backed
 # by BigDecimal, plus a tiny in-process schema exposing a `Money` custom
@@ -402,7 +411,7 @@ describe "custom scalar deserialization" do
         scalar DateTime
         scalar BigInt
         scalar JSON
-        type Query { event: Event! echo(d: ISO8601Date): String }
+        type Query { event: Event! echo(d: ISO8601Date, t: ISO8601DateTime): String }
         type Event { on: ISO8601Date at: ISO8601DateTime seen: DateTime count: BigInt meta: JSON }
       GRAPHQL
     end
@@ -433,21 +442,59 @@ describe "custom scalar deserialization" do
       expect(GraphWeaver::Codegen.scalar("ISO8601DateTime").type).to eq "Time"
     end
 
-    # DateTime < Date, so it passes the is_a? guard as a Date — and its own
-    # #iso8601 writes a timestamp where the schema said a date goes
-    it "sends a DateTime given for a Date variable as a date" do
-      spy = Class.new do
-        attr_reader :variables
-        def execute(_query, variables:, operation_name: nil)
-          @variables = variables
-          { "data" => { "echo" => "ok" } }
-        end
-      end.new
-      mod = GraphWeaver.parse(schema:, client: spy, query: "query On($d: ISO8601Date) { echo(d: $d) }")
+    # A date stays a Date and a timestamp a Time, at the door as well as off
+    # the wire: converting one into the other drops the time of day or
+    # invents a midnight, and doing that quietly is how a query silently
+    # widens the window it filters on.
+    describe "a date and a timestamp are not each other" do
+      let(:spy) do
+        Class.new do
+          attr_reader :variables
+          def execute(_query, variables:, operation_name: nil)
+            @variables = variables
+            { "data" => { "echo" => "ok" } }
+          end
+        end.new
+      end
+      let(:on) { GraphWeaver.parse(schema:, client: spy, query: "query On($d: ISO8601Date) { echo(d: $d) }") }
+      let(:at) { GraphWeaver.parse(schema:, client: spy, query: "query At($t: ISO8601DateTime) { echo(t: $t) }") }
+      let(:noon) { Time.utc(2024, 1, 15, 12, 30, 45) }
 
-      mod.execute(d: DateTime.new(2024, 1, 15, 10, 20, 30))
+      it "refuses a timestamp for a Date variable, whatever class it arrives in" do
+        expect { on.execute(d: noon) }.to raise_error(
+          GraphWeaver::InputError, /\$d of On: expected a Date, got a Time — pass \.to_date/
+        )
+        expect { on.execute(d: DateTime.new(2024, 1, 15, 12, 30, 45)) }
+          .to raise_error(GraphWeaver::InputError, /expected a Date, got a DateTime/)
+        expect { on.execute(d: TimeWithZoneAlike.new(noon)) }
+          .to raise_error(GraphWeaver::InputError, /expected a Date, got a TimeWithZoneAlike/)
+      end
 
-      expect(spy.variables).to eq("d" => "2024-01-15")
+      it "refuses a Date for a timestamp variable rather than inventing a midnight" do
+        expect { at.execute(t: Date.new(2024, 1, 15)) }.to raise_error(
+          GraphWeaver::InputError, /\$t of At: expected a Time, got a Date — a Date has no time of day/
+        )
+      end
+
+      it "takes what converts without inventing or dropping anything" do
+        at.execute(t: TimeWithZoneAlike.new(noon))
+        expect(spy.variables).to eq("t" => "2024-01-15T12:30:45Z")
+
+        at.execute(t: DateTime.new(2024, 1, 15, 12, 30, 45))
+        expect(spy.variables).to eq("t" => "2024-01-15T12:30:45+00:00")
+      end
+
+      it "still takes the type the schema asked for, and the string form" do
+        on.execute(d: Date.new(2024, 1, 15))
+        expect(spy.variables).to eq("d" => "2024-01-15")
+        on.execute(d: "2024-01-15")
+        expect(spy.variables).to eq("d" => "2024-01-15")
+
+        at.execute(t: noon)
+        expect(spy.variables).to eq("t" => "2024-01-15T12:30:45Z")
+        at.execute(t: "2024-01-15T12:30:45Z")
+        expect(spy.variables).to eq("t" => "2024-01-15T12:30:45Z")
+      end
     end
 
     it "is overridden by a registration, like any other entry" do
@@ -495,8 +542,11 @@ describe "custom scalar deserialization" do
         GraphWeaver.register_scalar("Probe", Object.const_get(type))
         scalar = GraphWeaver::Codegen.scalar("Probe")
 
+        # an em dash is the table's "nothing here"
+        serialize, requires = [serialize, requires].map { |cell| cell unless cell == "—" }
+
         expect([scalar.cast("v"), scalar.serialize("v"), scalar.requires])
-          .to eq [cast, serialize, [requires]]
+          .to eq [cast, serialize, Array(requires)]
       end
     end
   end
