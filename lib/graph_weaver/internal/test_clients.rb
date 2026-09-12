@@ -25,7 +25,16 @@ module GraphWeaver
     module TestClients
       class << self
         # Install `mode` for one example — nil installs nothing.
+        #
+        # Installing the mode already installed keeps the table, so a second
+        # helper ADDS a stand-in for its graph rather than clearing the
+        # first's — and a graphql_context set before a helper survives it. A
+        # contradicting mode is refused by claim_mode! before it gets here;
+        # the hook that installs the example's mode runs after reset!, with
+        # nothing to keep.
         def install(mode)
+          return if installed? && @mode == mode
+
           @mode = mode
           @clients = {}
           @context = nil

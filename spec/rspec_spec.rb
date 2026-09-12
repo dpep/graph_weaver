@@ -199,6 +199,20 @@ describe "graph_weaver/rspec" do
       expect { graphql_fake(schema: RouterGraph::Reviews::Schema) }
         .to raise_error(GraphWeaver::Error, /names none of this app's graphs.*:drafts, :pets/m)
     end
+
+    # one helper per graph is the shape this app has: the second used to
+    # reinstall the mode and clear the table, so the first graph's pins were
+    # silently gone and the example asserted on fabricated defaults
+    it "keeps the first graph's pins when a second helper names the other", graphql: :fake do
+      drafts = module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "DraftsBoth")
+      pets = module_for(:pets, Demo::Schema, "query { person(id: 1) { name } }", "PetsBoth")
+
+      graphql_fake({ "Draft.owner" => "ada" }, schema: DraftsDemo::Schema)
+      graphql_fake({ "Person.name" => "Grace" }, schema: Demo::Schema)
+
+      expect(drafts.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+      expect(pets.execute!.person&.name).to eq "Grace"
+    end
   end
 
   # Every helper writes to the same slot a module reads, so what an example
@@ -223,6 +237,24 @@ describe "graph_weaver/rspec" do
       graphql_context(current_user: "alice")
 
       expect(drafts.execute!.drafts.map(&:id)).to eq %w[d1 d2]
+    end
+
+    # the other order, and the one a `before { graphql_context … }` produces:
+    # the helper used to reinstall the mode, which dropped the context, and
+    # the resolvers ran unauthenticated with nothing said
+    it "reaches the resolvers when the context is set first", graphql: :in_process do
+      graphql_context(current_user: "alice")
+      graphql_in_process(DraftsDemo::Schema)
+
+      expect(drafts.execute!.drafts.map(&:id)).to eq %w[d1 d2]
+    end
+
+    it "reaches the resolvers from a context block around the helper", graphql: :in_process do
+      graphql_context(current_user: "alice") do
+        graphql_in_process(DraftsDemo::Schema)
+
+        expect(drafts.execute!.drafts.map(&:id)).to eq %w[d1 d2]
+      end
     end
 
     # the tag alone: no helper named a graph, and the context still has to

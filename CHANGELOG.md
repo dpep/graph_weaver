@@ -1,4 +1,13 @@
 ## Unreleased
+<!-- lane: harness -->
+- **A second `graphql_*` helper in one example no longer discards the first's
+  stand-in.** Installing the mode that is already installed keeps the table, so
+  a multi-graph example can say `graphql_fake(pins, schema: A)` then
+  `graphql_fake(pins, schema: B)` and have both apply — the second used to
+  clear the first, and the example passed on fabricated defaults. Same fix:
+  a `graphql_context` set *before* a mode helper (or wrapping one in a block)
+  now reaches the resolvers instead of being silently dropped.
+<!-- /lane: harness -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
   transport was built, so a rotating credential needs no new transport:
