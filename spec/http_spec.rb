@@ -355,6 +355,19 @@ describe GraphWeaver::Transport::HTTP do
       .to raise_error(GraphWeaver::Error, /not JSON-serializable/)
   end
 
+  # the debug line rendered the variables itself, so a listener at debug turned
+  # the same bug into a raw JSON::GeneratorError — past `rescue GraphWeaver::Error`
+  it "wraps them the same way with a debug logger listening" do
+    io = StringIO.new
+    GraphWeaver.logger = Logger.new(io, level: Logger::DEBUG)
+
+    expect { executor.execute("query", variables: { "amount" => Float::NAN }) }
+      .to raise_error(GraphWeaver::Error, /not JSON-serializable/)
+    expect(io.string).to include("unloggable: JSON::GeneratorError")
+  ensure
+    GraphWeaver.logger = nil
+  end
+
   # a self-signed https endpoint: the CA the client must be told to trust
   describe "TLS options" do
     before(:all) do

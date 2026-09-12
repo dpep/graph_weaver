@@ -73,7 +73,7 @@ class GraphWeaver::Transport
     # full query + variables at debug only — they can carry PII, and the
     # sensitive keys are scrubbed even there (GraphWeaver.filter_parameters)
     GraphWeaver::Internal::Log.log(:debug) do
-      filtered = JSON.generate(GraphWeaver::Internal::Log.filter_variables(variables))
+      filtered = GraphWeaver::Internal::Log.variables_for_log(variables)
       "POST #{url} #{tag} variables=#{filtered}\n#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 

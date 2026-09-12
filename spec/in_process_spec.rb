@@ -32,6 +32,22 @@ describe GraphWeaver::InProcess do
     expect(client.execute("query { me }").to_h.dig("data", "me")).to eq "dpep"
   end
 
+  # a logger decides what gets narrated, never what the program does: the
+  # debug line used to render the variables itself, so a value with no JSON
+  # form (NaN) became a ServerError only while someone was listening at debug
+  it "runs the same query whether or not a debug logger is listening" do
+    variables = { "n" => Float::NAN }
+    silent = client.execute("query { me }", variables:).to_h
+
+    io = StringIO.new
+    GraphWeaver.logger = Logger.new(io, level: Logger::DEBUG)
+
+    expect(client.execute("query { me }", variables:).to_h).to eq silent
+    expect(io.string).to include("unloggable: JSON::GeneratorError")
+  ensure
+    GraphWeaver.logger = nil
+  end
+
   it "runs the operation the caller names out of a multi-operation document" do
     document = "query Me { me }\nquery Boom { boom }"
 

@@ -1,6 +1,8 @@
 # typed: true
 # frozen_string_literal: true
 
+require "json"
+
 module GraphWeaver
   class << self
     # Where GraphWeaver narrates what it's doing — anything
@@ -125,6 +127,17 @@ module GraphWeaver
           return yield unless hook
 
           hook.call(event, payload) { yield }
+        end
+
+        # The variables as one JSON line for a log: filtered, and unable to
+        # raise. A value with no JSON form (NaN, binary) is the caller's bug
+        # and the transport refuses it a few lines later — but a logger that
+        # decides WHICH exception a caller sees, or whether one is raised at
+        # all, is worse than a log line that says it couldn't render.
+        def variables_for_log(variables)
+          JSON.generate(filter_variables(variables))
+        rescue StandardError => e
+          "<unloggable: #{e.class}>"
         end
 
         # variables with the filtered keys blanked out

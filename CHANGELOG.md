@@ -113,6 +113,13 @@
   and the real POST went elsewhere (`WebMock::NetConnectNotAllowedError`
   blaming your query), and the boot log line named it too. `#url` is now
   reconstructed from where requests actually go.
+- **Turning on debug logging no longer changes what happens.** The debug line
+  rendered the variables as JSON itself, *before* the guarded encode — so a
+  value with no JSON form (`NaN`, binary) raised a raw `JSON::GeneratorError`
+  past `rescue GraphWeaver::Error` whenever a logger was listening at debug,
+  and in-process it turned a query that ran into a `ServerError`. The line now
+  says `<unloggable: JSON::GeneratorError>` and the request carries on to the
+  same outcome it has with no logger set.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

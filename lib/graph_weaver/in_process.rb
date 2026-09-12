@@ -66,7 +66,7 @@ class GraphWeaver::InProcess
     tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
 
     GraphWeaver::Internal::Log.log(:debug) do
-      "in-process #{@schema} #{tag} variables=#{JSON.generate(GraphWeaver::Internal::Log.filter_variables(variables))}\n" \
+      "in-process #{@schema} #{tag} variables=#{GraphWeaver::Internal::Log.variables_for_log(variables)}\n" \
         "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
