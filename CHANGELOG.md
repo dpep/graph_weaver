@@ -114,6 +114,7 @@
   adapters, and `:wire` used to take that as yes and let the first request
   leave the suite for the real endpoint. It now checks before serving and says
   which line to add.
+
   `GraphWeaver::Testing::Endpoint` is the ordinary Rack app behind it, mountable
   anywhere for anyone who'd rather have a real socket.
 
