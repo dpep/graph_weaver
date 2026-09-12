@@ -97,6 +97,24 @@ class GraphWeaver::Railtie < Rails::Railtie
     File.exist?(resolved) ? File.realpath(resolved) : resolved
   end
 
+  # Whether this loader would actually try to load `dir`: one of its roots
+  # contains it and its own ignore list doesn't cover it. Asking only about the
+  # roots refused an app that had called Rails.autoloaders.main.ignore(dir)
+  # itself, and told it the directory couldn't be hidden — when it already was.
+  #
+  # Zeitwerk answers that question under two names: `ignores?` was public until
+  # 2.6.1 made it internal, which publishes it as `__ignores?`. Neither present
+  # (some other loader in the slot) falls back to refusing, which is what this
+  # did for everyone before.
+  IGNORES = %i[__ignores? ignores?].freeze
+
+  def self.autoloaded?(loader, dir)
+    return false unless loader.dirs.any? { |root| dir.start_with?("#{root}/") }
+
+    asked = IGNORES.find { |name| loader.respond_to?(name) }
+    asked.nil? || !loader.public_send(asked, dir)
+  end
+
   # A graph declared from to_prepare — what the docs say to do when its block
   # names an autoloaded constant — is declared after Zeitwerk is set up, and
   # Zeitwerk reads its ignore list only then. So an output that arrives that
@@ -110,9 +128,8 @@ class GraphWeaver::Railtie < Rails::Railtie
     late = GraphWeaver::Internal::Util.generated_dirs.map { autoload_path(_1) } - Array(ignored_dirs)
     return if late.empty?
 
-    roots = Rails.autoloaders.flat_map(&:dirs)
     late.each do |dir|
-      next unless roots.any? { |root| dir.start_with?("#{root}/") }
+      next unless Rails.autoloaders.any? { |loader| autoloaded?(loader, dir) }
 
       graph = GraphWeaver.graphs.find { autoload_path(_1.output) == dir }
       # the graph's own spelling, not the symlink target autoload_path found —

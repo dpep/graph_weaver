@@ -71,6 +71,12 @@
   refusal that exists for a too-late output compared the same unresolved path
   against real autoload roots, so it stayed silent for exactly that spelling; it
   now fires, and names the output the way your graph spells it.
+- **No refusal when your app already hid the directory itself.** A graph
+  declared from `to_prepare` whose output an app had ignored with
+  `Rails.autoloaders.main.ignore(...)` was refused at boot and told the
+  directory "can't be hidden from autoloading" — it was already hidden. The
+  refusal asks Zeitwerk now, and only fires for a directory some loader would
+  really walk.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

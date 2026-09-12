@@ -284,6 +284,33 @@ describe "GraphWeaver::Railtie" do
     end
   end
 
+  # The refusal consulted only graph_weaver's own ignore list, so an app that
+  # had called Rails.autoloaders.main.ignore(dir) itself was refused and told
+  # something untrue — it IS hidden. Zeitwerk knows; ask it. Both spellings,
+  # since 2.6.1 made ignores? internal and publishes it as __ignores?.
+  %i[__ignores? ignores?].each do |asked|
+    it "lets a late output through when the app ignored it itself (#{asked})" do
+      loader = Object.new
+      loader.define_singleton_method(:ignore) { |_path| }
+      loader.define_singleton_method(:dirs) { ["/app/app/graphql", "/app/app/generated_graphql"] }
+      loader.define_singleton_method(asked) { |path| path == "/app/app/generated_graphql/billing" }
+      stub_const("Rails", Module.new)
+      Rails.define_singleton_method(:autoloaders) { [loader] }
+      Rails.define_singleton_method(:root) { Pathname.new("/app") }
+
+      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+
+      GraphWeaver.graph :late do
+        schema Demo::Schema
+        output "app/generated_graphql/billing"
+      end
+
+      expect { register_generated_load.each(&:call) }.not_to raise_error
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+  end
+
   # the same late declaration is fine wherever Zeitwerk isn't looking — either
   # the ignore list already covers it, or it lives outside every autoload root
   it "lets a late output through when Zeitwerk was never going to load it" do
