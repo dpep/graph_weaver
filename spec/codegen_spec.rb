@@ -1760,6 +1760,31 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  describe "hostile input fields" do
+    def generate(fields)
+      schema = GraphQL::Schema.from_definition(
+        "type Query { thing(filter: Filter): String }\ninput Filter { #{fields} }"
+      )
+      GraphWeaver::Codegen.generate(schema:, query: "query Q($filter: Filter) { thing(filter: $filter) }", name: "Q")
+    end
+
+    it "refuses two input fields that underscore to the same prop" do
+      expect { generate("nameWithOwner: String name_with_owner: String") }
+        .to raise_error(GraphWeaver::Error,
+          /input fields "nameWithOwner" and "name_with_owner" on Filter both map to the prop 'name_with_owner'/)
+    end
+
+    # the rename that keeps `class` usable is what lands it on `class_`
+    it "refuses an input field that collides with a reserved field's rename" do
+      expect { generate("class: String class_: String") }
+        .to raise_error(GraphWeaver::Error, /both map to the prop 'class_'/)
+    end
+
+    it "generates the struct when the props are distinct" do
+      expect(generate("nameWithOwner: String owner: String")).to include("const :name_with_owner,")
+    end
+  end
+
   it "rejects two variables that underscore to the same kwarg" do
     schema = GraphQL::Schema.from_definition("type Query { thing(userId: ID, alt: ID): String }")
     query = "query($userId: ID, $user_id: ID) { thing(userId: $userId, alt: $user_id) }"

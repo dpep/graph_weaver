@@ -1,3 +1,17 @@
+###  Unreleased
+
+<!-- lane: dispatch -->
+- **Generation refuses an input type whose fields collide on one Ruby prop.**
+  Two input fields that underscore onto the same name — `nameWithOwner` and
+  `name_with_owner`, or `class` and `class_`, since `class` is renamed out of a
+  method's way — emitted `const :name_with_owner` twice, and the generated file
+  raised `ArgumentError` when it was *required*, from a trace with no schema in
+  it. It now refuses at generation naming both fields, the type and the prop,
+  and says what to do: pass the object as a literal with a variable per field,
+  since a schema's field name isn't yours to rename. The output side has always
+  refused this; the three real schemas swept (GitHub, PokeAPI, countries —
+  12,684 input fields) contain no such pair.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

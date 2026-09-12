@@ -1238,7 +1238,24 @@ class GraphWeaver::Codegen
       required = child.non_null? && !argument.default_value?
       node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
     end
+    check_input_props!(core, node)
     node
+  end
+
+  # check_output_prop!'s twin: two input fields that underscore onto one prop
+  # emit `const :x` twice, which raises ArgumentError when the generated file
+  # is REQUIRED — a stack trace with no schema in it. A schema's field name
+  # isn't the user's to rename and an input struct has no alias, so the fix is
+  # to keep the type out of the variables.
+  def check_input_props!(core, node)
+    collision = node.fields.group_by(&:prop).find { |_, group| group.size > 1 }
+    return unless collision
+
+    fields = collision.last.map { |field| field.wire.inspect }.join(" and ")
+    raise GraphWeaver::Error,
+      "input fields #{fields} on #{core.graphql_name} both map to the prop '#{collision.first}' — " \
+      "pass #{core.graphql_name} as a literal in the query, with a variable per field, instead of " \
+      "declaring a variable of that type"
   end
 
   # The module-level T::Enum for a schema enum, named for the enum itself —
