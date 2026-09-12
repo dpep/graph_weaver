@@ -128,6 +128,32 @@ describe GraphWeaver::Transport::Faraday do
     expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
   end
 
+  # Faraday moves a url's query into the connection's default params and
+  # strips it from url_prefix, so #url named an endpoint no request goes to —
+  # and #url is what `graphql: :wire` stubs and what the boot log prints
+  it "reports the url it actually posts to, query string included" do
+    request = Queue.new
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new do
+      socket = server.accept
+      request << socket.readpartial(4096).lines.first
+      body = JSON.generate("data" => { "person" => nil })
+      socket.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" \
+        "Content-Length: #{body.bytesize}\r\n\r\n#{body}")
+      socket.close
+    end
+    endpoint = "http://127.0.0.1:#{server.addr[1]}/graphql?apiKey=abc"
+    executor = described_class.new(endpoint)
+
+    expect(executor.url).to eq endpoint
+
+    PersonQuery.execute(client: executor, id: "1")
+    expect(request.pop).to start_with "POST /graphql?apiKey=abc "
+  ensure
+    thread&.kill # a failure above leaves it blocked in accept
+    server&.close
+  end
+
   it "rejects headers:/timeouts with a prebuilt connection (they'd be silently ignored)" do
     conn = Faraday.new(url: "http://example.test/graphql")
     expect { GraphWeaver::Transport::Faraday.new(conn, headers: { "X-A" => "b" }) }

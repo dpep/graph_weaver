@@ -106,6 +106,13 @@
   `TransportError` — which retries, on a fresh connection — as is
   `Net::ProtocolError`. `Transport::Faraday` already classified all three this
   way; the two shipped transports now agree.
+- **`Transport::Faraday#url` keeps a url's query string.** Faraday moves it
+  into the connection's default params and strips it from `url_prefix`, so
+  `Transport::Faraday.new("https://api.example.com/graphql?apiKey=…").url`
+  reported an endpoint no request goes to — `graphql: :wire` stubbed that one
+  and the real POST went elsewhere (`WebMock::NetConnectNotAllowedError`
+  blaming your query), and the boot log line named it too. `#url` is now
+  reconstructed from where requests actually go.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

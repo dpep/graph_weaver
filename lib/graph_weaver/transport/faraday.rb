@@ -65,7 +65,7 @@ module GraphWeaver
             &block
           )
         end
-        @url = @connection.url_prefix.to_s
+        @url = endpoint_url(@connection)
 
         # which adapter got picked decides socket reuse — Faraday's
         # default net_http one opens a connection per request. Naming it
@@ -74,6 +74,16 @@ module GraphWeaver
       end
 
       private
+
+      # Where requests actually go. Faraday moves a url's query string into
+      # the connection's default params and strips it from url_prefix, so
+      # url_prefix alone names an endpoint nothing posts to — and #url is what
+      # `graphql: :wire` stubs and what the boot log line prints.
+      def endpoint_url(connection)
+        uri = connection.url_prefix.dup
+        uri.query = URI.encode_www_form(connection.params) if connection.params.any?
+        uri.to_s
+      end
 
       sig { override.params(body: String).returns(T::Array[T.untyped]) }
       def post(body)
