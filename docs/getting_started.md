@@ -353,9 +353,12 @@ Two things are worth knowing:
   `person.graphql`, or that both hoist an enum, would otherwise fight over one
   name. Without a namespace the collision is refused at generation, naming both
   files.
-- **The block's registrations reach that graph alone**, on top of the top-level
-  ones as they stand at that line. That is what makes the build quiet: `Money`
-  is checked against the schema it was registered for, and against no other.
+- **The block's registrations reach that graph alone**, laid over the top-level
+  ones. That is what makes the build quiet: `Money` is checked against the
+  schema it was registered for, and against no other. The top-level layer is
+  read when generation asks, not when the graph is declared, so a
+  `register_scalar` in another initializer reaches every graph whichever
+  initializer Rails happened to run first.
 
 Declaring any graph replaces the implicit one the settings describe — an app
 either has graphs or has settings, never a silent third thing. The name is the

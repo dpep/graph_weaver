@@ -17,17 +17,11 @@ module GraphWeaver
     # nothing to be called because there is nothing to tell it apart from.
     attr_reader :name
 
-    # The registrations this graph generates with. A declared graph gets a copy
-    # of the top-level ones plus whatever its block added, taken as it is
-    # declared — so a top-level register_scalar belongs above the declarations
-    # it should reach. The default graph holds the top-level registry itself.
-    attr_reader :registry
-
     # Each of these falls back to the matching top-level setting, so a graph
     # says only what differs. output is one directory (a graph writes to one
     # place); generated_paths stays the list of places to READ from.
     def initialize(name: nil, schema: nil, queries: nil, output: nil, client: nil,
-      namespace: nil, types_module: nil, registry: nil)
+      namespace: nil, types_module: nil, registrations: nil)
       @name = name
       @schema = schema
       @queries = queries
@@ -35,7 +29,21 @@ module GraphWeaver
       @client = client
       @namespace = namespace
       @types_module = types_module
-      @registry = registry || GraphWeaver::Codegen.registry
+      @registrations = registrations
+    end
+
+    # The registrations this graph generates with: the top-level ones as they
+    # stand now, with this graph's own laid on top. Read here rather than
+    # captured at declaration, because in Rails the initializer that registers
+    # a scalar and the one that declares a graph run in alphabetical filename
+    # order — which can't be allowed to decide whether the registration lands.
+    # The default graph is the top-level registry.
+    def registry
+      return GraphWeaver::Codegen.registry unless @registrations
+
+      GraphWeaver::Codegen.registry.dup.tap do |registry|
+        @registrations.each { |name, args, kwargs, block| registry.public_send(name, *args, **kwargs, &block) }
+      end
     end
 
     def queries = @queries || GraphWeaver.queries_paths
@@ -141,13 +149,17 @@ module GraphWeaver
       CONSTANT_SETTINGS = %i[client namespace types_module].freeze
       private_constant :CONSTANT_SETTINGS
 
-      attr_reader :settings, :registry
+      attr_reader :settings, :registrations
 
       # The Graph a block describes.
       def self.build(name, &block)
         builder = new(name)
         builder.instance_eval(&block)
-        GraphWeaver::Graph.new(name:, registry: builder.registry, **builder.settings)
+        graph = GraphWeaver::Graph.new(name:, registrations: builder.registrations, **builder.settings)
+        # the block's registrations are applied at generation; run them once
+        # here so a bad one is a mistake in the block, said where it is written
+        graph.registry
+        graph
       rescue NameError => e
         # Ruby raises on the argument before the registration is ever called, so
         # the block is the only place that can say why — and in Rails this is
@@ -163,9 +175,9 @@ module GraphWeaver
       def initialize(name)
         @name = name
         @settings = {}
-        # the top-level registrations, copied as the graph is declared, with the
-        # block's own added on top
-        @registry = GraphWeaver::Codegen.registry.dup
+        # kept as calls rather than applied here: the graph replays them over
+        # the top-level registry at generation (see Graph#registry)
+        @registrations = []
       end
 
       SETTINGS.each do |setting|
@@ -179,7 +191,7 @@ module GraphWeaver
 
       REGISTRATIONS.each do |registration|
         define_method(registration) do |*args, **kwargs, &block|
-          @registry.public_send(registration, *args, **kwargs, &block)
+          @registrations << [registration, args, kwargs, block]
         end
       end
 

@@ -127,4 +127,26 @@ describe "GraphWeaver.graph block" do
     expect(graph.registry.scalar_registry).to include("Money", "Doubloon")
     expect(GraphWeaver::Codegen.scalar_registry).not_to have_key("Doubloon")
   end
+
+  # In Rails the graph and the scalars usually live in two initializers, and
+  # initializers run in alphabetical filename order — so declaring a graph in
+  # billing.rb and registering in graph_weaver.rb must generate the same code
+  # as the other way round.
+  it "reads the top-level registrations whenever they were made" do
+    early = declared(:early) { schema Demo::Schema }
+    GraphWeaver.register_scalar("Money", BigDecimal, requires: "bigdecimal")
+    late = declared(:late) { schema Demo::Schema }
+
+    expect(early.registry.scalar_registry).to have_key("Money")
+    expect(early.registry.scalar_registry.keys).to eq late.registry.scalar_registry.keys
+  end
+
+  # the corollary: a top-level registration made later must not silently
+  # replace what the block said about the same name
+  it "keeps the block's own registration on top of a later top-level one" do
+    graph = declared { register_scalar "Money", String }
+    GraphWeaver.register_scalar("Money", BigDecimal, requires: "bigdecimal")
+
+    expect(graph.registry.scalar("Money").type).to eq "String"
+  end
 end

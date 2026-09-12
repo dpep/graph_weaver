@@ -61,6 +61,14 @@
   every line, which silently edits the *value* of a block-string argument —
   trailing whitespace inside `"""…"""` is significant. A query with one now
   sends what the `.graphql` file says.
+- **A top-level registration reaches a graph declared before it.** A graph used
+  to copy the top-level registry as it was declared, so in Rails — where the
+  graph and the scalars usually live in two initializers, run in alphabetical
+  filename order — a `register_scalar` in `graph_weaver.rb` never reached a
+  graph declared in `billing.rb`, and every prop it should have typed came out
+  `T.untyped` with the build advising you to register a scalar you had. A graph
+  now reads the top-level layer when generation asks; its own registrations
+  still run where the block is written, and still win.
 <!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

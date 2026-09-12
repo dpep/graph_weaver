@@ -188,10 +188,10 @@ describe "GraphWeaver.graph" do
     expect { Date.iso8601(total) }.not_to raise_error
   end
 
-  # a graph block runs where it is written, registrations included, so it takes
-  # the top-level registrations as they stand at that line — which is the rule
-  # an app reads off the order of its own initializer
-  it "takes the top-level registrations as they stand at the declaration" do
+  # a top-level registration is the app's answer for that scalar, so a graph
+  # reads them at generation: in Rails the graph and the registrations live in
+  # two initializers, and alphabetical filename order can't be what decides
+  it "takes the top-level registrations however late they are made" do
     GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
     two_graphs
     GraphWeaver.generate!
@@ -202,7 +202,7 @@ describe "GraphWeaver.graph" do
     two_graphs
     GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
     GraphWeaver.generate!
-    expect(File.read(File.join(output(:pets), "person_query.rb"))).to include("Date.iso8601")
+    expect(File.read(File.join(output(:pets), "person_query.rb"))).not_to include("Date.iso8601")
   end
 
   # `graphql: :fake` derives one schema for the suite; with two graphs that
