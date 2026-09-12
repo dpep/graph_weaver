@@ -6,16 +6,20 @@ describe GraphWeaver::Hints do
     PersonQuery::Result.from_h("person" => { "id" => "1", "name" => "Daniel", "pets" => [] }).person
   end
 
-  it "answers respond_to? the way method_missing behaves" do
-    expect(person.respond_to?(:name)).to be true
-    expect(person.respond_to?(:nmae)).to be true      # method_missing hints on this one
-    expect(person.respond_to?(:utterly_unrelated)).to be false
+  it "hints at the prop that does exist when a near-miss is actually called" do
+    expect { person.nmae }.to raise_error(NoMethodError, /did you mean 'name'\?/)
   end
 
-  # the point of the predicate: #method used to raise a bare NameError while
-  # the same call through method_missing got the hint
-  it "routes #method to the same hint" do
-    expect { person.method(:nmae).call }.to raise_error(NoMethodError, /did you mean 'name'\?/)
-    expect { person.method(:utterly_unrelated) }.to raise_error(NameError)
+  # respond_to? is a question about the object's shape, and the hint is an
+  # answer about a call that was actually made. Saying true here broke the
+  # standard guard — `obj.pet if obj.respond_to?(:pet)` raised on the near
+  # miss — which costs more than `#method(:nmae)` raising a bare NameError.
+  it "answers respond_to? about the props that exist, and nothing else" do
+    expect(person.respond_to?(:name)).to be true
+    expect(person.respond_to?(:nmae)).to be false
+    expect(person.respond_to?(:utterly_unrelated)).to be false
+
+    guarded = person.nmae if person.respond_to?(:nmae)
+    expect(guarded).to be_nil
   end
 end

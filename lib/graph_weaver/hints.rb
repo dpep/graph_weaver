@@ -120,6 +120,12 @@ module GraphWeaver
     end
     private_class_method :unquoted_keys
 
+    # No matching respond_to_missing?. The hint is an answer about a call that
+    # was actually made; respond_to? is a question about the object's shape,
+    # and a near miss is not a method this struct has. Answering true broke the
+    # standard guard — `obj.pet if obj.respond_to?(:pet)` raised on the very
+    # typo the hint exists for — which costs more than `#method(:nmae)` raising
+    # Ruby's own bare NameError.
     def method_missing(name, *args, &block)
       if args.empty? && (hint = prop_hint(name.to_s))
         raise NoMethodError, "undefined method '#{name}' for #{self.class} — #{hint}"
@@ -128,18 +134,12 @@ module GraphWeaver
       super
     end
 
-    # keeps #method and #respond_to? agreeing with method_missing — without
-    # it `struct.method(:nmae)` raises a bare NameError while `struct.nmae`
-    # gets the hint
-    def respond_to_missing?(name, include_private = false)
-      !!prop_hint(name.to_s) || super
-    end
-
     private
 
     def prop_hint(name)
       prop = GraphWeaver::Inflect.underscore(name)
-      # method_defined?, not respond_to? — respond_to_missing? lands back here
+      # method_defined? rather than respond_to?, which a host's own
+      # respond_to_missing? could answer for a method it doesn't define
       if prop != name && T.unsafe(self.class).method_defined?(prop)
         return "GraphQL fields generate snake_case props; use '#{prop}'"
       end

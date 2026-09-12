@@ -126,6 +126,12 @@
   It was built from `#path`'s last segment, which is the *variable* name when
   the problem states no path of its own — yielding `CredsIn.creds`, a slot the
   schema doesn't have, and a silent miss for an app keying an i18n label off it.
+- **`respond_to?` on a generated result struct no longer answers true for a
+  name that doesn't exist.** It said true for any near miss, so the standard
+  duck-typing guard was the thing that broke — `obj.pet if obj.respond_to?(:pet)`
+  raised the very `NoMethodError` the hint exists to explain. `method_missing`
+  still hints; the cost is that `struct.method(:nmae)` now raises Ruby's own
+  bare `NameError` rather than the hinted one.
 <!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)
