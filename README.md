@@ -124,7 +124,8 @@ reads the selected fields off your factory's object and fabricates the rest. The
 are checked and spellchecked, so a typo raises instead of leaving the example
 green against random data. The tag also picks a *real* client
 when you want one: `:in_process` runs your resolvers, `:router` runs them across a
-federated graph. Field-level failure simulation and record/replay cassettes with
+federated graph, and `:wire` serves either at your endpoint so your own transport
+runs. Field-level failure simulation and record/replay cassettes with
 anonymization are in [testing](docs/testing.md).
 
 ## Federation without a gateway

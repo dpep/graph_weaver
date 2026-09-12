@@ -1,4 +1,27 @@
 ## Unreleased
+- **`graphql: :wire` runs a spec against your own transport.** The other tags
+  sit *in* the client slot, so the transport an app ships — APM tracing, a
+  caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`
+  exactly where it is and serves your resolvers at the endpoint it posts to, so
+  the request is serialized, posted through your middleware, and deserialized
+  by `from_h` over the server's own bytes. What sits behind the wire is decided
+  the way the other tags decide: the router when there's a composed supergraph,
+  the live schema class otherwise.
+
+  It needs [webmock](https://github.com/bblimke/webmock) — `require
+  "webmock/rspec"` in the spec helper — which hooks Net::HTTP, Faraday and
+  HTTPX, so every bundled transport runs unchanged. The Rack app behind it is
+  `GraphWeaver::Testing::Endpoint`, mountable anywhere for anyone who'd rather
+  have a real socket.
+
+  A `context:` can now be a **proc**, called per request with the headers as
+  sent — the identity-propagation seam nothing above the wire could reach:
+
+  ```ruby
+  config.context = ->(headers) { { current_user: User.find_by(token: headers["Authorization"]) } }
+  ```
+
+  See [docs/testing.md](docs/testing.md#over-the-wire--graphql-wire).
 - **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime`
   is a `Date` to Ruby, so it passed straight through the cast and went on the
   wire as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema

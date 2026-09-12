@@ -73,9 +73,10 @@ DashboardQuery = router.parse("query Dashboard { me { username } }")
 DashboardQuery.execute!.me.username
 ```
 
-All three modes, tagged and running end to end, are
-[`spec/rspec_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/rspec_spec.rb) — the reference for anything
-this page leaves out.
+Every mode, tagged and running end to end, is
+[`spec/rspec_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/rspec_spec.rb) (and
+[`spec/wire_mode_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/wire_mode_spec.rb) for `:wire`) — the
+reference for anything this page leaves out.
 
 ## Nothing to configure
 
@@ -342,6 +343,74 @@ graphql_router(fake: { "Shipment.carrier" => "UPS", list_size: 2 })
 What it plans, what it **refuses** and why, how subgraphs are matched to your
 schema classes, and what to do about a supergraph only partly local:
 **[federation → the local router](federation.md#the-local-router)**.
+
+## Over the wire — `graphql: :wire`
+
+The other three tags put a client *in the slot*, which means the transport your
+app actually ships never runs. If you wrote that transport — APM tracing, a
+caller tag, mTLS — the part you most need tested is the part they skip.
+
+`:wire` inverts it. **`GraphWeaver.client` is left exactly where it is**, and
+the resolvers another tag would have installed are served at the endpoint that
+client posts to. So the request really is serialized, posted through your
+middleware, and deserialized by `from_h` over the server's own bytes.
+
+```ruby
+it "sends the caller tag", graphql: :wire do
+  DashboardQuery.execute!
+
+  expect(WebMock).to have_requested(:post, "https://api.example.com/graphql")
+    .with(headers: { "X-Caller" => "web" })
+end
+```
+
+What sits behind the wire is decided the way the other tags already decide it:
+the [router](#a-federated-graph--graphql-router) when there's a composed
+supergraph, the [live schema class](#real-resolvers--graphql-in_process)
+otherwise. `graphql_wire` is the tag with options — one, `fake:`, exactly as
+[`graphql_router`](#a-federated-graph--graphql-router) takes it — and it hands
+back what it served.
+
+**Identity comes from the request.** A `context:` **proc** is called per
+request with the headers as sent, which is the seam nothing above the wire can
+test:
+
+```ruby
+GraphWeaver::Testing.configure do |config|
+  config.context = ->(headers) { { current_user: User.find_by(token: headers["Authorization"]) } }
+end
+```
+
+The hash form still works and is still the baseline `graphql_context` merges
+onto; a proc replaces it, and `graphql_context` then says so rather than
+merging onto something that isn't there. (Rack drops a header's capitalization,
+so `X-CALLER` arrives as `X-Caller`.)
+
+**It needs [webmock](https://github.com/bblimke/webmock)** — one line in the
+spec helper, above the `graph_weaver/rspec` one:
+
+```ruby
+require "webmock/rspec"
+```
+
+webmock is what makes this a *transport* test rather than a mock of one: it
+hooks Net::HTTP, Faraday and HTTPX underneath, so every transport
+[documented here](transports.md) runs unchanged, pooling and all. The tag adds
+one stub for the endpoint and removes it after the example — it never disables
+net connections on your behalf, and never resets stubs it didn't make.
+
+The ceiling is the router's: `:wire` adds a network hop to the same plan, so
+everything [it refuses](federation.md#what-it-refuses) is still refused, before
+any resolver runs. For a shape it can't plan, fall back to a
+[cassette](cassettes.md) or a live gateway.
+
+The Rack app is `GraphWeaver::Testing::Endpoint`, and it wraps anything
+satisfying the [client contract](transports.md) — so if you'd rather have a
+real socket, or you're not using webmock, mount it yourself:
+
+```ruby
+run GraphWeaver::Testing::Endpoint.new(router)   # config.ru, or a Puma in a thread
+```
 
 ## Simulating failures
 
