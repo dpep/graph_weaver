@@ -12,6 +12,13 @@
   `GRAPH` naming the graph they were generated from, so **regenerate after
   upgrading** if you declare graphs — a multi-graph app whose modules predate
   this says so and refuses rather than guessing.
+
+  The tag itself now reaches a multi-graph app: it used to derive one client
+  for the whole example and refuse ("this app has 2 graphs…") before any
+  module was reached. With several graphs it installs the mode and leaves
+  `GraphWeaver.client` alone, and each module resolves its own — so
+  `graphql: :fake` works where `graphql_fake(schema:)` was the only way in.
+
   (`GraphWeaver::Testing::RSpecIntegration.client_for` is gone: one
   implementation answers "what client does this mode use", per graph, and it
   is internal. Nothing documented pointed at it.)

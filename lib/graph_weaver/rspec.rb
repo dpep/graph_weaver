@@ -106,8 +106,10 @@ module GraphWeaver
           if @__graph_weaver_mode == :wire
             @__graph_weaver_stubs = GraphWeaver::Testing::RSpecIntegration.serve!
             @__graph_weaver_served = @__graph_weaver_stubs.map(&:last)
-          elsif (client = GraphWeaver::Internal::TestClients.client_for(@__graph_weaver_mode))
-            # :live builds none — the app's own client is what it runs against
+          elsif (client = GraphWeaver::Internal::TestClients.app_client(@__graph_weaver_mode))
+            # :live builds none — the app's own client is what it runs
+            # against — and neither does an app whose several graphs each
+            # answer for themselves
             GraphWeaver.client = client
           end
           GraphWeaver::Internal::TestClients.install(@__graph_weaver_mode)

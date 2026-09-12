@@ -79,6 +79,12 @@ module GraphWeaver
           end
         end
 
+        # What the app's client slot holds while `mode` is installed — nil
+        # when the mode takes no slot, or when the answer varies per module
+        # and each resolves its own. The same question #for asks, so the slot
+        # holds a client exactly when #for reads one back out of it.
+        def app_client(mode) = (client_for(mode) if one_answer?)
+
         # The graph a mode builds for when no module named one: this app's
         # only graph. With several the honest answer varies per module, so
         # there is no app-wide one and each module resolves its own.
@@ -87,9 +93,11 @@ module GraphWeaver
           graphs.first if graphs.one?
         end
 
-        private
-
+        # Whether the whole example has one answer: one graph, or a suite
+        # that named one schema for all of them.
         def one_answer? = GraphWeaver.graphs.one? || !GraphWeaver::Testing.config.explicit_schema.nil?
+
+        private
 
         # The graph `mod` was generated from, by the name codegen baked in.
         # An app with several graphs and a module that names none was

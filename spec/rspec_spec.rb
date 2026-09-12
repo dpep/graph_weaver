@@ -61,6 +61,13 @@ describe "graph_weaver/rspec" do
     GraphWeaver.client = GraphWeaver.new(schema.to_definition)
   end
 
+  # a generated module the way a checked-in file is, GRAPH and all — which
+  # is the only thing that says which graph a module belongs to
+  def module_for(graph_name, schema, query, name)
+    source = GraphWeaver::Codegen.new(schema:, query:, name:, graph_name:).generate
+    Module.new.tap { |container| container.module_eval(source, "(spec)", 1) }.const_get(name)
+  end
+
   describe "graphql: :fake" do
     around do |example|
       app_client!(DraftsDemo::Schema)
@@ -144,6 +151,30 @@ describe "graph_weaver/rspec" do
   end
 
   # the README's example, as written there
+  # A tag has an answer per module even where the suite has none — each
+  # module says which graph it came from. The hook derived one client for the
+  # whole example, so it refused before any module was reached.
+  describe "graphql: :fake, with more than one graph" do
+    around do |example|
+      app_client!(DraftsDemo::Schema)
+      GraphWeaver.graph :drafts, schema: DraftsDemo::Schema
+      GraphWeaver.graph :pets, schema: Demo::Schema
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "fakes each module against its own graph's schema", graphql: :fake do
+      drafts = module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "DraftsFaked")
+      pets = module_for(:pets, Demo::Schema, "query { person(id: 1) { email } }", "PetsFaked")
+
+      expect(drafts.execute!.drafts.first&.owner).to be_a String
+      expect(pets.execute!.person&.email).to be_a String
+      # nothing app-wide to install, so the app's own client stays in the slot
+      expect(GraphWeaver.client).to be_a GraphWeaver::Client
+    end
+  end
+
   describe "the README's pins", graphql: :fake do
     around do |example|
       app_client!(Demo::Schema)
