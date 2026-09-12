@@ -52,10 +52,10 @@ class GraphWeaver::Codegen
         ->(klass, value) { klass.dump(value) }),
     ].freeze
 
-    # A scalar with no `cast:` to run input through: its Ruby type is the
-    # whole rule, so key on that — a custom scalar registered as a plain
-    # String gets the same check. ID is the exception GraphQL itself names
-    # (see Coerce.id), matched by GraphQL name in #coercer.
+    # A scalar whose registration named no `cast:` of its own: its Ruby type
+    # is the whole rule, so key on that — a custom scalar registered as a
+    # plain String gets the same check. ID is the exception GraphQL itself
+    # names (see Coerce.id), matched by GraphQL name in #coercer.
     COERCERS = {
       "Integer" => "integer",
       "Float" => "float",
@@ -74,6 +74,9 @@ class GraphWeaver::Codegen
     # Only types whose wire form is unambiguous belong here.
     STDLIB = {
       "BigDecimal" => { serialize: [:to_s, "F"], requires: "bigdecimal" },
+      # JSON has one number type, so a whole Float arrives as `1` from every
+      # encoder that drops the trailing zero (graphql-js and Go both do)
+      "Float" => { cast: ->(expr) { "GraphWeaver::Coerce.float(#{expr})" } },
       # strftime, not #iso8601: DateTime < Date passes the is_a? guard, and its
       # #iso8601 writes a timestamp where the schema said a date goes
       "Date" => { cast: :iso8601, serialize: [:strftime, "%F"], requires: "date" },
@@ -106,6 +109,7 @@ class GraphWeaver::Codegen
         else
           GraphWeaver::Codegen.normalize_requires!(requires, load: !@klass.nil?)
         end
+      @cast_given = cast unless cast == :itself
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
       @cast = normalize_cast(cast || known[:cast], codec&.cast || kernel_cast)
       @serialize = normalize_serialize(serialize || known[:serialize], codec&.serialize)
@@ -130,21 +134,24 @@ class GraphWeaver::Codegen
 
     # The code that normalizes a loose input — a Rails param — into this
     # scalar's Ruby type before it is serialized, or nil for nothing to do.
-    # `cast:` is the how: it already knows how to build the Ruby object from
-    # a wire value, guarded so an already-typed value passes through. A
-    # scalar without one falls back to its Ruby type's check, which is what
-    # `.checked(:never)` on the generated sig gives up.
+    # The Ruby type's own rule in Coerce is the check, which is what
+    # `.checked(:never)` on the generated sig gives up. A registration that
+    # named its own `cast:` says how to build the Ruby object instead,
+    # guarded so an already-typed value passes through.
     def coerce_input(expr)
-      if cast?
-        "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
-      elsif (fn = coercer)
+      if (fn = coercer)
         "GraphWeaver::Coerce.#{fn}(#{expr})"
+      elsif cast?
+        "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
       end
     end
 
     private
 
     def coercer
+      # a cast: the registration named is the whole rule (:itself asks for
+      # no rich object, which is not the same as asking for no check)
+      return unless @cast_given.nil?
       return "id" if @graphql_name == "ID" && @type == "String"
 
       COERCERS[@type]
@@ -306,10 +313,9 @@ class GraphWeaver::Codegen
     # The five the spec names stay pass-through: their Ruby classes (String,
     # Integer) define neither .parse nor .load, so inference matches nothing
     # and leaves them identity — which is exactly why we can name them with
-    # the real class constants. Float is the exception: JSON has one number
-    # type, so a whole Float arrives as `1` from every encoder that drops the
-    # trailing zero (graphql-js and Go both do), and Coerce.float widens that
-    # without accepting the garbage `.to_f` would silently turn into 0.0.
+    # the real class constants. Float is the exception, and its rule lives in
+    # STDLIB with the others, so `register_scalar "Ratio", Float` reads the
+    # wire exactly as the built-in Float does.
     #
     # The rest are names, not guesses: graphql-ruby ships all but DateTime as
     # its own scalars, and this library runs a graphql-ruby schema in-process.
@@ -322,7 +328,7 @@ class GraphWeaver::Codegen
       register_scalar "ID", String
       register_scalar "String", String
       register_scalar "Int", Integer
-      register_scalar "Float", Float, cast: ->(expr) { "GraphWeaver::Coerce.float(#{expr})" }
+      register_scalar "Float", Float
       register_scalar "Boolean", "T::Boolean"
       register_scalar "Date", Date
       register_scalar "ISO8601Date", Date

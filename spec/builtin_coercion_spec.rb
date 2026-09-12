@@ -92,6 +92,20 @@ describe "built-in scalar coercion" do
     expect { echo(count: "0x1f") }.to raise_error(GraphWeaver::InputError, /\$count/)
   end
 
+  # Kernel#Float("1e400") is Infinity rather than a raise, and the GraphQL spec
+  # excludes a non-finite number from Float outright — it went out as a
+  # variable JSON can't spell, and the complaint arrived from the transport
+  it "refuses a Float that isn't a finite number" do
+    expect { echo(amount: "1e400") }
+      .to raise_error(GraphWeaver::InputError, /\$amount of Compute: expected a Float.*not a finite number/)
+    expect { echo(amount: Float::INFINITY) }.to raise_error(GraphWeaver::InputError, /not a finite number/)
+    expect { echo(amount: Float::NAN) }.to raise_error(GraphWeaver::InputError, /not a finite number/)
+    expect { echo(amount: 10**400) }.to raise_error(GraphWeaver::InputError, /not a finite number/)
+
+    # a number that merely looks alarming is still a number
+    expect(echo(amount: "1e300")).to include "Float:1.0e+300"
+  end
+
   it "refuses a String for a Boolean, and says to convert at the call site" do
     expect { echo(flag: "true") }
       .to raise_error(GraphWeaver::InputError, /\$flag of Compute: expected a Boolean.*call site/)

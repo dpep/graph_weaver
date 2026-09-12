@@ -36,9 +36,9 @@ module GraphWeaver
 
       def float(value)
         case value
-        when Float then value
-        when Integer then value.to_f
-        when String then NUMBER.match?(value.strip) ? Float(value.strip) : unparseable(value, "Float")
+        when Float then finite(value)
+        when Integer then finite(value.to_f)
+        when String then NUMBER.match?(value.strip) ? finite(Float(value.strip)) : unparseable(value, "Float")
         else refuse(value, "Float")
         end
       end
@@ -90,6 +90,17 @@ module GraphWeaver
       private
 
       def at(name, operation) = operation ? "$#{name} of #{operation}" : "$#{name}"
+
+      # Kernel#Float("1e400") is Infinity rather than a raise, and so is
+      # (10**400).to_f — while JSON has no spelling for a non-finite number
+      # and the GraphQL spec excludes them from Float outright. Refusing here
+      # names the variable; the transport otherwise complains that the
+      # variables aren't serializable, a whole query away from the value.
+      def finite(value)
+        return value if value.finite?
+
+        raise ArgumentError, "#{expected("Float")}, got #{value.inspect} — not a finite number"
+      end
 
       def whole(value)
         # Integer(2.5) is 2 — a silent loss where refusing costs nothing

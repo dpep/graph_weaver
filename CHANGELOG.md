@@ -120,6 +120,15 @@
   and in-process it turned a query that ran into a `ServerError`. The line now
   says `<unloggable: JSON::GeneratorError>` and the request carries on to the
   same outcome it has with no logger set.
+- **A `Float` variable must be a finite number.** `Kernel#Float("1e400")` is
+  `Infinity` rather than a raise (so is `(10**400).to_f`), and JSON has no
+  spelling for a non-finite number — the GraphQL spec excludes them from
+  `Float` outright. It used to travel as far as the transport, which blamed
+  the whole request (*"variables are not JSON-serializable"*); the refusal now
+  names the variable and the value. Every door is checked, so an actual
+  `Float::INFINITY` is refused as well as a string that parses to one — and
+  `register_scalar "Ratio", Float` now reads a whole number off the wire
+  exactly as the built-in `Float` does, which it didn't before.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
