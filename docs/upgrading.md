@@ -57,12 +57,14 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
   `Bundler.require` loads webmock without installing its adapters, and the tag
   refuses before the first request rather than letting it leave the suite.
-- **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime` is
-  a `Date` to Ruby, so it used to pass the cast untouched and go on the wire as
+- **A `DateTime` given for a `Date` variable is refused.** `DateTime` is a
+  `Date` to Ruby, so it used to pass the cast untouched and go on the wire as
   `"2024-01-15T10:20:30+00:00"` where the schema said `ISO8601Date` — a lenient
-  server truncated it, a strict one refused it. It now sends `"2024-01-15"`.
-  Nothing raises either way, so **check any assertion or cassette that pinned
-  the old timestamp**.
+  server truncated it, a strict one refused it. Truncating it here would be the
+  same guess made silently, so it now raises an `InputError` naming the class
+  and the fix: `$d of On: expected a Date, got a DateTime — pass .to_date if
+  dropping the time of day is what you meant`. **Pass `.to_date` where a
+  `DateTime` reaches a `Date` variable.**
 - **A `client` that isn't a constant is refused at generation.** Its value is
   spelled into every module the graph generates, so `client` given an endpoint
   url emitted a file that doesn't parse, from a run that reported success.

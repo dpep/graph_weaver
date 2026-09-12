@@ -29,11 +29,7 @@
   to surface Ruby's raw *"no implicit conversion of Time into String"*, and a
   `Date` for an `ISO8601DateTime` likewise. Both now raise an `InputError`
   naming the variable and the class: `$on of Report: expected a Date, got a
-  Time — pass .to_date if dropping the time of day is what you meant`.
-
-  **This replaces v0.7.0's "a `DateTime` given for a `Date` variable is sent as
-  a date"**, which was the same silent truncation arriving through Ruby's
-  `DateTime < Date`: `.to_date` at the call site says you meant it. What a
+  Time — pass .to_date if dropping the time of day is what you meant`. What a
   timestamp variable now *accepts* grew to match — a `DateTime` and the
   `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert losslessly,
   and both used to raise.
@@ -255,11 +251,14 @@
   any group hook, so `before { config.context = … }` was read too late and
   silently never reached a resolver. `configure` and an `around` hook are
   unchanged.
-- **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime` is
-  a `Date` to Ruby, so it passed straight through the cast and went on the wire
+- **A `DateTime` given for a `Date` variable is refused.** `DateTime` is a
+  `Date` to Ruby, so it passed straight through the cast and went on the wire
   as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema said
-  `ISO8601Date`. A lenient server truncated it; a strict one refused it. The
-  `Date` serializer now writes the date alone.
+  `ISO8601Date`. A lenient server truncated it; a strict one refused it.
+  Truncating it to the date would be the same guess made silently, so it now
+  raises an `InputError` naming the class and the fix: `$d of On: expected a
+  Date, got a DateTime — pass .to_date if dropping the time of day is what you
+  meant`.
 - **Three things are refused where they used to go wrong later.** A `client`
   that isn't a constant is refused at generation: the value is spelled into
   every generated module, so a `client` given the endpoint url emitted
