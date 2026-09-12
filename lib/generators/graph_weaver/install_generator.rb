@@ -202,7 +202,7 @@ module GraphWeaver
           # Custom scalars, enums and type mixins go here — `rake graph_weaver:generate`
           # bakes them into the generated source, so they must be registered first:
           #
-          #   GraphWeaver.register_scalar("DateTime", Time, serialize: :iso8601, requires: "time")
+          #   GraphWeaver.register_scalar("Money", BigDecimal)
           #   GraphWeaver.extend_type("Person", Greetable)
         RUBY
       end

@@ -137,6 +137,15 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       expect(initializer(run_generator)).to include "register_scalar", "extend_type" # pointers, not a wall of options
     end
 
+    # The one registration a new app copies, so it has to be the current
+    # spelling of one that's actually needed: the example named DateTime,
+    # which needs no registration, with the keywords 0.6.1 made unnecessary.
+    it "shows a scalar that needs registering, named the way it is now" do
+      example = initializer(run_generator)[/^#\s+GraphWeaver\.register_scalar.*$/]
+
+      expect(example).to eq %(#   GraphWeaver.register_scalar("Money", BigDecimal))
+    end
+
     it "bootstraps the schema dump through the refresh path" do
       ENV["GITHUB_TOKEN"] = "s3cret"
       actions = run_generator(auth: "GITHUB_TOKEN")

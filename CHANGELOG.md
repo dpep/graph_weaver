@@ -151,6 +151,12 @@
   router is built once for the suite, so a seed there would pin every example
   to one run. `GraphWeaver::Testing.config.seed` remains the override for a
   harness that isn't rspec.
+- **`rails g graph_weaver:install` writes the current scalar spelling.** Its
+  example registration was `register_scalar("DateTime", Time, serialize:
+  :iso8601, requires: "time")` — a scalar that has needed no registration
+  since 0.6.0, in the pre-0.6.1 three-keyword form. It now shows
+  `register_scalar("Money", BigDecimal)`, which is a scalar that does need
+  one, spelled the way [docs/scalars.md](docs/scalars.md) teaches.
 - **The unregistered-scalar report prints where the task that found it
   prints.** `rake graph_weaver:generate` and `:verify` said one of their two
   registry advisories on the terminal and the other only on the logger — which
