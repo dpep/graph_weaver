@@ -283,7 +283,7 @@ carries it — `SearchQuery::Result::Search::Species` is `GraphQLTypes::Species`
 |---|---|
 | `Testing.config.auto_fake = true` | `Testing.config.default_mode = :fake` |
 | a mutation's `…Query` module | `…Mutation` |
-| `graphql: :none` (rspec tag) | `graphql: false` |
+| `graphql: :none` (rspec tag) | `graphql: :live` |
 
 **The shared types module was three, and is now one.** `GraphQLInputs`,
 `GraphQLEnums` and `GraphQLUnions` are all `GraphQLTypes`, and the files move
