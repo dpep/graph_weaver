@@ -77,6 +77,12 @@
 - **`graph :billing` and `graph "billing"` are one graph.** The name is the
   identity, so the second spelling replaces the first rather than declaring a
   second graph that generates over its output.
+- **`GraphWeaver.parse` takes `graph:`.** Under a `graphql:` tag in an app with
+  several graphs, a parsed module said nothing about which graph it belonged
+  to, so the mode had nothing to run it against — and the refusal said to
+  regenerate, which cannot reach a module that generates no file. `parse` now
+  bakes the graph whose schema it was parsed against, `graph: :billing` says it
+  where that can't be read, and the refusal names both fixes.
 <!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

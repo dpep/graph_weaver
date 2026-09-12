@@ -148,10 +148,10 @@ class GraphWeaver::Codegen
   # file, but invisible to srb tc — use the build step for static typing.
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
-  def self.parse(schema:, query:, name: nil, client: nil, path: nil, module_name: nil)
+  def self.parse(schema:, query:, name: nil, client: nil, path: nil, module_name: nil, graph_name: nil)
     client_const = CLIENT_CONST.call(client)
 
-    codegen = new(schema:, query:, name:, client: client_const, path:, module_name:,
+    codegen = new(schema:, query:, name:, client: client_const, path:, module_name:, graph_name:,
       default_name: "Query")
     source = codegen.generate
 

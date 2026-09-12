@@ -208,9 +208,14 @@ module GraphWeaver
           found = graphs.find { |graph| graph.name == name }
           return found if found
 
+          # Two doors produce a module, so the fix has two spellings: a file
+          # gets its GRAPH back by being regenerated, and a GraphWeaver.parse
+          # module — which generates no file, so regenerating cannot reach it
+          # — is told where it is parsed.
           raise GraphWeaver::Error, "#{mod} doesn't say which of this app's graphs " \
             "(#{declared_names}) it was generated from, so #{@mode.inspect} has nothing to run " \
-            "it against — regenerate (rake graph_weaver:generate)."
+            "it against — regenerate it (rake graph_weaver:generate), or, if it came from " \
+            "GraphWeaver.parse, say which there (graph: #{graphs.first.name.inspect})."
         end
       end
     end

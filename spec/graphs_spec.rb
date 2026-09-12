@@ -403,6 +403,33 @@ describe "GraphWeaver.graph" do
     expect(GraphWeaver.graphs.map(&:name)).to eq [:solo]
   end
 
+  # a parsed module generates no file, so under a test mode in a multi-graph
+  # app it used to be a dead end: nothing said which graph it belonged to, and
+  # the refusal advised regenerating, which cannot reach it
+  describe "GraphWeaver.parse in a multi-graph app" do
+    before do
+      GraphWeaver.graph(:pets) { schema Demo::Schema }
+      GraphWeaver.graph(:billing) { schema BILLING_SDL }
+    end
+
+    it "bakes the graph whose schema it was parsed against" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, query: "{ people { name } }")
+
+      expect(mod.const_get(:GRAPH, false)).to eq :pets
+    end
+
+    it "takes graph: for a schema no graph runs in-process" do
+      mod = GraphWeaver.parse(schema: Demo::Schema, query: "{ people { name } }", graph: "billing")
+
+      expect(mod.const_get(:GRAPH, false)).to eq :billing
+    end
+
+    it "refuses a graph: that isn't declared, naming the ones that are" do
+      expect { GraphWeaver.parse(schema: Demo::Schema, query: "{ people { name } }", graph: :nope) }
+        .to raise_error(ArgumentError, "graph: :nope isn't declared — this app declares :pets, :billing")
+    end
+  end
+
   # the name is written into every module the graph generates, so it has to be
   # something generated source can spell
   it "refuses a name that isn't a Symbol or a String" do

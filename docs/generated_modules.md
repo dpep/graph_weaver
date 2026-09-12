@@ -620,6 +620,16 @@ checking matters. `GraphWeaver.run(source, query, **variables)` — or
 `client.run` — is the one-shot form: parse and execute in one call, no module
 kept.
 
+In an app with [more than one graph](getting_started.md#more-than-one-schema), a
+parsed module belongs to one of them — that is what a `graphql:` tag runs it
+against, the same thing generation bakes into a file. It is read off the schema
+you parsed against when a graph runs that class in-process; say it outright
+otherwise:
+
+```ruby
+PersonQuery = GraphWeaver.parse(schema: BILLING, query: "…", graph: :billing)
+```
+
 Generated source is eval'd, so inputs are validated: module names must be
 constant names, and query heredocs can't be terminated early. Still: queries
 are code — don't feed untrusted strings to parse.

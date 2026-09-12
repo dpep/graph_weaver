@@ -922,9 +922,15 @@ module GraphWeaver
     # "Query" for anonymous operations — collisions are impossible since each
     # parse gets its own container). Pass name: to override, client: to bake
     # the module's default client/transport.
-    def parse(schema:, query:, name: nil, client: nil, fragments: fragments_paths)
+    #
+    # graph: names the graph this module belongs to, which is what a test mode
+    # runs it against in an app with more than one — the same thing generation
+    # bakes into a file. Left out, it is the graph running this schema, when
+    # one is declared; an app with one graph never needs it.
+    def parse(schema:, query:, name: nil, client: nil, graph: nil, fragments: fragments_paths)
       client ||= schema if schema.is_a?(Client)
       schema = Internal::Util.schema_for(schema)
+      graph_name = graph ? named_graph!(graph) : Internal::Util.graph_for(schema)&.name
       # Rails.root.join(...) hands you a Pathname, and to_path is the
       # ecosystem's "I am a path" — the same conversion schema: gets through
       # SchemaLoader.load. Without it end_with? below is a NoMethodError.
@@ -940,8 +946,21 @@ module GraphWeaver
       end
       query = Codegen.inline_fragments(query, Codegen.load_fragments(fragments), path)
 
-      Codegen.parse(schema:, query:, name:, client:, path:)
+      Codegen.parse(schema:, query:, name:, client:, path:, graph_name:)
     end
+
+    # `graph:`'s name, checked against what is declared — an unknown one would
+    # otherwise bake a GRAPH no mode can match, and be reported as a module
+    # that doesn't say which graph it came from.
+    def named_graph!(name)
+      declared = graphs.map(&:name).compact
+      found = declared.find { |candidate| candidate.to_s == name.to_s }
+      return found if found
+
+      raise ArgumentError, "graph: #{name.inspect} isn't declared — this app declares " \
+        "#{declared.empty? ? "none (see GraphWeaver.graph)" : declared.map(&:inspect).join(", ")}"
+    end
+    private :named_graph!
 
     # One-shot dynamic execution — a throwaway client, no build step:
     #

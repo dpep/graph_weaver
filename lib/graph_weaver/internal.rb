@@ -101,9 +101,15 @@ module GraphWeaver
         # which is the only identity cheap enough to ask per fake; anything
         # else falls back to the default, which is where a single-schema app
         # has always read from.
-        def registry_for(schema)
-          graph = schema && GraphWeaver.graphs.find { |candidate| candidate.live_schema.equal?(schema) }
-          graph ? graph.registry : Codegen.registry
+        def registry_for(schema) = graph_for(schema)&.registry || Codegen.registry
+
+        # The declared graph that runs `schema` in-process, or nil. Matched on
+        # the schema class a graph runs, which is the only identity cheap
+        # enough to ask per call — a dump would have to be re-read, and
+        # re-reading it gives a different object every time. GraphWeaver.parse
+        # asks too, to bake the GRAPH a generated file would have carried.
+        def graph_for(schema)
+          schema && GraphWeaver.graphs.find { |candidate| candidate.live_schema.equal?(schema) }
         end
 
         # Where generated modules are READ from: the configured patterns, plus

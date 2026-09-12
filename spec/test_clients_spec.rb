@@ -94,12 +94,17 @@ describe GraphWeaver::Internal::TestClients do
     expect(BoundClient::SPY.requests.size).to eq 1
   end
 
+  # both doors named: a checked-in file gets its GRAPH back by being
+  # regenerated, and a GraphWeaver.parse module generates no file, so
+  # "regenerate" on its own was advice it could never take
   it "refuses to guess which graph a module that doesn't say belongs to" do
     GraphWeaver.graph(:pets) { schema Demo::Schema }
     GraphWeaver.graph(:billing) { schema Demo::Schema }
     described_class.install(:fake)
 
-    expect { bound.execute!(id: "1") }
-      .to raise_error(GraphWeaver::Error, /which of this app's graphs.*:pets, :billing/m)
+    expect { bound.execute!(id: "1") }.to raise_error(
+      GraphWeaver::Error,
+      /which of this app's graphs \(:pets, :billing\).*rake graph_weaver:generate.*GraphWeaver\.parse, say which there \(graph: :pets\)/m,
+    )
   end
 end
