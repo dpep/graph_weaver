@@ -11,6 +11,13 @@
   generator also no longer appends to a multi-document `.rubocop.yml` (rubocop
   reads only the first document, so the block landed where nothing would read
   it); it prints the lines to add instead.
+- **`Transport::Faraday#url` reports Array and Hash connection params the way
+  the wire carries them.** It encoded with `URI.encode_www_form` rather than
+  Faraday's own encoder, so `a: [1, 2]` was reported as `?a=1&a=2` against
+  `a[]=1&a[]=2` on the wire and `a: {b: "c"}` as a URL-escaped Ruby `Hash#inspect`.
+  `#url` is what `graphql: :wire` keys its stub on and what the boot log prints,
+  so both were wrong. **A `:wire` stub written against the old string will now
+  miss** — restub it against the real endpoint.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

@@ -154,6 +154,32 @@ describe GraphWeaver::Transport::Faraday do
     server&.close
   end
 
+  # url-encoding a param is Faraday's job, not URI.encode_www_form's: an Array
+  # ships as a[]=1&a[]=2 and a Hash as a[b]=c, so #url — the string `graphql: :wire`
+  # keys its stub on — has to come out of the same encoder the request does
+  it "reports Array and Hash connection params the way the wire carries them" do
+    request = Queue.new
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new do
+      socket = server.accept
+      request << socket.readpartial(4096).lines.first
+      body = JSON.generate("data" => { "person" => nil })
+      socket.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" \
+        "Content-Length: #{body.bytesize}\r\n\r\n#{body}")
+      socket.close
+    end
+    connection = Faraday.new(url: "http://127.0.0.1:#{server.addr[1]}/graphql") do |conn|
+      conn.params.update("fields" => %w[a b], "filter" => { "kind" => "dog" })
+    end
+    executor = described_class.new(connection)
+
+    PersonQuery.execute(client: executor, id: "1")
+    expect(executor.url).to end_with request.pop[%r{POST (\S+) }, 1]
+  ensure
+    thread&.kill # a failure above leaves it blocked in accept
+    server&.close
+  end
+
   it "rejects headers:/timeouts with a prebuilt connection (they'd be silently ignored)" do
     conn = Faraday.new(url: "http://example.test/graphql")
     expect { GraphWeaver::Transport::Faraday.new(conn, headers: { "X-A" => "b" }) }
