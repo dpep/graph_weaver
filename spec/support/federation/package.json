@@ -5,7 +5,7 @@
   "dependencies": {
     "@apollo/composition": "^2.14.4",
     "@apollo/federation-internals": "^2.14.4",
-    "@apollo/gateway": "^2",
+    "@apollo/gateway": "^2.14.4",
     "@apollo/server": "^4",
     "graphql": "^16"
   }
