@@ -328,45 +328,57 @@ class GraphWeaver::Codegen
   # Ruby local is unreachable by a GraphQL variable name, so this is a guard
   # rather than a rename.
   RESERVED_KWARGS = %w[client variables].to_set.freeze
-  # One rule: a prop may not shadow a method its struct already answers to.
-  # Three kinds of name land in it — what T::Struct and Object define (T::Props
-  # raises at require time rather than redefine `class` or `hash`), Kernel's
-  # PRIVATE methods (the gem calls `raise` bare inside the modules it mixes in,
-  # and a prop reader would answer it), and the hooks Ruby and Rails call on any
-  # object without it defining them: `to_ary` from `puts`, `deconstruct` from an
-  # array pattern, `as_json` from `render json:`.
+  # One rule: a prop may not shadow a method its struct answers. Three kinds of
+  # name land in it — the ones T::Struct and Object answer PUBLICLY, the hooks
+  # Ruby and Rails call on any object without it defining one, and the ones the
+  # gem's own mixins define.
+  #
+  # Kernel's PRIVATE methods are deliberately NOT here. A struct doesn't answer
+  # them, so a prop shadows one only for a bare call from inside the struct —
+  # which is the gem's code to keep qualified (`Kernel.raise` in hints.rb and
+  # input_struct.rb), not the schema's to avoid. Reserving them refused real
+  # columns: a Hasura bool_exp has one input field per column, and `format`,
+  # `select`, `test`, `open`, `load` and `pp` are all columns somebody has.
   #
   # Listed, not derived from the live T::Struct: derivation made generation a
   # function of require order — with ActiveSupport loaded first `as_json` was
   # refused, loaded second it became a prop that shadowed the real #as_json —
   # and generated output must depend on nothing but the schema, the query and
-  # the gem. A name a later Ruby or sorbet-runtime adds and this misses is loud
-  # anyway: the generated file raises ArgumentError when it is required.
+  # the gem. sorbet-runtime's own BANNED_METHOD_NAMES is that same snapshot of
+  # `Object.instance_methods`, so it can't be leaned on either. A name a later
+  # Ruby adds and this misses is loud anyway: the generated file raises
+  # ArgumentError when it is required.
   #
   # The gem's own mixins stay derived — they are the gem's to track, so adding
-  # a method to either reserves its name without a second edit here.
-  RESERVED_PROPS = (GENERATED_METHODS + %w[
-    ! != !~ <=> == === Array Complex
-    Float Hash Integer Rational String __callee__ __dir__ __id__
-    __method__ __send__ ` abort as_json at_exit autoload autoload?
-    binding block_given? caller caller_locations catch class clone deconstruct
-    define_singleton_method deserialize display dup each enum_for eql? equal?
-    eval exec exit exit! extend fail fork format
-    freeze frozen? gets global_variables hash initialize initialize_clone initialize_copy
-    initialize_dup inspect instance_eval instance_exec instance_of? instance_variable_defined? instance_variable_get instance_variable_set
-    instance_variables is_a? iterator? itself kind_of? lambda load local_variables
-    loop method methods nil? object_id open p pp
-    presence pretty_inspect pretty_print pretty_print_cycle pretty_print_inspect pretty_print_instance_variables print printf
-    private_methods proc protected_methods public_method public_methods public_send putc puts
-    raise rand readline readlines remove_instance_variable require require_relative respond_to?
-    respond_to_missing? select send serialize set_trace_func singleton_class singleton_method singleton_methods
-    sleep spawn sprintf srand syscall system tap test
-    then throw to_a to_ary to_enum to_hash to_int to_json
-    to_param to_proc to_query to_s to_str to_yaml trace_var trap
-    try untrace_var warn with yield_self
-  ] + [GraphWeaver::ResultStruct, GraphWeaver::Hints].flat_map { |mod|
-    (mod.instance_methods(false) + mod.private_instance_methods(false)).map(&:to_s)
-  }).freeze
+  # a method to one reserves its name without a second edit here.
+  RESERVED_PROPS = (GENERATED_METHODS +
+    # what T::Struct and Object answer publicly. `to_yaml` and `pretty_print*`
+    # ride in on psych and pp, which land on Object whenever they are loaded —
+    # listed unconditionally, since what else is loaded is not generation's
+    # business.
+    %w[
+      ! != !~ <=> == === __id__ __send__
+      class clone define_singleton_method deserialize display dup enum_for eql?
+      equal? extend freeze frozen? hash inspect instance_eval instance_exec
+      instance_of? instance_variable_defined? instance_variable_get instance_variable_set
+      instance_variables is_a? itself kind_of? method methods nil? object_id
+      pretty_inspect pretty_print pretty_print_cycle pretty_print_inspect
+      pretty_print_instance_variables private_methods protected_methods
+      public_method public_methods public_send remove_instance_variable respond_to?
+      send serialize singleton_class singleton_method singleton_methods tap then
+      to_enum to_s to_yaml with yield_self
+    ] +
+    # hooks called on an object that doesn't define them: `initialize` from
+    # .new, `initialize_copy` from dup, `to_ary` from `puts`, `deconstruct`
+    # from an array pattern, `as_json` from `render json:`
+    %w[
+      as_json deconstruct deconstruct_keys each initialize initialize_clone
+      initialize_copy initialize_dup presence to_a to_ary to_hash to_int to_json
+      to_param to_proc to_query to_str try
+    ] +
+    [GraphWeaver::ResultStruct, GraphWeaver::Hints, GraphWeaver::InputStruct].flat_map { |mod|
+      (mod.instance_methods(false) + mod.private_instance_methods(false)).map(&:to_s)
+    }).freeze
   private_constant :RUBY_KEYWORDS, :GENERATED_METHODS, :RESERVED_KWARGS, :RESERVED_PROPS
 
   def generate

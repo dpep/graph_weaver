@@ -61,14 +61,20 @@
   answered to.** Deriving them made generation depend on require order: with
   ActiveSupport loaded first a result key named `asJson` was refused, loaded
   second it became a prop that shadowed the real `#as_json`, so
-  `render json: result` serialized the field. **More keys are refused now** —
-  Kernel's private methods (`raise`, `format`, `select`, `require`, …), which a
-  prop reader shadowed well enough to turn every cast error into *"wrong number
-  of arguments (given 2, expected 0)"*, and the hooks Ruby and Rails call on any
-  object (`deconstruct`, `to_a`, `to_ary`, `to_hash`, `to_json`, `as_json`,
-  `to_param`, `to_query`, `try`, `presence`, `each`). Alias those fields in the
-  query; the refusal reads *"would become prop 'x', a name generated structs
-  reserve"*. **Regenerate.**
+  `render json: result` serialized the field. One rule now says what is on it:
+  a prop may not shadow a method its struct answers — the public instance
+  methods of `T::Struct` and `Object`, a hook Ruby or Rails calls on any object
+  without it defining one (`initialize`, `to_ary`, `to_a`, `to_hash`, `to_str`,
+  `to_int`, `to_proc`, `to_json`, `as_json`, `to_param`, `to_query`, `try`,
+  `presence`, `each`, `deconstruct`), or a method the gem's own mixins define.
+  **A few more keys are refused now**, all from that last group. Kernel's
+  *private* methods are deliberately not reserved: a struct doesn't answer them,
+  and `format`, `select`, `test`, `open`, `load` and `pp` are ordinary
+  database columns — a Hasura `bool_exp` has one input field per column, so
+  reserving them refused whole schemas. The gem's mixins call theirs qualified
+  (`Kernel.raise` in `hints.rb`, `input_struct.rb`) so a prop may take the name.
+  Alias a field that is on the list; the refusal reads *"would become prop 'x',
+  a name generated structs reserve"*. **Regenerate.**
 - **`respond_to?` on a generated result struct no longer answers true for a
   name that doesn't exist.** It said true for any near miss, so the standard
   duck-typing guard was the thing that broke — `obj.pet if obj.respond_to?(:pet)`

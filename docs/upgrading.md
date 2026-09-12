@@ -81,13 +81,16 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   whatever `T::Struct` answered to in the generating process, which had made
   generation depend on the Gemfile: with ActiveSupport loaded first a field
   named `asJson` was refused, loaded second it became a prop that shadowed the
-  real `#as_json`, so `render json: result` serialized the field. **More names
-  are refused than before** — Kernel's private methods (`raise`, `format`,
-  `select`, `require`, `puts` and the rest, which a prop reader would shadow
-  inside the gem's own mixins) and the hooks Ruby and Rails call on any object:
+  real `#as_json`, so `render json: result` serialized the field. The list is
+  what a struct answers: the public instance methods of `T::Struct` and
+  `Object`, the hooks Ruby and Rails call on any object — `initialize`,
   `deconstruct`, `to_a`/`to_ary`/`to_hash`/`to_str`, `to_json`, `as_json`,
-  `to_param`, `to_query`, `try`, `presence`, `each`. **Alias a field with one of
-  those names** (`formatValue: format`); `rake graph_weaver:generate` finds them
+  `to_param`, `to_query`, `try`, `presence`, `each` — and the methods the gem's
+  own mixins define. **A few more names are refused than before**, all from that
+  last group. Kernel's *private* methods are not among them: `format`, `select`,
+  `pp` and `test` are ordinary column names, and the gem's mixins qualify their
+  own calls (`Kernel.raise`) so a prop may take one. **Alias a field whose name
+  is on the list** (`hashValue: hash`); `rake graph_weaver:generate` finds them
   all at once.
 - **`graphql: :wire`, if you adopt it, needs webmock *enabled*** — `require
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:

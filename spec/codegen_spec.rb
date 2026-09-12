@@ -130,8 +130,10 @@ describe GraphWeaver::Codegen do
     end
 
     it "refuses input fields whose prop name generated structs reserve" do
-      # `class` is both a keyword and Object#class — T::Props refuses to redefine it
-      %w[serialize class].each do |field|
+      # `class` is both a keyword and Object#class — T::Props refuses to redefine
+      # it; `supplied` is InputStruct's own accessor, reserved because the mixin
+      # defines it
+      %w[serialize class supplied].each do |field|
         expect {
           GraphWeaver.parse(schema: schema_with_input("#{field}: String"),
             query: "mutation($input: Tricky!) { save(input: $input) }", name: "T#{field}")
@@ -190,17 +192,48 @@ describe GraphWeaver::Codegen do
       end
     end
 
-    # Kernel's private methods never reached `instance_methods`, so a prop could
-    # shadow one — and the gem calls `raise` bare inside the modules it mixes
-    # into every struct, so a field named `raise` turned every hint and cast
-    # error into "wrong number of arguments (given 2, expected 0)".
-    it "refuses result keys that shadow Kernel's private methods" do
-      %w[raise format puts select require].each do |field|
-        expect {
-          GraphWeaver.parse(schema: schema_with_page("#{field}: String"),
-            query: "query P { page { #{field} } }", name: "Kernel#{field}")
-        }.to raise_error(GraphWeaver::Error, /would become prop '#{field}'/)
-      end
+    # Kernel's private methods are NOT reserved: a struct doesn't answer them,
+    # so a prop shadows one only for a bare call from inside the struct — the
+    # gem's own code to qualify, not the schema's to avoid. `format`, `select`,
+    # `pp`, `test` and `load` are ordinary database columns, and a Hasura
+    # bool_exp has one input field per column.
+    it "accepts result keys named after Kernel's private methods" do
+      fields = %w[raise format puts select require pp test open load]
+      mod = GraphWeaver.parse(schema: schema_with_page(fields.map { "#{_1}: String" }.join(" ")),
+        query: "query P { page { #{fields.join(" ")} } }", name: "KernelPrivateProps")
+
+      page = mod.from_response!("data" => { "page" => fields.to_h { [_1, _1] } }).page
+      expect(fields.map { page.public_send(_1) }).to eq fields
+    end
+
+    # The mixins every generated struct includes call Kernel's private methods
+    # qualified (`Kernel.raise`) precisely so a prop may take the name: a bare
+    # one would reach the prop's zero-arity reader and turn the hint into
+    # "wrong number of arguments (given 2, expected 0)".
+    it "keeps the mixins working when a prop takes a Kernel name" do
+      mod = GraphWeaver.parse(schema: schema_with_page("raise: String warn: String"),
+        query: "query P { page { raise warn } }", name: "KernelShadowingProps")
+      page = mod.from_response!("data" => { "page" => { "raise" => "r", "warn" => "w" } }).page
+
+      # Hints#method_missing still reaches its Kernel.raise
+      expect { page.warm }.to raise_error(NoMethodError, /did you mean 'warn'\?/)
+      # ...and ResultStruct's own methods still see the props
+      expect(page.to_h).to eq({ raise: "r", warn: "w" })
+    end
+
+    it "keeps an input struct's refusals working when a prop takes a Kernel name" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { ok: Boolean }
+        type Mutation { save(input: Tricky!): Boolean }
+        input Tricky @oneOf { raise: String warn: String }
+      GRAPHQL
+      mod = GraphWeaver.parse(schema:, name: "KernelInputProps", client: Demo::Schema,
+        query: "mutation Save($input: Tricky!) { save(input: $input) }")
+
+      expect(mod::Tricky.coerce({ raise: "boom" }).serialize).to eq({ "raise" => "boom" })
+      # InputStruct#one_of! reaches its Kernel.raise past the `raise` prop
+      expect { mod::Tricky.new.serialize }
+        .to raise_error(GraphWeaver::InputError, /is @oneOf — supply exactly one field/)
     end
 
     it "generates the same source whatever else has patched Object" do
