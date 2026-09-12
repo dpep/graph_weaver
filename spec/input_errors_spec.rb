@@ -151,6 +151,30 @@ describe "input errors" do
       expect(hash["message"]).to include "LIZARD"
       expect { JSON.generate(hash) }.not_to raise_error
     end
+
+    # `render json: e.to_h` is the documented idiom, and the two refusals
+    # Coerce.finite/whole exist for are exactly the values JSON can't spell —
+    # so the crash landed inside the error handler and a 422 became a 500
+    it "keeps #value JSON-generatable for the non-finite numbers it refuses" do
+      nan = refusal { GraphWeaver::Coerce.variable("rating", "T", Float::NAN) { |v| GraphWeaver::Coerce.float(v) } }
+      expect(nan.value).to eq "NaN"
+      expect(JSON.generate(nan.to_h)).to include '"value":"NaN"'
+
+      infinite = refusal do
+        GraphWeaver::Coerce.variable("count", "T", Float::INFINITY) { |v| GraphWeaver::Coerce.integer(v) }
+      end
+      expect(infinite.value).to eq "Infinity"
+      expect { JSON.generate(infinite.to_h) }.not_to raise_error
+    end
+
+    it "keeps a non-finite number nested inside a value JSON-generatable too" do
+      error = refusal do
+        GraphWeaver::Coerce.variable("stats", "T", { "mean" => Float::NAN }) { |v| GraphWeaver::Coerce.integer(v) }
+      end
+
+      expect(error.value).to eq({ "mean" => "NaN" })
+      expect { JSON.generate(error.to_h) }.not_to raise_error
+    end
   end
 
   describe "server-side: a rejection becomes the same value" do
@@ -193,6 +217,17 @@ describe "input errors" do
       expect(error.value).to eq 0
       expect(error.details).to eq({ min: 1 })
       expect(error.message).to eq "min must be at least 1"
+    end
+
+    # a lenient JSON parser hands back Infinity, and #to_h is a 422 body
+    it "keeps a non-finite value a server stated JSON-generatable" do
+      error = error_for(
+        "message" => "too big",
+        "extensions" => { "input" => { "kind" => "out_of_range", "path" => ["n"], "value" => Float::INFINITY } },
+      )
+
+      expect(error.value).to eq "Infinity"
+      expect { JSON.generate(error.to_h) }.not_to raise_error
     end
 
     it "carries invalid_format's format the same way" do

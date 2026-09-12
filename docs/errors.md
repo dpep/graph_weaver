@@ -141,7 +141,7 @@ or an API response needs is beside it, as data:
 | `#kind` | one of eight Symbols — `GraphWeaver::InputError::KINDS`. The key an app translates; [i18n](i18n.md) has the table of what each means |
 | `#path` | the route from the variable down, Strings and list indices: `["where", "_and", 0, "_not", "species"]` |
 | `#coordinate` | the [schema coordinate](https://github.com/graphql/graphql-spec/pull/794) for the slot — `"PetFilter.species"`. `nil` when there isn't one |
-| `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables). `nil` when it was never known — a missing field has none, and an unknown key owns no slot to hold one |
+| `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables), and always JSON-representable (a non-finite Float travels as `"NaN"`/`"Infinity"`). `nil` when it was never known — a missing field has none, and an unknown key owns no slot to hold one |
 | `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }` |
 | `#field` | `#path`'s last segment — the one field a form highlights |
 | `#struct` | the input type being built |

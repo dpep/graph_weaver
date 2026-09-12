@@ -101,6 +101,13 @@
   (`#input_errors`) now runs its `#message` through the same filter `#value`
   already went through — graphql-ruby quotes the rejected value in its
   explanation as a matter of course.
+- **`render json: e.to_h` no longer 500s on a number JSON can't spell.**
+  `InputError#value` and `#details` are now always JSON-representable: a
+  non-finite Float travels as its `to_s` (`"NaN"`, `"Infinity"`), at any depth.
+  The values that reached there were exactly the ones `Coerce` exists to refuse
+  — an average over an empty set, `(10**400).to_f` — so the `JSON::GeneratorError`
+  landed *inside* the app's error handler, losing the diagnosis and turning a
+  422 into a 500.
 <!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)

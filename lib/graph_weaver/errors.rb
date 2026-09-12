@@ -599,7 +599,9 @@ module GraphWeaver
     attr_reader :coordinate
 
     # The rejected value, through filter_parameters exactly as the message
-    # is. nil where it was never known (a missing field has no value).
+    # is. nil where it was never known (a missing field has no value, and an
+    # unknown key owns no slot to hold one). Always JSON-representable — see
+    # json_safe.
     sig { returns(T.untyped) }
     attr_reader :value
 
@@ -636,12 +638,28 @@ module GraphWeaver
       @kind = kind
       @path = T.let(path.dup, T::Array[T.untyped])
       @coordinate = coordinate
-      @value = value
-      @details = details
+      @value = T.let(json_safe(value), T.untyped)
+      @details = T.let(json_safe(details), T::Hash[Symbol, T.untyped])
       @struct = struct
       @raised = raised
       # the message often IS a sorbet prop error — drop its frame, as CastError does
       super(message.sub(CastError::SORBET_CALLER, ""))
+    end
+
+    # `render json: e.to_h` is the documented idiom, and JSON has no spelling
+    # for NaN or Infinity — so the crash landed inside the app's error handler,
+    # losing the diagnosis and turning a 422 into a 500. The values that get
+    # there are precisely the ones Coerce.finite/whole exist to refuse, plus
+    # whatever a lenient parser read off a response, so a non-finite Float
+    # travels as its to_s and everything else passes through untouched.
+    sig { params(value: T.untyped).returns(T.untyped) }
+    private def json_safe(value)
+      case value
+      when Float then value.finite? ? value : value.to_s
+      when Array then value.map { |element| json_safe(element) }
+      when Hash then value.transform_values { |element| json_safe(element) }
+      else value
+      end
     end
 
     # The input field the value actually landed on — the last segment of
