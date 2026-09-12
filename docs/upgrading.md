@@ -21,11 +21,14 @@ differently and nothing else — worth reading rather than rubber-stamping.
 
 ## Upgrading from 0.6.1
 
-Small, and almost all of it is the rspec tags. Two commands find it:
+Small, and most of it is the rspec tags — but three things that used to run now
+refuse, and one changes what a `Date` variable puts on the wire. Two commands
+find everything except that last one, which is silent by nature:
 
 ```sh
-rake graph_weaver:generate   # every module now names the graph it came from
-bundle exec rspec            # the renamed tag and the deleted nil raise
+rake graph_weaver:generate   # every module now names the graph it came from,
+                             # plus the client: and cast:/serialize: refusals
+bundle exec rspec            # the renamed tag, the deleted nil, the seed: refusal
 ```
 
 ### Renames
@@ -54,6 +57,29 @@ bundle exec rspec            # the renamed tag and the deleted nil raise
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
   `Bundler.require` loads webmock without installing its adapters, and the tag
   refuses before the first request rather than letting it leave the suite.
+- **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime` is
+  a `Date` to Ruby, so it used to pass the cast untouched and go on the wire as
+  `"2024-01-15T10:20:30+00:00"` where the schema said `ISO8601Date` — a lenient
+  server truncated it, a strict one refused it. It now sends `"2024-01-15"`.
+  Nothing raises either way, so **check any assertion or cassette that pinned
+  the old timestamp**.
+- **A `client` that isn't a constant is refused at generation.** Its value is
+  spelled into every module the graph generates, so `client` given an endpoint
+  url emitted a file that doesn't parse, from a run that reported success.
+  Declare the constant and name it — `CLIENT = GraphWeaver.new(url)`, then
+  `client "CLIENT"` — which is what the message says.
+- **A `cast:` or `serialize:` proc that returns a value is refused at
+  registration.** A proc there builds *source* for the generated file, so
+  `cast: ->(v) { v.to_sym }` interpolated to nothing and every response failed
+  far from the registration, blaming the codec. It is probed once when
+  registered now: return the source (`cast: ->(v) { "Money.parse(#{v})" }`) or
+  name a method instead (`cast: :parse`).
+- **A router's `fake:` refuses `seed:`**, as `graphql_fake` already did. A
+  router is built once for the suite, so a seed inside
+  `graphql_router(fake: …)` would pin every example to one run — `rspec --seed
+  1234` reproduces the fabricated data along with the test order, and
+  `GraphWeaver::Testing.config.seed` is the override for a harness that isn't
+  rspec.
 
 ## Upgrading from 0.5.1
 
