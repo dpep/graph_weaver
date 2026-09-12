@@ -238,6 +238,13 @@ describe "graph_weaver/rspec" do
       expect { graphql_in_process }
         .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_in_process\(MySchema\)/m)
     end
+
+    # graphql_router names no schema, so there is nothing for it to say which
+    # graph a fake: is for — and the tag alone already routes each module
+    it "refuses graphql_router, pointing at the tag and config.router" do
+      expect { graphql_router(fake: { "Draft.owner" => "ada" }) }
+        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*config\.router = \{ fake:/m)
+    end
   end
 
   describe "the README's pins", graphql: :fake do
