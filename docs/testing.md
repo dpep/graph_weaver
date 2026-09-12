@@ -1,19 +1,16 @@
 # Testing
 
 How to run a spec that executes a GraphQL query without a server — against
-fabricated data, against your own resolvers, or across a federated graph. Read
-this once when you set the suite up; after that the one thing to remember is
-the `graphql:` tag.
+fabricated data, against your own resolvers, or across a federated graph.
+Setup is one require and one tag; the rest of this page is what you reach for
+when an example is *about* the data, the resolvers, or the transport.
 
 One line in your spec helper:
 
 ```ruby
+# spec/support/graph_weaver.rb — or rails_helper.rb itself
 require "graph_weaver/rspec"
 ```
-
-(In Rails, put it **above** the `spec/support` glob in `rails_helper.rb` —
-rspec-rails requires those partway through, and a support file mentioning
-`GraphWeaver::Testing` before this line dies on `NameError`.)
 
 Then **one tag says what an example runs against** — on the example, or on
 the group it belongs to, since rspec metadata inherits:
@@ -38,9 +35,9 @@ it "sends the caller tag",    graphql: :wire do … end
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
 The tag installs a stand-in per graph, and every generated module of that
-graph runs against it with zero per-test setup — a module generated *with* a
-baked `client:` included, since that constant is exactly what the tag means
-to replace. `rspec --tag graphql:router` runs one mode's examples.
+graph runs against it with no per-test setup — including one generated *with*
+a baked `client:`, since that constant is exactly what the tag means to
+replace. `rspec --tag graphql:router` runs one mode's examples.
 
 **Every example has exactly one mode.** An untagged one takes
 `config.default_mode`, which is `:live` — your own client, exactly as it is —
@@ -123,7 +120,9 @@ graphql_fake("Product.name" => "Ada's Book", schema: Catalog::Schema)
 graphql_in_process(Accounts::Schema)
 ```
 
-So configure only to override a derivation, or to tune fabricated values:
+So configure only to override a derivation, or to tune fabricated values — in
+the same file as the require, since support files load in sorted order and one
+naming `GraphWeaver::Testing` before it dies on `NameError`:
 
 ```ruby
 GraphWeaver::Testing.configure do |config|
@@ -197,7 +196,9 @@ graphql_fake("Money" => "12.00",            # every Money field, however deep
 Keys are schema vocabulary, so they survive query refactors — a type name, or
 `"Type.field"` (a bare `"field"` pins it on every type) — and they are checked
 and spellchecked: `"Person.nmae"` raises rather than quietly pinning nothing
-and leaving the example green against random data.
+and leaving the example green against random data. **Schema vocabulary, not
+Ruby:** a `countries` field generates a `Countries` struct, but the pin is
+`"Country"`, the type name the schema uses.
 
 An **object pin** is anything answering the field names — a FactoryBot build, a
 model, a `Struct`, an `OpenStruct`. For each selected field the fake calls the
