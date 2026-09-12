@@ -149,6 +149,28 @@
   that says nothing identifying it as input — a bare `validates:` failure —
   is left alone rather than guessed at; the convention is one `Validator` away
   ([errors](docs/errors.md#what-your-server-can-send)).
+- **Generated result structs behave like ordinary Ruby objects**: value `==`
+  (with `eql?` and `hash`, so a result works as a hash key), `deconstruct_keys`
+  for pattern matching, and `#to_h`. All three go the whole way down a nested
+  result. `#to_h` is the Ruby shape, not the wire's — snake_case prop names as
+  Symbol keys, nils kept, enums as their `T::Enum` members — so it is a view,
+  not something to send back to a server. A result key that would collide with
+  one of the new names (`deconstruct_keys`) is refused at generation with the
+  same alias-it hint `to_h` already had. **Regenerate.**
+- **`GraphWeaver.configure do |config| ... end`** — `GraphWeaver::Testing.configure`
+  existed and the top level didn't. `config` is `GraphWeaver` itself, so the
+  flat `GraphWeaver.client = ...` spelling is the same call and stays valid.
+- **`rails g graph_weaver:install` adds each graph's output directory to
+  `AllCops: Exclude:`** when the app already has a `.rubocop.yml`, so plain
+  `rubocop` stops reporting `Style/Documentation`, `Style/ClassAndModuleChildren`
+  and `Metrics/*` on generated files. It never creates the file, and it leaves an
+  `AllCops:` you already have alone — a second one would replace it rather than
+  merge — printing the lines to add instead.
+- **`load_generated!` tells a `Zeitwerk::NameError` apart from a dropped
+  `extend_type`/`register_enum`.** The old message sent you hunting for a
+  registration that was still there; the new one says Zeitwerk owns the
+  directory and names the fix (`GraphWeaver.generated_paths`, or the
+  conventional `app/graphql/*/generated`).
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
