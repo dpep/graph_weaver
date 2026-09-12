@@ -101,11 +101,15 @@ looked for — rather than guessing**:
   class that defines everything the schema declares — the same
   derive-verify-refuse rule that
   [maps subgraphs](federation.md#which-schema-serves-which-subgraph).
-- **`:router`** plans against the composed supergraph. If your committed dump
-  *is* one (it carries `@join__*` markers), that's it — no config at all. A
-  client can't stand in for it: a client's schema is the API schema the router
-  serves, with the `@join__*` routing table stripped out, so the supergraph has
-  to be named. Subgraphs are derived either way.
+- **`:router`** plans against the composed supergraph, found where you have
+  already said it is: `config.router = { supergraph: … }` if you named one
+  there, else the schema a [graph](getting_started.md#more-than-one-schema)
+  declares when that schema carries `@join__*` markers, else the committed dump
+  when *that* does — which for a federated app is usually no config at all. Two
+  graphs naming *different* composed supergraphs is refused, not picked
+  between. A client can't stand in for one: a client's schema is the API schema
+  the router serves, with the `@join__*` routing table stripped out. Subgraphs
+  are derived either way.
 
 So configure only to override a derivation, or to tune fabricated values:
 

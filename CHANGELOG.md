@@ -16,6 +16,14 @@
   A helper now contradicts `graphql: :live` the way it contradicts any other
   tag: `graphql: :live` plus `graphql_fake` refuses rather than letting the
   helper quietly win.
+- **`:router` finds the supergraph a graph already declares.** An app that
+  wrote `GraphWeaver.graph :api, schema: "config/supergraph.graphql"` had said
+  where its supergraph is, and `graphql: :router` still asked for
+  `config.router = { supergraph: … }` on top. It now looks in order:
+  `config.router[:supergraph]`, then a declared graph's schema when that schema
+  carries `@join__*`, then the committed dump when *that* does. Two graphs may
+  name one supergraph; two naming different ones is refused rather than picked
+  between.
 - **`graphql: :wire` runs a spec against your own transport.** The other tags
   sit *in* the client slot, so the transport an app ships — APM tracing, a
   caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`

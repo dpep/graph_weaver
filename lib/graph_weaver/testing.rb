@@ -167,12 +167,24 @@ module GraphWeaver
         false
       end
 
-      # The composed supergraph :router plans against — named, or the
-      # conventional dump when that's what it is. A client can't supply
-      # one: its schema is the API schema a router serves, with the
-      # @join__* routing table stripped out.
+      # The composed supergraph :router plans against, looked for where an app
+      # has already said it: config.router names one, else a declared graph's
+      # schema IS one, else the conventional dump when that's what it is. A
+      # client can't supply one — its schema is the API schema a router serves,
+      # with the @join__* routing table stripped out.
       private def supergraph!
         return @router[:supergraph] if @router&.key?(:supergraph)
+
+        # two graphs may name one supergraph (a team's queries and output, not
+        # a second graph), so it's the distinct sources that have to be one
+        declared = GraphWeaver.graphs.filter_map(&:dump_path).uniq.select { |source| composed?(source) }
+        return declared.first if declared.one?
+
+        if declared.size > 1
+          raise GraphWeaver::Error, "this app declares #{declared.size} composed supergraphs " \
+            "(#{declared.join(", ")}) — :router plans against one, and picking either would be a " \
+            "guess. Name it: GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }."
+        end
 
         path = GraphWeaver::SchemaLoader.locate_path
         return path if path && composed?(path)
@@ -180,7 +192,8 @@ module GraphWeaver
         raise GraphWeaver::Error, ":router needs the composed supergraph SDL — a client's schema " \
           "is the API schema the router serves, with the @join__* routing table stripped out, so " \
           "the supergraph has to be named. #{path ? "#{path} carries no @join__* markers" : "Nothing on disk at #{GraphWeaver.schema_path}"}. " \
-          "Set GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }."
+          "Set GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }, or " \
+          "name it where the graph is declared: GraphWeaver.graph :api, schema: \"supergraph.graphql\"."
       end
 
       # The live schema class :in_process runs when the example didn't name

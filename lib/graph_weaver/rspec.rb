@@ -44,8 +44,9 @@ require_relative "testing"
 #   - :in_process runs against config.schema, or the schema class your
 #     client already uses. Only a live class has resolvers, so when
 #     neither is there it says so rather than hunting for one.
-#   - :router plans against the composed supergraph: the dump, when that's
-#     what it is, else config.router = { supergraph: … }. Subgraphs are
+#   - :router plans against the composed supergraph: config.router =
+#     { supergraph: … }, else the schema a declared graph names when that's
+#     what it is, else the dump when that's what it is. Subgraphs are
 #     derived from what each loaded schema defines; one nothing here serves
 #     is absent, and only a query that reaches its fields is refused.
 #   - :wire serves whichever of those two this graph is — the router when

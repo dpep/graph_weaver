@@ -240,7 +240,12 @@ GraphWeaver.client = GraphWeaver::Testing::Router.new(
 ```
 
 In rspec that's the [`graphql: :router`](testing.md#a-federated-graph--graphql-router)
-tag and there is nothing to pass — the tag builds it, once for the suite.
+tag and there is nothing to pass — the tag builds it, once for the suite. It
+finds the supergraph where you have already said it is: `Testing.config.router
+= { supergraph: … }` if you named one there, else the schema a
+[graph](getting_started.md#more-than-one-schema) declares when that schema is
+composed, else the committed dump when *that* is. Two graphs may name one
+supergraph; two naming different ones is refused rather than picked between.
 `router.trace` records the fetches made since the last `reset_trace`, in order
 (subgraph, query, variables); the same lines go to `GraphWeaver.logger` at
 `:debug`. It **accumulates across executes**, because the question worth asking
