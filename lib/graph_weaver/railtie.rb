@@ -19,8 +19,36 @@
 #   next request, the way editing a route or a locale takes effect.
 class GraphWeaver::Railtie < Rails::Railtie
   # config.graph_weaver.watch — false to never regenerate during a request.
-  # Default: development only.
-  config.graph_weaver = ActiveSupport::OrderedOptions.new
+  # Default: development only. Every other setting is a top-level one, and an
+  # OrderedOptions would take `config.graph_weaver.queries_paths = ...` without
+  # a word and do nothing with it, so this refuses what it doesn't read.
+  class Options < ActiveSupport::OrderedOptions
+    KEYS = %i[watch].freeze
+
+    def method_missing(name, *args)
+      key = name.to_s.delete_suffix("=").delete_suffix("?").delete_suffix("!").to_sym
+      return super if KEYS.include?(key)
+
+      raise ArgumentError, refusal(key)
+    end
+
+    def respond_to_missing?(name, _private = false)
+      KEYS.include?(name.to_s.delete_suffix("=").delete_suffix("?").delete_suffix("!").to_sym)
+    end
+
+    private
+
+    def refusal(key)
+      near = GraphWeaver::Internal::Util.did_you_mean(KEYS.map(&:to_s), key.to_s)
+      fix =
+        if GraphWeaver.respond_to?(:"#{key}=") then " — GraphWeaver.#{key} = ... is the setting you want"
+        elsif near then " (did you mean #{near}?)"
+        end
+      "config.graph_weaver takes #{KEYS.join(", ")}, not #{key}#{fix}"
+    end
+  end
+
+  config.graph_weaver = Options.new
 
   class << self
     # The file watcher, so the to_prepare block below can ask it whether a

@@ -43,6 +43,36 @@ describe "GraphWeaver::Railtie" do
   # measure "declared too late" against — process-global, like the watcher
   after { GraphWeaver::Railtie.ignored_dirs = nil }
 
+  # config.graph_weaver is where an app reaches for a graph_weaver setting, and
+  # a plain OrderedOptions swallows whatever it finds: no error, no effect, and
+  # the real writer is a top-level one the app never called.
+  describe "config.graph_weaver" do
+    subject(:options) { GraphWeaver::Railtie.config.graph_weaver }
+
+    after { options.delete(:watch) }
+
+    # and the ? and ! suffixes OrderedOptions answers, or `watch?` would be a
+    # key of its own and refused
+    it "takes watch, however OrderedOptions spells it" do
+      options.watch = false
+
+      expect(options.watch).to be false
+      expect { options.watch? }.not_to raise_error
+    end
+
+    it "refuses a key it doesn't read, and names the setting that does" do
+      expect { options.queries_paths = "app/gql" }.to raise_error(
+        ArgumentError,
+        a_string_including("config.graph_weaver", "watch", "GraphWeaver.queries_paths ="),
+      )
+    end
+
+    it "refuses a near miss with the name it was nearly" do
+      expect { options.wach = false }.to raise_error(ArgumentError, /did you mean watch\?/)
+      expect(options).not_to respond_to :wach
+    end
+  end
+
   # calling the captured block does `require "graph_weaver/tasks"` — already
   # required (once, above) by the time this runs, so it's a no-op here and
   # the registration this proves happened is the one already in RakeHarness.application
