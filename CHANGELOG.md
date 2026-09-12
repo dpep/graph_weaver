@@ -132,6 +132,23 @@
   `watch`; `config.graph_weaver.queries_paths = ...` was taken silently and did
   nothing. The refusal names `GraphWeaver.queries_paths =` as the setting that
   works.
+- **A form can highlight the input field that was wrong, without reading
+  English.** `InputError` now carries `#kind` (one of eight — `KINDS`), `#path`
+  rooted at the variable (`["where", "_and", 0, "_not", "species"]`),
+  `#coordinate` (`"PetFilter.species"`), `#value` (through
+  `filter_parameters`) and `#details` (`members:`, `type:`, `suggestion:`,
+  `min:`…), so an app translates a stable key instead of parsing a sentence
+  ([i18n](docs/i18n.md)). **`#field` changed meaning**: it is now `#path`'s last
+  segment — the input field that actually held the value — where it used to be
+  re-branded on the way out with the *variable* name; read `#path.first` for
+  that. And the other half of the question is answered too:
+  `Response#input_errors` / `QueryError#input_errors` /
+  `GraphQLError#input_errors` read a **server's** rejection back into the same
+  `InputError`, from the `extensions.input` convention, graphql-ruby's
+  variable-coercion `problems`, or a recognized `extensions.code`. A rejection
+  that says nothing identifying it as input — a bare `validates:` failure —
+  is left alone rather than guessed at; the convention is one `Validator` away
+  ([errors](docs/errors.md#what-your-server-can-send)).
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
