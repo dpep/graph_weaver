@@ -161,8 +161,43 @@ describe GraphWeaver::Codegen do
         GraphWeaver.parse(schema: schema_with_page("serialize: String"),
           query: "query P { page { serialize } }", name: "CollidingProp")
       }.to raise_error(GraphWeaver::Error,
-        "Page.serialize would become prop 'serialize', which every generated struct already " \
-        "defines — alias it in the query (`serializeValue: serialize`)")
+        "result key \"serialize\" on Page would become prop 'serialize', which every generated " \
+        "struct already defines — alias it in the query (`serializeValue: serialize`)")
+    end
+
+    # the colliding key can itself be an alias, and then there is no Page.class
+    # to name — and `classValue: class` is a query nobody can write
+    it "names the field, not the alias, in the fix it suggests" do
+      expect {
+        GraphWeaver.parse(schema: schema_with_page("ok: String"),
+          query: "query P { page { serialize: ok } }", name: "AliasedCollidingProp")
+      }.to raise_error(GraphWeaver::Error,
+        "result key \"serialize\" on Page would become prop 'serialize', which every generated " \
+        "struct already defines — alias it in the query (`serializeValue: ok`)")
+    end
+
+    # the collision message used to name neither key, while the sibling
+    # prop-collision message one screen up named both
+    it "names both result keys when two generate one class" do
+      expect {
+        GraphWeaver.parse(schema: Demo::Schema, name: "ClassCollision",
+          query: "query P { AB: person(id: 1) { name } aB: person(id: 2) { name } }")
+      }.to raise_error(GraphWeaver::Error,
+        'result keys "AB" and "aB" on Result both generate the class AB — alias one to a distinct name')
+    end
+
+    # Codegen can't reach this — a file name always gains a Query/Mutation word
+    # — but parse from a raw string and an explicit name: both can
+    it "refuses a module whose path starts with T, which Sorbet owns" do
+      ["T", "T::PersonQuery"].each do |name|
+        expect { GraphWeaver.parse(schema: Demo::Schema, query: "{ people { name } }", name:) }
+          .to raise_error(ArgumentError, "name: #{name.inspect} — a top-level module named T " \
+            "shadows Sorbet's T, which generated code uses in its own body (T.let, T::Struct)")
+      end
+
+      # only the leading segment collides: a T nested under something else is fine
+      expect(GraphWeaver.parse(schema: Demo::Schema, query: "{ people { name } }", name: "Billing::T"))
+        .to be_a Module
     end
 
     it "refuses variables whose kwarg would be a Ruby keyword" do

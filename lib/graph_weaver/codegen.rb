@@ -104,7 +104,8 @@ class GraphWeaver::Codegen
     if client && @client_const.nil?
       # a live object can't be spelled in generated source — parse can
       # set one via the module's writer, but file generation cannot
-      raise ArgumentError, "client: must be a named constant or String (got #{client.inspect}); pass live objects to parse"
+      raise ArgumentError, "client: must be a named constant or String (got #{client.inspect}) — " \
+        "put the object in a constant and name it, client: \"MyApi::CLIENT\"; pass live objects to parse"
     end
     # The String is written into the module verbatim, so anything that isn't a
     # constant path emits source that doesn't parse. A url is the way to get
@@ -282,6 +283,15 @@ class GraphWeaver::Codegen
   CONSTANT_NAME = /\A[A-Z]\w*(::[A-Z]\w*)*\z/
 
   def validate_module_name!(subject)
+    # Generated code spells Sorbet's T inside the module's own body (T.let,
+    # T::Struct), and constant lookup finds a top-level T first — so a module
+    # whose path starts with one shadows the thing it depends on. A generated
+    # file can't get here (a file name always gains a Query/Mutation word);
+    # an explicit name:, a namespace, and parse can.
+    if @name&.split("::")&.first == "T"
+      raise ArgumentError, "#{subject} #{@name.inspect} — a top-level module named T shadows " \
+        "Sorbet's T, which generated code uses in its own body (T.let, T::Struct)"
+    end
     return if @name&.match?(CONSTANT_NAME)
 
     problem = "#{subject} must be a constant name, got #{@name.inspect}"
@@ -721,7 +731,9 @@ class GraphWeaver::Codegen
     node = ObjectNode.new(class_name)
     node.graphql_type = type.graphql_name
     node.mixins = type_mixins(type.graphql_name)
-    taken = [class_name]
+    # class name => the result key that claimed it; the struct itself first,
+    # claimed by nothing (see pick_name)
+    taken = { class_name => nil }
     # Dedup structurally-identical dispatch-union fields on this struct: the
     # same union selected two ways (unblockOptions vs selectedOption) shares
     # one Ruby type, so consumers get one exhaustive `case ... T.absurd`.
@@ -732,7 +744,7 @@ class GraphWeaver::Codegen
       field_nodes = occurrences.map(&:first)
       field_name = field_nodes.first.name
       prop = underscore(key)
-      check_output_prop!(type, key, prop, props)
+      check_output_prop!(type, key, prop, field_name, props)
 
       child = if field_name == "__typename"
         NonNull.new(scalar_node("String"))
@@ -890,14 +902,16 @@ class GraphWeaver::Codegen
   # already answers, or a second key that underscores onto an earlier one.
   # Either emits a file that raises ArgumentError at require time, so refuse
   # here; an alias in the query fixes both. `props` accumulates prop => key.
-  def check_output_prop!(type, key, prop, props)
+  def check_output_prop!(type, key, prop, field_name, props)
     # Keywords are fine: `const :next` and `next: data["next"]` are legal, and
     # the one place a prop is read bare (an alias delegator) qualifies it.
     # `pageInfo { next }` and `filter { in }` are ordinary API shapes.
     if STRUCT_METHODS.include?(prop)
+      # the key may already be an alias (`class: a`), in which case there is no
+      # Type.class to name and the fix aliases the FIELD, not the key
       raise GraphWeaver::Error,
-        "#{type.graphql_name}.#{key} would become prop '#{prop}', which every generated struct " \
-        "already defines — alias it in the query (`#{prop}Value: #{key}`)"
+        "result key #{key.inspect} on #{type.graphql_name} would become prop '#{prop}', which " \
+        "every generated struct already defines — alias it in the query (`#{prop}Value: #{field_name}`)"
     end
 
     if (earlier = props[prop])
@@ -1301,12 +1315,14 @@ class GraphWeaver::Codegen
   # nothing else, so adding, removing, or reordering an unrelated selection can
   # never rename it. Generated code is app-code API; a name that shifts under
   # an unrelated edit is a silent break. `taken` is the names claimed in this
-  # struct's scope, its first entry the struct itself.
+  # struct's scope => the key that claimed each, its first entry the struct
+  # itself (claimed by nothing) — the key is what a collision has to name.
   #
   # (Union members are the exception: they are named for the type condition
   # that produces them, which is equally position-determined.)
   def pick_name(key, taken)
     name = camelize(key)
+    struct = taken.keys.first
 
     # a key that camelizes to no constant at all ("_", "_1") would emit
     # `class  < T::Struct`
@@ -1315,18 +1331,19 @@ class GraphWeaver::Codegen
         "result key #{key.inspect} makes no class name (#{name.inspect}) — alias it to one starting with a letter"
     end
 
-    if name == taken.first
+    if name == struct
       # would shadow the struct it nests in — the parent's own `returns(Name)`
       # resolves lexically and would find the child
       suffix = 2
-      suffix += 1 while taken.include?("#{name}#{suffix}")
+      suffix += 1 while taken.key?("#{name}#{suffix}")
       name = "#{name}#{suffix}"
-    elsif taken.include?(name)
+    elsif (earlier = taken[name])
       raise GraphWeaver::Error,
-        "result keys on #{taken.first} both generate the class #{name} — alias one to a distinct name"
+        "result keys #{earlier.inspect} and #{key.inspect} on #{struct} both generate the class " \
+        "#{name} — alias one to a distinct name"
     end
 
-    taken << name
+    taken[name] = key
     name
   end
 

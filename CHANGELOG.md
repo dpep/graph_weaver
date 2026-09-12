@@ -83,6 +83,13 @@
   regenerate, which cannot reach a module that generates no file. `parse` now
   bakes the graph whose schema it was parsed against, `graph: :billing` says it
   where that can't be read, and the refusal names both fixes.
+- **Four codegen refusals name what you wrote.** A result key that collides
+  with a struct method now suggests an alias you can actually write (for
+  `class: a` it said `` `classValue: class` ``, which is not a query); two
+  keys generating one class name both of them, the way the sibling
+  prop-collision message already did; a module named `T` is refused rather
+  than emitting code that shadows Sorbet's `T` in its own body; and a
+  `client:` that isn't a constant says what one looks like.
 <!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
