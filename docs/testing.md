@@ -385,8 +385,8 @@ something that isn't there. (Rack drops a header's capitalization, so `X-CALLER`
 arrives as `X-Caller`.)
 
 **It needs [webmock](https://github.com/bblimke/webmock)** — `require
-"webmock/rspec"` in the spec helper, above the `graph_weaver/rspec` line. That
-is what makes this a *transport* test rather than a mock of one: webmock hooks
+"webmock/rspec"` in the spec helper, in either order with `graph_weaver/rspec`.
+That is what makes this a *transport* test rather than a mock of one: webmock hooks
 Net::HTTP, Faraday and HTTPX underneath, so every transport
 [documented here](transports.md) runs unchanged, pooling and all. The tag adds
 one stub for the endpoint and takes it back after the example — it never
