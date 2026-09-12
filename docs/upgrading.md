@@ -21,14 +21,17 @@ differently and nothing else — worth reading rather than rubber-stamping.
 
 ## Upgrading from 0.6.1
 
-Mostly mechanical — two error constants and one rspec tag to rename — but
-`InputError#field` changed meaning without raising, `respond_to?` on a result
-struct stopped answering true for props you don't have, six things that used to
-run now refuse, and a `DateTime` that used to reach a `Date` variable now
-raises. Three commands find everything except the two silent ones:
+Mostly mechanical — two error constants, one rspec tag and one notification
+event to rename — but `InputError#field` changed meaning without raising, the
+instrumentation payload's `:status` changed meaning without raising,
+`respond_to?` on a result struct stopped answering true for props you don't
+have, six things that used to run now refuse, and a `DateTime` that used to
+reach a `Date` variable now raises. Three commands find everything except the
+silent ones:
 
 ```sh
 grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
+grep -rn "graph_weaver.execute" app lib config spec   # the old event name
 rake graph_weaver:generate   # every module now names the graph it came from,
                              # plus the underscored reserved props, and the
                              # client: and cast:/serialize: refusals
@@ -43,6 +46,7 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
 | `config.default_mode = nil` | `config.default_mode = :live`, which is now the **default** — every example has exactly one mode, and `nil` is no longer a value it reads back |
 | `GraphWeaver::TypeError` | `GraphWeaver::CastError` — the response wouldn't cast into the generated structs; the old name shadowed a core class it doesn't descend from. No alias: the old constant is gone, so a stale `rescue` is a `NameError` |
 | `GraphWeaver::ValidationError` | `GraphWeaver::QueryValidationError` — build time, the *query* against the schema. Your input's validation is `InputError`. No alias here either |
+| `"graph_weaver.execute"` | `"execute.graph_weaver"` — `<event>.<namespace>`, the way every notification in this ecosystem is spelled, and what `LogSubscriber.attach_to` and an APM's namespace routing key on. Subscribe through `GraphWeaver::EXECUTE_EVENT` and there is nothing to rename; a hardcoded string silently stops matching |
 
 ### Behavior that changed under you
 
@@ -57,6 +61,16 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   this can pass unnoticed until the first nested input fails. An index is a
   position rather than a field, so it never becomes one: `execute(ids: [1, 2,
   "x"])` reports `#path` `["ids", 2]` and `#field` `"ids"`.
+- **The instrumentation payload's `:status` is a Symbol, and the HTTP status
+  moved to `:http_status`.** `:status` is now `:ok`, `:errors` (the response
+  came back carrying GraphQL errors) or `:failed` (it raised) — a 200 carrying
+  errors is not a success, and only a symbol says that on both sides of the
+  seam. Nothing raises: a subscriber comparing it to an Integer just stops
+  matching. **A subscriber that branched on `payload[:status] == 200`, or on a
+  4xx/5xx, reads `:http_status` now** — which is nil in-process, where
+  `:status` used to be a fabricated 200 so one subscriber could read both
+  sides. The whole payload is a documented contract now; see
+  [logging](logging.md#the-payload).
 - **`respond_to?` on a result struct no longer answers true for a name that
   doesn't exist.** It used to say true for any near miss, which broke the
   standard duck-typing guard — `obj.pet if obj.respond_to?(:pet)` raised the
@@ -76,22 +90,7 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
   app whose modules predate it refuses rather than guessing which schema a
   module belongs to. Result structs also gained `==`/`eql?`/`hash`,
-  `deconstruct_keys` and `#to_h`. And the names a result key may not become —
-  `hash`, `class`, `serialize` — are a list the gem owns now, rather than
-  whatever `T::Struct` answered to in the generating process, which had made
-  generation depend on the Gemfile: with ActiveSupport loaded first a field
-  named `asJson` was refused, loaded second it became a prop that shadowed the
-  real `#as_json`, so `render json: result` serialized the field. The list is
-  what a struct answers: the public instance methods of `T::Struct` and
-  `Object`, the hooks Ruby and Rails call on any object — `initialize`,
-  `deconstruct`, `to_a`/`to_ary`/`to_hash`/`to_str`, `to_json`, `as_json`,
-  `to_param`, `to_query`, `try`, `presence`, `each` — and the methods the gem's
-  own mixins define. **A few more names are refused than before**, all from that
-  last group. Kernel's *private* methods are not among them: `format`, `select`,
-  `pp` and `test` are ordinary column names, and the gem's mixins qualify their
-  own calls (`Kernel.raise`) so a prop may take one. **Alias a field whose name
-  is on the list** (`hashValue: hash`); `rake graph_weaver:generate` finds them
-  all at once.
+  `deconstruct_keys` and `#to_h`.
 - **`graphql: :wire`, if you adopt it, needs webmock *enabled*** — `require
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
   `Bundler.require` loads webmock without installing its adapters, and the tag
@@ -120,7 +119,21 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   an `InputError`'s `#path` all use it (`#coordinate` still names
   `Tricky.class`). Input types had no way past the old refusal at all, so a
   schema with a `class` column — a Hasura `bool_exp` has one input field per
-  column — generates for the first time.
+  column — generates for the first time. The names that take an underscore are
+  a list the gem owns, rather than whatever `T::Struct` answered to in the
+  generating process: deriving them made generation depend on require order, so
+  with ActiveSupport loaded first a key named `asJson` was refused and loaded
+  second it became a prop that shadowed the real `#as_json`. The list is what a
+  struct answers — `T::Struct` and `Object`'s public instance methods, the
+  hooks Ruby and Rails call on an object that doesn't define one (`initialize`,
+  `to_ary`, `to_hash`, `to_json`, `as_json`, `to_param`, `try`, `presence`,
+  `each`, `deconstruct_keys`), and the methods the gem's own mixins define — so
+  a few more names move than 0.6.1 touched. Kernel's *private* methods are not
+  on it: `format`, `select`, `test`, `open`, `load` and `pp` are ordinary
+  column names, and the gem's mixins qualify their own calls (`Kernel.raise`)
+  so a prop may take one. Generated source marks each rename on the line above
+  the prop — `# wire: class — reserved as a prop name` — so **read the
+  regenerate diff** rather than grepping for the names yourself.
 - **A `client` that isn't a constant is refused at generation.** Its value is
   spelled into every module the graph generates, so `client` given an endpoint
   url emitted a file that doesn't parse, from a run that reported success.

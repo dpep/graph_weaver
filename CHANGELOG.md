@@ -1,96 +1,3 @@
-###  Unreleased
-<!-- lane: observability -->
-- **A Rails app now sees its GraphQL calls without configuring anything.** The
-  railtie sets `GraphWeaver.instrumenter` to the `ActiveSupport::Notifications`
-  adapter (an instrumenter the app set is never replaced) and attaches
-  `GraphWeaver::LogSubscriber`, so every execution — over the wire and
-  in-process — is one notification an APM can subscribe to and one line in the
-  log: `GraphWeaver PersonQuery (12.3ms) ok`, `… errors [THROTTLED]`, `…
-  failed GraphWeaver::TransportError`. **One rule: the summary is info, the
-  wire is debug** — this is the only GraphWeaver line at info, so a production
-  log gets one per operation and nothing that can carry PII, and turning the
-  logger up to debug adds the query and variables *beneath* it rather than
-  repeating it. The subscriber writes through `GraphWeaver.logger`, so
-  `GraphWeaver.logger = nil` still silences everything. Measured at ~4.5µs per
-  execution all told (0.13µs of that `ActiveSupport::Notifications` itself with
-  nothing subscribed), against a round trip measured in milliseconds.
-- **Breaking: `GraphWeaver::EXECUTE_EVENT` is now `"execute.graph_weaver"`,
-  and the payload `:status` is a Symbol.** `<event>.<namespace>` is how every
-  notification in this ecosystem is spelled (`sql.active_record`,
-  `execute_multiplex.graphql`) and it is what `LogSubscriber.attach_to` and an
-  APM's namespace routing key on — backwards, the gem could not attach its own
-  log subscriber without a puzzle. **Subscribe via the constant and nothing
-  changes**; a hardcoded `"graph_weaver.execute"` silently stops matching, so
-  grep for it. `:status` is now `:ok` / `:errors` (the response carried GraphQL
-  errors) / `:failed` (it raised) rather than the HTTP status, which moved to
-  `:http_status` — a 200 carrying errors is not a success, and only a symbol
-  says that on both sides of the seam.
-- **The instrumentation payload is a documented contract** ([logging](docs/logging.md#the-payload)),
-  the same shape whichever client slot ran the request: `:operation`,
-  `:client`, `:status` and `:duration_ms` always; `:url`/`:http_status` over
-  the wire, `:schema` in-process; `:error` (the exception's class name) and
-  `:code` — the first GraphQL error's code, or a `ServerError`'s status, the
-  one key to group an alert by — when there is one; and `:retries` under a
-  `Retry`, where each attempt is its own event reading 0, 1, 2, so a call that
-  took three goes no longer reads as three unrelated slow requests. The query
-  text and the variables are still deliberately absent, and now pinned by a
-  spec: `filter_parameters` governs the log, which GraphWeaver writes itself,
-  but the payload fans out to subscribers that know none of those rules.
-- **In-process no longer fakes `:status => 200`.** It was there so one
-  subscriber could read both sides of the seam; `:status` does that honestly
-  now, and `:http_status` is nil where there was no HTTP.
-- `docs/logging.md` gains the payload table, the log line, and two-line
-  adapters for OpenTelemetry (`in_span`) and Datadog (`Datadog::Tracing.trace`)
-  — both run against the real gems. Datadog's Net::HTTP and Faraday contribs
-  already trace the transport; the instrumenter adds the span *above* it, named
-  for the operation, which is the one that means anything when every call is a
-  POST to the same url.
-<!-- lane: unused -->
-- **New: `rake graph_weaver:unused`, the over-fetch the other checks can't see.**
-  `verify` says the Ruby matches the query; this asks whether the query still
-  asks for what the app *uses*. It reads the props each query's generated
-  structs carry, sweeps your `.rb`/`.erb`/`.slim`/`.haml`/`.jbuilder` once for
-  every form a prop could be read by (`.sku`, `sku:`, `:sku`, `"sku"`), and
-  names what nothing reads — by query file, selection, and generated
-  coordinate. Nothing is edited and it exits 0; `STRICT=1` exits 1 when
-  anything is unread, and `PATHS=app,lib` narrows the sweep. A line handing a
-  query module straight to `render json:` / `to_h` / `to_json` / `as_json` /
-  `serialize` / `deconstruct_keys` reads every prop at once, so that module is
-  excused and the line is quoted — matching a serializer by name is the
-  softest thing here and a wrong excuse should be visible. It matches names as
-  text, which makes it a lint and not a proof: the task's own footer names what
-  it is blind to
-  ([getting started](docs/getting_started.md#the-selections-nothing-reads)).
-<!-- lane: codegen -->
-- **A field named after a method every struct answers now generates, with a
-  trailing underscore.** `class` becomes the prop `class_`, `hash` becomes
-  `hash_`, and so on for `display`, `to_json`, `each`, and `supplied` on an
-  input — in results and input types alike. Generation used to refuse both:
-  on the result side it told you to alias the key in the query, and on the
-  input side it told you nothing you could act on, because a schema's field
-  name is not yours to rename. `class`, `hash` and `display` are columns
-  somebody has, and a Hasura `bool_exp` has one input field per column, so
-  that refusal turned whole schemas away. One rule, both directions: a prop
-  may not shadow a method its struct answers, so the prop — and only the prop
-  — moves out of the way. The wire is untouched in both directions, so the
-  query you wrote, the request that goes out and the response that comes back
-  all keep the schema's spelling; `result.class` is still Ruby's `class`, and
-  `result.class_` is the field. The prop is the field's one Ruby name:
-  `.new`, `.coerce`, `#to_h`, pattern matching and an `InputError`'s `#path`
-  all use `class_`, while `#coordinate` still names the schema's
-  `Tricky.class`. A key you aliased in the query to get past the old refusal
-  still generates from the alias — drop it and regenerate if you want the
-  field's own name back. Generated source now notes the rename on the line
-  above the prop (`# wire: class — reserved as a prop name`), which is the
-  one prop-vs-wire difference a reader can't infer. **Regenerate.**
-- **An unknown `__typename` has one behavior, so the arm that refused it is
-  gone.** Every generated union/interface dispatch already ends in the
-  catch-all `Other` that a member added upstream lands in; the `else raise
-  "unexpected __typename"` arm was left behind when that landed and could no
-  longer be reached. `UnionNode` now requires a catch-all rather than
-  defaulting to none, so the arm can't come back. No generated file contained
-  it, so there is nothing to do.
-
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
@@ -150,24 +57,54 @@
   as input — a bare `validates:` failure — is left alone rather than guessed
   at; the convention is one `Validator` away
   ([errors](docs/errors.md#what-your-server-can-send)).
-- **The reserved prop names are a list the gem owns, not whatever `T::Struct`
-  answered to.** Deriving them made generation depend on require order: with
-  ActiveSupport loaded first a result key named `asJson` was refused, loaded
-  second it became a prop that shadowed the real `#as_json`, so
-  `render json: result` serialized the field. One rule now says what is on it:
-  a prop may not shadow a method its struct answers — the public instance
-  methods of `T::Struct` and `Object`, a hook Ruby or Rails calls on any object
-  without it defining one (`initialize`, `to_ary`, `to_a`, `to_hash`, `to_str`,
-  `to_int`, `to_proc`, `to_json`, `as_json`, `to_param`, `to_query`, `try`,
-  `presence`, `each`, `deconstruct`), or a method the gem's own mixins define.
-  **A few more keys are refused now**, all from that last group. Kernel's
-  *private* methods are deliberately not reserved: a struct doesn't answer them,
-  and `format`, `select`, `test`, `open`, `load` and `pp` are ordinary
-  database columns — a Hasura `bool_exp` has one input field per column, so
-  reserving them refused whole schemas. The gem's mixins call theirs qualified
-  (`Kernel.raise` in `hints.rb`, `input_struct.rb`) so a prop may take the name.
-  Alias a field that is on the list; the refusal reads *"would become prop 'x',
-  a name generated structs reserve"*. **Regenerate.**
+- **Breaking: `GraphWeaver::EXECUTE_EVENT` is now `"execute.graph_weaver"`.**
+  `<event>.<namespace>` is how every notification in this ecosystem is spelled
+  (`sql.active_record`, `execute_multiplex.graphql`), and it is what
+  `LogSubscriber.attach_to` and an APM's namespace routing key on — backwards,
+  the gem could not attach its own log subscriber without a puzzle.
+  **Subscribe through the constant and nothing changes**; a hardcoded
+  `"graph_weaver.execute"` silently stops matching, so grep for it.
+- **Breaking: the payload's `:status` is a Symbol, and the HTTP status moved to
+  `:http_status`.** `:status` is now `:ok`, `:errors` (the response carried
+  GraphQL errors) or `:failed` (it raised) — a 200 carrying errors is not a
+  success, and only a symbol says that on both sides of the seam. **A
+  subscriber that branched on `payload[:status] == 200`, or on a 4xx/5xx, reads
+  `:http_status` now.** In-process that key is nil, where `:status` used to be
+  a fabricated 200 so one subscriber could read both sides of the seam.
+- **A field named after a method every struct answers now generates, with a
+  trailing underscore.** `class` becomes the prop `class_`, `hash` becomes
+  `hash_`, and so on for `display`, `to_json`, `each`, and `supplied` on an
+  input — in results and input types alike. Both sides used to refuse: the
+  result side told you to alias the key in the query, and the input side told
+  you nothing you could act on, because a schema's field name is not yours to
+  rename. `class`, `hash` and `display` are columns somebody has, and a Hasura
+  `bool_exp` has one input field per column, so that refusal turned whole
+  schemas away. One rule, both directions: a prop may not shadow a method its
+  struct answers, so the prop — and only the prop — moves out of the way. The
+  wire is untouched, so the query you wrote, the request that goes out and the
+  response that comes back all keep the schema's spelling; `result.class` is
+  still Ruby's `class`, and `result.class_` is the field. The prop is the
+  field's one Ruby name: `.new`, `.coerce`, `#to_h`, pattern matching and an
+  `InputError`'s `#path` all use `class_`, while `#coordinate` still names the
+  schema's `Tricky.class`. Generated source notes the rename on the line above
+  the prop (`# wire: class — reserved as a prop name`), which is the one
+  prop-vs-wire difference a reader can't infer. A key you aliased in the query
+  to get past the old refusal still generates from the alias — drop it and
+  regenerate if you want the field's own name back.
+
+  **The reserved names are a list the gem owns**, rather than whatever
+  `T::Struct` answered to in the generating process. Deriving them made
+  generation depend on require order: with ActiveSupport loaded first a result
+  key named `asJson` was refused, loaded second it became a prop that shadowed
+  the real `#as_json`, so `render json: result` serialized the field. The list
+  is what a struct answers — the public instance methods of `T::Struct` and
+  `Object`, the hooks Ruby or Rails call on an object that doesn't define one
+  (`initialize`, `to_ary`, `to_a`, `to_hash`, `to_str`, `to_int`, `to_proc`,
+  `to_json`, `as_json`, `to_param`, `to_query`, `try`, `presence`, `each`,
+  `deconstruct`, `deconstruct_keys`), and the methods the gem's own mixins
+  define. Kernel's *private* methods are deliberately not on it: a struct
+  doesn't answer them, and `format`, `select`, `test`, `open`, `load` and `pp`
+  are ordinary database columns. **Regenerate.**
 - **`respond_to?` on a generated result struct no longer answers true for a
   name that doesn't exist.** It said true for any near miss, so the standard
   duck-typing guard was the thing that broke — `obj.pet if obj.respond_to?(:pet)`
@@ -434,8 +371,8 @@
   result. `#to_h` is the Ruby shape, not the wire's — snake_case prop names as
   Symbol keys, nils kept, enums as their `T::Enum` members — so it is a view,
   not something to send back to a server. A result key that would collide with
-  one of the new names (`deconstruct_keys`) is refused at generation with the
-  same alias-it hint `to_h` already had. **Regenerate.**
+  one of the new names (`deconstruct_keys`) generates with a trailing
+  underscore, as any other reserved name does. **Regenerate.**
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
   transport was built, so a rotating credential needs no new transport:
@@ -466,12 +403,10 @@
   printing the lines to add instead, as it does for a multi-document
   `.rubocop.yml`, where rubocop reads only the first document and an appended
   block would land where nothing reads it.
-- **Three codegen refusals name what you wrote.** A result key that collides
-  with a struct method now suggests an alias you can actually write (for
-  `class: a` it said `` `classValue: class` ``, which is not a query); two
-  keys generating one class name name both of them, the way the sibling
-  prop-collision message already did; and a module named `T` is refused rather
-  than emitting code that shadows Sorbet's `T` in its own body.
+- **Two codegen refusals name what you wrote.** Two result keys that generate
+  one class name now name both of them, the way the sibling prop-collision
+  message already did; and a module named `T` is refused rather than emitting
+  code that shadows Sorbet's `T` in its own body.
 - **Three things are refused where they used to go wrong later.** A `client`
   that isn't a constant is refused at generation: the value is spelled into
   every generated module, so a `client` given the endpoint url emitted
@@ -549,6 +484,46 @@
   sees a namespaced graph's modules: it looked for top-level constants, so an
   app whose graphs set `namespace` found "0 generated modules", refused for
   having checked nothing, and blamed the cassette directory.
+- **New: `rake graph_weaver:unused`, the over-fetch the other checks can't see.**
+  `verify` says the Ruby matches the query; this asks whether the query still
+  asks for what the app *uses*. It reads the props each query's generated
+  structs carry, sweeps your `.rb`/`.erb`/`.slim`/`.haml`/`.jbuilder` once for
+  every form a prop could be read by (`.sku`, `sku:`, `:sku`, `"sku"`), and
+  names what nothing reads — by query file, selection, and generated
+  coordinate. Nothing is edited and it exits 0; `STRICT=1` exits 1 when
+  anything is unread, and `PATHS=app,lib` narrows the sweep. A line handing a
+  query module straight to `render json:` / `to_h` / `to_json` / `as_json` /
+  `serialize` / `deconstruct_keys` reads every prop at once, so that module is
+  excused and the line is quoted — matching a serializer by name is the
+  softest thing here and a wrong excuse should be visible. It matches names as
+  text, which makes it a lint and not a proof: the task's own footer names what
+  it is blind to
+  ([getting started](docs/getting_started.md#the-selections-nothing-reads)).
+- **A Rails app now sees its GraphQL calls without configuring anything.** The
+  railtie sets `GraphWeaver.instrumenter` to the `ActiveSupport::Notifications`
+  adapter (an instrumenter the app set is never replaced) and attaches
+  `GraphWeaver::LogSubscriber`, so every execution — over the wire and
+  in-process — is one notification an APM can subscribe to and one line in the
+  log: `GraphWeaver PersonQuery (12.3ms) ok`, `… errors [THROTTLED]`, `…
+  failed GraphWeaver::TransportError`. **One rule: the summary is info, the
+  wire is debug** — this is the only GraphWeaver line at info, so a production
+  log gets one per operation and nothing that can carry PII, and turning the
+  logger up to debug adds the query and variables *beneath* it rather than
+  repeating it. The subscriber writes through `GraphWeaver.logger`, so
+  `GraphWeaver.logger = nil` still silences everything. Measured at ~4.5µs per
+  execution all told (0.13µs of that `ActiveSupport::Notifications` itself with
+  nothing subscribed), against a round trip measured in milliseconds.
+- **The instrumentation payload is a documented contract** ([logging](docs/logging.md#the-payload)),
+  the same shape whichever client slot ran the request: `:operation`,
+  `:client`, `:status` and `:duration_ms` always; `:url`/`:http_status` over
+  the wire, `:schema` in-process; `:error` (the exception's class name) and
+  `:code` — the first GraphQL error's code, or a `ServerError`'s status, the
+  one key to group an alert by — when there is one; and `:retries` under a
+  `Retry`, where each attempt is its own event reading 0, 1, 2, so a call that
+  took three goes no longer reads as three unrelated slow requests. The query
+  text and the variables are still deliberately absent, and now pinned by a
+  spec: `filter_parameters` governs the log, which GraphWeaver writes itself,
+  but the payload fans out to subscribers that know none of those rules.
 - Internal: `bin/round-trip --hostile` now spoils an **input** leaf as well as
   a response one — a wrong type, an unparseable string, a value the enum
   doesn't have, a nil where null is illegal, at any depth including inside
@@ -557,7 +532,13 @@
   were evidence about response decoding and close to none about input errors;
   run against the GitHub schema it found the missing list index in `#path` on
   its own.
-- Docs: [errors](docs/errors.md) now says what a *server's* input rejection
+- Docs: [logging](docs/logging.md) gains the payload table, the log line, and
+  two-line adapters for OpenTelemetry (`in_span`) and Datadog
+  (`Datadog::Tracing.trace`) — both run against the real gems. Datadog's
+  Net::HTTP and Faraday contribs already trace the transport; the instrumenter
+  adds the span *above* it, named for the operation, which is the one that
+  means anything when every call is a POST to the same url.
+  [errors](docs/errors.md) now says what a *server's* input rejection
   carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
   for both. New [i18n](docs/i18n.md) page proposes stable keys for input
   problems; nothing in it ships yet. New [alternatives](docs/alternatives.md)
