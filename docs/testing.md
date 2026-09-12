@@ -83,33 +83,39 @@ reference for anything this page leaves out.
 
 ## Nothing to configure
 
-Each mode works out what to run against, and **refuses — naming what it
-looked for — rather than guessing**:
+Each mode works out what to run against **per graph** — with more than one, the
+honest answer varies per module — and **refuses, naming what it looked for,
+rather than guessing**:
 
-- **the schema** is `config.schema` if you set one, else the one your single
+- **the schema** is `config.schema` if you set one, else the one that
   [graph](getting_started.md#more-than-one-schema) names, else the committed
   dump at `GraphWeaver.schema_path`, else the schema `GraphWeaver.client` talks
-  to. An app with **more than one graph** is refused rather than guessed at:
-  which schema an example fakes against varies, so name it —
-  `graphql_fake(schema: Accounts::Schema)` or
-  `graphql_in_process(Accounts::Schema)`. A fake built that way also reads the
-  scalar registrations of the graph that owns that schema, so it invents the
-  wire value the generated module's cast expects. (Pins and `overrides:`
-  stay suite-wide, keyed by scalar name — one `"Money"` override for the run.)
+  to. A fake reads the scalar registrations of the graph it is answering, so it
+  invents the wire value that graph's generated cast expects. (Pins and
+  `overrides:` stay suite-wide, keyed by scalar name — one `"Money"` override
+  for the run.)
 - **`:in_process`** needs the live schema *class*, since only that has
-  resolvers: the one your client already runs in-process, else the loaded
-  class that defines everything the schema declares — the same
-  derive-verify-refuse rule that
+  resolvers: the one that graph names, else the one your client already runs
+  in-process, else the loaded class that defines everything the schema
+  declares — the same derive-verify-refuse rule that
   [maps subgraphs](federation.md#which-schema-serves-which-subgraph).
-- **`:router`** plans against the composed supergraph, found where you have
-  already said it is: `config.router = { supergraph: … }` if you named one
-  there, else the schema a [graph](getting_started.md#more-than-one-schema)
-  declares when that schema carries `@join__*` markers, else the committed dump
-  when *that* does — which for a federated app is usually no config at all. Two
-  graphs naming *different* composed supergraphs is refused, not picked
-  between. A client can't stand in for one: a client's schema is the API schema
-  the router serves, with the `@join__*` routing table stripped out. Subgraphs
-  are derived either way.
+- **`:router`** plans against the composed supergraph **that graph** names,
+  else `config.router = { supergraph: … }`, else the committed dump when
+  *that* carries `@join__*` markers — which for a federated app is usually no
+  config at all. A graph that is in no supergraph is refused **by name**,
+  rather than planned against another graph's. A client can't stand in for
+  one: a client's schema is the API schema the router serves, with the
+  `@join__*` routing table stripped out. Subgraphs are derived either way.
+
+**The helpers say which graph they mean.** `graphql_fake`,
+`graphql_in_process` and `graphql_router` are the stand-in for the modules of
+the graph their schema names — for your only graph when they name none — and
+they refuse, naming your graphs, when there is none they could reach:
+
+```ruby
+graphql_fake("Product.name" => "Ada's Book", schema: Catalog::Schema)
+graphql_in_process(Accounts::Schema)
+```
 
 So configure only to override a derivation, or to tune fabricated values:
 
@@ -118,7 +124,9 @@ GraphWeaver::Testing.configure do |config|
   # config.schema = MySchema         # the live class, rather than the dump
   # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
   # config.router = { subgraphs: { "reviews" => :fake } }   # either key alone
-  # config.context = { tenant: }     # baseline context every example starts from
+  # config.context = { tenant: }     # baseline context every example starts
+  #                                  # from — suite setup, so it is refused
+  #                                  # once an example is running (graphql_context)
   # config.default_mode = :fake      # what an UNtagged example runs against;
   #                                  # :live (the default) leaves your client
   #                                  # alone, and graphql: :live opts one out
@@ -287,10 +295,16 @@ block, and is restored after the example.
 ### The context your resolvers see
 
 `graphql_context` is available in every example. It **merges** onto
-`config.context` — the baseline survives unless you override a key — and is
-**reset before the next example**, so one example running as somebody else
-can't leak into the one after it. (Use it rather than the
-`graphql_in_process(context:)` baseline, which is per-suite.)
+`config.context` — the baseline survives unless you override a key — reaches
+every stand-in the example runs through (all your graphs', and the ones
+`:wire` serves behind its endpoints), and is **reset before the next
+example**, so one example running as somebody else can't leak into the one
+after it.
+
+It is also the *only* way to set a context from inside an example.
+`config.context` is the suite baseline, read when an example's clients are
+built — before any `before` hook runs — so setting it there is refused rather
+than silently dropped.
 
 Context is setup, so it usually belongs in a `before` block — a group of
 examples sharing one identity says who they are once:
@@ -335,9 +349,9 @@ describe "the dashboard", graphql: :router do
 end
 ```
 
-The router is built once for the suite (parsing a supergraph per example
-would be real time) and installed as `GraphWeaver.client` for each; its
-context is reset from `config.context` every time.
+A router is built once per supergraph (parsing one per example would be real
+time) and stands in for that graph's modules; its context is reset from
+`config.context` every time.
 
 `graphql_router` is the tag with options, the way `graphql_fake` is — one
 option, `fake:`, saying how the subgraphs the router
@@ -347,6 +361,11 @@ options `graphql_fake` takes, in one hash:
 ```ruby
 graphql_router(fake: { "Shipment.carrier" => "UPS", list_size: 2 })
 ```
+
+It names no schema, so with more than one graph it refuses: the tag alone
+already routes each module through its own graph's supergraph, and
+`config.router = { fake: … }` says how the faked subgraphs fabricate for the
+suite.
 
 What it plans, what it **refuses** and why, how subgraphs are matched to your
 schema classes, and what to do about a supergraph only partly local:
@@ -370,18 +389,22 @@ it "sends the caller tag", graphql: :wire do
 end
 ```
 
-What sits behind the wire is decided the way the other tags already decide it:
-the [router](#a-federated-graph--graphql-router) when there's a composed
-supergraph, the [live schema class](#real-resolvers--graphql-in_process)
-otherwise. The tag takes no options and has no helper: what a faked subgraph
+What sits behind each endpoint is decided the way the other tags already
+decide it, **per graph**: that graph's
+[router](#a-federated-graph--graphql-router) when it is in a composed
+supergraph, its [live schema class](#real-resolvers--graphql-in_process)
+otherwise — so one federated graph doesn't put its router behind a plain
+graph's url. The tag takes no options and has no helper: what a faked subgraph
 behind the wire fabricates is `config.router = { fake: … }`, suite-wide.
 
-**Every endpoint an example can reach is served**, one per graph: your
-client's, plus the one each [declared graph](getting_started.md#more-than-one-schema) bakes into its
-modules with `client:`. Each gets that graph's own resolvers behind it, so a
-billing module posts to billing's url and is answered by billing's schema. A
-graph whose baked client posts nowhere is refused by name, rather than its
-requests quietly leaving the suite.
+**Every endpoint an example can reach is served**, one per graph: the client
+each [declared graph](getting_started.md#more-than-one-schema) bakes into its
+modules with `client:`, or `GraphWeaver.client` for a graph that bakes none —
+so an app whose graphs all bake one needs no app default at all. Each gets
+that graph's own resolvers behind it, so a billing module posts to billing's
+url and is answered by billing's schema. A graph whose baked client posts
+nowhere is refused by name, rather than its requests quietly leaving the
+suite.
 
 **Identity comes from the request.** A `context:` **proc** is called per
 request with the headers as sent, which is the seam nothing above the wire can
@@ -398,9 +421,12 @@ proc replaces it, and `graphql_context` then says so rather than merging onto
 something that isn't there. (Rack drops a header's capitalization, so `X-CALLER`
 arrives as `X-Caller`.)
 
-**It needs [webmock](https://github.com/bblimke/webmock)** — `require
-"webmock/rspec"` in the spec helper, in either order with `graph_weaver/rspec`.
-That is what makes this a *transport* test rather than a mock of one: webmock hooks
+**It needs [webmock](https://github.com/bblimke/webmock) enabled** — `require
+"webmock/rspec"` in the spec helper, in either order with
+`graph_weaver/rspec`. Having it in the Gemfile is not enough: `Bundler.require`
+loads webmock without installing its adapters, so `:wire` checks and refuses
+*before* the first request rather than letting it leave the suite. That is what
+makes this a *transport* test rather than a mock of one: webmock hooks
 Net::HTTP, Faraday and HTTPX underneath, so every transport
 [documented here](transports.md) runs unchanged, pooling and all. The tag adds
 one stub per endpoint and takes each back after the example — it never

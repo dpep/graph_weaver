@@ -19,6 +19,34 @@
   `GraphWeaver.client` alone, and each module resolves its own — so
   `graphql: :fake` works where `graphql_fake(schema:)` was the only way in.
 
+  **And so do the helpers.** `graphql_fake`, `graphql_in_process` and
+  `graphql_router` installed themselves at `GraphWeaver.client`, which every
+  module's per-graph stand-in outranks — so in an app with several graphs a
+  correct pin was **silently dropped** and the example passed on data nobody
+  pinned. The rule now: *a helper is the stand-in for the modules of the graph
+  its schema names, for your only graph when it names none, and it refuses —
+  naming your graphs — when there is none it could reach.*
+
+  ```ruby
+  graphql_fake("Product.name" => "Ada's Book", schema: Catalog::Schema)
+  ```
+
+  `graphql_router` names no schema, so an app with several graphs is refused:
+  the tag alone already routes each module through its own graph's supergraph,
+  and `config.router = { fake: … }` says how faked subgraphs fabricate for the
+  suite.
+
+  `graphql_context` had the same root cause and is fixed with it: it never
+  reached the resolvers under `:in_process`, and raised `NoMethodError` under
+  `:router` (`undefined method 'context' for nil`). It is now example state on
+  the same table, so it reaches every stand-in the example runs through — the
+  ones `:wire` serves behind its endpoints included.
+
+  (`GraphWeaver::Testing::RSpecIntegration.set_context` is gone with the split
+  it existed to bridge. Under a `graphql:` tag the mode's client is what a
+  module runs against; an example that wants its own passes `client:`, sets
+  `MyQuery.client =`, or is untagged.)
+
   (`GraphWeaver::Testing::RSpecIntegration.client_for` is gone: one
   implementation answers "what client does this mode use", per graph, and it
   is internal. Nothing documented pointed at it.)
@@ -49,30 +77,43 @@
   A helper now contradicts `graphql: :live` the way it contradicts any other
   tag: `graphql: :live` plus `graphql_fake` refuses rather than letting the
   helper quietly win.
-- **`:router` finds the supergraph a graph already declares.** An app that
-  wrote `GraphWeaver.graph(:api) { schema "config/supergraph.graphql" }` had said
+- **`:router` asks each graph where its own supergraph is.** An app that wrote
+  `GraphWeaver.graph(:api) { schema "config/supergraph.graphql" }` had said
   where its supergraph is, and `graphql: :router` still asked for
-  `config.router = { supergraph: … }` on top. It now looks in order:
-  `config.router[:supergraph]`, then a declared graph's schema when that schema
-  carries `@join__*`, then the committed dump when *that* does. Two graphs may
-  name one supergraph; two naming different ones is refused rather than picked
-  between.
+  `config.router = { supergraph: … }` on top. Worse, the answer was one
+  supergraph for the whole suite: a module from a graph that is in none was
+  planned against **another graph's**, and the failure blamed a stale dump
+  ("schema may have changed since generation").
+
+  It is now per graph — the supergraph that graph names, else
+  `config.router[:supergraph]`, else the committed dump when it carries
+  `@join__*` — and a graph in no supergraph is refused by name, pointed at
+  `graphql: :in_process`. Two graphs naming one supergraph share one router,
+  parsed once; two naming different ones each plan against their own, so the
+  "this app declares 2 composed supergraphs" refusal is gone.
 - **`graphql: :wire` runs a spec against your own transport.** The other tags
   sit *in* the client slot, so the transport an app ships — APM tracing, a
   caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`
   where it is and serves your resolvers at the endpoint it posts to: the request
   is serialized, posted through your middleware, and deserialized by `from_h`
-  over the server's own bytes. Behind the wire is the router when there's a
-  composed supergraph, the live schema class otherwise.
+  over the server's own bytes. Behind each endpoint — decided **per graph** —
+  is that graph's router when it is in a composed supergraph, its live schema
+  class otherwise, so one federated graph no longer puts its router behind a
+  plain graph's url.
 
-  One endpoint is served per graph: `GraphWeaver.client`'s, plus the one each
-  declared graph bakes into its modules with `client:`, each with that graph's
-  own resolvers behind it. A graph whose baked client posts nowhere is refused
-  by name rather than its requests leaving the suite.
+  One endpoint is served per graph: the client that graph bakes into its
+  modules with `client:`, or `GraphWeaver.client` for a graph that bakes none
+  — so an app whose graphs all bake one needs no app default at all. A graph
+  whose baked client posts nowhere is refused by name rather than its requests
+  leaving the suite.
 
-  It needs [webmock](https://github.com/bblimke/webmock) — `require
+  It needs [webmock](https://github.com/bblimke/webmock) **enabled** — `require
   "webmock/rspec"` in the spec helper — which hooks Net::HTTP, Faraday and
-  HTTPX, so every bundled transport runs unchanged.
+  HTTPX, so every bundled transport runs unchanged. Having it in the Gemfile is
+  not enough: `Bundler.require` makes it *loaded* without installing the
+  adapters, and `:wire` used to take that as yes and let the first request
+  leave the suite for the real endpoint. It now checks before serving and says
+  which line to add.
   `GraphWeaver::Testing::Endpoint` is the ordinary Rack app behind it, mountable
   anywhere for anyone who'd rather have a real socket.
 
@@ -84,6 +125,14 @@
   ```
 
   See [docs/testing.md](docs/testing.md#over-the-wire--graphql-wire).
+- **Breaking: `config.context` is refused once an example is running.** An
+  example's clients are built before any group hook — a `:wire` example's
+  before its endpoints are stubbed — so `before { config.context = … }` was
+  read too late and silently never reached a resolver, while the same line
+  from `configure` or an `around` hook worked. It is now suite setup: setting
+  it inside an example refuses and names `graphql_context`, which is the
+  per-example answer and now reaches every stand-in. An `around` hook still
+  works — it wraps the setup a tag does.
 - **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime`
   is a `Date` to Ruby, so it passed straight through the cast and went on the
   wire as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema
