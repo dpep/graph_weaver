@@ -77,6 +77,14 @@
   directory "can't be hidden from autoloading" — it was already hidden. The
   refusal asks Zeitwerk now, and only fires for a directory some loader would
   really walk.
+- **An output under `config.autoload_once_paths` says what actually works.**
+  Rails sets the `once` autoloader up in bootstrap, so nothing an initializer
+  does can hide a directory from it — and the error you got said to name the
+  path in `GraphWeaver.generated_paths` from `config/initializers`, which
+  produced byte-identical output. Boot now refuses at the point that knows, and
+  names the two routes that work: `Rails.autoloaders.once.ignore(...)` from
+  `config/application.rb`, or generating somewhere that is not an autoload-once
+  path.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

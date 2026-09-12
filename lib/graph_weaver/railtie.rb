@@ -81,8 +81,32 @@ class GraphWeaver::Railtie < Rails::Railtie
     # patterns, not paths — generated_paths may be globs, and Zeitwerk
     # expands its own at setup (which is what this runs before)
     dirs = GraphWeaver::Internal::Util.generated_dirs.map { GraphWeaver::Railtie.autoload_path(_1) }
+    GraphWeaver::Railtie.check_autoload_once!(dirs)
     GraphWeaver::Railtie.ignored_dirs = dirs
     Rails.autoloaders.each { |loader| dirs.each { |path| loader.ignore(path) } }
+  end
+
+  # The `once` autoloader is set up in bootstrap, and Zeitwerk reads its ignore
+  # list only at setup — so the `loader.ignore` above, which runs after
+  # config/initializers, hides nothing from it however the output is spelled.
+  # The generic advice ("name it in GraphWeaver.generated_paths from
+  # config/initializers") produced byte-identical output for this one, so it
+  # gets its own refusal, naming the place that is still early enough.
+  def self.check_autoload_once!(dirs)
+    return unless Rails.respond_to?(:autoloaders) && Rails.autoloaders.respond_to?(:once)
+
+    once = Rails.autoloaders.once
+    dirs.each do |dir|
+      next unless autoloaded?(once, dir)
+
+      subject, short = describe_output(dir)
+      raise GraphWeaver::Error,
+        "#{subject} is under config.autoload_once_paths, which Rails sets the `once` autoloader up on " \
+        "before config/initializers run — so nothing GraphWeaver can do from there hides it, and its " \
+        "modules can't load. Hide it in config/application.rb, which is still early enough: " \
+        "Rails.autoloaders.once.ignore(Rails.root.join(#{short.inspect})) — or generate somewhere that " \
+        "is not an autoload-once path."
+    end
   end
 
   # A generated path as ZEITWERK sees it: resolved, and with symlinks followed,
@@ -115,6 +139,16 @@ class GraphWeaver::Railtie < Rails::Railtie
     asked.nil? || !loader.public_send(asked, dir)
   end
 
+  # How a refusal names a generated directory: what writes it, and the path the
+  # way the graph itself spells it — not the symlink target autoload_path
+  # resolved to, since the advice has to name something the reader can find in
+  # their own config.
+  def self.describe_output(dir)
+    graph = GraphWeaver.graphs.find { autoload_path(_1.output) == dir }
+    short = GraphWeaver::Internal::Util.relative(GraphWeaver::Internal::Util.resolve(graph&.output || dir))
+    ["#{graph ? "graph :#{graph.name}'s output" : "generated path"} #{short}", short]
+  end
+
   # A graph declared from to_prepare — what the docs say to do when its block
   # names an autoloaded constant — is declared after Zeitwerk is set up, and
   # Zeitwerk reads its ignore list only then. So an output that arrives that
@@ -131,12 +165,9 @@ class GraphWeaver::Railtie < Rails::Railtie
     late.each do |dir|
       next unless Rails.autoloaders.any? { |loader| autoloaded?(loader, dir) }
 
-      graph = GraphWeaver.graphs.find { autoload_path(_1.output) == dir }
-      # the graph's own spelling, not the symlink target autoload_path found —
-      # the advice has to name something the reader can find in their config
-      short = GraphWeaver::Internal::Util.relative(GraphWeaver::Internal::Util.resolve(graph&.output || dir))
+      subject, short = describe_output(dir)
       raise GraphWeaver::Error,
-        "#{graph ? "graph :#{graph.name}'s output" : "generated path"} #{short} was declared after Rails " \
+        "#{subject} was declared after Rails " \
         "set Zeitwerk up on it, so it can't be hidden from autoloading and its modules can't load. Declare " \
         "the graph in config/initializers (schema -> { MyApp::Schema } resolves an autoloaded class when " \
         "generation asks), or name #{short.inspect} in GraphWeaver.generated_paths there."

@@ -175,6 +175,53 @@ describe "GraphWeaver::Railtie" do
     GraphWeaver.reset_graphs!
   end
 
+  # Rails sets the `once` autoloader up in bootstrap, long before
+  # :load_config_initializers — so ignoring an output under
+  # config.autoload_once_paths from here hides nothing from it, and the advice
+  # the loading error then gave ("name it in GraphWeaver.generated_paths from
+  # config/initializers") produced byte-identical output. Refuse where the
+  # answer is known, and name a place that is still early enough.
+  describe "an output under autoload_once_paths" do
+    def once_autoloader(ignores:)
+      once = Object.new
+      once.define_singleton_method(:ignore) { |_path| }
+      once.define_singleton_method(:dirs) { ["/app/once_generated"] }
+      once.define_singleton_method(:__ignores?) { |_path| ignores }
+      loaders = [once]
+      loaders.define_singleton_method(:once) { once }
+      stub_const("Rails", Module.new)
+      Rails.define_singleton_method(:autoloaders) { loaders }
+      Rails.define_singleton_method(:root) { Pathname.new("/app") }
+    end
+
+    before do
+      GraphWeaver.graph :once_probe do
+        schema Demo::Schema
+        output "once_generated/billing"
+      end
+    end
+
+    after { GraphWeaver.reset_graphs! }
+
+    it "is refused, naming the place that can still hide it" do
+      once_autoloader(ignores: false)
+
+      expect { RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call }.to raise_error(
+        GraphWeaver::Error,
+        a_string_including(
+          ":once_probe", "once_generated/billing", "config.autoload_once_paths",
+          "config/application.rb", "Rails.autoloaders.once.ignore",
+        ),
+      )
+    end
+
+    it "is let through when the app hid it there itself" do
+      once_autoloader(ignores: true)
+
+      expect { RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call }.not_to raise_error
+    end
+  end
+
   # Zeitwerk can only be told to skip a directory BEFORE it is set up, and a
   # graph declared from to_prepare — what the docs say to do when its block
   # names an autoloaded constant — arrives after that. The generated files then
