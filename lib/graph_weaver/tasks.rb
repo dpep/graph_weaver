@@ -78,8 +78,10 @@ module GraphWeaver
         return "#{label}: #{GraphWeaver::Internal::Util.relative(path)}" if path
 
         live = graph.live_schema
-        found = live ? "#{live.name}, a live class — composition is what writes a routing table" :
-          "nothing on disk at #{GraphWeaver.schema_path}"
+        found =
+          if live then "#{live.name}, a live class — composition is what writes a routing table"
+          else "nothing on disk at #{GraphWeaver.schema_path}"
+          end
         "#{label}: #{found}"
       end
       private_class_method :looked_at
@@ -244,7 +246,7 @@ namespace :graph_weaver do
     end
 
     # needs no network, so it gates a PR the way verify does
-    desc "Fail when a subgraph here changed and the supergraph wasn't recomposed (SUPERGRAPH=)"
+    desc "Fail when a subgraph here changed and the supergraph wasn't recomposed (SUPERGRAPH= overrides)"
     task diff: :loaded do
       require "graph_weaver/federation"
 
@@ -282,7 +284,7 @@ namespace :graph_weaver do
       abort e.message
     end
 
-    desc "Show which loaded schema serves each subgraph, as a paste-ready map (SUPERGRAPH=)"
+    desc "Show which loaded schema serves each subgraph, as a paste-ready map (SUPERGRAPH= overrides)"
     task subgraphs: :loaded do
       require "graph_weaver/testing"
 
@@ -321,7 +323,7 @@ namespace :graph_weaver do
       abort e.message
     end
 
-    desc "Report how many queries the local test router can plan (SUPERGRAPH=, QUERIES=)"
+    desc "Report how many queries the local test router can plan (SUPERGRAPH=/QUERIES= override)"
     task coverage: :loaded do
       require "graph_weaver/testing"
 
