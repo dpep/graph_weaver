@@ -1,4 +1,21 @@
 ## Unreleased
+- **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
+  app's own client, untouched — which is a mode like the other four, so it is
+  spelled like one. Rename the tag; `false` is refused, and the refusal names
+  `:live`.
+
+  `config.default_mode` is the suite-level spelling of the same thing, and it
+  now **defaults to `:live`** rather than to `nil`, which is no longer a value:
+  every example has exactly one mode, an untagged one takes
+  `config.default_mode`, and `graphql: :live` steps a single example back out
+  of a default the suite set. Behavior is unchanged — `:live` leaves
+  `GraphWeaver.client` exactly as it is, and it is still restored after the
+  example — but `config.default_mode = nil` and `config.default_mode` reading
+  back `nil` are both gone.
+
+  A helper now contradicts `graphql: :live` the way it contradicts any other
+  tag: `graphql: :live` plus `graphql_fake` refuses rather than letting the
+  helper quietly win.
 - **`graphql: :wire` runs a spec against your own transport.** The other tags
   sit *in* the client slot, so the transport an app ships — APM tracing, a
   caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`

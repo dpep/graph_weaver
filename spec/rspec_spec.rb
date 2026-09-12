@@ -190,7 +190,7 @@ describe "graph_weaver/rspec" do
       expect { graphql_in_process(DraftsDemo::Schema) }.not_to raise_error
       expect(GraphWeaver.client).to be_a GraphWeaver::InProcess
     ensure
-      GraphWeaver::Testing.config.default_mode = nil
+      GraphWeaver::Testing.config.default_mode = :live
     end
 
     it "refuses a helper that contradicts the tag", graphql: :fake do
@@ -344,16 +344,39 @@ describe "graph_weaver/rspec" do
       # A default sweeps in every untagged example, including the one that
       # wires its own client — which is the case a default creates. Each
       # asserts the baseline BEFORE building its own, so whichever runs
-      # second proves an opted-out example's client is restored too: it
-      # used not to be, which made "tag :fake, then throw the client away"
-      # the idiom for cleanup.
+      # second proves a :live example's client is restored too: it used not
+      # to be, which made "tag :fake, then throw the client away" the idiom
+      # for cleanup.
       %w[1 2].each do |example|
-        it "opts out with graphql: false (#{example})", graphql: false do
+        it "steps back out with graphql: :live (#{example})", graphql: :live do
           expect(GraphWeaver.client).to be_a GraphWeaver::Client # what the group installed
 
           GraphWeaver.client = GraphWeaver::InProcess.new(DraftsDemo::Schema, context: { current_user: "alice" })
           expect(DraftsDemo::QUERY.execute!.drafts.map(&:id)).to eq %w[d1 d2] # no hook fighting it
         end
+      end
+
+      # :live is a mode like the others, so it is the one choice this
+      # example made — a helper saying something else is one of the two
+      # being a mistake
+      it "refuses a helper that contradicts it", graphql: :live do
+        expect { graphql_fake }
+          .to raise_error(GraphWeaver::Error, /tagged graphql: :live but calls graphql_fake/)
+      end
+    end
+
+    # the default default: every example has a mode, and an untagged one's
+    # is :live unless the suite says otherwise
+    context "with config.default_mode = :live" do
+      around do |example|
+        app_client!(DraftsDemo::Schema)
+        GraphWeaver::Testing.configure { |config| config.default_mode = :live }
+        example.run
+      end
+
+      it "leaves the app's own client in the slot" do
+        expect(GraphWeaver.client).to be_a GraphWeaver::Client
+        expect(GraphWeaver::Testing::RSpecIntegration.mode_for({})).to eq :live
       end
     end
   end
@@ -363,7 +386,14 @@ describe "graph_weaver/rspec" do
 
     it "names the modes when the tag isn't one" do
       expect { GraphWeaver::Testing::RSpecIntegration.mode_for({ graphql: :in_proces }) }
-        .to raise_error(GraphWeaver::Error, /:in_proces is not a mode.*:fake, :in_process, :router.*false to opt out/m)
+        .to raise_error(GraphWeaver::Error, /:in_proces is not a mode.*:live, :fake, :in_process, :router/m)
+    end
+
+    # the spelling this replaced, so an upgrading suite is told what to
+    # write instead rather than left with a bare "not a mode"
+    it "names :live when the tag is the old false" do
+      expect { GraphWeaver::Testing::RSpecIntegration.mode_for({ graphql: false }) }
+        .to raise_error(GraphWeaver::Error, /false is not a mode.*:live leaves GraphWeaver\.client/m)
     end
 
     it "says why :router needs the supergraph named, when nothing on disk is one" do

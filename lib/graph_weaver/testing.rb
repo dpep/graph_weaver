@@ -22,7 +22,8 @@ end
 #                                                  # when it isn't the dump, or
 #                                                  # fake: for how those fabricate
 #        config.context = { current_user: }        # baseline GraphQL context
-#        config.default_mode = :fake               # untagged examples (graph_weaver/rspec)
+#        config.default_mode = :fake               # untagged examples; :live (the
+#                                                  # default) leaves your client alone
 #        config.seed = 42                          # reproducible fakes
 #        config.overrides = { "Person.name" => "Daniel" }
 #        config.list_size = 2..4
@@ -49,12 +50,15 @@ module GraphWeaver
     # What an example can run against, named by the rspec tag that selects
     # it — `it "…", graphql: :in_process` (see graph_weaver/rspec):
     #
+    #      :live        your app's own client, exactly as it is — the
+    #                   default, and how one example steps back out of
+    #                   config.default_mode
     #      :fake        fabricated, schema-correct data; no resolvers run
     #      :in_process  your resolvers, one live schema class, in-process
     #      :router      your resolvers, across a federated graph
     #      :wire        your resolvers, served at your client's endpoint so
     #                   your real transport runs
-    CLIENT_MODES = %i[fake in_process router wire].freeze
+    CLIENT_MODES = %i[live fake in_process router wire].freeze
 
     class Config
       attr_accessor :overrides, :seed, :list_size, :cassette_dir, :context,
@@ -74,10 +78,10 @@ module GraphWeaver
         # `{**,*}/*.yml` and would try to load cassettes as ActiveRecord
         # fixtures, a subdirectory included
         @cassette_dir = "spec/cassettes"
-        # what an example with no `graphql:` tag runs against. nil leaves
+        # what an example with no `graphql:` tag runs against. :live leaves
         # GraphWeaver.client alone: swapping every example onto something
         # else is too surprising to be a default.
-        @default_mode = nil
+        @default_mode = :live
         # the GraphQL context every :in_process / :router example starts
         # from; graphql_context merges onto it
         @context = {}
@@ -106,10 +110,10 @@ module GraphWeaver
       def explicit_schema = @schema
 
       def default_mode=(mode)
-        unless mode.nil? || CLIENT_MODES.include?(mode)
+        unless CLIENT_MODES.include?(mode)
           raise ArgumentError,
-            "default_mode: must be one of #{CLIENT_MODES.inspect} (or nil to leave " \
-            "GraphWeaver.client alone), got #{mode.inspect}"
+            "default_mode: must be one of #{CLIENT_MODES.inspect}, got #{mode.inspect} — " \
+            ":live leaves GraphWeaver.client exactly as it is, and is the default"
         end
 
         @default_mode = mode

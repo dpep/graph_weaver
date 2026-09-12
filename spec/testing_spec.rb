@@ -406,7 +406,15 @@ describe GraphWeaver::Testing do
     it "keeps values: and the client mode apart" do
       expect {
         GraphWeaver::Testing.configure { |config| config.default_mode = :faker }
-      }.to raise_error(ArgumentError, /default_mode: must be one of \[:fake, :in_process, :router, :wire\]/)
+      }.to raise_error(ArgumentError, /default_mode: must be one of \[:live, :fake, :in_process, :router, :wire\]/)
+    end
+
+    # every example has exactly one mode, so "no mode" is not a value —
+    # :live is the one that means the app's own client, untouched
+    it "refuses nil, naming :live" do
+      expect {
+        GraphWeaver::Testing.configure { |config| config.default_mode = nil }
+      }.to raise_error(ArgumentError, /:live leaves GraphWeaver\.client/)
     end
 
     it "applies values: to what a fake fabricates" do
@@ -494,8 +502,8 @@ describe GraphWeaver::Testing do
       expect { run([:after, :each]) }.not_to raise_error
     end
 
-    it "defaults OFF — an untagged example keeps the app's client" do
-      expect(GraphWeaver::Testing.config.default_mode).to be_nil
+    it "defaults to :live — an untagged example keeps the app's client" do
+      expect(GraphWeaver::Testing.config.default_mode).to eq :live
 
       run([:before, :each])
       expect { GraphWeaver.client! }.to raise_error(GraphWeaver::Error, /no client/)

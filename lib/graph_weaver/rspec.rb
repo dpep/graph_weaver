@@ -16,18 +16,19 @@ require_relative "testing"
 #      it "authorizes drafts",       graphql: :in_process do  … end
 #      describe "checkout",          graphql: :router do      … end
 #
+#      :live        your app's own client, exactly as it is — the default,
+#                   and how one example steps back out of a suite-wide
+#                   config.default_mode
 #      :fake        fabricated, schema-correct data; no resolvers run
 #      :in_process  your resolvers, one live schema class, in-process
 #      :router      your resolvers, across a federated graph
 #      :wire        your resolvers, served at your client's endpoint, so
 #                   the transport you ship runs
-#      false        opt out — GraphWeaver.client is left exactly as it is,
-#                   even under config.default_mode
 #
 # `rspec --tag graphql:router` runs one mode's examples.
 #
 # `GraphWeaver.client` is snapshotted before every example and restored
-# after — tagged, untagged, opted out, whatever the example did to it. So
+# after — whatever its mode, and whatever the example did to it. So
 # an example (or a `before` block, or a shared context) is free to build
 # the client it wants:
 #
@@ -57,7 +58,7 @@ require_relative "testing"
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces
 #     fake data along with test order
 #   - a client per example, from the tag (or config.default_mode for an
-#     untagged one; nil, the default, leaves GraphWeaver.client alone),
+#     untagged one; :live, the default, leaves GraphWeaver.client alone),
 #     and GraphWeaver.client restored afterwards either way — so a client
 #     an example builds for itself is cleaned up like a tagged one.
 #   - graphql_context — the GraphQL context resolvers see, merged onto
@@ -103,8 +104,9 @@ module GraphWeaver
           if @__graph_weaver_mode == :wire
             @__graph_weaver_served = GraphWeaver::Testing::RSpecIntegration.client_for(:wire)
             @__graph_weaver_stub = GraphWeaver::Testing::RSpecIntegration.serve!(@__graph_weaver_served)
-          elsif @__graph_weaver_mode
-            GraphWeaver.client = GraphWeaver::Testing::RSpecIntegration.client_for(@__graph_weaver_mode)
+          elsif (client = GraphWeaver::Testing::RSpecIntegration.client_for(@__graph_weaver_mode))
+            # :live builds none — the app's own client is what it runs against
+            GraphWeaver.client = client
           end
         end
 
@@ -125,24 +127,27 @@ module GraphWeaver
         end
       end
 
-      # the mode this example's metadata selects, or the configured default
+      # the mode this example's metadata selects, or the configured default.
+      # Every example has exactly one — an untagged one's is config.default_mode,
+      # which is :live unless the suite set another.
       def self.mode_for(metadata, config = GraphWeaver::Testing.config)
         tagged = metadata[TAG]
         return config.default_mode if tagged.nil?
-        # opt out: no client is installed, and a configured default_mode
-        # doesn't sweep this example up
-        return if tagged == false
 
         mode = tagged.to_s.to_sym
         return mode if CLIENT_MODES.include?(mode)
 
         raise GraphWeaver::Error, "#{TAG}: #{tagged.inspect} is not a mode — " \
-          "#{CLIENT_MODES.map(&:inspect).join(", ")} (or false to opt out)"
+          "#{CLIENT_MODES.map(&:inspect).join(", ")}. :live leaves GraphWeaver.client exactly " \
+          "as it is, which is how one example steps back out of config.default_mode."
       end
 
-      # the client an example in this mode runs against
+      # the client an example in this mode runs against, or nil when the mode
+      # is the app's own client and there is nothing to build
       def self.client_for(mode, config = GraphWeaver::Testing.config)
         case mode
+        when :live
+          nil
         when :fake
           FakeClient.new(schema: config.reference_schema!)
         when :in_process
@@ -299,8 +304,8 @@ module GraphWeaver
             # Kernel.raise: this module is mixed into every example group, so
             # it doesn't include Kernel for sorbet to find
             Kernel.raise GraphWeaver::Error, "this example is tagged #{TAG}: #{tagged.inspect} but calls " \
-              "graphql_#{mode} — drop one. The tag is the helper with no arguments, so keep the " \
-              "helper when you need to pass it something."
+              "graphql_#{mode} — drop one. A tag and a helper are two spellings of one choice, so " \
+              "keep the helper when you need to pass it something."
           end
 
           @__graph_weaver_mode = mode

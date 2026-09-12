@@ -34,20 +34,23 @@ it "sends the caller tag",    graphql: :wire do … end
 | [`:in_process`](#real-resolvers--graphql-in_process) | the point of the test is that your resolver logic works | slower; needs a live schema class |
 | [`:router`](#a-federated-graph--graphql-router) | the same, across a federated graph | needs a composed supergraph; [refuses](federation.md#what-it-refuses) shapes it can't plan faithfully |
 | [`:wire`](#over-the-wire--graphql-wire) | the test is about your own transport — headers, middleware, deserialization | needs webmock and an http client |
+| `:live` | the app's own client is the point, or this one example wants out of `config.default_mode` | whatever your client does — this is the default |
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
 The tag installs its client as `GraphWeaver.client` for that example, so
 generated modules run against it with zero per-test setup. (Generate them
 *without* a baked `client:` — a module that has one never consults
 `GraphWeaver.client`.) `rspec --tag graphql:router` runs one mode's
-examples; an untagged example is left alone unless you set
-`config.default_mode`, and **`graphql: false` opts one back out** of that
-default.
+examples.
+
+**Every example has exactly one mode.** An untagged one takes
+`config.default_mode`, which is `:live` — your own client, exactly as it is —
+unless the suite sets another; and **`graphql: :live` is how one example steps
+back out** of a default the suite did set.
 
 `GraphWeaver.client` is **snapshotted before every example and restored
-after** — tagged, untagged or opted out, and whatever the example did to
-it. So building your own client is a plain assignment, cleaned up like a
-tagged one:
+after** — whatever its mode, and whatever the example did to it. So building
+your own client is a plain assignment, cleaned up like a tagged one:
 
 ```ruby
 before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
@@ -112,8 +115,9 @@ GraphWeaver::Testing.configure do |config|
   # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
   # config.router = { subgraphs: { "reviews" => :fake } }   # either key alone
   # config.context = { tenant: }     # baseline context every example starts from
-  # config.default_mode = :fake      # what an UNtagged example runs against
-  #                                  # (graphql: false opts one back out)
+  # config.default_mode = :fake      # what an UNtagged example runs against;
+  #                                  # :live (the default) leaves your client
+  #                                  # alone, and graphql: :live opts one out
   # config.seed = 4242               # defaults to rspec's own --seed
   # config.overrides = { "Money" => "12.00", "Person.name" => "Daniel" }
   # config.list_size = 1..3
