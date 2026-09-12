@@ -141,7 +141,7 @@ or an API response needs is beside it, as data:
 | `#kind` | one of eight Symbols — `GraphWeaver::InputError::KINDS`. The key an app translates; [i18n](i18n.md) has the table of what each means |
 | `#path` | the route from the variable down, Strings and list indices: `["where", "_and", 0, "_not", "species"]` |
 | `#coordinate` | the [schema coordinate](https://github.com/graphql/graphql-spec/pull/794) for the slot — `"PetFilter.species"`. `nil` when there isn't one |
-| `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables). `nil` when it was never known |
+| `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables). `nil` when it was never known — a missing field has none, and an unknown key owns no slot to hold one |
 | `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }` |
 | `#field` | `#path`'s last segment — the one field a form highlights |
 | `#struct` | the input type being built |
@@ -194,7 +194,11 @@ response.errors         # still every error, input or not
 `GraphQLError#input_errors` of one error. It is **plural on every one of them**:
 a single variable-coercion error routinely carries several problems about
 different fields, and keeping only the first would lose the rest silently.
-These are values, not raises — building one writes no log line.
+These are values, not raises — building one writes no log line. `#message` and
+`#value` go through `filter_parameters` here exactly as they do on the client
+side: a server quotes the value it rejected as a matter of course
+(`Could not coerce value "hunter2" to Int`), and that is a message about a key
+your list covers.
 
 Generated modules always send **variables**, never literals, which narrows a
 graphql-ruby server to two shapes (measured against 2.6.10):

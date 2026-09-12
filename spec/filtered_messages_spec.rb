@@ -1,4 +1,5 @@
 # typed: ignore — the federation fixture schemas are graphql-ruby DSL
+require "json"
 require "logger"
 require "stringio"
 require "tmpdir"
@@ -82,6 +83,81 @@ describe "filtered messages" do
         .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got \[FILTERED\]/)
     ensure
       GraphWeaver.reset_registrations!
+    end
+
+    # a filter matches the key the caller SUPPLIED, and a typo is by definition
+    # not the key they meant — so the one error whose whole job is "you meant
+    # this other key" is the one the filter cannot see
+    it "hides a typo'd key's value, which no filter can match" do
+      GraphWeaver.filter_parameters = ["token"]
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        input Credentials { user: String!, token: String }
+        type Query { login(with: Credentials): Boolean }
+        schema { query: Query }
+      GRAPHQL
+      module_ = parse("query In($with: Credentials) { login(with: $with) }", schema:)
+
+      expect { module_.execute(with: { user: "d", tokne: "t0ps3cret" }) }
+        .to raise_error(GraphWeaver::InputError) { |e|
+          expect(e.details[:suggestion]).to eq "token"
+          expect(e.value).to be_nil
+          expect(JSON.generate(e.to_h)).not_to include "t0ps3cret"
+        }
+
+      expect(io.string).not_to include("t0ps3cret")
+    end
+  end
+
+  # graphql-ruby quotes the rejected value in its explanation as a matter of
+  # course, so the server half leaks wherever the client half doesn't
+  describe "a server's rejection" do
+    def input_error(hash) = GraphWeaver::GraphQLError.from_h(hash).input_errors.first
+
+    before { GraphWeaver.filter_parameters = ["password"] }
+
+    it "hides it in a variable-coercion problem" do
+      error = input_error(
+        "message" => "Variable $creds of type Creds! was provided invalid value",
+        "extensions" => {
+          "value" => { "password" => "hunter2" },
+          "problems" => [{ "path" => ["password"], "explanation" => 'Could not coerce value "hunter2" to Int' }],
+        },
+      )
+
+      expect(error.message).to eq GraphWeaver::FILTERED
+      expect(error.value).to eq GraphWeaver::FILTERED
+    end
+
+    it "hides it in a coded validation error" do
+      error = input_error(
+        "message" => 'Invalid input: password "hunter2" is too short',
+        "extensions" => { "code" => "BAD_USER_INPUT", "argumentName" => "password", "value" => "hunter2" },
+      )
+
+      expect(error.message).to eq GraphWeaver::FILTERED
+      expect(error.value).to eq GraphWeaver::FILTERED
+    end
+
+    it "hides it in the extensions.input convention" do
+      error = input_error(
+        "message" => 'password "hunter2" is not acceptable',
+        "extensions" => { "input" => { "kind" => "invalid_format", "path" => ["password"], "value" => "hunter2" } },
+      )
+
+      expect(error.message).to eq GraphWeaver::FILTERED
+      expect(error.value).to eq GraphWeaver::FILTERED
+    end
+
+    it "keeps an unfiltered server message, which is usually the diagnosis" do
+      error = input_error(
+        "message" => "Variable $qty of type Int! was provided invalid value",
+        "extensions" => {
+          "value" => "x",
+          "problems" => [{ "path" => [], "explanation" => 'Could not coerce value "x" to Int' }],
+        },
+      )
+
+      expect(error.message).to eq 'Could not coerce value "x" to Int'
     end
   end
 

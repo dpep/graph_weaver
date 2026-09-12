@@ -90,6 +90,18 @@
   subscript form went straight to `Hash#[]=` and was the silent no-op the
   refusal exists to prevent. `store` is covered as well, since it is the same
   write.
+<!-- lane: input-errors -->
+- **`filter_parameters` now covers a typo'd key and a server's own message.**
+  A filter matches the key you *supplied*, and a typo is by definition not the
+  key you meant — so `passwrod` dodged the `password` filter and its value went
+  out on `InputError#value` and in `to_h`, in the same error whose
+  `details[:suggestion]` named the key it should have been. An unknown-key error
+  now carries **no `#value` at all**: the key is what was wrong, and it owns no
+  slot to hold one. Separately, a rejection read back off a *server* response
+  (`#input_errors`) now runs its `#message` through the same filter `#value`
+  already went through — graphql-ruby quotes the rejected value in its
+  explanation as a matter of course.
+<!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

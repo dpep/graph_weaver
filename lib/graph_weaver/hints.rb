@@ -37,12 +37,14 @@ module GraphWeaver
       # the message lists every unknown key; #path names the first, because a
       # path that points at two fields points at neither. No coordinate: the
       # input type defines no such field, so the schema has no name for it.
+      # No value either — and not only because the key owns no slot to hold
+      # one: filter_parameters can only match the key the caller supplied, and
+      # a typo is by definition not the key they meant, so `passwrod` dodges
+      # the `password` filter in the one error that names it as the suggestion.
       first = unknown.first
-      raw = hash.key?(first) ? hash[first] : hash[first.to_sym]
       raise GraphWeaver::InputError.new(
         "unknown key(s) for #{struct}: #{hints.join(", ")}",
         kind: :unknown, path: [first],
-        value: GraphWeaver::Internal::Redact.value(first, raw),
         details: { suggestion: suggestions[first] }.compact, struct: struct,
       )
     end

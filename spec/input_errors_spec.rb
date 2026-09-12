@@ -73,6 +73,9 @@ describe "input errors" do
       expect(error.details[:suggestion]).to eq "species"
       # the type defines no such field, so there is no coordinate to give
       expect(error.coordinate).to be_nil
+      # nor a value: the key is what was wrong, and it owns no slot to hold one
+      expect(error.value).to be_nil
+      expect(error.to_h).not_to have_key "value"
     end
 
     it "tells a wrong type from text that doesn't parse" do

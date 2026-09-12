@@ -123,10 +123,16 @@ module GraphWeaver
 
         # raised: false — this is a value read off a response, and the warn
         # line Error#initialize writes would claim a raise that never happened.
+        #
+        # The message goes through the same filter the client side puts its own
+        # messages through: a server quotes the value it rejected as a matter of
+        # course ('Could not coerce value "hunter2" to Int'), so redacting only
+        # #value would leave half the promise kept.
         def build(message, kind:, path:, value: nil, coordinate: nil, details: {})
+          redact = GraphWeaver::Internal::Redact
           GraphWeaver::InputError.new(
-            message, kind:, path:, coordinate:, details:, raised: false,
-            value: GraphWeaver::Internal::Redact.value(path.last, value),
+            redact.detail(path.last, message), kind:, path:, coordinate:, details:, raised: false,
+            value: redact.value(path.last, value),
           )
         end
 
