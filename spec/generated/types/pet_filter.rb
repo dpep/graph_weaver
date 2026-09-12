@@ -16,7 +16,7 @@ module GraphQLTypes
 
     # (prop, wire, required, serializer, coercer, coordinate) per field
     FIELDS = T.let([
-      GraphWeaver::InputStruct::Field.new(:_and, "_and", false, ->(v) { v.map { |v1| v1.serialize } }, ->(v) { v.map.with_index { |v1, i1| GraphWeaver::InputStruct.element(i1) { PetFilter.coerce(v1) } } }, "PetFilter._and"),
+      GraphWeaver::InputStruct::Field.new(:_and, "_and", false, ->(v) { v.map { |v1| v1.serialize } }, ->(v) { v.map.with_index { |v1, i1| GraphWeaver::InputStruct.element(i1, v1) { PetFilter.coerce(v1) } } }, "PetFilter._and"),
       GraphWeaver::InputStruct::Field.new(:_not, "_not", false, ->(v) { v.serialize }, ->(v) { PetFilter.coerce(v) }, "PetFilter._not"),
       GraphWeaver::InputStruct::Field.new(:metadata, "metadata", false, nil, nil, "PetFilter.metadata"),
       GraphWeaver::InputStruct::Field.new(:name, "name", false, nil, ->(v) { GraphWeaver::Coerce.string(v) }, "PetFilter.name"),

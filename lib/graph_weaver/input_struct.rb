@@ -44,13 +44,14 @@ module GraphWeaver
     # so without the second branch the index was dropped for every list of
     # leaves — and an element that wasn't a list at all reached the caller as a
     # raw NoMethodError from the inner `.map`.
-    def self.element(index)
+    # `value` is the element itself, so a refused leaf carries what was refused
+    def self.element(index, value = nil)
       yield
     rescue GraphWeaver::InputError => e
       raise e.within(index)
     rescue StandardError => e
       raise GraphWeaver::InputError.new(
-        e.message, kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [index],
+        e.message, kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [index], value:,
         details: GraphWeaver::Internal::Refusal.details_of(e),
       )
     end

@@ -87,6 +87,24 @@ describe "filtered messages" do
 
     # a filter matches the key the caller SUPPLIED, and a typo is by definition
     # not the key they meant — so the one error whose whole job is "you meant
+    # a list element has no key of its own; the list's key is what the filter
+    # matches, and the element learns it only as the path is built outward
+    it "hides a refused element of a filtered list" do
+      GraphWeaver.filter_parameters = ["token"]
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { revoke(tokens: [String!]!): Boolean }
+        schema { query: Query }
+      GRAPHQL
+      module_ = parse("query Revoke($tokens: [String!]!) { revoke(tokens: $tokens) }", schema:)
+
+      expect { module_.execute(tokens: ["ok", 5]) }
+        .to raise_error(GraphWeaver::InputError) { |e|
+          expect(e.path).to eq ["tokens", 1]
+          expect(e.value).to eq "[FILTERED]"
+          expect(e.message).not_to include "5"
+        }
+    end
+
     # this other key" is the one the filter cannot see
     it "hides a typo'd key's value, which no filter can match" do
       GraphWeaver.filter_parameters = ["token"]

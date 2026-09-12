@@ -122,8 +122,9 @@ module GraphWeaver
           "#{at(name, operation)}: #{Internal::Redact.detail(name, e.message)}",
           kind: e.kind, path: [name, *e.path], coordinate: e.coordinate,
           # #value is the value AT #path: this layer owns it only when nothing
-          # inner named a field (so a missing one stays valueless, as it is)
-          value: e.path.empty? ? Internal::Redact.value(name, value) : e.value,
+          # inner named a field (so a missing one stays valueless, as it is) —
+          # but the variable's own filter covers everything beneath it
+          value: Internal::Redact.value(name, e.path.empty? ? value : e.value),
           details: e.details, struct: e.struct,
         )
       rescue StandardError => e

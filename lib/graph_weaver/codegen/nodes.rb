@@ -163,7 +163,7 @@ class GraphWeaver::Codegen
       # the index is a path segment — `where._and.0._not.species` needs the 0
       # to name one form field
       idx = "i#{depth}"
-      "#{expr}.map.with_index { |#{var}, #{idx}| GraphWeaver::InputStruct.element(#{idx}) { #{inner} } }"
+      "#{expr}.map.with_index { |#{var}, #{idx}| GraphWeaver::InputStruct.element(#{idx}, #{var}) { #{inner} } }"
     end
 
     def hash_coerce_identity? = @of.hash_coerce_identity?

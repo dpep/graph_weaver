@@ -678,6 +678,9 @@ module GraphWeaver
     sig { params(segment: T.any(String, Integer)).returns(InputError) }
     def within(segment)
       @path.unshift(segment)
+      # a list element has no key of its own — the list's key is the first it
+      # meets, and it decides whether the value may be shown
+      @value = GraphWeaver::Internal::Redact.value(segment, @value) if segment.is_a?(String)
       self
     end
 

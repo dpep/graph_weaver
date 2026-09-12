@@ -79,7 +79,8 @@ describe "input errors" do
       QUERY
 
       it "reaches the element that refused, for every leaf kind" do
-        expect(refusal { lists.execute(ids: [1, 2, "x"]) }).to have_attributes(kind: :unparseable, path: ["ids", 2])
+        expect(refusal { lists.execute(ids: [1, 2, "x"]) })
+          .to have_attributes(kind: :unparseable, path: ["ids", 2], value: "x")
         expect(refusal { lists.execute(names: ["a", 7]) }).to have_attributes(kind: :type_mismatch, path: ["names", 1])
         expect(refusal { lists.execute(kinds: %w[CAT LIZARD]) })
           .to have_attributes(kind: :not_a_member, path: ["kinds", 1], details: { members: %w[CAT DOG] })
