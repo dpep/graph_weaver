@@ -5,13 +5,14 @@ require_relative "../lib/graph_weaver"
 require_relative "../spec/support/schema"
 
 root = File.expand_path("..", __dir__)
-GraphWeaver.graph :fixtures,
+# the inline door, not GraphWeaver.graph: the parity specs regenerate these
+# same fixtures this way, and a named graph bakes its name into every module
+GraphWeaver.generate!(
   schema: Demo::Schema,
   queries: File.join(root, "spec/queries"),
   output: File.join(root, "spec/generated"),
-  client: Demo::Schema
-
-GraphWeaver.generate!
+  client: Demo::Schema,
+)
 changed = GraphWeaver.changed_files
 changed.each { |path| puts "wrote #{path}" }
 puts "already up to date" if changed.empty?

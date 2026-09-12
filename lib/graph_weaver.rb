@@ -241,6 +241,11 @@ module GraphWeaver
     # thing.
     def graph(name, schema: nil, queries: nil, output: nil, client: nil,
       namespace: nil, types_module: nil, &registrations)
+      unless name.is_a?(Symbol) || name.is_a?(String)
+        # codegen writes the name into every module this graph generates, so
+        # it has to be something source can spell
+        raise ArgumentError, "graph name must be a Symbol or a String, got #{name.inspect}"
+      end
       # no registry: — a declared graph copies the top-level registrations when
       # it is first read. They apply to every graph, because federation composes
       # by name and an app that registered Money before it had two schemas
@@ -689,6 +694,7 @@ module GraphWeaver
           query: Codegen.inline_fragments(source, shared, path),
           name:,
           client: graph.client,
+          graph_name: graph.name,
           types_namespace: graph.types_module,
           hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
           path:,

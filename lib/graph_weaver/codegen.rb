@@ -63,7 +63,9 @@ class GraphWeaver::Codegen
   #
   # client: (a constant, or its name as a string) becomes the generated
   # module's baked default; when omitted, generated code falls back to
-  # the app default (GraphWeaver.client=). name: is the module the file
+  # the app default (GraphWeaver.client=). graph_name: is the graph the
+  # module belongs to, baked in so a test mode can build its stand-in from
+  # the right schema. name: is the module the file
   # defines, defaulting to the operation's own name; default_name: is
   # parse's container-scoped fallback (file generation stays strict — a
   # checked-in file deserves a deliberate name). types_namespace: is the shared-types workflow (see
@@ -76,7 +78,7 @@ class GraphWeaver::Codegen
   # from, named alongside line and column in validation errors.
   def initialize(schema:, query:, name: nil, client: nil, default_name: nil,
     types_namespace: nil, hoistable_unions: nil, path: nil, module_name: nil,
-    registry: GraphWeaver::Codegen.registry)
+    graph_name: nil, registry: GraphWeaver::Codegen.registry)
     renamed!(module_name)
     @schema = schema
     # the registrations this generation reads — one graph's, or the default
@@ -93,6 +95,10 @@ class GraphWeaver::Codegen
     # scalars this generation had no registration for (see report_untyped_scalars)
     @untyped_scalars = []
     @client_const = CLIENT_CONST.call(client)
+    # the graph this module belongs to, baked in beside the client: a test
+    # mode builds its stand-in from the module's own schema, and only the
+    # module can say whose that is (GraphWeaver::Internal::TestClients)
+    @graph_name = graph_name
 
     if client && @client_const.nil?
       # a live object can't be spelled in generated source — parse can

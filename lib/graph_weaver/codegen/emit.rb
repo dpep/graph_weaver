@@ -444,6 +444,13 @@ class GraphWeaver::Codegen
       # client/client= carry no per-query types, so they live in the gem
       out << "  # client / client= — see GraphWeaver::QueryModule"
       out << "  extend GraphWeaver::QueryModule"
+      if @graph_name
+        out << ""
+        out << "  # the graph this module was generated from — what a test mode builds"
+        out << "  # its stand-in client from"
+        out << "  GRAPH = T.let(#{@graph_name.inspect}, #{@graph_name.class})"
+        out << "  private_constant :GRAPH"
+      end
       if @client_const
         out << ""
         out << "  # the baked default client, resolved on first use"

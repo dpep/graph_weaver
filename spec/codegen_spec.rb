@@ -245,6 +245,25 @@ describe GraphWeaver::Codegen do
         .to include("name" => "Rex")
     end
 
+    # a module generated from a declared graph carries its name, which is the
+    # only way a test mode can tell whose schema to build its stand-in from
+    it "bakes the graph a module was generated from beside its client" do
+      source = described_class.new(schema: Demo::Schema, name: "PeopleQuery",
+        query: "{ people { name } }", graph_name: :billing).generate
+
+      expect(source).to include("GRAPH = T.let(:billing, Symbol)")
+      expect(source).to include("private_constant :GRAPH")
+    end
+
+    # the unnamed graph the top-level settings describe — every single-schema
+    # app — has nothing to say, so it says nothing
+    it "bakes no graph when there isn't a named one" do
+      source = described_class.generate(schema: Demo::Schema, name: "PeopleQuery",
+        query: "{ people { name } }")
+
+      expect(source).not_to include("GRAPH =")
+    end
+
     it "names a query-shorthand document too" do
       source = described_class.generate(
         schema: Demo::Schema, name: "PeopleQuery", query: "{ people { name } }",

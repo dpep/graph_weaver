@@ -195,6 +195,36 @@ describe "GraphWeaver.graph" do
       .to raise_error(GraphWeaver::Error, /2 graphs.*graphql_fake\(schema:/m)
   end
 
+  # …but a module says which graph it came from, so a mode has an answer per
+  # module even where the suite has none — each stand-in built from that
+  # module's own schema, and in place of the client baked into it.
+  # namespaces of their own, and queries that hoist no shared types: these
+  # modules are loaded for real, and a T::Enum another example already
+  # defined refuses to be defined twice
+  it "fakes each graph's modules against that graph's own schema" do
+    GraphWeaver::Testing.reset!
+    # email is resolved nowhere in Demo, so a value can only have come from a
+    # fake — and this is the graph with `client: Demo::Schema` baked in
+    write_query(:faked_pets, "contact", "query { person(id: 1) { email } }\n")
+    write_query(:faked_billing, "statement", "query { invoice(id: 1) { id } }\n")
+    GraphWeaver.graph :faked_pets, schema: Demo::Schema, client: Demo::Schema,
+      queries: File.join(@dir, "faked_pets/queries"), output: output(:faked_pets),
+      namespace: "FakedPets"
+    GraphWeaver.graph :faked_billing, schema: billing_schema,
+      queries: File.join(@dir, "faked_billing/queries"), output: output(:faked_billing),
+      namespace: "FakedBilling"
+    GraphWeaver.generate!
+    GraphWeaver.load_generated!
+    GraphWeaver::Internal::TestClients.install(:fake)
+
+    expect(FakedPets::ContactQuery.execute!.person.email).to be_a String
+    # invoice exists in billing's schema alone
+    expect(FakedBilling::StatementQuery.execute!.invoice.id).to be_a String
+  ensure
+    GraphWeaver::Internal::TestClients.reset!
+    GraphWeaver::Testing.reset!
+  end
+
   # branding is read off the graph's own dump, so a graph that names a
   # supergraph keeps it — knowing whose code to look at is half the answer, and
   # it costs no network
@@ -244,6 +274,13 @@ describe "GraphWeaver.graph" do
 
     expect(GraphWeaver.graphs.map(&:name)).to eq %i[pets billing]
     expect { GraphWeaver.generate! }.not_to raise_error
+  end
+
+  # the name is written into every module the graph generates, so it has to be
+  # something generated source can spell
+  it "refuses a name that isn't a Symbol or a String" do
+    expect { GraphWeaver.graph(Demo::Schema, schema: Demo::Schema) }
+      .to raise_error(ArgumentError, /Symbol or a String/)
   end
 
   # `schema: Accounts::Schema` can't be written at the top of a Rails
