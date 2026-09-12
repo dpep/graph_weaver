@@ -13,6 +13,11 @@
   A value (or a call) of `nil` sends no such header. `Transport::Faraday`
   raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
   Faraday resolves this in middleware, and the message says so.
+- **`ServerError#headers` answers any casing.** Transports store response
+  headers downcased, so `e.headers["Retry-After"]` — the spelling the server
+  sent, and the one a caller reaches for — used to return nil. Lookup by name
+  (`#[]`, `#fetch`, `#dig`, `#key?`) now folds the case; iteration, `#keys` and
+  `#to_h` still yield the downcased spelling, so logs are unchanged.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

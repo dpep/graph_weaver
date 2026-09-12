@@ -113,6 +113,26 @@ describe "error handling" do
       expect(e).not_to be_throttled
     end
 
+    # HTTP field names are case-insensitive (RFC 9110 §5.1), and the spelling
+    # a caller reaches for is the one the server sent — but transports store
+    # them downcased, so the obvious lookup used to miss
+    it "answers a header lookup in any casing, and still iterates downcased" do
+      e = GraphWeaver::ServerError.new(status: 429, headers: { "Retry-After" => "7", "x-request-id" => "abc" })
+
+      expect(e.headers["Retry-After"]).to eq "7"
+      expect(e.headers["retry-after"]).to eq "7"
+      expect(e.headers["X-Request-Id"]).to eq "abc"
+      expect(e.headers.fetch("RETRY-AFTER")).to eq "7"
+      expect(e.headers.fetch("nope", "fallback")).to eq "fallback"
+      expect(e.headers.dig("Retry-After")).to eq "7"
+      expect(e.headers).to have_key "Retry-After"
+      expect(e.headers).not_to have_key "nope"
+
+      expect(e.headers.keys).to eq %w[retry-after x-request-id]
+      expect(e.headers.to_h).to eq({ "retry-after" => "7", "x-request-id" => "abc" })
+      expect(e.to_h).not_to have_key "headers"
+    end
+
     it "reads Retry-After as seconds or an HTTP-date, ignoring nonsense" do
       seconds = GraphWeaver::ServerError.new(status: 429, headers: { "retry-after" => "30" })
       date = GraphWeaver::ServerError.new(status: 503, headers: { "retry-after" => (Time.now + 60).httpdate })

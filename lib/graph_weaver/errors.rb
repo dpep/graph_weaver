@@ -5,6 +5,7 @@ require "sorbet-runtime"
 require "time" # Time.httpdate, for Retry-After
 
 require_relative "inflect"
+require_relative "internal/headers"
 require_relative "logging"
 
 module GraphWeaver
@@ -90,9 +91,10 @@ module GraphWeaver
     sig { returns(T.untyped) }
     attr_reader :body
 
-    # The response headers, names downcased — the rate-limit budget
-    # (x-ratelimit-remaining), the request id your provider wants in a
-    # support ticket, Retry-After. Empty when the transport had none.
+    # The response headers — the rate-limit budget (x-ratelimit-remaining),
+    # the request id your provider wants in a support ticket, Retry-After.
+    # Looked up in any casing, iterated downcased. Empty when the transport
+    # had none.
     sig { returns(T::Hash[String, String]) }
     attr_reader :headers
 
@@ -100,7 +102,7 @@ module GraphWeaver
     def initialize(status:, body: nil, headers: {})
       @status = status
       @body = body
-      @headers = headers
+      @headers = T.let(GraphWeaver::Internal::Headers.wrap(headers), T::Hash[String, String])
       snippet = body.to_s.empty? ? "" : ": #{body.to_s[0, 500]}"
       super("HTTP #{status}#{snippet}#{" — #{hint}" if hint}")
     end

@@ -257,14 +257,16 @@ party that knows when its window reopens. It's clamped to `max_delay:` so a
 "come back in an hour" can't park a thread for an hour, and not
 jittered, since it's an instruction rather than a guess.
 
-`ServerError` carries the response `#headers` (names downcased), so the
-rate-limit budget and request id are in hand without monkey-patching a
-transport:
+`ServerError` carries the response `#headers`, so the rate-limit budget and
+request id are in hand without monkey-patching a transport. Look one up in
+whatever casing the server used — field names are case-insensitive; iterating
+them yields the downcased spelling:
 
 ```ruby
 rescue GraphWeaver::ServerError => e
   e.throttled?                          # 429, or 503 + Retry-After
   e.retry_after                         # seconds, or nil
+  e.headers["Retry-After"]              # == e.headers["retry-after"]
   e.headers["x-ratelimit-remaining"]
 end
 ```
