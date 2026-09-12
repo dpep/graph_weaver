@@ -426,10 +426,10 @@ an autoloaded constant doesn't resolve while `config/initializers` run).
 turned two graphs into six and the next regeneration refused on a graph
 colliding with *itself* — after which the dev server served 500s permanently,
 because the failed `generate!` meant `reload_generated!` never ran. And
-`to_prepare` is too late for two things that need the graph list earlier:
-`Railtie.watch!` (which must register a reloader before the finisher that reads
-`app.reloaders`) and the Zeitwerk ignore. A graph declared there is invisible to
-watch mode, so editing its `.graphql` silently never regenerates.
+`to_prepare` is too late for the Zeitwerk ignore, which Rails reads once at
+setup. A graph declared there was invisible to watch mode too, until the
+watcher itself moved into `to_prepare` (0.7.0); the ignore still can't move, so
+an `output` outside `generated_paths` is refused at boot instead.
 
 So the name is the identity — re-declaring replaces in place — which makes
 `to_prepare` safe, and `schema` accepts a callable, which makes it unnecessary:
