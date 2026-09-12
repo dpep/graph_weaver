@@ -48,7 +48,42 @@ module GraphWeaver
           return GraphWeaver.client if one_answer?
 
           graph = graph_for!(mod)
-          @clients[graph.name] ||= build(graph)
+          @clients[graph.name] ||= client_for(@mode, graph)
+        end
+
+        # The client `mode` runs `graph` against — the one answer to "what
+        # does this tag mean", asked per module here and once per example by
+        # the rspec hook. nil for the two modes that take no client slot:
+        # :live is the app's own clients, untouched, and :wire serves the
+        # resolvers at the endpoint each client already posts to.
+        def client_for(mode, graph = app_graph)
+          config = GraphWeaver::Testing.config
+          case mode
+          when :fake
+            GraphWeaver::Testing::FakeClient.new(schema: config.reference_schema!(graph))
+          when :in_process
+            GraphWeaver::InProcess.new(config.schema_class!(graph), context: config.context)
+          when :router
+            router = config.built_router
+            router.context = config.context
+            # one composed supergraph, built once for the suite, so it has to
+            # be told where this example starts — the trace, and any faked
+            # subgraph's fabricated data
+            router.reset!
+          when :wire
+            # what sits behind the wire is decided the way the other tags
+            # already decide it — the router when there's a composed
+            # supergraph, the live schema class otherwise
+            client_for(config.supergraph? ? :router : :in_process, graph)
+          end
+        end
+
+        # The graph a mode builds for when no module named one: this app's
+        # only graph. With several the honest answer varies per module, so
+        # there is no app-wide one and each module resolves its own.
+        def app_graph
+          graphs = GraphWeaver.graphs
+          graphs.first if graphs.one?
         end
 
         private
@@ -68,27 +103,6 @@ module GraphWeaver
           raise GraphWeaver::Error, "#{mod} doesn't say which of this app's graphs (#{declared}) " \
             "it was generated from, so #{@mode.inspect} has nothing to run it against — " \
             "regenerate (rake graph_weaver:generate)."
-        end
-
-        def build(graph)
-          case @mode
-          when :fake
-            GraphWeaver::Testing::FakeClient.new(schema: graph.schema)
-          when :in_process
-            GraphWeaver::InProcess.new(live_schema!(graph), context: GraphWeaver::Testing.config.context)
-          when :router
-            # one composed supergraph, built once for the suite — so this is
-            # the very router the hook installed, faked subgraphs and all
-            GraphWeaver::Testing.config.built_router
-          end
-        end
-
-        def live_schema!(graph)
-          graph.live_schema || raise(GraphWeaver::Error, ":in_process runs your resolvers, so it " \
-            "needs the live GraphQL::Schema class — and graph #{graph.name.inspect} names " \
-            "#{graph.named_schema? ? "type information, not a class" : "no schema of its own"}. " \
-            "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}, " \
-            "schema: -> { MySchema }, …).")
         end
       end
     end

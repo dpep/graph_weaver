@@ -12,6 +12,9 @@
   `GRAPH` naming the graph they were generated from, so **regenerate after
   upgrading** if you declare graphs — a multi-graph app whose modules predate
   this says so and refuses rather than guessing.
+  (`GraphWeaver::Testing::RSpecIntegration.client_for` is gone: one
+  implementation answers "what client does this mode use", per graph, and it
+  is internal. Nothing documented pointed at it.)
 - `GraphWeaver.graph` refuses a name that isn't a Symbol or a String; the
   name now reaches generated source.
 - **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the

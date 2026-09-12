@@ -228,7 +228,7 @@ describe "graphql: :wire" do
     it "names webmock and the line to add when it isn't loaded" do
       webmock = Object.send(:remove_const, :WebMock)
 
-      expect { integration.serve!(integration.client_for(:wire)) }
+      expect { integration.serve!(GraphWeaver::Internal::TestClients.client_for(:wire)) }
         .to raise_error(GraphWeaver::Error, /webmock.*require "webmock\/rspec"/m)
     ensure
       Object.const_set(:WebMock, webmock)

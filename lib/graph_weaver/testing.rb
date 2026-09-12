@@ -198,26 +198,30 @@ module GraphWeaver
       end
 
       # The live schema class :in_process runs when the example didn't name
-      # one — config.schema if that is a class, else whatever the app's own
-      # client already runs in-process. Only a live class has resolvers, so
-      # there is nothing else to fall back to: a dump is type information.
-      def schema_class!
+      # one — config.schema if that is a class, else the one `graph` names,
+      # else whatever the app's own client already runs in-process. Only a
+      # live class has resolvers, so there is nothing else to fall back to:
+      # a dump is type information.
+      def schema_class!(graph = nil)
         # explicit_schema, not schema: the latter falls back to the committed
         # dump, which loads as an anonymous GraphQL::Schema subclass — runnable
         # by every test that matters, and holding not one resolver.
-        runnable(explicit_schema) || GraphWeaver::Internal::Util.live_schema ||
-          raise(GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
-            "GraphQL::Schema class — and GraphWeaver.client isn't running one in-process to " \
-            "borrow. Name it in the example — graphql_in_process(MySchema) — or set " \
-            "GraphWeaver::Testing.config.schema = MySchema for the whole suite. A federated app " \
-            "names the subgraph it means, per example; graphql: :router runs the graph stitched.")
+        found = runnable(explicit_schema) || graph&.live_schema || GraphWeaver::Internal::Util.live_schema
+        return found if found
+
+        # a named graph is told how to name its own class; the app-wide answer
+        # is told the two app-wide ways to say it
+        raise GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
+          "GraphQL::Schema class — and #{schema_class_advice(graph)}"
       end
 
       # The schema everything else derives from: the one you set, else the one
-      # this app's single graph names, else the committed dump, else the schema
-      # the app's client talks to.
-      def reference_schema!
+      # `graph` names — the schema its generated code was checked against —
+      # else the one this app's single graph names, else the committed dump,
+      # else the schema the app's client talks to.
+      def reference_schema!(graph = nil)
         return explicit_schema if explicit_schema
+        return graph.schema if graph&.named_schema?
 
         declared = GraphWeaver.graphs
         # more than one graph and nothing named: the honest answer varies per
@@ -241,6 +245,20 @@ module GraphWeaver
       end
 
       private
+
+      # what to do about it, which differs by who asked: a graph names its
+      # own class where it is declared, the app names one for the suite
+      def schema_class_advice(graph)
+        return "GraphWeaver.client isn't running one in-process to borrow. Name it in the " \
+          "example — graphql_in_process(MySchema) — or set GraphWeaver::Testing.config.schema = " \
+          "MySchema for the whole suite. A federated app names the subgraph it means, per " \
+          "example; graphql: :router runs the graph stitched." unless graph&.name
+
+        "graph #{graph.name.inspect} names " \
+          "#{graph.named_schema? ? "type information, not a class" : "no schema of its own"}. " \
+          "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}, " \
+          "schema: -> { MySchema }, …)."
+      end
 
       # config.schema doubles as the :in_process class when it is one — but a
       # dump has no resolvers, so it can only ever be type information.

@@ -103,9 +103,9 @@ module GraphWeaver
           @__graph_weaver_served = nil
           @__graph_weaver_stub = nil
           if @__graph_weaver_mode == :wire
-            @__graph_weaver_served = GraphWeaver::Testing::RSpecIntegration.client_for(:wire)
+            @__graph_weaver_served = GraphWeaver::Internal::TestClients.client_for(:wire)
             @__graph_weaver_stub = GraphWeaver::Testing::RSpecIntegration.serve!(@__graph_weaver_served)
-          elsif (client = GraphWeaver::Testing::RSpecIntegration.client_for(@__graph_weaver_mode))
+          elsif (client = GraphWeaver::Internal::TestClients.client_for(@__graph_weaver_mode))
             # :live builds none — the app's own client is what it runs against
             GraphWeaver.client = client
           end
@@ -144,30 +144,6 @@ module GraphWeaver
         raise GraphWeaver::Error, "#{TAG}: #{tagged.inspect} is not a mode — " \
           "#{CLIENT_MODES.map(&:inspect).join(", ")}. :live leaves GraphWeaver.client exactly " \
           "as it is, which is how one example steps back out of config.default_mode."
-      end
-
-      # the client an example in this mode runs against, or nil when the mode
-      # is the app's own client and there is nothing to build
-      def self.client_for(mode, config = GraphWeaver::Testing.config)
-        case mode
-        when :live
-          nil
-        when :fake
-          FakeClient.new(schema: config.reference_schema!)
-        when :in_process
-          GraphWeaver::InProcess.new(config.schema_class!, context: config.context)
-        when :router
-          router = config.built_router
-          router.context = config.context
-          # built once for the suite, so it has to be told where this example
-          # starts — the trace, and any faked subgraph's fabricated data
-          router.reset!
-        when :wire
-          # what sits behind the wire is decided the way the other tags
-          # already decide it — the router when there's a composed
-          # supergraph, the live schema class otherwise
-          client_for(config.supergraph? ? :router : :in_process, config)
-        end
       end
 
       # Serve `client` at the endpoint GraphWeaver.client posts to, so the
@@ -289,7 +265,7 @@ module GraphWeaver
         def graphql_router(fake: nil)
           claim_mode!(:router)
           refuse_seed!(fake) if fake
-          router = GraphWeaver::Testing::RSpecIntegration.client_for(:router)
+          router = GraphWeaver::Internal::TestClients.client_for(:router)
           router.fake = fake if fake
           GraphWeaver.client = router
         end

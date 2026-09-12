@@ -409,12 +409,12 @@ describe "graph_weaver/rspec" do
     it "says why :router needs the supergraph named, when nothing on disk is one" do
       GraphWeaver.schema_path = File.expand_path("support/federation/package.json", __dir__)
 
-      expect { GraphWeaver::Testing::RSpecIntegration.client_for(:router, config) }
+      expect { GraphWeaver::Internal::TestClients.client_for(:router) }
         .to raise_error(GraphWeaver::Error, /@join__\* routing table stripped out.*package\.json.*config\.router/m)
     end
 
     it "says what it looked for when no schema resolves at all" do
-      expect { GraphWeaver::Testing::RSpecIntegration.client_for(:fake, config) }
+      expect { GraphWeaver::Internal::TestClients.client_for(:fake) }
         .to raise_error(GraphWeaver::Error, /GraphWeaver\.client isn't set.*config\.schema is unset/m)
     end
 
@@ -422,7 +422,7 @@ describe "graph_weaver/rspec" do
     it "says to name the schema when :in_process has no live class" do
       app_client!(DraftsDemo::Schema)
 
-      expect { GraphWeaver::Testing::RSpecIntegration.client_for(:in_process, config) }
+      expect { GraphWeaver::Internal::TestClients.client_for(:in_process) }
         .to raise_error(GraphWeaver::Error, /graphql_in_process\(MySchema\).*graphql: :router/m)
     end
 
