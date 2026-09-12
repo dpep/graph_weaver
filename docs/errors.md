@@ -124,6 +124,11 @@ rescue GraphWeaver::InputError => e
 end
 ```
 
+`to_h` carries only the keys that have something to say, so a key is **absent**
+rather than `null` — `"value"` is missing both when the value was never known
+and when it was null, and `"kind"` tells those apart (`"missing"` has no value
+by definition). Read it with `hash["value"]`, not `hash.key?("value")`.
+
 A nested filter reports the innermost input type, so the error points at the
 input that actually held the bad field. Passing something that is neither — a
 bare `String` where the input goes — reports the same way. A call site that

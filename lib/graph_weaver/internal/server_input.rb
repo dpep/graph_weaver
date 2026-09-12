@@ -26,9 +26,17 @@ module GraphWeaver
       NOT_NULL = /\AExpected value to not be null\z/
       NOT_DEFINED = /\AField is not defined on (\S+)\z/
 
-      DETAIL_KEYS = GraphWeaver::InputError::DETAILS.map(&:to_s).freeze
+      # InputError::DETAILS closes the key set; this closes the types, because
+      # a right key with the wrong type under it is the same smuggling. An app
+      # is entitled to errors.rb's promise that members stays an Array —
+      # details[:members].join(", ") must not raise on what a server sent.
+      # (spec/input_errors_spec.rb holds these keys to DETAILS.)
+      DETAIL_TYPES = {
+        "type" => String, "members" => Array, "min" => Numeric,
+        "max" => Numeric, "format" => String, "suggestion" => String,
+      }.freeze
 
-      private_constant :VARIABLE, :COERCE, :NOT_A_MEMBER, :NOT_NULL, :NOT_DEFINED, :DETAIL_KEYS
+      private_constant :VARIABLE, :COERCE, :NOT_A_MEMBER, :NOT_NULL, :NOT_DEFINED
 
       class << self
         def read(error)
@@ -56,8 +64,17 @@ module GraphWeaver
             path: stated["path"].is_a?(Array) ? stated["path"] : path,
             coordinate: (coordinate if coordinate.is_a?(String)),
             value: stated.key?("value") ? stated["value"] : value,
-            details: stated.slice(*DETAIL_KEYS).transform_keys(&:to_sym),
+            details: details_of(stated),
           )
+        end
+
+        # the details a server stated that a kind can actually mean, both key
+        # and type — anything else is dropped rather than passed through
+        def details_of(stated)
+          DETAIL_TYPES.each_with_object({}) do |(key, type), out|
+            value = stated[key]
+            out[key.to_sym] = value if value.is_a?(type)
+          end
         end
 
         # One InputError per problem — a single coercion error routinely

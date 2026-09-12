@@ -132,6 +132,11 @@
   raised the very `NoMethodError` the hint exists to explain. `method_missing`
   still hints; the cost is that `struct.method(:nmae)` now raises Ruby's own
   bare `NameError` rather than the hinted one.
+- **`InputError#details` from a server is type-checked, not just key-checked.**
+  `InputError::DETAILS` closed the key set, but a right key with the wrong type
+  under it smuggles just as well: `members: "not a list"` got through, and
+  `details[:members].join(", ")` is what errors.rb's promise entitles an app to
+  write. A detail whose type isn't the one its key means is now dropped.
 <!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)

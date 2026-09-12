@@ -34,6 +34,14 @@ describe "input errors" do
     it "defaults to :refused — the honest fallback, never a guess" do
       expect(GraphWeaver::InputError.new("nope").kind).to eq :refused
     end
+
+    # a detail key with no declared type is silently dropped from a server's
+    # error, so adding one to DETAILS has to add its type in the same breath
+    it "declares a type for every detail key a server may state" do
+      declared = GraphWeaver::Internal::ServerInput.const_get(:DETAIL_TYPES).keys.map(&:to_sym)
+
+      expect(declared).to match_array GraphWeaver::InputError::DETAILS
+    end
   end
 
   describe "client-side: the path is rooted at the variable" do
@@ -304,6 +312,20 @@ describe "input errors" do
 
       expect(error.kind).to eq :invalid_format
       expect(error.details).to eq({ format: "email" })
+    end
+
+    # closing the key set isn't enough: errors.rb promises members stays an
+    # Array, so an app writing details[:members].join(", ") would raise on a
+    # server that sent a String
+    it "drops a detail whose type isn't the one its key means" do
+      error = error_for(
+        "message" => "nope",
+        "extensions" => { "input" => {
+          "kind" => "out_of_range", "members" => "not a list", "min" => { "deep" => [1, 2] }, "max" => 9,
+        } },
+      )
+
+      expect(error.details).to eq({ max: 9 })
     end
 
     it "degrades a kind it has never heard of to :refused rather than guessing" do
