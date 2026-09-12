@@ -333,6 +333,14 @@ describe "graphql: :wire" do
 
       expect(order_query.execute!.order.buyer).to eq "ada"
     end
+
+    # rspec runs `after` hooks innermost-first, so a suite's own
+    # `after { WebMock.reset! }` takes our stub down before this gem's hook
+    # reaches it — which used to raise from inside the cleanup and pile a
+    # second, unrelated failure on the example
+    it "survives a suite that resets webmock itself", graphql: :wire do
+      WebMock.reset!
+    end
   end
 
   # driven through the integration's own methods, not a tagged example: the
@@ -403,6 +411,19 @@ describe "graphql: :wire" do
 
       expect { integration.serve! }
         .to raise_error(GraphWeaver::Error, /bakes client: "Nope::CLIENT".*nothing defines/m)
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    # they used to be uniq'd by url, so whichever was stubbed first answered
+    # both graphs' queries — and the second graph's fields came back as
+    # "doesn't exist on type 'Query'", blaming the query
+    it "refuses two graphs at one endpoint, naming both and the url" do
+      GraphWeaver.graph(:orders) { schema WireDemo::Schema; client "WireDemo::CLIENT" }
+      GraphWeaver.graph(:billing) { schema BillingWire::Schema; client "WireDemo::CLIENT" }
+
+      expect { integration.serve! }
+        .to raise_error(GraphWeaver::Error, /:orders, :billing.*#{Regexp.escape(WireDemo::ENDPOINT)}/m)
     ensure
       GraphWeaver.reset_graphs!
     end

@@ -171,24 +171,45 @@ module GraphWeaver
 
       # Take one stub back down. Only ours — a suite's other stubs, and
       # whether it allows net connections, are its own business.
-      def self.unserve!(stub) = WebMock::API.remove_request_stub(stub)
+      #
+      # Deleted rather than removed: the suite may have taken it down
+      # already (a group's own `after { WebMock.reset! }` runs first — rspec
+      # runs after hooks innermost-first), and remove_request_stub raises on
+      # a stub it can't find, piling a second failure on the example from
+      # inside the cleanup.
+      def self.unserve!(stub) = WebMock::StubRegistry.instance.request_stubs.delete(stub)
 
       # Every endpoint an example's modules can post to, each with the graph
       # whose resolvers belong behind it: the client each graph bakes into its
-      # modules, or GraphWeaver.client for a graph baking none. Distinct by
-      # endpoint — two graphs on one url get one server, as they would in
-      # production — and an app whose graphs all bake clients needs no app
-      # default at all.
+      # modules, or GraphWeaver.client for a graph baking none. One graph per
+      # endpoint — an app whose graphs all bake clients needs no app default
+      # at all.
       def self.wire_targets
         targets = GraphWeaver.graphs.filter_map do |graph|
           client = baked_client(graph) || GraphWeaver.client
           [endpoint!(client, graph), graph] if client
-        end.uniq(&:first)
+        end
+        refuse_shared_endpoint!(targets)
         return targets if targets.any?
 
         # nothing bakes a client and the app has none: the endpoint refusal
         # names the empty slot, which is the thing to fix
         endpoint!(GraphWeaver.client)
+      end
+
+      # One stub per url, so two graphs on one endpoint used to mean the
+      # first graph's schema answering both — and the second's fields coming
+      # back as "doesn't exist on type 'Query'", which blames the query.
+      def self.refuse_shared_endpoint!(targets)
+        url, shared = targets.group_by(&:first).find { |_, at| at.size > 1 }
+        return unless shared
+
+        names = shared.map { |_, graph| graph.name.inspect }.join(", ")
+        raise GraphWeaver::Error, "#{TAG}: :wire serves one schema at each endpoint, and graphs " \
+          "#{names} post to the same one (#{url}) — whichever were served there would answer the " \
+          "others' queries, as fields its schema doesn't define. Give each graph a client of its " \
+          "own (client: in the graph block), or tag the example #{TAG}: :in_process or " \
+          "#{TAG}: :router, which run above the wire."
       end
 
       # The client a graph's generated modules call. `client:` holds a
@@ -256,7 +277,8 @@ module GraphWeaver
         !WebMock::HttpLibAdapters::NetHttpAdapter::OriginalNetHTTP.equal?(Net::HTTP)
       end
 
-      private_class_method :wire_targets, :baked_client, :whose_client, :webmock!, :webmock_enabled?
+      private_class_method :wire_targets, :refuse_shared_endpoint!, :baked_client, :whose_client,
+        :webmock!, :webmock_enabled?
 
       # Included into every example group, so graphql_context is there
       # whether or not this example took a client from the hook.

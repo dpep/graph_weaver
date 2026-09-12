@@ -21,6 +21,15 @@
   the file's path, mtime and size, so a supergraph recomposed in place is
   re-read rather than answered from the previous composition. Both still load
   once while the file stands still.
+- **`:wire` refuses two graphs that post to the same endpoint** instead of
+  serving the first graph's schema at it — the second graph's queries came back
+  as `Field 'x' doesn't exist on type 'Query'`, blaming the query. The message
+  names both graphs and the url.
+- **`:wire` no longer fails an example that resets WebMock itself.** A group's
+  own `after { WebMock.reset! }` runs before the gem's hook (rspec runs `after`
+  hooks innermost-first), and taking a stub down twice raised from inside the
+  cleanup — a second, unrelated failure on top of whatever the example was
+  really doing.
 <!-- /lane: harness -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
