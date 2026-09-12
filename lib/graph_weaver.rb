@@ -638,6 +638,18 @@ module GraphWeaver
         require file
       rescue NameError => e
         reported = Internal::Util.relative(file)
+        # Zeitwerk autoloading the file rather than this require: it expects
+        # the constant the path spells, and generated modules are top-level.
+        # Nothing was dropped, so the advice below would send you hunting for
+        # a registration that is still there.
+        if zeitwerk_name_error?(e)
+          raise Error, "#{reported} can't load: #{e.message}. Zeitwerk owns that directory, and a " \
+            "generated module defines a top-level constant — so the one Zeitwerk expects never appears. " \
+            "The directory has to be hidden from autoloading: name it in GraphWeaver.generated_paths " \
+            "from config/initializers (the Railtie ignores what is listed there, and only before Rails " \
+            "sets Zeitwerk up), or generate into the conventional app/graphql/*/generated."
+        end
+
         # a dropped extend_type leaves this include dangling; say so here,
         # because the raw NameError points at generated code and names no fix
         helper = e.message[/GraphWeaver::TypeHelpers::(\w+)/, 1]
@@ -688,6 +700,19 @@ module GraphWeaver
       end
       load_generated!
     end
+
+    # The class when zeitwerk is loaded; its message otherwise, since the gem
+    # doesn't depend on zeitwerk and load_generated! runs outside Rails too.
+    # const_get rather than a bare Zeitwerk, as in rails_root: sorbet can't
+    # resolve a constant the gem doesn't depend on.
+    def zeitwerk_name_error?(error)
+      if Object.const_defined?("Zeitwerk::NameError")
+        error.is_a?(Object.const_get("Zeitwerk::NameError"))
+      else
+        error.message.match?(/\Aexpected file .* to define constant /)
+      end
+    end
+    private :zeitwerk_name_error?
 
     # remove_const takes a bare name, and types_module may be namespaced
     def undefine(name)

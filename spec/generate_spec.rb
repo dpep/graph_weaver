@@ -181,6 +181,37 @@ describe "GraphWeaver.generate!" do
       .to raise_error(GraphWeaver::Error, /PetHelpersGone.*extend_type or register_enum.*rake graph_weaver:generate/m)
   end
 
+  # The other way a generated file raises NameError, and the one the advice
+  # above sends you hunting for a registration that is still there.
+  describe "a generated directory Zeitwerk owns" do
+    def stale(body)
+      generated = File.join(@dir, "generated")
+      FileUtils.mkdir_p(generated)
+      File.write(File.join(generated, "zeitwerk_query.rb"), body)
+      generated
+    end
+
+    it "says Zeitwerk is autoloading it, not that a registration is gone" do
+      hide_const("Zeitwerk") if defined?(::Zeitwerk) # the message is the only tell
+      generated = stale(<<~RUBY)
+        raise NameError, "expected file zeitwerk_query.rb to define constant Generated::ZeitwerkQuery, but didn't"
+      RUBY
+
+      expect { GraphWeaver.load_generated!(generated) }
+        .to raise_error(GraphWeaver::Error, /Zeitwerk owns that directory.*generated_paths/m)
+    end
+
+    # zeitwerk isn't a dependency here, so the message is the fallback; when
+    # it is loaded the class is the honest test
+    it "recognises the error class when zeitwerk is loaded" do
+      stub_const("Zeitwerk::NameError", Class.new(NameError))
+      generated = stale(%(raise Zeitwerk::NameError, "some other wording entirely"\n))
+
+      expect { GraphWeaver.load_generated!(generated) }
+        .to raise_error(GraphWeaver::Error, /Zeitwerk owns that directory/)
+    end
+  end
+
   it "loads appended generated_paths — the spec-support pattern" do
     queries = File.join(@dir, "support/graphql/queries")
     output = File.join(@dir, "support/graphql/generated")
