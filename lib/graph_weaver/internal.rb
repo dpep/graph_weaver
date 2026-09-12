@@ -248,7 +248,7 @@ module GraphWeaver
         # JSON round-trip so symbol keys become strings — otherwise
         # YAML.dump writes Ruby symbols the safe loader rejects on the next
         # run, and lookup keys stay stable across processes
-        def normalize_variables(variables) = JSON.parse(JSON.generate(variables || {}))
+        def normalize_variables(variables) = JSON.parse(Wire.json(variables || {}))
 
         # one readable line: an error naming a 60-line query is a wall, not a hint
         def summarize(query, limit: 160)
@@ -263,6 +263,16 @@ module GraphWeaver
     # carries an error in. Lived on Transport and Router, both of which
     # users touch — the worst place for it.
     module Wire
+      # JSON for the wire, or the caller's bug named under the umbrella: a
+      # value with no JSON form (NaN, Infinity, binary) raised a raw JSON::
+      # error from wherever it was first encoded — the transport, a cassette
+      # key, a log line — so every encoder goes through here.
+      def self.json(value)
+        JSON.generate(value)
+      rescue JSON::GeneratorError => e
+        raise GraphWeaver::Error, "variables are not JSON-serializable: #{e.message}"
+      end
+
       # The name of the document's FIRST operation, nil when anonymous. Only
       # the fallback for a raw query string handed straight to a transport —
       # generated modules pass their OPERATION_NAME, parsed properly.

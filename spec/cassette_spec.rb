@@ -40,6 +40,14 @@ describe GraphWeaver::Testing::Cassette do
       expect(live.calls).to eq 1 # replay never touched the live executor
     end
 
+    # NaN has no JSON form; the key is the first thing that encodes it
+    it "names an unserializable variable under the umbrella, not as a JSON:: error" do
+      recorder = GraphWeaver::Testing::Recorder.new(live, path)
+
+      expect { recorder.execute(PersonQuery::QUERY, variables: { "id" => Float::NAN }) }
+        .to raise_error(GraphWeaver::Error, /not JSON-serializable/)
+    end
+
     it "matches on query AND variables, naming both on a miss" do
       GraphWeaver::Testing::Recorder.new(live, path)
         .execute(PersonQuery::QUERY, variables: { "id" => "1" })

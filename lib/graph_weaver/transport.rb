@@ -82,13 +82,7 @@ class GraphWeaver::Transport
     request = { query:, variables: }
     request[:operationName] = operation_name if operation_name
 
-    encoded = begin
-      JSON.generate(request)
-    rescue JSON::GeneratorError => e
-      # a value with no JSON form (NaN, Infinity, binary) — the caller's
-      # bug, surfaced under the umbrella instead of a raw JSON:: error
-      raise GraphWeaver::Error, "variables are not JSON-serializable: #{e.message}"
-    end
+    encoded = GraphWeaver::Internal::Wire.json(request)
 
     # headers is optional: a third-party subclass returning the
     # documented [status, body] pair simply has none
