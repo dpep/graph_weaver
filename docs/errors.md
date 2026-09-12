@@ -44,7 +44,7 @@ subclass says where it failed:
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
 | `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
-| `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#field`, `#struct` |
+| `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#kind`, `#path`, `#coordinate`, `#value`, `#details`, `#field`, `#struct` |
 | `ValidationError` | build time: the query didn't validate against the schema |
 | `Codegen::Aliases::UnknownSegment` | build time: an [`alias:`](generated_modules.md#flat-accessors-with-alias) path names a field no type here has — a typo, so `optional: true` won't skip it |
 | `ConfigurationError` | setup judged against your schema — which Ruby schema serves which subgraph (`Testing::Router`, `federation:diff`) |
@@ -113,9 +113,12 @@ input into a 422:
 rescue GraphWeaver::InputError => e
   render json: e.to_h, status: :unprocessable_entity
   # { "error" => "GraphWeaver::InputError",
-  #   "message" => "$input of AdoptMutation: unknown key(s) for AdoptionInput: " \
-  #                "speceis (did you mean 'species'?)",
-  #   "field" => "input", "struct" => "AdoptionInput" }
+  #   "message" => "$input of AdoptMutation: species: \"LIZARD\" is not a valid " \
+  #                "GraphQLTypes::Species — expected one of: CAT, DOG",
+  #   "kind" => "not_a_member", "path" => ["input", "species"],
+  #   "coordinate" => "AdoptionInput.species", "field" => "species",
+  #   "value" => "LIZARD", "details" => { "members" => ["CAT", "DOG"] },
+  #   "struct" => "GraphQLTypes::AdoptionInput" }
 end
 ```
 
@@ -126,21 +129,37 @@ bare `String` where the input goes — reports the same way. A call site that
 as narrow as the schema, and only untyped values reach the runtime check
 ([why](generated_modules.md#variables-become-typed-kwargs)).
 
-**`#field` is the variable, not the field inside it.** Whatever went wrong at
-whatever depth, the error is re-branded on the way out with the kwarg you
-passed, because that is the coordinate the call site can act on. The input
-field that actually held the value is in the *message* and nowhere else:
+### What an InputError says, without reading English
 
-| you called | `#field` | `#struct` | the message |
-|---|---|---|---|
-| `execute(input: {name: "Rex", species: "LIZARD"})` | `"input"` | `AdoptionInput` | `$input of AdoptMutation: species: "LIZARD" is not a valid … — expected one of: CAT, DOG` |
-| `execute(where: {_and: [{_not: {species: "LIZARD"}}]})` | `"where"` | `PetFilter` | `$where of FindPetsQuery: species: …` |
-| `AdoptionInput.coerce(name: "Rex", speceis: "DOG")` — no variable to name | `"speceis"` | `AdoptionInput` | `unknown key(s) for AdoptionInput: speceis (did you mean 'species'?)` |
+`#message` is the developer's line and it will be reworded. Everything a form
+or an API response needs is beside it, as data:
 
-Note the middle row: the intermediate keys (`_and`, `0`, `_not`) are in neither
-— the innermost input is named, the route to it is not. A form that has to
-highlight one field is reading the message today; [i18n](i18n.md) proposes the
-machine-readable coordinate that would replace that.
+| | |
+|---|---|
+| `#kind` | one of eight Symbols — `GraphWeaver::InputError::KINDS`. The key an app translates; [i18n](i18n.md) has the table of what each means |
+| `#path` | the route from the variable down, Strings and list indices: `["where", "_and", 0, "_not", "species"]` |
+| `#coordinate` | the [schema coordinate](https://github.com/graphql/graphql-spec/pull/794) for the slot — `"PetFilter.species"`. `nil` when there isn't one |
+| `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables). `nil` when it was never known |
+| `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }` |
+| `#field` | `#path`'s last segment — the one field a form highlights |
+| `#struct` | the input type being built |
+
+So a form reads `e.field` and either `e.message` or — better — its own sentence
+built from `e.kind` and `e.details`.
+
+**`#path` is rooted at the variable**, so its first segment is the kwarg you
+passed and its last is the field that actually held the value:
+
+| you called | `#path` | `#coordinate` |
+|---|---|---|
+| `execute(input: {name: "Rex", species: "LIZARD"})` | `["input", "species"]` | `"AdoptionInput.species"` |
+| `execute(where: {_and: [{_not: {species: "LIZARD"}}]})` | `["where", "_and", 0, "_not", "species"]` | `"PetFilter.species"` |
+| `AdoptionInput.coerce(name: "Rex", speceis: "DOG")` — no variable to name | `["speceis"]` | `nil` — the type defines no such field |
+| `execute(count: "lots")` — a top-level scalar | `["count"]` | `nil` — a variable names no schema element |
+
+`#coordinate` is `nil` wherever the schema has no name for the slot: a
+variable, a key the input type doesn't define, a nested `@key` path in a
+federation representation, or a server that didn't say which type it meant.
 
 `#struct` is the generated input struct *class* where generation produced one,
 and the GraphQL type *name* where it didn't — a federation representation
@@ -157,27 +176,150 @@ the envelope, `run!` the result-or-raise.
 ### When the *server* rejects the input
 
 `InputError` is the client-side half — graph_weaver refuses before the request
-leaves. The other half arrives as ordinary `GraphQLError`s, and what they carry
-depends on how the server rejected it. Generated modules always send
-**variables**, never literals, which narrows a graphql-ruby server to two
-shapes:
+leaves. When the *server* is the one that says no, the rejection arrives as
+ordinary `GraphQLError`s, and `#input_errors` reads the ones that are about
+your input back into **the same `InputError`** — so one renderer serves both
+halves:
 
-| the server's rejection | what arrives |
-|---|---|
-| the variable didn't coerce — wrong type, not an enum member, a required field null, a key the input type doesn't define, a custom scalar's `GraphQL::CoercionError` | a **request** error: no `data` key at all, one error with no `path`, and `extensions` = `{"value" => «the whole variable», "problems" => [{"path" => ["level2","count"], "explanation" => "Could not coerce value \"nope\" to Int"}]}` — but **no `code`** |
-| a `validates:` rule failed — range, format, inclusion, length | an **execution** error: `response.data` is present with the field nulled (so `success?` is false on a response that still carries data), `path` is the **response** path (`["adopt"]` — the field, not the input field), and there is **no `extensions` key at all** |
+```ruby
+response = AdoptMutation.execute(input: params[:pet])
 
-So `#code` is nil either way, `errors_by_field` groups the second under the
-mutation field, and the field that was actually wrong is readable only out of
-`problems[].path` or the message text. (Measured against graphql-ruby 2.6.10.)
+response.input_errors   # [GraphWeaver::InputError] — [] when none
+response.errors         # still every error, input or not
+```
+
+`QueryError#input_errors` asks the same question of the raised envelope, and
+`GraphQLError#input_errors` of one error. It is **plural on every one of them**:
+a single variable-coercion error routinely carries several problems about
+different fields, and keeping only the first would lose the rest silently.
+These are values, not raises — building one writes no log line.
+
+Generated modules always send **variables**, never literals, which narrows a
+graphql-ruby server to two shapes (measured against 2.6.10):
+
+| the server's rejection | what arrives | `#input_errors` |
+|---|---|---|
+| the variable didn't coerce — wrong type, not an enum member, a required field null, a key the input type doesn't define, a custom scalar's `GraphQL::CoercionError` | a **request** error: no `data` key at all, one error with no `path`, and `extensions` = `{"value" => «the whole variable», "problems" => [{"path" => ["level2","count"], "explanation" => "Could not coerce value \"nope\" to Int"}]}` — but **no `code`** | one per problem, `kind` from a table over `explanation`, `path` = `[variable, *problem.path]` |
+| a `validates:` rule failed — range, format, inclusion, length | an **execution** error: `response.data` is present with the field nulled (so `success?` is false on a response that still carries data), `path` is the **response** path (`["adopt"]` — the field, not the input field), and there is **no `extensions` key at all** | **nothing** — see below |
+
+**A `validates:` failure is not claimed.** With no `extensions` at all it is
+indistinguishable from "the database is down", and attaching *that* to a form
+field is worse than missing it — so it stays an ordinary error in
+`response.errors` and `#input_errors` says nothing it can't know. One line on
+the server fixes it, and the next section is that line.
 
 Nothing here is portable: the GraphQL spec reserves `extensions` for
 implementors and defines no codes at all, Apollo Server stamps
 `BAD_USER_INPUT` on a coercion failure while Apollo Router sends
 `VALIDATION_INVALID_TYPE_VARIABLE`, and graphql-js emits no `extensions` on a
-validation error. Match on what the server you talk to actually sends; a
-[proposed](i18n.md) `kind` would put a closed vocabulary over the top of this,
-degrading to "refused, here is the message" rather than guessing.
+validation error. So the codes read as "this is about the input" are a short
+named list — `GraphWeaver::GraphQLError::INPUT_CODES`: Apollo's
+`BAD_USER_INPUT`, plus the four graphql-ruby rule names that can only mean an
+argument (`argumentLiteralsIncompatible`, `variableMismatch`,
+`missingRequiredInputObjectAttribute`, `argumentNotAccepted`). Anything else is
+left alone rather than guessed at.
+
+### What your server can send
+
+Two of the eight kinds — `:out_of_range` and `:invalid_format`, the everyday
+"right type, wrong value" — **cannot be produced from either side on their
+own.** The client doesn't know the schema's bounds, and graphql-ruby puts a
+`validates:` failure on the wire as a bare sentence. Only the server can say
+it, so there is one key to say it under:
+
+```json
+"extensions": {
+  "code": "BAD_USER_INPUT",
+  "input": {
+    "kind": "out_of_range",
+    "path": ["input", "min"],
+    "coordinate": "RangeInput.min",
+    "value": 0,
+    "min": 1
+  }
+}
+```
+
+`code` is the ecosystem's coarse bucket, so a client that has never heard of
+graph_weaver still understands; `input` is the fine one. Only `kind` is
+required, and it must come from [the table](i18n.md#the-vocabulary) — an
+unrecognized one degrades to `:refused` rather than being passed through, and
+any key outside `type`/`members`/`min`/`max`/`format`/`suggestion` is dropped
+rather than reaching `#details`.
+
+In graphql-ruby this rides on a `Validator` raising `GraphQL::ExecutionError`:
+
+```ruby
+class AtLeastValidator < GraphQL::Schema::Validator
+  def initialize(min:, **rest)
+    @min = min
+    super(**rest)
+  end
+
+  def validate(_object, _context, value)
+    return if value.nil? || value >= @min
+
+    raise GraphQL::ExecutionError.new(
+      "#{validated.graphql_name} must be at least #{@min}",
+      extensions: {
+        "code" => "BAD_USER_INPUT",
+        "input" => {
+          "kind" => "out_of_range",
+          "path" => ["input", validated.graphql_name],
+          "coordinate" => "#{validated.owner.graphql_name}.#{validated.graphql_name}",
+          "value" => value,
+          "min" => @min,
+        },
+      },
+    )
+  end
+end
+GraphQL::Schema::Validator.install(:at_least, AtLeastValidator)
+
+class RangeInput < GraphQL::Schema::InputObject
+  argument :min, Integer, required: true, validates: { at_least: { min: 1 } }
+end
+```
+
+and for a scalar, on `GraphQL::CoercionError`, whose extensions arrive nested
+under `problems[i].extensions`:
+
+```ruby
+class EmailScalar < GraphQL::Schema::Scalar
+  graphql_name "Email"
+
+  def self.coerce_input(value, _ctx)
+    return value if value.to_s.match?(/\A[^@\s]+@[^@\s]+\z/)
+
+    raise GraphQL::CoercionError.new(
+      "#{value.inspect} is not an email address",
+      extensions: { "input" => { "kind" => "invalid_format", "format" => "name@example.com" } },
+    )
+  end
+
+  def self.coerce_result(value, _ctx) = value
+end
+```
+
+What the client then reads:
+
+```ruby
+# min: 0 into the validator above
+{ "kind" => "out_of_range", "path" => ["input", "min"], "coordinate" => "RangeInput.min",
+  "field" => "min", "value" => 0, "details" => { "min" => 1 },
+  "message" => "min must be at least 1" }
+
+# email: "nope" into the scalar above
+{ "kind" => "invalid_format", "path" => ["email"], "field" => "email", "value" => "nope",
+  "details" => { "format" => "name@example.com" },
+  "message" => "\"nope\" is not an email address" }
+```
+
+Say it plainly: **without the convention**, that range failure is
+`:refused` at best — the message and nothing else, and only if the server
+stamped `BAD_USER_INPUT`. **With it**, it is `:out_of_range` with `min` as a
+number your form can compare against. A server that follows none of this
+degrades; it does not guess.
 
 ## Extending TransportError
 

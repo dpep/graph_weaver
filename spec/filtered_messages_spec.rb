@@ -71,6 +71,28 @@ describe "filtered messages" do
     end
   end
 
+  # #value is the second place the offending value appears — as data this
+  # time, which no message filter would have seen — so the same list decides it
+  it "hides a filtered value on InputError#value, at any depth" do
+    module_ = parse("query Login($password: Int) { search(term: \"x\", first: $password) { __typename } }")
+
+    expect { module_.execute(password: "hunter2") }
+      .to raise_error(GraphWeaver::InputError) { |e| expect(e.value).to eq GraphWeaver::FILTERED }
+
+    schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+      input Credentials { user: String!, token: Int }
+      type Query { login(with: Credentials): Boolean }
+      schema { query: Query }
+    GRAPHQL
+    nested = parse("query In($with: Credentials) { login(with: $with) }", schema:)
+
+    expect { nested.execute(with: { user: "d", token: "t0ps3cret" }) }
+      .to raise_error(GraphWeaver::InputError) { |e|
+        expect(e.path).to eq %w[with token]
+        expect(e.value).to eq GraphWeaver::FILTERED
+      }
+  end
+
   it "hides a filtered @key value in a representation refusal" do
     GraphWeaver.filter_parameters = [:sku]
     sdl = FederationDemo::Catalog::Schema.execute("{ _service { sdl } }").to_h.dig("data", "_service", "sdl")
