@@ -96,6 +96,31 @@ describe "input errors" do
       end
     end
 
+    # "supply exactly one field" is the wrong sentence when exactly one field
+    # is what the caller supplied — and a form had nothing to highlight, since
+    # all three @oneOf refusals carried an empty path
+    it "says which @oneOf field was null, rather than counting the fields" do
+      mod = GraphWeaver.parse(schema: GraphQL::Schema.from_definition(<<~GRAPHQL), query: <<~QUERY)
+        input Ref @oneOf { id: ID name: String }
+        type Query { thing(ref: Ref!): String }
+      GRAPHQL
+        query OneOf($ref: Ref!) { thing(ref: $ref) }
+      QUERY
+
+      error = refusal { mod.execute(client: nil, ref: { id: nil }) }
+
+      expect(error.kind).to eq :missing
+      expect(error.path).to eq ["ref", "id"]
+      expect(error.coordinate).to eq "Ref.id"
+      expect(error.message).to include "id was null"
+
+      # the count is still the count when the count is what's wrong
+      expect(refusal { mod.execute(client: nil, ref: {}) })
+        .to have_attributes(kind: :refused, message: /got none/)
+      expect(refusal { mod.execute(client: nil, ref: { id: "1", name: "x" }) })
+        .to have_attributes(kind: :refused, message: /got id, name/)
+    end
+
     it "names a required field that wasn't supplied" do
       error = refusal { AdoptMutation.execute(input: { name: "Rex" }) }
 
@@ -356,6 +381,24 @@ describe "input errors" do
       )
       expect(unknown.kind).to eq :unknown
       expect(unknown.coordinate).to eq "RangeInput.nope"
+    end
+
+    # #path is the variable plus the problem's own path, so with an empty
+    # problem path the last segment is the VARIABLE — and "RangeInput.range"
+    # is a slot that does not exist. A gateway that rewrites problems, or a
+    # non-graphql-ruby server, can send this.
+    it "gives no coordinate when the problem names no field inside the variable" do
+      unknown = error_for(
+        "message" => "Variable $range of type RangeInput! was provided invalid value",
+        "extensions" => {
+          "value" => { "min" => 1 },
+          "problems" => [{ "path" => [], "explanation" => "Field is not defined on RangeInput" }],
+        },
+      )
+
+      expect(unknown.kind).to eq :unknown
+      expect(unknown.path).to eq ["range"]
+      expect(unknown.coordinate).to be_nil
     end
 
     it "falls back to :refused for an explanation it has no table for (a custom scalar, @oneOf)" do

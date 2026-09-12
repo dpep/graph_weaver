@@ -75,11 +75,11 @@ module GraphWeaver
             stated = problem.dig("extensions", "input")
             next convention(message, stated, path, value) if stated.is_a?(Hash)
 
-            explained(message, path, value)
+            explained(message, path, value, within)
           end
         end
 
-        def explained(message, path, value)
+        def explained(message, path, value, within)
           case message
           when COERCE
             # text that didn't parse, vs a thing that was never that type
@@ -91,10 +91,14 @@ module GraphWeaver
             build(message, kind: :missing, path:, value:)
           when NOT_DEFINED
             # the one explanation that names the input type, so the one that
-            # can give a coordinate
+            # can give a coordinate — but only from the problem's OWN path.
+            # #path is the variable plus that, so its last segment is the
+            # variable name when the problem states none, and "RangeInput.range"
+            # is a slot the schema doesn't have.
             type = $1
+            field = within.last
             build(message, kind: :unknown, path:, value:,
-              coordinate: ("#{type}.#{path.last}" if path.last.is_a?(String)))
+              coordinate: ("#{type}.#{field}" if field.is_a?(String)))
           else
             build(message, kind: :refused, path:, value:)
           end

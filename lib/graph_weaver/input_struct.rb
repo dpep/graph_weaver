@@ -137,17 +137,35 @@ module GraphWeaver
       # @oneOf declares "exactly one of these, and not null", but every field
       # is nullable, so nothing before here can enforce it — not the struct's
       # types, not the server until the round trip
-      if self.class.const_defined?(:ONE_OF, false) && (wire.size != 1 || wire.values.first.nil?)
-        supplied_names = wire.empty? ? "none" : wire.keys.sort.join(", ")
-        raise GraphWeaver::InputError.new(
-          "#{self.class} is @oneOf — supply exactly one field, non-null, got #{supplied_names}",
-          struct: self.class,
-        )
-      end
+      one_of!(wire) if self.class.const_defined?(:ONE_OF, false)
 
       wire
     end
     alias_method :to_h, :serialize
+
+    # Two different mistakes, and "supply exactly one field" is the wrong
+    # sentence for the second: the caller who wrote `{ id: nil }` supplied
+    # exactly one field. That one is a missing value, so it says so and names
+    # the slot — a form has something to highlight, which the count case
+    # (nothing, or several) has no single field to give.
+    private def one_of!(wire)
+      if wire.size == 1 && wire.values.first.nil?
+        name = wire.keys.first
+        field = self.class.const_get(:FIELDS).find { |candidate| candidate.wire == name }
+        raise GraphWeaver::InputError.new(
+          "#{self.class} is @oneOf and #{name} was null — supply a value for it, or a different field",
+          kind: :missing, path: [field.prop.to_s], coordinate: field.coordinate, struct: self.class,
+        )
+      end
+
+      return if wire.size == 1
+
+      raise GraphWeaver::InputError.new(
+        "#{self.class} is @oneOf — supply exactly one field, non-null, got " \
+          "#{wire.empty? ? "none" : wire.keys.sort.join(", ")}",
+        struct: self.class,
+      )
+    end
 
     module ClassMethods
       include Kernel

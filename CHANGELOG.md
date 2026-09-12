@@ -118,6 +118,14 @@
 - **`InputError#field` skips a trailing list index.** It is `#path`'s last
   *named* segment, so `["ids", 2]` is `"ids"` rather than `"2"` — an index is a
   position, and `"2"` is nothing a form can highlight.
+- **A `@oneOf` input with one explicitly-null field says so.** It used to be
+  told to "supply exactly one field", which is what it had done. It is now
+  `kind: :missing` with `#path` and `#coordinate` on that field, so a form has
+  something to highlight; the wrong *count* still reports as before.
+- **A server's `Field is not defined on X` no longer invents a coordinate.**
+  It was built from `#path`'s last segment, which is the *variable* name when
+  the problem states no path of its own — yielding `CredsIn.creds`, a slot the
+  schema doesn't have, and a silent miss for an app keying an i18n label off it.
 <!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)
