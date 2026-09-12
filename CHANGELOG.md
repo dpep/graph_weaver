@@ -236,6 +236,18 @@
   [docs/federation.md](docs/federation.md) already promised doesn't fail the
   task. `#skipped` (and the `not checked` section) now names those coordinates
   rather than the types.
+- **The `federation:*` tasks ask the declared graphs where the supergraph is.**
+  `federation:diff`, `:subgraphs` and `:coverage` looked only at the
+  conventional dump, so an app that had written
+  `GraphWeaver.graph(:accounts) { schema "…/supergraph.graphql" }` had to repeat
+  it in `SUPERGRAPH=` — and without the flag got a refusal describing a file it
+  never named. Each task now runs once per declared graph whose schema is a
+  composed supergraph, heading each report with the graph's name, and
+  `:coverage` measures that graph's own `queries` rather than
+  `GraphWeaver.queries_paths`. `SUPERGRAPH=` still overrides for one run, and a
+  single-schema app with a composed dump prints exactly what it did. An app with
+  no composed schema anywhere is refused once, naming every graph it looked at
+  and what it found there.
 - **`rake graph_weaver:cassettes:check` sees a namespaced graph's modules.**
   It looked for top-level constants, so an app whose graphs set `namespace:`
   found "0 generated modules", refused for having checked nothing, and blamed

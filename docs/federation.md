@@ -172,8 +172,18 @@ is fresh, `schema:diff` whether the *server* has drifted from your dump,
 still describes your subgraphs:
 
 ```sh
-rake graph_weaver:federation:diff SUPERGRAPH=supergraph.graphql
+rake graph_weaver:federation:diff
 ```
+
+**Every `federation:*` task finds the supergraph the same way: it runs once per
+declared graph whose schema is a composed one, and heads each report with that
+graph's name.** An app that wrote `GraphWeaver.graph(:accounts) { schema
+"app/graphql/accounts/supergraph.graphql" }` has already said where its
+supergraph is, and a graph that is in none — a plain API schema, a live schema
+class — is simply not a subject for these tasks. A single-schema app whose
+committed dump is a composed supergraph is that one graph, unnamed, and its
+output says nothing about graphs at all. `SUPERGRAPH=supergraph.graphql`
+overrides all of that for one run.
 
 It reads the routing table and the subgraph schemas loaded in this process —
 **no network** — so it belongs in the normal PR run, and it exits non-zero on
@@ -314,7 +324,7 @@ is your own `config.eager_load`, which Rails leaves off outside CI. To see what
 detection sees, and get a map to paste:
 
 ```
-$ rake graph_weaver:federation:subgraphs SUPERGRAPH=supergraph.graphql
+$ rake graph_weaver:federation:subgraphs
 subgraphs: {
   "accounts" => Accounts::Schema,  # matched: defines Query.me, Query.user, Query.users
   "products" => Products::Schema,  # matched: defines Product.name, Product.price, Product.weight
@@ -514,7 +524,7 @@ and that depends on the shape of your graph and of your queries, so measure it
 rather than guess:
 
 ```
-$ rake graph_weaver:federation:coverage SUPERGRAPH=supergraph.graphql
+$ rake graph_weaver:federation:coverage
 17/17 queries plannable locally (100%), 17 servable here
   accounts 4, reviews 4, products+reviews 3, accounts+reviews 2, products 2, accounts+products 1, accounts+products+reviews 1
 ```
@@ -536,7 +546,9 @@ plannable, but nothing here serves what they reach (3) — name a schema for tho
   tracking.graphql         shipping
 ```
 
-`QUERIES=` picks the directory (default `GraphWeaver.queries_paths`). Planning
+`QUERIES=` picks the directory; by default each graph's report measures that
+graph's own `queries`, since a query written against one supergraph says
+nothing about the next one along. Planning
 needs the supergraph and nothing else, so this runs in CI with the SDL alone —
 with no subgraph loaded the report drops the second number and says it counted
 planning only. The subgraph line says which subgraphs each query touches, and
