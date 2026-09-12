@@ -7,6 +7,12 @@
   clear the first, and the example passed on fabricated defaults. Same fix:
   a `graphql_context` set *before* a mode helper (or wrapping one in a block)
   now reaches the resolvers instead of being silently dropped.
+- **A non-`:live` tag no longer leaves `GraphWeaver.client` on the real
+  endpoint.** In an app with several graphs there is no one right answer for
+  the app-wide slot, so it used to keep the production client — and a stray
+  `GraphWeaver.client.execute` made a live request from a `:fake` example. The
+  slot now holds a client that refuses, naming the mode, the graphs, and the
+  helper whose return value is the client to call.
 <!-- /lane: harness -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

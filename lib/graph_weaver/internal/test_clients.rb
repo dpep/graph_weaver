@@ -23,6 +23,26 @@ module GraphWeaver
     # Test-time only. Nothing installs a mode in production, where #for is an
     # ivar read that returns nil.
     module TestClients
+      # The app client slot under a mode in an app with several graphs. It
+      # fills the duck-typed slot the same way every other client does, and
+      # answers the one question asked of it with the reason there is no
+      # answer — the alternative is the real endpoint, silently.
+      class NoAppClient
+        def initialize(mode) = @mode = mode
+
+        def execute(_query, **)
+          graphs = GraphWeaver.graphs
+          raise GraphWeaver::Error, "#{@mode.inspect} stands in for a graph's modules, and this " \
+            "app has #{graphs.size} graphs (#{graphs.map { |g| g.name.inspect }.join(", ")}) — so " \
+            "GraphWeaver.client has no one right answer, and this request would have gone to the " \
+            "real endpoint. A generated module runs against its own graph's stand-in; to reach one " \
+            "directly, call the client a helper returns (graphql_fake(schema: MySchema), " \
+            "graphql_in_process(MySchema)). Tag the example graphql: :live for the app's own client."
+        end
+
+        def inspect = "#<#{self.class} #{@mode.inspect}>"
+      end
+
       class << self
         # Install `mode` for one example — nil installs nothing.
         #
@@ -124,6 +144,22 @@ module GraphWeaver
         def app_graph
           graphs = GraphWeaver.graphs
           graphs.first if graphs.one?
+        end
+
+        # What GraphWeaver.client holds while a mode is installed, or nil for
+        # the modes that leave the app's own there (:live, and :wire, which
+        # serves at each client's endpoint instead).
+        #
+        # One graph has one answer, so the app slot holds the same stand-in
+        # its modules resolve. With several there is none — and leaving the
+        # app's real client in the slot let a stray GraphWeaver.client.execute
+        # reach the production endpoint from an example whose tag promised no
+        # request, so the slot refuses by name instead.
+        def app_client
+          return if @mode.nil? || @mode == :live || @mode == :wire
+
+          graph = app_graph
+          graph ? standin(graph) : NoAppClient.new(@mode)
         end
 
         # The graphs a helper stands in for: the ones `schema` names, else

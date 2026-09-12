@@ -170,8 +170,14 @@ describe "graph_weaver/rspec" do
 
       expect(drafts.execute!.drafts.first&.owner).to be_a String
       expect(pets.execute!.person&.email).to be_a String
-      # nothing app-wide to install, so the app's own client stays in the slot
-      expect(GraphWeaver.client).to be_a GraphWeaver::Client
+    end
+
+    # the app slot used to keep the app's real client, so a stray
+    # GraphWeaver.client.execute — or anything resolving to it — made a live
+    # request from an example whose whole promise is that none happen
+    it "refuses the app-wide client slot, naming the graphs", graphql: :fake do
+      expect { GraphWeaver.client.execute("query { drafts { id } }") }
+        .to raise_error(GraphWeaver::Error, /:fake stands in for a graph's modules.*:drafts, :pets.*:live/m)
     end
 
     # graphql_fake installed itself at GraphWeaver.client, which each module's

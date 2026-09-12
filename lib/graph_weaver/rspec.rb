@@ -107,12 +107,13 @@ module GraphWeaver
           @__graph_weaver_stubs = nil
           if @__graph_weaver_mode == :wire
             @__graph_weaver_stubs = GraphWeaver::Testing::RSpecIntegration.serve!
-          elsif @__graph_weaver_mode != :live && GraphWeaver.graphs.one?
+          else
             # one graph, one answer — so the app's client slot holds it too,
-            # the same object that graph's modules resolve. :live builds none,
-            # and neither does an app whose several graphs each answer for
-            # themselves.
-            GraphWeaver.client = GraphWeaver::Internal::TestClients.standin(GraphWeaver.graphs.first)
+            # the same object that graph's modules resolve; with several it
+            # holds a refusal, since the real client there is a live request
+            # waiting to happen. :live leaves the slot alone (app_client nil).
+            app_client = GraphWeaver::Internal::TestClients.app_client
+            GraphWeaver.client = app_client if app_client
           end
         end
 
