@@ -23,6 +23,22 @@
   carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
   for both. New [i18n](docs/i18n.md) page proposes stable keys for input
   problems; nothing in it ships yet.
+<!-- lane: docs -->
+- **[Upgrading](docs/upgrading.md) now names all of 0.7.0's breaking changes.**
+  Four were missing. Three turn code that ran into a raise — a `client` that
+  isn't a constant, and a `cast:`/`serialize:` proc that returns a value, are
+  refused; a router's `fake:` refuses `seed:` — and the fourth raises nothing:
+  a `DateTime` given for a `Date` variable now goes on the wire as
+  `"2024-01-15"` rather than a full timestamp. **Worth a read if you have
+  already upgraded**, for that last one.
+- Docs: the two samples that raised as pasted run now —
+  `Codegen.generate(client:)` takes the constant's *name*, and
+  `Federation::Drift` needs `require "graph_weaver/federation"`. The v0.7.0
+  graph example above uses the lambda and the constant name its own prose
+  calls for. `spec/doc_samples_spec.rb` parses every fenced Ruby sample in
+  README + `docs/` and resolves every link between them, so the next one
+  can't ship.
+<!-- /lane: docs -->
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
