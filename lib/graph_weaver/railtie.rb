@@ -32,6 +32,17 @@ class GraphWeaver::Railtie < Rails::Railtie
       raise ArgumentError, refusal(key)
     end
 
+    # the other door: `config.graph_weaver[:queries_paths] = ...` reaches
+    # Hash#[]= without passing method_missing, and was the exact silent no-op
+    # the refusal exists to prevent. store is Hash's own synonym for it, so it
+    # stays one.
+    def []=(key, value)
+      raise ArgumentError, refusal(key) unless KEYS.include?(key.to_sym)
+
+      super
+    end
+    alias_method :store, :[]=
+
     def respond_to_missing?(name, _private = false)
       KEYS.include?(name.to_s.delete_suffix("=").delete_suffix("?").delete_suffix("!").to_sym)
     end

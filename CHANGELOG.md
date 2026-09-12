@@ -85,6 +85,11 @@
   names the two routes that work: `Rails.autoloaders.once.ignore(...)` from
   `config/application.rb`, or generating somewhere that is not an autoload-once
   path.
+- **`config.graph_weaver[:typo] = x` is refused too.** The refusal that names
+  the setting you meant only covered `config.graph_weaver.typo = x`; the
+  subscript form went straight to `Hash#[]=` and was the silent no-op the
+  refusal exists to prevent. `store` is covered as well, since it is the same
+  write.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

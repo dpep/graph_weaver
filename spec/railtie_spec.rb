@@ -67,6 +67,17 @@ describe "GraphWeaver::Railtie" do
       )
     end
 
+    # method_missing is only one of the two doors an OrderedOptions has, and
+    # o[:nope] = 1 went straight to Hash#[]= — the silent no-op the refusal
+    # exists to prevent, through the other one
+    it "refuses a key it doesn't read however the app spells the write" do
+      expect { options[:queries_paths] = "app/gql" }.to raise_error(
+        ArgumentError, a_string_including("config.graph_weaver", "GraphWeaver.queries_paths ="),
+      )
+      expect { options.store(:queries_paths, "app/gql") }.to raise_error(ArgumentError)
+      expect { options["watch"] = false }.not_to raise_error
+    end
+
     it "refuses a near miss with the name it was nearly" do
       expect { options.wach = false }.to raise_error(ArgumentError, /did you mean watch\?/)
       expect(options).not_to respond_to :wach
