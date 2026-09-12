@@ -281,41 +281,9 @@ module GraphWeaver
           GraphWeaver.client = router
         end
 
-        # Run this example against your own transport: the resolvers
-        # `graphql: :router` or `graphql: :in_process` would run — whichever
-        # this graph is — served at the endpoint GraphWeaver.client posts
-        # to, with that client left exactly where it is. So the request is
-        # serialized, posted through your middleware, and deserialized by
-        # `from_h` over the server's own bytes.
-        #
-        #      it "sends the caller tag", graphql: :wire do
-        #        DashboardQuery.execute!
-        #        expect(WebMock).to have_requested(:post, endpoint)
-        #          .with(headers: { "X-Caller" => "web" })
-        #      end
-        #
-        # `graphql: :wire` is exactly this call with no argument; `fake:` is
-        # graphql_router's, for the subgraphs the router fakes. Returns what
-        # sits behind the wire, and the stub is removed after the example.
-        def graphql_wire(fake: nil)
-          claim_mode!(:wire)
-          refuse_seed!(fake) if fake
-          served = (@__graph_weaver_served ||= GraphWeaver::Testing::RSpecIntegration.client_for(:wire))
-          if fake
-            unless served.respond_to?(:fake=)
-              Kernel.raise GraphWeaver::Error, "fake: says how the router's faked subgraphs " \
-                "fabricate, and #{TAG}: :wire is serving #{served.schema} in process — it has no " \
-                "subgraphs. Pin the data in the resolvers, or fake the whole response with " \
-                "#{TAG}: :fake."
-            end
-
-            served.fake = fake
-          end
-          # the tag already stubbed this example's endpoint with the same
-          # client, so there is at most one stub either way
-          @__graph_weaver_stub ||= GraphWeaver::Testing::RSpecIntegration.serve!(served)
-          served
-        end
+        # `graphql: :wire` has no helper: it takes no per-example argument.
+        # What the router fakes behind the wire is config.router = { fake: … },
+        # suite-wide.
 
         # A tag and a helper are two spellings of one choice, so they can
         # agree (`graphql: :fake` plus `graphql_fake(overrides:)` is the

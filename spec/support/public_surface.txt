@@ -395,7 +395,6 @@ GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_context
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_fake
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_in_process
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_router
-GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_wire
 GraphWeaver::Testing::RSpecIntegration::TAG = Symbol
 GraphWeaver::Testing::Recorder (Class)
 GraphWeaver::Testing::Recorder#execute

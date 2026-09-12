@@ -365,9 +365,8 @@ end
 What sits behind the wire is decided the way the other tags already decide it:
 the [router](#a-federated-graph--graphql-router) when there's a composed
 supergraph, the [live schema class](#real-resolvers--graphql-in_process)
-otherwise. `graphql_wire` is the tag with options — one, `fake:`, exactly as
-[`graphql_router`](#a-federated-graph--graphql-router) takes it — and it hands
-back what it served.
+otherwise. The tag takes no options and has no helper: what a faked subgraph
+behind the wire fabricates is `config.router = { fake: … }`, suite-wide.
 
 **Identity comes from the request.** A `context:` **proc** is called per
 request with the headers as sent, which is the seam nothing above the wire can

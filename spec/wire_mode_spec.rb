@@ -100,16 +100,23 @@ describe "graphql: :wire" do
     end
 
     # the claim the docs make for webmock: it hooks underneath, so the
-    # transport an app actually ships runs unchanged
+    # transport an app actually ships runs unchanged. The client has to exist
+    # before the tag reads its endpoint, so an around hook builds it — those
+    # wrap every before, the integration's included.
     %i[http faraday].each do |kind|
-      it "runs a #{kind} transport, and a Retry wrapping one", graphql: false do
-        app_client!("http://graph.test/graphql", transport: kind, retries: 2)
-        expect(GraphWeaver.client.transport).to be_a GraphWeaver::Retry
-        graphql_wire
+      context "over a #{kind} transport" do
+        around do |example|
+          app_client!("http://graph.test/graphql", transport: kind, retries: 2)
+          example.run
+        end
 
-        expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username"))
-          .to eq "dpep"
-        expect(exchanges.size).to eq 1
+        it "runs it, and a Retry wrapping one", graphql: :wire do
+          expect(GraphWeaver.client.transport).to be_a GraphWeaver::Retry
+
+          expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username"))
+            .to eq "dpep"
+          expect(exchanges.size).to eq 1
+        end
       end
     end
 
@@ -122,11 +129,6 @@ describe "graphql: :wire" do
       expect(JSON.parse(request.body)).to eq({
         "query" => query, "variables" => { "first" => 2 }, "operationName" => "Dashboard",
       })
-    end
-
-    it "takes fake: like graphql_router, and refuses a per-example seed" do
-      expect { graphql_wire(fake: { seed: 1 }) }
-        .to raise_error(GraphWeaver::Error, /seed: isn't a per-example option.*rspec --seed 1234/m)
     end
 
     it "removes its stub after the example, so the next one hits no server" do
@@ -212,7 +214,11 @@ describe "graphql: :wire" do
     end
   end
 
+  # driven through the integration's own methods, not a tagged example: the
+  # tag raises from a before hook, where an expectation can't reach it
   describe "refusals" do
+    let(:integration) { GraphWeaver::Testing::RSpecIntegration }
+
     around do |example|
       GraphWeaver::Testing.config.schema = WireDemo::Schema
       app_client!
@@ -222,7 +228,7 @@ describe "graphql: :wire" do
     it "names webmock and the line to add when it isn't loaded" do
       webmock = Object.send(:remove_const, :WebMock)
 
-      expect { graphql_wire }
+      expect { integration.serve!(integration.client_for(:wire)) }
         .to raise_error(GraphWeaver::Error, /webmock.*require "webmock\/rspec"/m)
     ensure
       Object.const_set(:WebMock, webmock)
@@ -231,50 +237,19 @@ describe "graphql: :wire" do
     it "names the client's class when it posts nowhere" do
       GraphWeaver.client = GraphWeaver::InProcess.new(WireDemo::Schema)
 
-      expect { graphql_wire }
+      expect { integration.endpoint! }
         .to raise_error(GraphWeaver::Error, /GraphWeaver::InProcess.*nothing to serve/m)
     end
 
     it "says GraphWeaver.client isn't set when it isn't" do
       GraphWeaver.client = nil
 
-      expect { graphql_wire }.to raise_error(GraphWeaver::Error, /GraphWeaver\.client isn't set/)
-    end
-
-    it "refuses fake: when what is behind the wire has no subgraph to fake" do
-      expect { graphql_wire(fake: { "Order.total" => "1.00" }) }
-        .to raise_error(GraphWeaver::Error, /fake:.*WireDemo::Schema/m)
+      expect { integration.endpoint! }.to raise_error(GraphWeaver::Error, /GraphWeaver\.client isn't set/)
     end
 
     it "names :wire among the modes" do
-      expect { GraphWeaver::Testing::RSpecIntegration.mode_for({ graphql: :wired }) }
+      expect { integration.mode_for({ graphql: :wired }) }
         .to raise_error(GraphWeaver::Error, /:fake, :in_process, :router, :wire/)
-    end
-
-    it "refuses a helper that contradicts the tag", graphql: :fake do
-      expect { graphql_wire }
-        .to raise_error(GraphWeaver::Error, /tagged graphql: :fake but calls graphql_wire/)
-    end
-  end
-
-  describe "graphql_wire without a tag" do
-    around do |example|
-      GraphWeaver::Testing.config.schema = WireDemo::Schema
-      app_client!
-      example.run
-    end
-
-    it "serves the example and hands back what sits behind the wire" do
-      served = graphql_wire
-
-      expect(served).to be_a GraphWeaver::InProcess
-      expect(GraphWeaver.client).to be_a GraphWeaver::Client # untouched
-      expect(GraphWeaver.client.execute("{ order { id } }").dig("data", "order", "id")).to eq "o1"
-    end
-
-    it "is removed after the example like a tagged one" do
-      expect { GraphWeaver.client.execute("{ order { id } }") }
-        .to raise_error(WebMock::NetConnectNotAllowedError)
     end
   end
 end
