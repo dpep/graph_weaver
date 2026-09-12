@@ -8,6 +8,7 @@ module GraphWeaver
   #      GraphWeaver PersonQuery (12.3ms) ok
   #      GraphWeaver PersonQuery (8.1ms) errors [THROTTLED]
   #      GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::TransportError
+  #      GraphWeaver billing/InvoicesQuery (12.3ms) ok
   #
   # Attached by the railtie wherever ActiveSupport is, and fed by the
   # instrumenter it sets. Requires ActiveSupport — `require` this yourself
@@ -34,7 +35,7 @@ module GraphWeaver
         # duration_ms is the instrumenter's own measurement; event.duration
         # covers a subscriber attached to something that didn't set it
         ms = payload[:duration_ms] || event.duration
-        "GraphWeaver #{payload[:operation] || "query"} (#{format("%.1f", ms)}ms) #{outcome(payload)}"
+        "GraphWeaver #{subject(payload)} (#{format("%.1f", ms)}ms) #{outcome(payload)}"
       end
     end
 
@@ -44,6 +45,14 @@ module GraphWeaver
     def logger = GraphWeaver.logger
 
     private
+
+    # What ran: the operation, prefixed by its graph when the request carried
+    # one — an app with several graphs reads `billing/InvoicesQuery` without
+    # a second line shape to learn, and one with a single graph never sees it.
+    def subject(payload)
+      operation = payload[:operation] || "query"
+      payload[:graph] ? "#{payload[:graph]}/#{operation}" : operation
+    end
 
     # status, then whatever narrows it: the error class, the code an alert
     # groups by, and which attempt this was when a Retry is in the stack.

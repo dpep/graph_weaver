@@ -626,7 +626,9 @@ every generated module). A baked constant is emitted as a private
 initializer that builds its client. A module generated from a
 [declared graph](getting_started.md#more-than-one-schema) also carries a private `GRAPH` naming
 it — so with two graphs, `graphql: :fake` fabricates each module's own
-schema instead of having to be told which one you meant.
+schema instead of having to be told which one you meant, and it is the
+`:graph` on every [instrumentation event](logging.md#the-payload) the
+module's `execute` produces.
 
 ## Deserializing a response from another client
 

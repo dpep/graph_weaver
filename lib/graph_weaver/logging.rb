@@ -53,9 +53,9 @@ module GraphWeaver
     #
     # It must call the block and return its value. The only event today is
     # EXECUTE_EVENT; its payload is the contract in docs/logging.md —
-    # :operation, :client, :status, :duration_ms always; :url/:http_status
-    # over the wire, :schema in-process, :error/:code on a failure,
-    # :retries when a Retry wrapped it. Never the query text or the
+    # :operation, :client, :status, :duration_ms, :graph always;
+    # :url/:http_status over the wire, :schema in-process, :error/:code on a
+    # failure, :retries when a Retry wrapped it. Never the query text or the
     # variables: the payload fans out to subscribers that know none of the
     # filtering rules, so PII belongs at debug on the logger, where the
     # level gates it and filter_parameters scrubs it.
@@ -121,6 +121,8 @@ module GraphWeaver
     module Log
       # fiber-local, set only for the duration of one attempt (with_retries)
       RETRIES = :graph_weaver_retries
+      # fiber-local, set only for the duration of one dispatch (with_graph)
+      GRAPH = :graph_weaver_graph
 
       class << self
         # Level-gated and lazy — the block only runs when a logger is
@@ -153,27 +155,33 @@ module GraphWeaver
           start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
           retries = Thread.current[RETRIES]
           payload[:retries] = retries if retries
+          payload[:graph] = Thread.current[GRAPH]
           # pessimistic, so :status is set even for what a rescue can't
           # see — an Interrupt, a killed thread — and never silently absent
           payload[:status] = :failed
 
-          hook.call(event, payload) do
-            result = yield
-            errors = response_errors(result)
-            if errors.empty?
-              payload[:status] = :ok
-            else
-              payload[:status] = :errors
-              payload[:code] = errors.grep(Hash).filter_map { |e| GraphWeaver::GraphQLError.from_h(e).code }.first
+          # One dispatch labels one request. Whatever THIS request reaches —
+          # a resolver serving it that calls out — is a request of its own,
+          # and the caller's graph would be a wrong label on it.
+          with_graph(nil) do
+            hook.call(event, payload) do
+              result = yield
+              errors = response_errors(result)
+              if errors.empty?
+                payload[:status] = :ok
+              else
+                payload[:status] = :errors
+                payload[:code] = errors.grep(Hash).filter_map { |e| GraphWeaver::GraphQLError.from_h(e).code }.first
+              end
+              result
+            rescue => e
+              payload[:error] = e.class.name
+              # the one key an alert groups by, whichever kind of failure it was
+              payload[:code] = e.status if e.is_a?(GraphWeaver::ServerError)
+              raise
+            ensure
+              payload[:duration_ms] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000).round(2)
             end
-            result
-          rescue => e
-            payload[:error] = e.class.name
-            # the one key an alert groups by, whichever kind of failure it was
-            payload[:code] = e.status if e.is_a?(GraphWeaver::ServerError)
-            raise
-          ensure
-            payload[:duration_ms] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000).round(2)
           end
         end
 
@@ -190,6 +198,22 @@ module GraphWeaver
             yield
           ensure
             Thread.current[RETRIES] = previous
+          end
+        end
+
+        # The graph a generated module is dispatching, read by the request it
+        # is about to make. Same dynamic extent as with_retries, for the same
+        # reason — and instrument clears it for the duration of the request it
+        # labels, so exactly one request wears the label.
+        def with_graph(name)
+          return yield unless GraphWeaver.instrumenter
+
+          previous = Thread.current[GRAPH]
+          Thread.current[GRAPH] = name
+          begin
+            yield
+          ensure
+            Thread.current[GRAPH] = previous
           end
         end
 

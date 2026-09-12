@@ -102,10 +102,18 @@ end
 | `:code` | when there is one | the machine-readable reason — the first GraphQL error's `code`, or a `ServerError`'s status. The one key to group an alert by |
 | `:error` | on `:failed` | the exception's class name |
 | `:retries` | under a `Retry` | how many retries this attempt follows. Each attempt is its own event, so one retried call is three events reading 0, 1, 2 — present at 0 rather than absent, so its absence means nothing was retrying |
+| `:graph` | always | the [graph](getting_started.md#more-than-one-schema) the generated module was declared under, as a Symbol — `nil` for a module that names none, and for a client called directly. Never inferred from the client: a wrong graph on a request is worse than no graph |
 
 Every key is filled in before your callable's block returns, so a
 subscriber reads a complete payload. `ActiveSupport::Notifications` adds
 `:exception` and `:exception_object` of its own when the block raises.
+
+**`:graph` labels one request.** A generated module's `execute` labels the
+request *it* makes — each of them, when a federated operation fans out to
+several subgraphs. It never labels what a *server* does while answering
+one: an in-process resolver that calls out produces an event of its own,
+carrying its own graph or `nil`. So `:graph` always reads "this request
+went to that graph", which is the only claim a dashboard can group by.
 
 **Never the query text or the variables.** `filter_parameters` scrubs
 what reaches the log, which GraphWeaver writes itself; the payload fans
@@ -123,7 +131,12 @@ GraphWeaver PersonQuery (12.3ms) ok
 GraphWeaver PersonQuery (8.1ms) errors [THROTTLED]
 GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::TransportError
 GraphWeaver PersonQuery (5.0ms) ok (retry 2)
+GraphWeaver billing/InvoicesQuery (12.3ms) ok
 ```
+
+The operation is prefixed by its graph when the request carried one, so an
+app with several graphs sorts its own log and an app with one never sees
+the prefix.
 
 **One rule: the summary is info, the wire is debug.** This is the only
 GraphWeaver line at info, so a production log gets one per operation and

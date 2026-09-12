@@ -223,6 +223,14 @@ describe "GraphWeaver.instrumenter" do
     expect(events.map { |_, p| p[:retries] }).to eq [0, 1, 2]
   end
 
+  # a request nobody dispatched has no graph, and the client can't be asked
+  # for one — see query_module_spec for the label a dispatch puts on
+  it "carries a nil graph for a request no generated module made" do
+    GraphWeaver::Transport::HTTP.new(url).execute("query { people { name } }")
+
+    expect(payload).to include(graph: nil)
+  end
+
   # the count describes the call on the stack, so a client that never
   # reaches the instrumenter can't leave a stale one for the next request
   it "carries no retry count when nothing retried" do
@@ -239,7 +247,7 @@ describe "GraphWeaver.instrumenter" do
       "query Pinned($id: ID!) { person(id: $id) { name } }", variables: { "id" => "1" }
     )
 
-    expect(payload.keys).to match_array %i[url operation client status http_status duration_ms]
+    expect(payload.keys).to match_array %i[url operation client status http_status duration_ms graph]
     expect(payload.values.join).not_to include("person", "id")
   end
 

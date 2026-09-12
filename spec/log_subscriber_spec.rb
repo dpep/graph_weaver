@@ -33,6 +33,18 @@ describe GraphWeaver::LogSubscriber do
       .to include "GraphWeaver PersonQuery (12.3ms) ok"
   end
 
+  # one rule: the operation is prefixed by its graph when the payload names
+  # one, so a multi-graph app's log sorts itself without a second line shape
+  it "prefixes the operation with its graph" do
+    expect(line(operation: "InvoicesQuery", graph: :billing, status: :ok, duration_ms: 12.34))
+      .to include "GraphWeaver billing/InvoicesQuery (12.3ms) ok"
+  end
+
+  it "leaves the operation bare when no graph was named" do
+    expect(line(operation: "PersonQuery", graph: nil, status: :ok, duration_ms: 1.0))
+      .to include "GraphWeaver PersonQuery (1.0ms) ok"
+  end
+
   # an anonymous document still has to name something, or the line is a
   # duration with no subject
   it "says query for an operation with no name" do

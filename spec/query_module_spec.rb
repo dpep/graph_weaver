@@ -2,13 +2,14 @@
 
 # The runtime half of a generated module: the client chain, and the one call
 # `execute` makes through it. Generated files here are the real thing
-# (spec/generated); these build the bare shape dispatch actually reads — the
-# constants, nothing else — so a behavior isn't pinned to one fixture query.
+# (spec/generated); these build the bare shape dispatch actually reads — three
+# constants — so a behavior isn't pinned to one fixture query.
 describe GraphWeaver::QueryModule do
-  def query_module(query: "query Q { ok }", operation: "Q")
+  def query_module(graph: nil, query: "query Q { ok }", operation: "Q")
     mod = Module.new { extend GraphWeaver::QueryModule }
     mod.const_set(:QUERY, query)
     mod.const_set(:OPERATION_NAME, operation)
+    mod.const_set(:GRAPH, graph) if graph
     mod
   end
 
@@ -61,6 +62,80 @@ describe GraphWeaver::QueryModule do
     it "names the contract when the client can't execute" do
       expect { query_module.send(:dispatch, {}, client: Object.new) }
         .to raise_error(GraphWeaver::Error, /client must respond to #execute/)
+    end
+  end
+
+  # The graph is a label on the request a dispatch makes, and only on that
+  # one — see docs/logging.md. Asserted through the payload, since the
+  # instrumenter is the only thing that reads it.
+  describe "the graph it labels a request with" do
+    let(:events) { [] }
+
+    around do |example|
+      GraphWeaver.instrumenter = lambda do |event, payload, &block|
+        events << payload
+        block.call
+      end
+      example.run
+    ensure
+      GraphWeaver.instrumenter = nil
+    end
+
+    # what a transport does: one instrumented request, which may reach a
+    # server that does more work inside it
+    def instrumented_client(&inside)
+      Class.new do
+        define_method(:execute) do |_query, variables: {}, operation_name: nil|
+          payload = { operation: operation_name, client: self.class }
+          GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+            inside&.call
+            { "data" => {} }
+          end
+        end
+      end.new
+    end
+
+    it "labels the request with the graph the module was generated from" do
+      query_module(graph: :billing).send(:dispatch, {}, client: instrumented_client)
+
+      expect(events.map { |p| p[:graph] }).to eq [:billing]
+    end
+
+    it "labels a module that declares no graph with nil rather than a guess" do
+      query_module.send(:dispatch, {}, client: instrumented_client)
+
+      expect(events.first).to include(graph: nil)
+    end
+
+    # the resolver serving a billing query calls some other API: that request
+    # is its own, and :billing on it would be a wrong label
+    it "does not leak the label into a request made while the first is served" do
+      inner = instrumented_client
+      query_module(graph: :billing)
+        .send(:dispatch, {}, client: instrumented_client { inner.execute("query { x }") })
+
+      expect(events.map { |p| p[:graph] }).to eq [:billing, nil]
+    end
+
+    it "labels a nested dispatch with its own graph, and restores the outer" do
+      nested = query_module(graph: :catalog)
+      outer = instrumented_client { nested.send(:dispatch, {}, client: instrumented_client) }
+      after = instrumented_client
+
+      query_module(graph: :billing).send(:dispatch, {}, client: outer)
+      query_module(graph: :billing).send(:dispatch, {}, client: after)
+
+      expect(events.map { |p| p[:graph] }).to eq %i[billing catalog billing]
+    end
+
+    it "leaves nothing behind when the request raises" do
+      boom = Class.new { def execute(*, **) = raise(GraphWeaver::Error, "nope") }.new
+      mod = query_module(graph: :billing)
+
+      expect { mod.send(:dispatch, {}, client: boom) }.to raise_error(GraphWeaver::Error)
+
+      query_module.send(:dispatch, {}, client: instrumented_client)
+      expect(events.map { |p| p[:graph] }).to eq [nil]
     end
   end
 end

@@ -35,9 +35,9 @@ module GraphWeaver
 
     # The one call a generated `execute` makes: resolve the client, run this
     # module's own operation, hand the raw response back for from_response to
-    # wrap. Here rather than emitted, so anything that has to BRACKET a
-    # request costs nothing in every generated file, and one reading of it
-    # covers every module in the app.
+    # wrap. Here rather than emitted, so what has to BRACKET a request — the
+    # graph label today — costs nothing in every generated file, and one
+    # reading of it covers every module in the app.
     #
     # The constants come off the module rather than the caller: a generated
     # `execute` already knows them, but reading them here is what makes this
@@ -45,8 +45,14 @@ module GraphWeaver
     sig { params(variables: T::Hash[String, T.untyped], client: T.untyped).returns(T.untyped) }
     def dispatch(variables, client:)
       mod = T.unsafe(self)
-      client_for(client).execute(mod.const_get(:QUERY), variables:,
-        operation_name: mod.const_get(:OPERATION_NAME))
+      # the graph codegen baked in, never one inferred from the client — a
+      # wrong label on a request is worse than no label
+      graph = mod.const_defined?(:GRAPH, false) ? mod.const_get(:GRAPH) : nil
+
+      GraphWeaver::Internal::Log.with_graph(graph) do
+        client_for(client).execute(mod.const_get(:QUERY), variables:,
+          operation_name: mod.const_get(:OPERATION_NAME))
+      end
     end
 
     # The client one execute runs through: the per-call `client:`, else the
