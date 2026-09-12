@@ -284,10 +284,17 @@ describe "graphql: :wire" do
         .to eq "ada" # user 2, named by the header the app's transport sent
     end
 
-    # the context is the request's, so graphql_context has nothing to merge onto
+    # the context is the request's, so graphql_context has nothing to merge
+    # onto — and the advice has to be about the header, not the tag, since
+    # this example is already tagged the way the generic message says to
     it "refuses graphql_context, naming the header instead", graphql: :wire do
       expect { graphql_context(current_user_id: "1") }
-        .to raise_error(GraphWeaver::Error, /context: is a proc.*header/m)
+        .to raise_error(GraphWeaver::Error, /context: is a proc.*headers.*GraphWeaver\.new\(url, headers:/m)
+    end
+
+    it "refuses reading it back the same way", graphql: :wire do
+      expect { graphql_context }
+        .to raise_error(GraphWeaver::Error, /GraphWeaver\.new\(url, headers:/)
     end
   end
 

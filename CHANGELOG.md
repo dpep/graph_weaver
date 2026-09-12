@@ -30,6 +30,16 @@
   hooks innermost-first), and taking a stub down twice raised from inside the
   cleanup — a second, unrelated failure on top of whatever the example was
   really doing.
+- **Under `:wire`, `graphql_context` says what to do about a `context:` proc.**
+  The generic refusal told you to tag the example `:wire` — which a `:wire`
+  example already is. It now says the proc is answered from the headers of the
+  request the example makes, and points at setting one on the client's own
+  transport.
+- Docs: [testing](docs/testing.md) described the 0.6.x tag mechanism in two
+  places — that a module with a baked `client:` escapes the tag, and that
+  `GraphWeaver.client=` beats it. Both have been the other way round since
+  0.7.0, and an example written the documented way asserted on a failure path
+  while running against the fake.
 <!-- /lane: harness -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

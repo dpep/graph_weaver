@@ -462,10 +462,12 @@ module GraphWeaver
       # one would leave an example asserting on data nothing scoped.
       def self.context!(mode)
         case mode
-        when :in_process, :router, :wire
+        when :in_process, :router
           # a context: proc is answered from the request's headers, so
           # there is no baseline here to merge onto
           Internal::Util.context!(Internal::TestClients.context)
+        when :wire
+          wire_context!
         when :fake
           raise GraphWeaver::Error, "graphql_context needs resolvers to receive it, and a " \
             "#{TAG}: :fake example runs against fabricated data — tag it #{TAG}: :in_process or " \
@@ -476,6 +478,22 @@ module GraphWeaver
             "resolvers — tag it #{TAG}: :in_process or #{TAG}: :router"
         end
       end
+
+      # :wire is the one mode that IS a request, so a context: proc is
+      # answered — by the headers the example's own transport sends. The
+      # generic refusal says to tag the example :wire, which this one already
+      # is; what to change here is the header.
+      def self.wire_context!
+        context = Internal::TestClients.context
+        return context unless context.respond_to?(:call)
+
+        raise GraphWeaver::Error, "context: is a proc, so it is answered from the headers of each " \
+          "request — which is what #{TAG}: :wire makes, and why graphql_context has nothing here " \
+          "to read or merge onto. Say who this example is where the headers are, on the client's " \
+          "own transport: GraphWeaver.new(url, headers: { \"X-User\" => \"2\" }) — a header value " \
+          "may itself be a proc, so it can vary per request."
+      end
+      private_class_method :wire_context!
 
     end
   end

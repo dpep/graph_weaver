@@ -285,6 +285,44 @@ describe "graph_weaver/rspec" do
     end
   end
 
+  # what docs/testing.md promises about stepping out of a tag: the mode's
+  # stand-in outranks GraphWeaver.client=, and these are the three that don't
+  describe "stepping out of a tag", graphql: :fake do
+    around do |example|
+      app_client!(DraftsDemo::Schema)
+      example.run
+    end
+
+    let(:throttled) { GraphWeaver::Testing::Failure.throttled }
+    let(:query) do
+      module_for(nil, DraftsDemo::Schema, "query { drafts { id owner } }", "StepOutQuery")
+    end
+
+    # the assignment reads back, which is why it looked like it had taken
+    it "keeps the mode when the example assigns GraphWeaver.client" do
+      GraphWeaver.client = throttled
+
+      expect(GraphWeaver.client).to be throttled
+      expect(query.execute.errors).to be_empty
+    end
+
+    it "takes a per-call client:" do
+      expect(query.execute(client: throttled).errors.map(&:code)).to eq %w[THROTTLED]
+    end
+
+    it "takes a per-module client=" do
+      query.client = throttled
+
+      expect(query.execute.errors.map(&:code)).to eq %w[THROTTLED]
+    end
+
+    it "leaves the client alone under graphql: :live", graphql: :live do
+      GraphWeaver.client = throttled
+
+      expect(query.execute.errors.map(&:code)).to eq %w[THROTTLED]
+    end
+  end
+
   describe "the README's pins", graphql: :fake do
     around do |example|
       app_client!(Demo::Schema)

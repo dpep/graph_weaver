@@ -37,11 +37,10 @@ it "sends the caller tag",    graphql: :wire do … end
 | `:live` | the app's own client is the point, or this one example wants out of `config.default_mode` | whatever your client does — this is the default |
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
-The tag installs its client as `GraphWeaver.client` for that example, so
-generated modules run against it with zero per-test setup. (Generate them
-*without* a baked `client:` — a module that has one never consults
-`GraphWeaver.client`.) `rspec --tag graphql:router` runs one mode's
-examples.
+The tag installs a stand-in per graph, and every generated module of that
+graph runs against it with zero per-test setup — a module generated *with* a
+baked `client:` included, since that constant is exactly what the tag means
+to replace. `rspec --tag graphql:router` runs one mode's examples.
 
 **Every example has exactly one mode.** An untagged one takes
 `config.default_mode`, which is `:live` — your own client, exactly as it is —
@@ -56,11 +55,18 @@ your own client is a plain assignment, cleaned up like a tagged one:
 before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
 ```
 
-Both at once and the assignment wins: the tag installs its client from a
-suite-level `before`, which rspec runs ahead of any group hook. So a tagged
-example with a `before` of its own runs against the client the `before`
-built — tag the group for the mode, override the one example that needs
-something else.
+Both at once and **the tag wins**: a mode's stand-in outranks
+`GraphWeaver.client=`, so assigning one inside a tagged example does *not*
+change what its generated modules run against — the assignment reads back,
+and the modules keep using the mode. Two things do step out of a tag, and
+`graphql: :live` steps the whole example out:
+
+```ruby
+DashboardQuery.execute!(client: GraphWeaver::Testing::Failure.throttled)  # this call
+DashboardQuery.client = GraphWeaver::Testing::Failure.throttled           # this module
+```
+
+[Client resolution](transports.md#client-resolution) has the full order.
 
 Everything here is a *client* — the one interface queries run through (the
 contract is in [transports](transports.md)). Fakes, the router, failures and
