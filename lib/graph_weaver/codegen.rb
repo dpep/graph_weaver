@@ -105,6 +105,15 @@ class GraphWeaver::Codegen
       # set one via the module's writer, but file generation cannot
       raise ArgumentError, "client: must be a named constant or String (got #{client.inspect}); pass live objects to parse"
     end
+    # The String is written into the module verbatim, so anything that isn't a
+    # constant path emits source that doesn't parse. A url is the way to get
+    # here — it is where the endpoint is spelled everywhere else — so the fix
+    # names the value that was passed.
+    if @client_const && !@client_const.match?(CONSTANT_NAME)
+      raise ArgumentError, "client: #{@client_const.inspect} isn't a constant — generated source " \
+        "spells this name, so it has to be one: CLIENT = GraphWeaver.new(#{@client_const.inspect}), " \
+        "then client \"CLIENT\""
+    end
   end
 
   # 0.5 spelled it module_name:, in two of the three doors. One knob, one

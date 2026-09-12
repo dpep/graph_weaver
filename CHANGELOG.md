@@ -151,6 +151,11 @@
   router is built once for the suite, so a seed there would pin every example
   to one run. `GraphWeaver::Testing.config.seed` remains the override for a
   harness that isn't rspec.
+- **A `client` that isn't a constant is refused at generation.** The value is
+  spelled into every generated module, so `client "https://api.example.com/
+  graphql"` emitted `-> { https://api.example.com/graphql }` — a file that
+  doesn't parse — from a run that reported success. The message names the
+  constant to declare instead.
 - **`GraphWeaver::Transport::Faraday` resolves without a require.** The
   constant is autoloaded, so the `Transport::Faraday.new(url) { |conn| … }`
   [docs/transports.md](docs/transports.md) shows works where you'd write it —

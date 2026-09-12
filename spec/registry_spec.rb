@@ -322,5 +322,18 @@ describe "the registration registry" do
           .to raise_error(ArgumentError, /must be a named constant or String/)
       end
     end
+
+    # The String is spelled straight into generated source, so a url there
+    # emitted `-> { https://api.example.com/graphql }` — a file that doesn't
+    # parse, from a run that reported success. The url belongs where the client
+    # is built; the constant holding it is what goes here.
+    it "refuses a url where the baked client: constant goes" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "pet.graphql"), "query { person(id: 1) { name } }\n")
+
+        expect { GraphWeaver.generate!(schema: client, queries: dir, output: dir, client: "https://api.example.com/graphql") }
+          .to raise_error(ArgumentError, %r{"https://api.example.com/graphql" isn't a constant.*CLIENT = GraphWeaver.new})
+      end
+    end
   end
 end
