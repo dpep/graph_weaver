@@ -57,7 +57,10 @@ module GraphWeaver
           # otherwise inherit net/http's 60s/60s.
           ::Faraday.new(
             url: url_or_connection,
-            headers: DEFAULT_HEADERS.merge(headers),
+            # to_s for the same reason Transport::HTTP does it — net/http calls
+            # #strip on a header value, so an Integer id raised from inside the
+            # adapter, naming neither graph_weaver nor the header
+            headers: DEFAULT_HEADERS.merge(headers).transform_values(&:to_s),
             request: {
               open_timeout: open_timeout || DEFAULT_OPEN_TIMEOUT,
               read_timeout: read_timeout || DEFAULT_READ_TIMEOUT,
@@ -88,7 +91,11 @@ module GraphWeaver
       sig { override.params(body: String).returns(T::Array[T.untyped]) }
       def post(body)
         response = @connection.post do |request|
-          # a prebuilt connection owns its headers — only fill the blanks
+          # a prebuilt connection owns its headers — only fill the blanks.
+          # Faraday pre-fills its stock User-Agent, so that one is never blank
+          # and graph_weaver's traffic attributed to Faraday; a connection that
+          # never chose one isn't expressing a preference.
+          request.headers.delete("User-Agent") if request.headers["User-Agent"] == ::Faraday::Connection::USER_AGENT
           DEFAULT_HEADERS.each { |name, value| request.headers[name] ||= value }
           request.body = body
         end

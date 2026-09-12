@@ -18,6 +18,15 @@
   `#url` is what `graphql: :wire` keys its stub on and what the boot log prints,
   so both were wrong. **A `:wire` stub written against the old string will now
   miss** — restub it against the real endpoint.
+- **A non-String header value is sent as its `to_s`** on both transports, rather
+  than escaping as `NoMethodError: undefined method 'strip'` from inside
+  net/http, naming neither graph_weaver nor the header. The documented
+  `"X-Tenant" => -> { Current.tenant&.id }` crashed in any app whose ids are
+  Integers. A callable is still resolved first and `nil` still drops the header.
+- **A prebuilt `Faraday::Connection` now sends graph_weaver's `User-Agent`.**
+  Faraday pre-fills its own on every connection, so the fill-in-the-blanks
+  `||=` never fired and the traffic attributed to `Faraday v…` — defeating the
+  header's whole purpose. A User-Agent you set yourself still wins.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

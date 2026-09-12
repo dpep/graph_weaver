@@ -102,11 +102,14 @@ module GraphWeaver
       # What this request sends. A value answering #call is resolved here
       # rather than at construction, so a header that expires — a rotating
       # token — is asked for per request; nil drops the header, which is how
-      # an optional one says "not this time".
+      # an optional one says "not this time". Everything else ships as its
+      # #to_s: net/http calls #strip on the value, so the documented
+      # `-> { Current.tenant&.id }` was a bare NoMethodError in any app whose
+      # ids are Integers.
       def request_headers
         DEFAULT_HEADERS.merge(@headers).filter_map do |name, value|
           value = value.call if value.respond_to?(:call)
-          [name, value] unless value.nil?
+          [name, value.to_s] unless value.nil?
         end.to_h
       end
 

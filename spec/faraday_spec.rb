@@ -180,6 +180,27 @@ describe GraphWeaver::Transport::Faraday do
     server&.close
   end
 
+  # net/http calls #strip on a header value, so both transports raised a bare
+  # NoMethodError naming neither graph_weaver nor the header
+  it "sends a non-String header value as its to_s" do
+    executor = described_class.new(url, headers: { "X-Tenant" => 42, "X-Mode" => :live })
+    PersonQuery.execute(client: executor, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["x-tenant"]).to eq ["42"]
+    expect(headers["x-mode"]).to eq ["live"]
+  end
+
+  # Faraday pre-fills its own User-Agent, so `||=` never fired and graph_weaver's
+  # traffic attributed to Faraday. A connection that never chose one isn't
+  # expressing a preference.
+  it "replaces Faraday's stock User-Agent on a prebuilt connection" do
+    executor = described_class.new(Faraday.new(url:))
+    PersonQuery.execute(client: executor, id: "1")
+
+    expect(@requests.last[:headers]["user-agent"]).to eq ["graph_weaver/#{GraphWeaver::VERSION}"]
+  end
+
   it "rejects headers:/timeouts with a prebuilt connection (they'd be silently ignored)" do
     conn = Faraday.new(url: "http://example.test/graphql")
     expect { GraphWeaver::Transport::Faraday.new(conn, headers: { "X-A" => "b" }) }

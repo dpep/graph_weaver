@@ -139,12 +139,15 @@ requires a conforming client to accept, with the legacy type as
 fallback), and `User-Agent: graph_weaver/<version>` so a server operator
 can attribute the traffic. Anything you pass in `headers:` wins over
 these. A prebuilt `Faraday::Connection` owns its own headers; only the
-ones it leaves unset are filled in.
+ones it leaves unset are filled in — and Faraday's stock
+`User-Agent: Faraday v…`, which it fills in for every connection whether
+you asked or not, counts as unset.
 
 **A header that expires.** On `Transport::HTTP` a header *value* may be
 anything answering `#call`, resolved per request rather than captured when the
 transport was built — the same way a graph's [`schema`](federation.md) takes a
-lambda. A value (or a call) of `nil` sends no such header:
+lambda. A value (or a call) of `nil` sends no such header; anything else is
+sent as its `to_s`, so a numeric tenant id needs no ceremony:
 
 ```ruby
 GraphWeaver::Transport::HTTP.new(url, headers: {

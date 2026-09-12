@@ -72,6 +72,19 @@ describe GraphWeaver::Transport::HTTP do
     expect(@requests.last[:headers]["accept"]).to eq [GraphWeaver::Transport::DEFAULT_HEADERS["Accept"]]
   end
 
+  # net/http calls #strip on a header value, so anything but a String escaped as
+  # a bare NoMethodError naming neither graph_weaver nor the header — and the
+  # documented `-> { Current.tenant&.id }` is an Integer in most apps
+  it "sends a non-String header value as its to_s" do
+    typed = described_class.new(url, headers: { "X-Tenant" => 42, "X-Mode" => :live, "X-Later" => -> { 7 } })
+    PersonQuery.execute(client: typed, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["x-tenant"]).to eq ["42"]
+    expect(headers["x-mode"]).to eq ["live"]
+    expect(headers["x-later"]).to eq ["7"]
+  end
+
   it "reuses one connection across calls (keep-alive)" do
     expect(Net::HTTP).to receive(:start).once.and_call_original
 
