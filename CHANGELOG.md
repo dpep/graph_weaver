@@ -1,52 +1,14 @@
 ## Unreleased
-<!-- lane: harness -->
-- **A second `graphql_*` helper in one example no longer discards the first's
-  stand-in.** Installing the mode that is already installed keeps the table, so
-  a multi-graph example can say `graphql_fake(pins, schema: A)` then
-  `graphql_fake(pins, schema: B)` and have both apply — the second used to
-  clear the first, and the example passed on fabricated defaults. Same fix:
-  a `graphql_context` set *before* a mode helper (or wrapping one in a block)
-  now reaches the resolvers instead of being silently dropped.
-- **A non-`:live` tag no longer leaves `GraphWeaver.client` on the real
-  endpoint.** In an app with several graphs there is no one right answer for
-  the app-wide slot, so it used to keep the production client — and a stray
-  `GraphWeaver.client.execute` made a live request from a `:fake` example. The
-  slot now holds a client that refuses, naming the mode, the graphs, and the
-  helper whose return value is the client to call.
-- **Two test-time memos now notice the file underneath them changing.**
-  `GraphWeaver::Testing.config.schema` keys its located dump on the resolved
-  path, so `GraphWeaver.schema_path=` and `root=` are no longer invisible to
-  `:fake` (only `Testing.reset!` used to clear it, which made the fabricated
-  shapes order-dependent across spec files). `Internal::Util.composed?` keys on
-  the file's path, mtime and size, so a supergraph recomposed in place is
-  re-read rather than answered from the previous composition. Both still load
-  once while the file stands still.
-- **`:wire` refuses two graphs that post to the same endpoint** instead of
-  serving the first graph's schema at it — the second graph's queries came back
-  as `Field 'x' doesn't exist on type 'Query'`, blaming the query. The message
-  names both graphs and the url.
-- **`:wire` no longer fails an example that resets WebMock itself.** A group's
-  own `after { WebMock.reset! }` runs before the gem's hook (rspec runs `after`
-  hooks innermost-first), and taking a stub down twice raised from inside the
-  cleanup — a second, unrelated failure on top of whatever the example was
-  really doing.
-- **Under `:wire`, `graphql_context` says what to do about a `context:` proc.**
-  The generic refusal told you to tag the example `:wire` — which a `:wire`
-  example already is. It now says the proc is answered from the headers of the
-  request the example makes, and points at setting one on the client's own
-  transport.
-- Docs: [testing](docs/testing.md) described the 0.6.x tag mechanism in two
-  places — that a module with a baked `client:` escapes the tag, and that
-  `GraphWeaver.client=` beats it. Both have been the other way round since
-  0.7.0, and an example written the documented way asserted on a failure path
-  while running against the fake.
-- **A router two graphs share is reset once per example, not once per graph.**
-  Two graphs naming the same supergraph get the same `Testing::Router`, and the
-  reset that puts it back to the example's start ran again when the second
-  graph's first module resolved — wiping the `#trace` and any fake pins the
-  first graph's requests had already accumulated, mid-example.
-<!-- /lane: harness -->
-<!-- lane: codegen -->
+- **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
+  time was inherited by every child, and a round trip carries nothing saying
+  which process opened it — so forked workers interleaved requests on one fd and
+  a caller could receive a well-formed GraphQL response to *another process's*
+  query, with no exception anywhere. The trigger is the documented boot path:
+  Puma `preload_app!` (or Sidekiq) plus an initializer that introspects, which
+  leaves exactly one warm socket in the pool. The pool now belongs to the
+  process that built it — on the first request after a fork the inherited
+  sockets are abandoned (not closed: that would take down the fd the parent is
+  still using) and the pool's permits are rebuilt.
 - **Naming an anonymous operation no longer corrupts the query.** The generated
   `QUERY` splices the module's name into the operation's own declaration at a
   position graphql-ruby reports — which is a byte offset measured against
@@ -61,28 +23,41 @@
   every line, which silently edits the *value* of a block-string argument —
   trailing whitespace inside `"""…"""` is significant. A query with one now
   sends what the `.graphql` file says.
-- **A top-level registration reaches a graph declared before it.** A graph used
-  to copy the top-level registry as it was declared, so in Rails — where the
-  graph and the scalars usually live in two initializers, run in alphabetical
-  filename order — a `register_scalar` in `graph_weaver.rb` never reached a
-  graph declared in `billing.rb`, and every prop it should have typed came out
-  `T.untyped` with the build advising you to register a scalar you had. A graph
-  now reads the top-level layer when generation asks; its own registrations
-  still run where the block is written, and still win.
-- **Three refusals in the graph block say what you got wrong.** A `schema`
-  lambda that resolves to nil is refused naming the graph, instead of reaching
-  codegen as nil and crashing on `undefined method 'validate'`; `namespace`
-  and `types_module` refuse a leading `::` naming the setting, instead of
-  blaming the `.graphql` file's name four steps later.
-- **`graph :billing` and `graph "billing"` are one graph.** The name is the
-  identity, so the second spelling replaces the first rather than declaring a
-  second graph that generates over its output.
-- **`GraphWeaver.parse` takes `graph:`.** Under a `graphql:` tag in an app with
-  several graphs, a parsed module said nothing about which graph it belonged
-  to, so the mode had nothing to run it against — and the refusal said to
-  regenerate, which cannot reach a module that generates no file. `parse` now
-  bakes the graph whose schema it was parsed against, `graph: :billing` says it
-  where that can't be read, and the refusal names both fixes.
+- **A date and a timestamp are refused for each other, both ways.** v0.7.0 made
+  a date stay a `Date` and a timestamp a `Time` off the wire; the same rule now
+  holds for variables. A `Time` (or `Time.zone.now`) for an `ISO8601Date` used
+  to surface Ruby's raw *"no implicit conversion of Time into String"*, and a
+  `Date` for an `ISO8601DateTime` likewise. Both now raise an `InputError`
+  naming the variable and the class: `$on of Report: expected a Date, got a
+  Time — pass .to_date if dropping the time of day is what you meant`.
+
+  **This replaces v0.7.0's "a `DateTime` given for a `Date` variable is sent as
+  a date"**, which was the same silent truncation arriving through Ruby's
+  `DateTime < Date`: `.to_date` at the call site says you meant it. What a
+  timestamp variable now *accepts* grew to match — a `DateTime` and the
+  `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert losslessly,
+  and both used to raise.
+- **A timestamp keeps its sub-second part on the way out.** `Time#iso8601`
+  takes no precision, so `"2024-01-15T10:20:30.500Z"` read off the wire went
+  back out as `"2024-01-15T10:20:30Z"` — half a second gone from an
+  `updatedAt` concurrency token, or from the `since:` a window is read on.
+  graphql-ruby's own `ISO8601DateTime` writes whole seconds, so a stock Ruby
+  server never showed it; **any JS/Apollo server writes milliseconds on every
+  timestamp**. A `Time` (or `DateTime`) that carries a fraction is now written
+  with microseconds, and one that doesn't sends the bytes it always has.
+- **A `Float` variable must be a finite number.** `Kernel#Float("1e400")` is
+  `Infinity` rather than a raise (so is `(10**400).to_f`), and JSON has no
+  spelling for a non-finite number — the GraphQL spec excludes them from
+  `Float` outright. It used to travel as far as the transport, which blamed
+  the whole request (*"variables are not JSON-serializable"*); the refusal now
+  names the variable and the value. Every door is checked, so an actual
+  `Float::INFINITY` is refused as well as a string that parses to one — and
+  `register_scalar "Ratio", Float` now reads a whole number off the wire
+  exactly as the built-in `Float` does, which it didn't before.
+- **A variable's whole trip onto the wire is branded.** Serialization ran
+  *outside* the coercion's rescue, so anything it raised arrived as a bare
+  `NoMethodError` naming neither the variable nor the operation — now it reads
+  `$budget of Store: …`, the way a coercion failure already did.
 - **Four codegen refusals name what you wrote.** A result key that collides
   with a struct method now suggests an alias you can actually write (for
   `class: a` it said `` `classValue: class` ``, which is not a query); two
@@ -90,62 +65,6 @@
   prop-collision message already did; a module named `T` is refused rather
   than emitting code that shadows Sorbet's `T` in its own body; and a
   `client:` that isn't a constant says what one looks like.
-- **A variable's whole trip onto the wire is branded.** Serialization ran
-  *outside* the coercion's rescue, so anything it raised arrived as a bare
-  `NoMethodError` naming neither the variable nor the operation — now it reads
-  `$budget of Store: …`, the way a coercion failure already did.
-<!-- /lane: codegen -->
-- **A request header can be a callable.** On `Transport::HTTP` a `headers:`
-  value answering `#call` is resolved per request rather than captured when the
-  transport was built, so a rotating credential needs no new transport:
-
-  ```ruby
-  GraphWeaver::Transport::HTTP.new(url, headers: {
-    "Authorization" => -> { "Bearer #{Tokens.fetch}" },
-    "X-Tenant" => -> { Current.tenant&.id },   # nil ⇒ header omitted
-  })
-  ```
-
-  A value (or a call) of `nil` sends no such header. `Transport::Faraday`
-  raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
-  Faraday resolves this in middleware, and the message says so.
-- **`ServerError#headers` answers any casing.** Transports store response
-  headers downcased, so `e.headers["Retry-After"]` — the spelling the server
-  sent, and the one a caller reaches for — used to return nil. Lookup by name
-  (`#[]`, `#fetch`, `#dig`, `#key?`) now folds the case; iteration, `#keys` and
-  `#to_h` still yield the downcased spelling, so logs are unchanged.
-- Docs: [errors](docs/errors.md) now says what `InputError#field` actually names
-  (the variable, not the field inside it) and what a *server's* input rejection
-  carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
-  for both. New [i18n](docs/i18n.md) page proposes stable keys for input
-  problems; nothing in it ships yet.
-<!-- lane: docs -->
-- **[Upgrading](docs/upgrading.md) now names all of 0.7.0's breaking changes.**
-  Four were missing. Three turn code that ran into a raise — a `client` that
-  isn't a constant, and a `cast:`/`serialize:` proc that returns a value, are
-  refused; a router's `fake:` refuses `seed:` — and the fourth raises nothing:
-  a `DateTime` given for a `Date` variable now goes on the wire as
-  `"2024-01-15"` rather than a full timestamp. **Worth a read if you have
-  already upgraded**, for that last one.
-- Docs: the two samples that raised as pasted run now —
-  `Codegen.generate(client:)` takes the constant's *name*, and
-  `Federation::Drift` needs `require "graph_weaver/federation"`. The v0.7.0
-  graph example above uses the lambda and the constant name its own prose
-  calls for. `spec/doc_samples_spec.rb` parses every fenced Ruby sample in
-  README + `docs/` and resolves every link between them, so the next one
-  can't ship.
-<!-- /lane: docs -->
-<!-- lane: transport -->
-- **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
-  time was inherited by every child, and a round trip carries nothing saying
-  which process opened it — so forked workers interleaved requests on one fd and
-  a caller could receive a well-formed GraphQL response to *another process's*
-  query, with no exception anywhere. The trigger is the documented boot path:
-  Puma `preload_app!` (or Sidekiq) plus an initializer that introspects, which
-  leaves exactly one warm socket in the pool. The pool now belongs to the
-  process that built it — on the first request after a fork the inherited
-  sockets are abandoned (not closed: that would take down the fd the parent is
-  still using) and the pool's permits are rebuilt.
 - **Two more net/http failures arrive as `TransportError`.** A garbage status
   line (`Net::HTTPBadResponse` — a misbehaving proxy, HTTP sent to a port
   speaking something else, or a keep-alive socket that desynced) and a body
@@ -169,37 +88,40 @@
   and in-process it turned a query that ran into a `ServerError`. The line now
   says `<unloggable: JSON::GeneratorError>` and the request carries on to the
   same outcome it has with no logger set.
-- **A `Float` variable must be a finite number.** `Kernel#Float("1e400")` is
-  `Infinity` rather than a raise (so is `(10**400).to_f`), and JSON has no
-  spelling for a non-finite number — the GraphQL spec excludes them from
-  `Float` outright. It used to travel as far as the transport, which blamed
-  the whole request (*"variables are not JSON-serializable"*); the refusal now
-  names the variable and the value. Every door is checked, so an actual
-  `Float::INFINITY` is refused as well as a string that parses to one — and
-  `register_scalar "Ratio", Float` now reads a whole number off the wire
-  exactly as the built-in `Float` does, which it didn't before.
-- **A date and a timestamp are refused for each other, both ways.** v0.7.0 made
-  a date stay a `Date` and a timestamp a `Time` off the wire; the same rule now
-  holds for variables. A `Time` (or `Time.zone.now`) for an `ISO8601Date` used
-  to surface Ruby's raw *"no implicit conversion of Time into String"*, and a
-  `Date` for an `ISO8601DateTime` likewise. Both now raise an `InputError`
-  naming the variable and the class: `$on of Report: expected a Date, got a
-  Time — pass .to_date if dropping the time of day is what you meant`.
+- **`ServerError#headers` answers any casing.** Transports store response
+  headers downcased, so `e.headers["Retry-After"]` — the spelling the server
+  sent, and the one a caller reaches for — used to return nil. Lookup by name
+  (`#[]`, `#fetch`, `#dig`, `#key?`) now folds the case; iteration, `#keys` and
+  `#to_h` still yield the downcased spelling, so logs are unchanged.
+- **A request header can be a callable.** On `Transport::HTTP` a `headers:`
+  value answering `#call` is resolved per request rather than captured when the
+  transport was built, so a rotating credential needs no new transport:
 
-  **This replaces v0.7.0's "a `DateTime` given for a `Date` variable is sent as
-  a date"**, which was the same silent truncation arriving through Ruby's
-  `DateTime < Date`: `.to_date` at the call site says you meant it. What a
-  timestamp variable now *accepts* grew to match — a `DateTime` and the
-  `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert losslessly,
-  and both used to raise.
-- **A timestamp keeps its sub-second part on the way out.** `Time#iso8601`
-  takes no precision, so `"2024-01-15T10:20:30.500Z"` read off the wire went
-  back out as `"2024-01-15T10:20:30Z"` — half a second gone from an
-  `updatedAt` concurrency token, or from the `since:` a window is read on.
-  graphql-ruby's own `ISO8601DateTime` writes whole seconds, so a stock Ruby
-  server never showed it; **any JS/Apollo server writes milliseconds on every
-  timestamp**. A `Time` (or `DateTime`) that carries a fraction is now written
-  with microseconds, and one that doesn't sends the bytes it always has.
+  ```ruby
+  GraphWeaver::Transport::HTTP.new(url, headers: {
+    "Authorization" => -> { "Bearer #{Tokens.fetch}" },
+    "X-Tenant" => -> { Current.tenant&.id },   # nil ⇒ header omitted
+  })
+  ```
+
+  A value (or a call) of `nil` sends no such header. `Transport::Faraday`
+  raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
+  Faraday resolves this in middleware, and the message says so.
+- **A test-time schema memo notices the file underneath it changing.**
+  `GraphWeaver::Testing.config.schema` keys its located dump on the resolved
+  path, so `GraphWeaver.schema_path=` and `root=` are no longer invisible to
+  `:fake` — only `Testing.reset!` used to clear it, which made the fabricated
+  shapes order-dependent across spec files. It still loads once while the file
+  stands still.
+- Docs: [errors](docs/errors.md) now says what `InputError#field` actually names
+  (the variable, not the field inside it) and what a *server's* input rejection
+  carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
+  for both. New [i18n](docs/i18n.md) page proposes stable keys for input
+  problems; nothing in it ships yet. The two samples that raised as pasted run
+  now — `Codegen.generate(client:)` takes the constant's *name*, and
+  `Federation::Drift` needs `require "graph_weaver/federation"` — and
+  `spec/doc_samples_spec.rb` parses every fenced Ruby sample in README +
+  `docs/` and resolves every link between them, so the next one can't ship.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
