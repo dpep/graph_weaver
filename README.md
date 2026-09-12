@@ -181,6 +181,7 @@ upgrade, and `verify` is what tells you when you've skipped it.
 - **[Federation](docs/federation.md)** — supergraph vs API schema, the local router, what it refuses
 - **[Transports](docs/transports.md)** — the execute contract, Faraday, retries and backoff
 - **[Errors](docs/errors.md)** — the Response envelope, the error hierarchy, field-level reports
+- **[Translating input errors](docs/i18n.md)** — *proposed*: stable keys and data for bad input, on either side of the wire
 - **[Custom scalars](docs/scalars.md)** — what's registered already, codec inference, input coercion
 - **[Cassettes](docs/cassettes.md)** — capture and replay real responses, anonymized
 - **[Editor support](docs/editors.md)** — five lines of YAML for schema autocomplete in `.graphql` files, no JS project

@@ -113,8 +113,9 @@ input into a 422:
 rescue GraphWeaver::InputError => e
   render json: e.to_h, status: :unprocessable_entity
   # { "error" => "GraphWeaver::InputError",
-  #   "message" => "unknown key(s) for …Input: staus (did you mean 'status'?)",
-  #   "field" => "staus", "struct" => "…Input" }
+  #   "message" => "$input of AdoptMutation: unknown key(s) for AdoptionInput: " \
+  #                "speceis (did you mean 'species'?)",
+  #   "field" => "input", "struct" => "AdoptionInput" }
 end
 ```
 
@@ -124,6 +125,22 @@ bare `String` where the input goes — reports the same way. A call site that
 *spells* the wrong type is caught earlier and better, by `srb tc`: the sig is
 as narrow as the schema, and only untyped values reach the runtime check
 ([why](generated_modules.md#variables-become-typed-kwargs)).
+
+**`#field` is the variable, not the field inside it.** Whatever went wrong at
+whatever depth, the error is re-branded on the way out with the kwarg you
+passed, because that is the coordinate the call site can act on. The input
+field that actually held the value is in the *message* and nowhere else:
+
+| you called | `#field` | `#struct` | the message |
+|---|---|---|---|
+| `execute(input: {name: "Rex", species: "LIZARD"})` | `"input"` | `AdoptionInput` | `$input of AdoptMutation: species: "LIZARD" is not a valid … — expected one of: CAT, DOG` |
+| `execute(where: {_and: [{_not: {species: "LIZARD"}}]})` | `"where"` | `PetFilter` | `$where of FindPetsQuery: species: …` |
+| `AdoptionInput.coerce(name: "Rex", speceis: "DOG")` — no variable to name | `"speceis"` | `AdoptionInput` | `unknown key(s) for AdoptionInput: speceis (did you mean 'species'?)` |
+
+Note the middle row: the intermediate keys (`_and`, `0`, `_not`) are in neither
+— the innermost input is named, the route to it is not. A form that has to
+highlight one field is reading the message today; [i18n](i18n.md) proposes the
+machine-readable coordinate that would replace that.
 
 `#struct` is the generated input struct *class* where generation produced one,
 and the GraphQL type *name* where it didn't — a federation representation
@@ -136,6 +153,31 @@ deserialize onto `response.data` like anything else and you inspect them there.
 
 The one-shot `GraphWeaver.run` / `run!` mirror this: `run` returns
 the envelope, `run!` the result-or-raise.
+
+### When the *server* rejects the input
+
+`InputError` is the client-side half — graph_weaver refuses before the request
+leaves. The other half arrives as ordinary `GraphQLError`s, and what they carry
+depends on how the server rejected it. Generated modules always send
+**variables**, never literals, which narrows a graphql-ruby server to two
+shapes:
+
+| the server's rejection | what arrives |
+|---|---|
+| the variable didn't coerce — wrong type, not an enum member, a required field null, a key the input type doesn't define, a custom scalar's `GraphQL::CoercionError` | one error, **no `path`**, and `extensions` = `{"value" => «the whole variable», "problems" => [{"path" => ["level2","count"], "explanation" => "Could not coerce value \"nope\" to Int"}]}` — but **no `code`** |
+| a `validates:` rule failed — range, format, inclusion, length | `"data" => null`, `path` = the **response** path (`["adopt"]`: the mutation field, not the input field), and **no `extensions` key at all** |
+
+So `#code` is nil either way, `errors_by_field` groups the second under the
+mutation field, and the field that was actually wrong is readable only out of
+`problems[].path` or the message text. (Verified against graphql-ruby 2.6.10.)
+
+Nothing here is portable: the GraphQL spec reserves `extensions` for
+implementors and defines no codes at all, Apollo Server stamps
+`BAD_USER_INPUT` on a coercion failure while Apollo Router sends
+`VALIDATION_INVALID_TYPE_VARIABLE`, and graphql-js emits no `extensions` on a
+validation error. Match on what the server you talk to actually sends; a
+[proposed](i18n.md) `kind` would put a closed vocabulary over the top of this,
+degrading to "refused, here is the message" rather than guessing.
 
 ## Extending TransportError
 

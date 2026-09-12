@@ -18,6 +18,11 @@
   sent, and the one a caller reaches for — used to return nil. Lookup by name
   (`#[]`, `#fetch`, `#dig`, `#key?`) now folds the case; iteration, `#keys` and
   `#to_h` still yield the downcased spelling, so logs are unchanged.
+- Docs: [errors](docs/errors.md) now says what `InputError#field` actually names
+  (the variable, not the field inside it) and what a *server's* input rejection
+  carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
+  for both. New [i18n](docs/i18n.md) page proposes stable keys for input
+  problems; nothing in it ships yet.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
