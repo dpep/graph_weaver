@@ -40,6 +40,17 @@
   `to_param`, `to_query`, `try`, `presence`, `each`). Alias those fields in the
   query. The refusal now reads *"would become prop 'x', a name generated
   structs reserve"*. **Regenerate.**
+- **`register_scalar` warns when the Ruby type defines `==` but inherits
+  `eql?`/`hash`.** A result compares its props with `eql?`, so that idiom — a
+  value object that stops at `==` — makes two results parsed from the same
+  response unequal, and useless as hash keys, while the leaf itself compares
+  fine. `alias_method :eql?, :==` plus a matching `hash` is the fix; see
+  [scalars](docs/scalars.md#registering-a-class-of-your-own).
+- **Docs: a result is immutable only as far as its props.** The `String` or
+  `Hash` a leaf holds is the one the response carried, so mutating it changes
+  the result — as with `Struct` or `Data`. And cache a result with `Marshal`,
+  not YAML: a `T::Enum` member is a singleton compared by identity, and Psych
+  rehydrates a duplicate, so `pet.species == Species::Dog` comes back false.
 <!-- /lane: codegen -->
 
 ###  v0.7.0  (2026-09-12)

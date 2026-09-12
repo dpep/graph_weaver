@@ -84,6 +84,13 @@ so a value object with a `.parse` needs nothing more:
 GraphWeaver.register_scalar("Money", Money)
 ```
 
+**Give it `eql?` and `hash` too, not just `==`.** A result compares its props
+with `eql?`, so that it and `#hash` agree on what "same" means — a class that
+stops at `==` makes two results parsed from the same response unequal, and
+useless as hash keys, while the `Money` inside them compares fine. Registration
+warns when it spots one. `alias_method :eql?, :==` plus a `hash` built from the
+same values is the whole fix.
+
 A type defining none of those stays pass-through rather than getting wrapped —
 every object has `#to_s`, so inferring a serializer off it would wrap plain
 types too. Override explicitly when you need to:

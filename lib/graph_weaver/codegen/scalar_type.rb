@@ -126,6 +126,7 @@ class GraphWeaver::Codegen
       @serialize = normalize_serialize(serialize || known[:serialize], codec&.serialize)
       @serialize_value = (known[:call] if serialize.nil?) ||
         runtime_serialize(serialize || known[:serialize], codec)
+      warn_half_a_value_object
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -159,6 +160,26 @@ class GraphWeaver::Codegen
     end
 
     private
+
+    # A result compares its props with eql?, so that it and #hash agree on what
+    # "same" means. A value object that defines == and leaves eql?/hash at
+    # Object's — the common Ruby idiom — therefore makes two results parsed from
+    # the same bytes unequal, and useless as hash keys, while the leaf itself
+    # compares fine. Nothing here can fix that; only the type can.
+    def warn_half_a_value_object
+      # a Module type names a duck the gem never sees an instance of
+      return unless @klass.is_a?(Class) && defines?(:==) && !defines?(:eql?)
+
+      GraphWeaver::Internal::Log.log(:warn) do
+        "register_scalar(#{@graphql_name.inspect}, #{@type}): #{@type} defines #== but inherits " \
+          "#eql? and #hash, so two results parsed from the same response won't be equal and a " \
+          "result won't work as a hash key — define eql? and hash alongside =="
+      end
+    end
+
+    def defines?(method)
+      ![BasicObject, Kernel, Object].include?(@klass.instance_method(method).owner)
+    end
 
     def coercer
       # a cast: the registration named is the whole rule (:itself asks for

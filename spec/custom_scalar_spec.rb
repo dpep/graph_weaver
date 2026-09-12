@@ -36,6 +36,10 @@ module MoneyDemo
     def ==(other)
       other.is_a?(Money) && other.amount == @amount
     end
+    # a result compares its props with eql?, so a leaf that stops at == makes
+    # two results parsed from the same bytes unequal
+    alias_method :eql?, :==
+    def hash = [Money, @amount].hash
   end
 
   # A codec that fails the way real ones do — JSON::ParserError,
@@ -110,6 +114,46 @@ describe "custom scalar deserialization" do
     expect(scalar.type).to eq "MoneyDemo::Money"
     expect(scalar.cast("v")).to eq "MoneyDemo::Money.parse(v)"
     expect(scalar.serialize("v")).to eq "v.to_s"
+  end
+
+  # A result compares its props with eql?, so it and #hash agree on "same".
+  # A value object that defines == and leaves eql?/hash at Object's — the most
+  # common Ruby idiom there is — makes two results parsed from the SAME bytes
+  # unequal, which no caller would guess from the leaf comparing fine.
+  it "warns when a registered type defines == but not eql?" do
+    io = StringIO.new
+    GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+    half_a_value_object = Class.new do
+      def self.name = "HalfValue"
+      def self.parse(str) = new
+      def ==(other) = other.is_a?(self.class)
+    end
+
+    GraphWeaver.register_scalar("Money", half_a_value_object)
+
+    expect(io.string).to include("HalfValue defines #== but inherits #eql? and #hash")
+  ensure
+    GraphWeaver.logger = nil
+  end
+
+  it "says nothing about a type whose eql? agrees with its ==" do
+    io = StringIO.new
+    GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money)
+    GraphWeaver.register_scalar("Date", Date)
+
+    expect(io.string).to be_empty
+  ensure
+    GraphWeaver.logger = nil
+  end
+
+  it "compares two results holding the same registered scalar as equal" do
+    GraphWeaver.register_scalar("Money", MoneyDemo::Money)
+    mod = GraphWeaver.parse(schema: MoneyDemo::Schema, query:, name: "StoreQuery")
+    wire = { "data" => { "product" => { "name" => "Widget", "price" => "12.50" } } }
+
+    expect(mod.from_response!(wire)).to eq mod.from_response!(wire)
   end
 
   it "infers a .load/.dump codec when the class defines .load" do
