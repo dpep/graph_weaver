@@ -250,6 +250,7 @@ module RoundTrip
     def query
       @fragments = {}
       @guards = 0
+      @aliases = 0
       body = selection_set(@schema.query, @depth)
       return unless body
 
@@ -362,7 +363,11 @@ module RoundTrip
 
     def render(field, depth, guard: guard?)
       core = field.type.unwrap
-      prefix = @rng.rand < 0.15 ? "k#{@rng.rand(10_000)}: " : ""
+      # counted, not drawn: two draws of the same number put fields of
+      # different leaf types under one response key, which graphql-ruby 2.6
+      # warns about and will one day refuse — a document the fuzzer drafts
+      # and GraphWeaver.parse would then start rejecting
+      prefix = @rng.rand < 0.15 ? "k#{@aliases += 1}: " : ""
       suffix = guard_suffix(guard)
 
       case core.kind.name
