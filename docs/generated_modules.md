@@ -566,13 +566,21 @@ Resolution is per call (`client:`) → per module → baked constant →
 [transports](transports.md#client-resolution).
 
 Generate *without* a baked constant when you want modules to follow the
-app default (`GraphWeaver.client =` in an initializer) — that's also what
-lets [testing's `graphql:` tag](testing.md) swap in a client per example.
+app default (`GraphWeaver.client =` in an initializer).
+
+A baked constant is no longer a reason a module escapes
+[testing's `graphql:` tag](testing.md): the tag is exactly the instruction
+to replace the client generation chose, so it stands in for the baked one
+too. What the *example* says still wins — a per-call `client:`, or
+`MyQuery.client =` in a `before` block.
 
 `client`/`client=` live in the gem (`GraphWeaver::QueryModule`, extended by
 every generated module). A baked constant is emitted as a private
 `DEFAULT_CLIENT`, resolved on first use so a module can load before the
-initializer that builds its client.
+initializer that builds its client. A module generated from a
+[declared graph](getting_started.md#more-than-one-schema) also carries a private `GRAPH` naming
+it — so with two graphs, `graphql: :fake` fabricates each module's own
+schema instead of having to be told which one you meant.
 
 ## Deserializing a response from another client
 
