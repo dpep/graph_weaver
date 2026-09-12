@@ -363,6 +363,7 @@ class GraphWeaver::Codegen
       out << "#{pad}class #{node.class_name} < T::Struct"
       out << "#{pad}  extend T::Sig" if GraphWeaver.extend_t_sig?
       out << "#{pad}  include GraphWeaver::Hints"
+      out << "#{pad}  include GraphWeaver::ResultStruct"
       node.mixins.each do |mixin|
         out << "#{pad}  include #{mixin} # registered for #{node.graphql_type}"
       end

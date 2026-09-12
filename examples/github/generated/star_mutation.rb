@@ -23,14 +23,17 @@ module StarMutation
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     class AddStar < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
+      include GraphWeaver::ResultStruct
 
       class Starrable < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         const :stargazer_count, Integer
         const :viewer_has_starred, T::Boolean
@@ -78,6 +81,11 @@ module StarMutation
 
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
+
+  # the graph this module was generated from — what a test mode builds
+  # its stand-in client from
+  GRAPH = T.let(:github, Symbol)
+  private_constant :GRAPH
 
   # .checked(:never): an untyped value (a Rails param) reaches the coercion below
   # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.

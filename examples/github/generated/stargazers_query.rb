@@ -39,30 +39,37 @@ module StargazersQuery
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     class Repository < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
+      include GraphWeaver::ResultStruct
 
       class Stargazers < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         class Edges < T::Struct
           extend T::Sig
           include GraphWeaver::Hints
+          include GraphWeaver::ResultStruct
 
           class Node < T::Struct
             extend T::Sig
             include GraphWeaver::Hints
+            include GraphWeaver::ResultStruct
 
             class Repositories < T::Struct
               extend T::Sig
               include GraphWeaver::Hints
+              include GraphWeaver::ResultStruct
 
               class Nodes < T::Struct
                 extend T::Sig
                 include GraphWeaver::Hints
+                include GraphWeaver::ResultStruct
 
                 const :name_with_owner, String
                 const :stargazer_count, Integer
@@ -178,6 +185,11 @@ module StargazersQuery
 
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
+
+  # the graph this module was generated from — what a test mode builds
+  # its stand-in client from
+  GRAPH = T.let(:github, Symbol)
+  private_constant :GRAPH
 
   # .checked(:never): an untyped value (a Rails param) reaches the coercion below
   # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.

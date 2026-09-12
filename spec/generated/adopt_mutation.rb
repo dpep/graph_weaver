@@ -29,10 +29,12 @@ module AdoptMutation
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     class Adopt < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
+      include GraphWeaver::ResultStruct
 
       const :id, String
       const :name, String

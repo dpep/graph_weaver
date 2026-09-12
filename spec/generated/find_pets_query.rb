@@ -27,10 +27,12 @@ module FindPetsQuery
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     class FindPets < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
+      include GraphWeaver::ResultStruct
 
       const :name, String
       const :species, Species

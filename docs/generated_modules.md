@@ -168,6 +168,29 @@ end
   **result**, or a raised `GraphWeaver::QueryError`. See [errors](errors.md).
 - `from_response` / `from_response!` are the **network-free half** of the
   pair — same envelope, but from a response hash you already have (below).
+- A `Result` is an **ordinary Ruby object**: value `==` (with `eql?` and
+  `hash`, so a result works as a hash key), `deconstruct_keys` for pattern
+  matching, and `#to_h`. All three go the whole way down a nested result.
+
+  ```ruby
+  PersonQuery.from_response!(raw) == PersonQuery.from_response!(raw)  # true — value, not identity
+
+  case PersonQuery.execute!(id: "1")
+  in { person: { name:, pets: [{ name: first_pet }, *] } } then "#{name} and #{first_pet}"
+  in { person: { name: } } then "#{name}, petless"
+  in { person: nil } then "nobody"
+  end
+
+  PersonQuery.execute!(id: "1").to_h
+  # => { person: { id: "1", name: "Daniel", birthday: #<Date 1984-05-06>,
+  #                pets: [{ name: "Nibbler" }] } }
+  ```
+
+  `#to_h` is the **Ruby** shape, not the wire's: snake_case prop names as
+  Symbols, nils kept, enums as their `T::Enum` members, and a registered
+  scalar as whatever object its codec built. So it is a view, not something
+  to send back to a server — keep the raw hash for that
+  ([below](#deserializing-a-response-from-another-client)).
 - `OPERATION_NAME` rides along on every request as the spec's
   `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
   limits and slow-query reports on the operation instead of lumping every

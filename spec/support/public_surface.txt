@@ -234,6 +234,12 @@ GraphWeaver::Response#extensions
 GraphWeaver::Response#success?
 GraphWeaver::Response#to_h
 GraphWeaver::Response::Data = T::Types::TypeMember
+GraphWeaver::ResultStruct (Module)
+GraphWeaver::ResultStruct#==
+GraphWeaver::ResultStruct#deconstruct_keys
+GraphWeaver::ResultStruct#eql?
+GraphWeaver::ResultStruct#hash
+GraphWeaver::ResultStruct#to_h
 GraphWeaver::Retry (Class)
 GraphWeaver::Retry#execute
 GraphWeaver::Retry#url

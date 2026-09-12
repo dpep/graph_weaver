@@ -26,10 +26,12 @@ module AddPetMutation
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     class AddPet < T::Struct
       extend T::Sig
       include GraphWeaver::Hints
+      include GraphWeaver::ResultStruct
 
       const :id, String
       const :name, String

@@ -4,6 +4,8 @@
 require "graphql"
 require "sorbet-runtime"
 
+require_relative "result_struct"
+
 # Generates plain, statically-typecheckable Ruby from a GraphQL query +
 # schema: nested T::Structs, from_h casting code, and a sig'd execute
 # method. The output is source on disk, so srb tc sees the exact result
@@ -330,7 +332,14 @@ class GraphWeaver::Codegen
   # those (`class`, `hash`, `send`, `to_s`), so the generated file would raise
   # ArgumentError at require time. Derived rather than listed, so it tracks
   # whatever the Ruby and sorbet-runtime in play actually define.
-  STRUCT_METHODS = (GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s)).freeze
+  # plus what ResultStruct mixes in (==, hash, to_h, deconstruct_keys): (false)
+  # because it `include Kernel` for sorbet's benefit, and Kernel's methods are
+  # already covered by T::Struct's.
+  STRUCT_METHODS = (
+    GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s) +
+    (GraphWeaver::ResultStruct.instance_methods(false) +
+     GraphWeaver::ResultStruct.private_instance_methods(false)).map(&:to_s)
+  ).freeze
   private_constant :RUBY_KEYWORDS, :GENERATED_METHODS, :RESERVED_KWARGS, :STRUCT_METHODS
 
   def generate

@@ -39,6 +39,7 @@ module SearchQuery
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     module Search
       extend T::Sig
@@ -46,6 +47,7 @@ module SearchQuery
       class Person < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         const :__typename, String
         const :name, String
@@ -68,6 +70,7 @@ module SearchQuery
       class Pet < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         const :__typename, String
         const :name, String
@@ -90,6 +93,7 @@ module SearchQuery
       class Other < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         const :__typename, String
         const :name, T.nilable(String)

@@ -28,6 +28,7 @@ module NamedQuery
   class Result < T::Struct
     extend T::Sig
     include GraphWeaver::Hints
+    include GraphWeaver::ResultStruct
 
     module Named
       extend T::Sig
@@ -35,6 +36,7 @@ module NamedQuery
       class Pet < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         const :__typename, String
         const :name, String
@@ -57,6 +59,7 @@ module NamedQuery
       class Other < T::Struct
         extend T::Sig
         include GraphWeaver::Hints
+        include GraphWeaver::ResultStruct
 
         const :__typename, String
         const :name, String
