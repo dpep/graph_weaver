@@ -62,6 +62,15 @@
   production boot died on a `Zeitwerk::NameError` naming a constant you never
   wrote, and development simply had the modules missing. Nothing to do — a
   layout like `app/graphql/subgraphs/billing/generated` now works.
+- **A symlinked generated output is hidden from Zeitwerk, and refused when it
+  is declared too late to hide.** The railtie resolved a path with
+  `File.expand_path`, which doesn't follow symlinks, while Zeitwerk walks real
+  directories — so an `output` that was a symlink, or an absolute one through a
+  symlinked ancestor (the Capistrano `current/` shape), was ignored under a name
+  Zeitwerk never visits and its modules died on `uninitialized constant`. The
+  refusal that exists for a too-late output compared the same unresolved path
+  against real autoload roots, so it stayed silent for exactly that spelling; it
+  now fires, and names the output the way your graph spells it.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

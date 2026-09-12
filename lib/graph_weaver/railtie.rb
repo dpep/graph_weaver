@@ -80,9 +80,21 @@ class GraphWeaver::Railtie < Rails::Railtie
     after: :load_config_initializers, before: :setup_main_autoloader do
     # patterns, not paths — generated_paths may be globs, and Zeitwerk
     # expands its own at setup (which is what this runs before)
-    dirs = GraphWeaver::Internal::Util.generated_dirs.map { GraphWeaver::Internal::Util.resolve(_1) }
+    dirs = GraphWeaver::Internal::Util.generated_dirs.map { GraphWeaver::Railtie.autoload_path(_1) }
     GraphWeaver::Railtie.ignored_dirs = dirs
     Rails.autoloaders.each { |loader| dirs.each { |path| loader.ignore(path) } }
+  end
+
+  # A generated path as ZEITWERK sees it: resolved, and with symlinks followed,
+  # because Zeitwerk walks real directories. Ignoring a symlinked output hid it
+  # under a name Zeitwerk never visits, and the refusal below compared that same
+  # name against real autoload roots and so never fired — including for an
+  # absolute output through a symlinked ancestor, the Capistrano current/ shape.
+  # Only this seam needs it: everywhere else a path stays the setting expanded,
+  # so what the gem reports is what you wrote.
+  def self.autoload_path(path)
+    resolved = GraphWeaver::Internal::Util.resolve(path)
+    File.exist?(resolved) ? File.realpath(resolved) : resolved
   end
 
   # A graph declared from to_prepare — what the docs say to do when its block
@@ -95,16 +107,17 @@ class GraphWeaver::Railtie < Rails::Railtie
     # no autoloaders, no Zeitwerk, nothing to refuse
     return unless Rails.respond_to?(:autoloaders)
 
-    late = GraphWeaver::Internal::Util.generated_dirs
-      .map { GraphWeaver::Internal::Util.resolve(_1) } - Array(ignored_dirs)
+    late = GraphWeaver::Internal::Util.generated_dirs.map { autoload_path(_1) } - Array(ignored_dirs)
     return if late.empty?
 
     roots = Rails.autoloaders.flat_map(&:dirs)
     late.each do |dir|
       next unless roots.any? { |root| dir.start_with?("#{root}/") }
 
-      short = GraphWeaver::Internal::Util.relative(dir)
-      graph = GraphWeaver.graphs.find { GraphWeaver::Internal::Util.resolve(_1.output) == dir }
+      graph = GraphWeaver.graphs.find { autoload_path(_1.output) == dir }
+      # the graph's own spelling, not the symlink target autoload_path found —
+      # the advice has to name something the reader can find in their config
+      short = GraphWeaver::Internal::Util.relative(GraphWeaver::Internal::Util.resolve(graph&.output || dir))
       raise GraphWeaver::Error,
         "#{graph ? "graph :#{graph.name}'s output" : "generated path"} #{short} was declared after Rails " \
         "set Zeitwerk up on it, so it can't be hidden from autoloading and its modules can't load. Declare " \

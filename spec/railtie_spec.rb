@@ -206,6 +206,84 @@ describe "GraphWeaver::Railtie" do
     GraphWeaver.reset_graphs!
   end
 
+  # Zeitwerk walks REAL directories, so a path handed to its ignore list, or
+  # compared against its roots, has to be the real one. A symlinked output was
+  # ignored under a name Zeitwerk never sees — its files then loaded as
+  # ordinary autoloads and raised on the constant they don't define — and the
+  # refusal above, comparing the same unresolved path against real roots, did
+  # not fire either.
+  describe "a symlinked output" do
+    around do |example|
+      Dir.mktmpdir do |tmp|
+        @root = File.realpath(tmp)
+        @real = File.join(@root, "app/generated_graphql/billing")
+        FileUtils.mkdir_p(@real)
+        GraphWeaver.root = @root
+        example.run
+      ensure
+        GraphWeaver.root = nil
+        GraphWeaver.reset_graphs!
+      end
+    end
+
+    def zeitwerk(roots: [])
+      ignored = []
+      loader = Object.new
+      loader.define_singleton_method(:ignore) { |path| ignored << path }
+      loader.define_singleton_method(:dirs) { roots }
+      stub_const("Rails", Module.new)
+      Rails.define_singleton_method(:autoloaders) { [loader] }
+      ignored
+    end
+
+    def declare(output)
+      where = output
+      GraphWeaver.graph :linked do
+        schema Demo::Schema
+        output where
+      end
+    end
+
+    it "is hidden under the directory Zeitwerk will walk" do
+      File.symlink("app/generated_graphql/billing", File.join(@root, "generated_link"))
+      declare "generated_link"
+      ignored = zeitwerk
+
+      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+
+      expect(ignored).to include @real
+    end
+
+    # the Capistrano shape: an absolute output through current/ -> releases/<ts>/
+    it "is hidden when only an ancestor of an absolute output is a symlink" do
+      FileUtils.mv(File.join(@root, "app"), File.join(@root, "releases"))
+      File.symlink("releases", File.join(@root, "current"))
+      declare File.join(@root, "current/generated_graphql/billing")
+      ignored = zeitwerk
+
+      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+
+      expect(ignored).to include File.join(@root, "releases/generated_graphql/billing")
+    end
+
+    # declared from to_prepare, which is too late to hide it — the refusal that
+    # exists for exactly this slipped through for the symlinked spelling while
+    # the identical non-symlinked path refused correctly
+    it "is refused when it is declared too late to hide" do
+      File.symlink("app/generated_graphql/billing", File.join(@root, "generated_link"))
+      zeitwerk(roots: [File.join(@root, "app")])
+
+      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+      declare "generated_link"
+
+      expect { register_generated_load.each(&:call) }.to raise_error(
+        GraphWeaver::Error,
+        # the graph's own spelling, not the directory the symlink points at
+        a_string_including(":linked", "generated_link", "GraphWeaver.generated_paths"),
+      )
+    end
+  end
+
   # the same late declaration is fine wherever Zeitwerk isn't looking — either
   # the ignore list already covers it, or it lives outside every autoload root
   it "lets a late output through when Zeitwerk was never going to load it" do
