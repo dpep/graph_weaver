@@ -31,10 +31,10 @@
 
   ```ruby
   GraphWeaver.graph :billing do
-    schema    Billing::Schema
+    schema    -> { Billing::Schema }
     queries   "app/graphql/billing/queries"
     output    "app/graphql/billing/generated"
-    client    Billing::Schema
+    client    "Billing::Schema"
     namespace "Billing"
     register_scalar "Money", BigDecimal
   end
