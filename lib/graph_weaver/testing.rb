@@ -249,15 +249,17 @@ module GraphWeaver
       # what to do about it, which differs by who asked: a graph names its
       # own class where it is declared, the app names one for the suite
       def schema_class_advice(graph)
-        return "GraphWeaver.client isn't running one in-process to borrow. Name it in the " \
-          "example — graphql_in_process(MySchema) — or set GraphWeaver::Testing.config.schema = " \
-          "MySchema for the whole suite. A federated app names the subgraph it means, per " \
-          "example; graphql: :router runs the graph stitched." unless graph&.name
-
-        "graph #{graph.name.inspect} names " \
-          "#{graph.named_schema? ? "type information, not a class" : "no schema of its own"}. " \
-          "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}, " \
-          "schema: -> { MySchema }, …)."
+        if graph&.name
+          "graph #{graph.name.inspect} names " \
+            "#{graph.named_schema? ? "type information, not a class" : "no schema of its own"}. " \
+            "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}, " \
+            "schema: -> { MySchema }, …)."
+        else
+          "GraphWeaver.client isn't running one in-process to borrow. Name it in the example — " \
+            "graphql_in_process(MySchema) — or set GraphWeaver::Testing.config.schema = MySchema " \
+            "for the whole suite. A federated app names the subgraph it means, per example; " \
+            "graphql: :router runs the graph stitched."
+        end
       end
 
       # config.schema doubles as the :in_process class when it is one — but a

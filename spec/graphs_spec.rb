@@ -270,6 +270,26 @@ describe "GraphWeaver.graph" do
     GraphWeaver::Testing.reset!
   end
 
+  # a mode asks the graph what it runs against before it asks the app
+  it "runs :in_process against the class a graph names, not the client's" do
+    GraphWeaver.client = GraphWeaver::InProcess.new(RouterGraph::Reviews::Schema)
+    GraphWeaver.graph :pets, schema: Demo::Schema
+
+    expect(GraphWeaver::Testing.config.schema_class!(GraphWeaver.graphs.first)).to be Demo::Schema
+  ensure
+    GraphWeaver.client = nil
+  end
+
+  # a graph is told where ITS class is declared; the app-wide advice
+  # (config.schema, graphql_in_process) can't name a second graph's
+  it "names the graph, and where to declare its class, when it names a dump" do
+    GraphWeaver.graph :storefront, schema: RouterGraph::SUPERGRAPH
+
+    expect { GraphWeaver::Testing.config.schema_class!(GraphWeaver.graphs.first) }
+      .to raise_error(GraphWeaver::Error,
+        /graph :storefront names type information.*GraphWeaver\.graph\(:storefront/m)
+  end
+
   # branding is read off the graph's own dump, so a graph that names a
   # supergraph keeps it — knowing whose code to look at is half the answer, and
   # it costs no network
