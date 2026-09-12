@@ -402,7 +402,7 @@ describe "custom scalar deserialization" do
         scalar DateTime
         scalar BigInt
         scalar JSON
-        type Query { event: Event! }
+        type Query { event: Event! echo(d: ISO8601Date): String }
         type Event { on: ISO8601Date at: ISO8601DateTime seen: DateTime count: BigInt meta: JSON }
       GRAPHQL
     end
@@ -431,6 +431,23 @@ describe "custom scalar deserialization" do
     it "keeps a date a Date, so nothing invents a midnight" do
       expect(GraphWeaver::Codegen.scalar("ISO8601Date").type).to eq "Date"
       expect(GraphWeaver::Codegen.scalar("ISO8601DateTime").type).to eq "Time"
+    end
+
+    # DateTime < Date, so it passes the is_a? guard as a Date — and its own
+    # #iso8601 writes a timestamp where the schema said a date goes
+    it "sends a DateTime given for a Date variable as a date" do
+      spy = Class.new do
+        attr_reader :variables
+        def execute(_query, variables:, operation_name: nil)
+          @variables = variables
+          { "data" => { "echo" => "ok" } }
+        end
+      end.new
+      mod = GraphWeaver.parse(schema:, client: spy, query: "query On($d: ISO8601Date) { echo(d: $d) }")
+
+      mod.execute(d: DateTime.new(2024, 1, 15, 10, 20, 30))
+
+      expect(spy.variables).to eq("d" => "2024-01-15")
     end
 
     it "is overridden by a registration, like any other entry" do

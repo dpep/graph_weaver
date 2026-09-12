@@ -1,3 +1,10 @@
+## Unreleased
+- **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime`
+  is a `Date` to Ruby, so it passed straight through the cast and went on the
+  wire as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema
+  said `ISO8601Date`. A lenient server truncated it; a strict one refused it.
+  The `Date` serializer now writes the date alone.
+
 ###  v0.7.0  (2026-09-11)
 - **A `cast:` or `serialize:` proc that returns a value is refused at
   registration.** A proc there builds *source* for the generated file, so

@@ -74,7 +74,9 @@ class GraphWeaver::Codegen
     # Only types whose wire form is unambiguous belong here.
     STDLIB = {
       "BigDecimal" => { serialize: [:to_s, "F"], requires: "bigdecimal" },
-      "Date" => { cast: :iso8601, serialize: :iso8601, requires: "date" },
+      # strftime, not #iso8601: DateTime < Date passes the is_a? guard, and its
+      # #iso8601 writes a timestamp where the schema said a date goes
+      "Date" => { cast: :iso8601, serialize: [:strftime, "%F"], requires: "date" },
       "Time" => { cast: :parse, serialize: :iso8601, requires: "time" },
       "DateTime" => { cast: :iso8601, serialize: :iso8601, requires: "date" },
     }.freeze

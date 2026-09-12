@@ -53,7 +53,7 @@ stands alone.
 | Ruby type | cast | serialize | require |
 |---|---|---|---|
 | `BigDecimal` | `BigDecimal(v)` | `v.to_s("F")` | `bigdecimal` |
-| `Date` | `Date.iso8601(v)` | `v.iso8601` | `date` |
+| `Date` | `Date.iso8601(v)` | `v.strftime("%F")` | `date` |
 | `Time` | `Time.parse(v)` | `v.iso8601` | `time` |
 | `DateTime` | `DateTime.iso8601(v)` | `v.iso8601` | `date` |
 
@@ -242,7 +242,7 @@ the sig is `.checked(:never)`).
 | `String` | `String` | nothing | the string |
 | `ID` | `String` | an `Integer` — `execute(id: user.id)` | the string |
 | `Boolean` | `true`/`false` | nothing | the boolean |
-| `Date` | `Date` | an ISO-8601 string | `iso8601` |
+| `Date` | `Date` | an ISO-8601 string, a `DateTime` (its date) | `"2024-01-15"` |
 | `Time` | `Time` | a string `Time.parse` takes | `iso8601` |
 | `BigInt` | `Integer` | a decimal string | the decimal string, which is what the server writes |
 | an enum | the member **or** its wire value | — | the wire value |
