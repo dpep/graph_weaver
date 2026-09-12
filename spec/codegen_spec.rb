@@ -1568,6 +1568,23 @@ describe GraphWeaver::Codegen do
       expect(node.__typename).to eq "Thing7"
     end
 
+    # "the query already names every member" is a fact about the schema TODAY,
+    # so it can't be the reason a response breaks tomorrow — the catch-all is
+    # unconditional, and there is no `unexpected __typename` arm to reach
+    it "keeps the catch-all even when the query names every member" do
+      sdl = <<~GRAPHQL
+        union Feed = Post | Photo
+        type Post { title: String! }
+        type Photo { url: String! }
+        type Query { feed: [Feed!]! }
+      GRAPHQL
+      query = "query Q { feed { __typename ... on Post { title } ... on Photo { url } } }"
+      src = described_class.generate(schema: GraphQL::Schema.from_definition(sdl), query:, name: "Q")
+
+      expect(src).to include("class Other < T::Struct", "else Other.from_h(data)")
+      expect(src).not_to include("unexpected __typename")
+    end
+
     it "absorbs a union member the schema grew after generation" do
       v1 = <<~GRAPHQL
         union Feed = Post | Photo

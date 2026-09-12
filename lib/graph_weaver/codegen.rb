@@ -909,7 +909,7 @@ class GraphWeaver::Codegen
   def check_shadowing!(node, scope = {})
     case node
     when UnionNode
-      members = node.members.each_value.to_a + [node.catch_all].compact
+      members = node.members.each_value.to_a + [node.catch_all]
       inner = scope.merge(members.to_h { |m| [m.class_name, "the member struct #{m.class_name}"] })
       members.each { |member| check_shadowing!(member, inner) }
     when ObjectNode
@@ -1161,9 +1161,9 @@ class GraphWeaver::Codegen
 
   # A name-independent structural fingerprint of a union's members, so two
   # occurrences that generate identical structs collapse to one Ruby type.
-  def union_signature(members, catch_all = nil)
+  def union_signature(members, catch_all)
     parts = members.map { |gname, member| "#{gname}=#{signature(member)}" }
-    parts << "*=#{signature(catch_all)}" if catch_all
+    parts << "*=#{signature(catch_all)}"
     parts.sort.join(",")
   end
 

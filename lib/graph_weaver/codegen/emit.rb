@@ -417,7 +417,7 @@ class GraphWeaver::Codegen
       out << "#{pad}module #{node.class_name}"
       out << "#{pad}  extend T::Sig" << "" if GraphWeaver.extend_t_sig?
 
-      structs = node.members.values + [node.catch_all].compact
+      structs = node.members.values + [node.catch_all]
       structs.each do |member|
         emit_object(member, out, indent + 1)
         out << ""
@@ -429,21 +429,14 @@ class GraphWeaver::Codegen
       out << ""
       out << "#{pad}  sig { params(data: T::Hash[String, T.untyped]).returns(Type) }"
       out << "#{pad}  def self.from_h(data)"
-      if node.catch_all
-        out << "#{pad}    case data.fetch(\"__typename\")"
-      else
-        out << "#{pad}    case (typename = data.fetch(\"__typename\"))"
-      end
+      out << "#{pad}    case data.fetch(\"__typename\")"
       node.members.each do |graphql_name, member|
         out << "#{pad}    when #{graphql_name.inspect} then #{member.class_name}.from_h(data)"
       end
-      if node.catch_all
-        out << "#{pad}    # a member this query names no fields on — including one the"
-        out << "#{pad}    # schema grew since generation"
-        out << "#{pad}    else #{node.catch_all.class_name}.from_h(data)"
-      else
-        out << "#{pad}    else raise GraphWeaver::CastError.new(struct: self, message: \"unexpected __typename: \#{typename}\")"
-      end
+      # every dispatch has a catch-all, so no __typename is unexpected
+      out << "#{pad}    # a member this query names no fields on — including one the"
+      out << "#{pad}    # schema grew since generation"
+      out << "#{pad}    else #{node.catch_all.class_name}.from_h(data)"
       out << "#{pad}    end"
       out << "#{pad}  end"
       out << "#{pad}end"

@@ -310,10 +310,13 @@ class GraphWeaver::Codegen
     # alphabetically first of their keys, which the walk may reach second
     attr_accessor :class_name
     attr_reader :members # graphql type name => ObjectNode
-    # the struct an unnamed (or newly-added) __typename deserializes into
+    # The struct an unnamed (or newly-added) __typename deserializes into.
+    # Required, not defaulted: a dispatch without one has to refuse a member
+    # the schema grew, and "the query named every member today" is not a
+    # reason to break tomorrow's response.
     attr_reader :catch_all
 
-    def initialize(class_name, members, catch_all = nil)
+    def initialize(class_name, members, catch_all)
       @class_name = class_name
       @members = members
       @catch_all = catch_all

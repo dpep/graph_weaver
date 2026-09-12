@@ -83,6 +83,13 @@
   field's own name back. Generated source now notes the rename on the line
   above the prop (`# wire: class — reserved as a prop name`), which is the
   one prop-vs-wire difference a reader can't infer. **Regenerate.**
+- **An unknown `__typename` has one behavior, so the arm that refused it is
+  gone.** Every generated union/interface dispatch already ends in the
+  catch-all `Other` that a member added upstream lands in; the `else raise
+  "unexpected __typename"` arm was left behind when that landed and could no
+  longer be reached. `UnionNode` now requires a catch-all rather than
+  defaulting to none, so the arm can't come back. No generated file contained
+  it, so there is nothing to do.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

@@ -360,7 +360,10 @@ Two safety properties do the real work:
 - **`fallback:` for forward-compat**: `fallback: PetKind::Unknown` makes
   *casting* absorb wire values the server added after you generated —
   responses keep flowing instead of raising. Inputs stay strict either
-  way: a typo'd input is your bug, not drift.
+  way: a typo'd input is your bug, not drift. A union or interface absorbs
+  the same drift without a registration: a member added upstream lands in the
+  catch-all `Other` its dispatch always carries
+  ([generated modules](generated_modules.md#abstract-types)).
 
 The translation tables are emitted into the generated source
 (`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) — reviewable in the diff, no
