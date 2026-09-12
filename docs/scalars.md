@@ -223,7 +223,7 @@ server writing a non-integer where the spec says integer, so it is refused.
 | an enum | a declared value, as a string | an undeclared value, a non-string |
 | `JSON`, or unregistered | anything — `T.untyped`, straight through | nothing |
 
-A refusal is a [`GraphWeaver::TypeError`](errors.md) naming the field and the
+A refusal is a [`GraphWeaver::CastError`](errors.md) naming the field and the
 generated struct (which names the query). Two refusals carry advice rather than
 only sorbet's words: an unquoted `ID`, and a registration with no cast (above).
 

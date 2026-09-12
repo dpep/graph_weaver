@@ -14,8 +14,8 @@ module GraphWeaver
   # a JSON-ready Hash (string keys) for logging, agents, or surfacing
   # structured failures to users. One subclass per failure site —
   # {TransportError} (no response came back), {ServerError} (non-2xx),
-  # {QueryError} (GraphQL-level errors), {TypeError} (response wouldn't
-  # cast), {InputError} (bad variables), {ValidationError} (build time),
+  # {QueryError} (GraphQL-level errors), {CastError} (response wouldn't
+  # cast), {InputError} (bad variables), {QueryValidationError} (build time),
   # {ConfigurationError} (setup judged against your schema) — each merging
   # its specifics into #to_h.
   class Error < StandardError
@@ -530,7 +530,7 @@ module GraphWeaver
   # unknown enum value). #struct names the generated type that failed;
   # #cause carries the original TypeError/KeyError with the offending
   # prop in its message.
-  class TypeError < Error
+  class CastError < Error
     extend T::Sig
 
     sig { returns(T.untyped) }
@@ -640,8 +640,8 @@ module GraphWeaver
       @details = details
       @struct = struct
       @raised = raised
-      # the message often IS a sorbet prop error — drop its frame, as TypeError does
-      super(message.sub(TypeError::SORBET_CALLER, ""))
+      # the message often IS a sorbet prop error — drop its frame, as CastError does
+      super(message.sub(CastError::SORBET_CALLER, ""))
     end
 
     # The input field the value actually landed on — the last segment of
@@ -692,7 +692,7 @@ module GraphWeaver
   # structured validation errors (message + line/column) rather than a
   # joined string. Under the Error umbrella like everything else raised
   # here (through 0.1.0 it was an ArgumentError instead).
-  class ValidationError < Error
+  class QueryValidationError < Error
     extend T::Sig
 
     sig { returns(T::Array[T::Hash[Symbol, T.untyped]]) }
@@ -730,7 +730,7 @@ module GraphWeaver
     # line — thirty typos on one joined line is a wall nobody reads.
     sig { params(errors: T::Array[T::Hash[Symbol, T.untyped]]).returns(String) }
     def render(errors)
-      entries = errors.map { |error| ValidationError.split(error) }
+      entries = errors.map { |error| QueryValidationError.split(error) }
       paths = entries.map(&:first).compact.uniq
       hoisted = paths.one?
 

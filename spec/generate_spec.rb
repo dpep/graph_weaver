@@ -72,7 +72,7 @@ describe "GraphWeaver.generate!" do
     # fragment inlining parses before Codegen#generate's rescue, so this used to
     # escape as a bare GraphQL::ParseError pointing into an unnamed document
     expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
-      .to raise_error(GraphWeaver::ValidationError, %r{queries/broken\.graphql:})
+      .to raise_error(GraphWeaver::QueryValidationError, %r{queries/broken\.graphql:})
   end
 
   # numbering a corpus is a normal way to order it, and "01HomeQuery" isn't a
@@ -94,7 +94,7 @@ describe "GraphWeaver.generate!" do
     # the file reaches Codegen only if generate! passes path: — without it a
     # project with thirty query files reports a bare 1:25
     expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
-      .to raise_error(GraphWeaver::ValidationError, %r{\Ainvalid query in .*/queries/typo\.graphql:\n  1:25  Field 'nmae'})
+      .to raise_error(GraphWeaver::QueryValidationError, %r{\Ainvalid query in .*/queries/typo\.graphql:\n  1:25  Field 'nmae'})
   end
 
   it "names the shared module the same wherever the output goes" do

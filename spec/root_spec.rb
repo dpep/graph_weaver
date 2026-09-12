@@ -102,7 +102,7 @@ describe "GraphWeaver.root" do
         "query { person(id: 1) { nmae } }\n")
 
       expect { GraphWeaver.generate! }
-        .to raise_error(GraphWeaver::ValidationError, %r{\Ainvalid query in app/graphql/queries/root_probe\.graphql:})
+        .to raise_error(GraphWeaver::QueryValidationError, %r{\Ainvalid query in app/graphql/queries/root_probe\.graphql:})
     end
 
     it "names the short path when a generated file is stale" do

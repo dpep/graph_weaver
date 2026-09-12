@@ -1,4 +1,17 @@
 ## Unreleased
+- **BREAKING: two error classes renamed, with no alias.**
+  `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
+  response wouldn't cast into the generated structs, and the old name shadowed
+  a core class it doesn't descend from, so `rescue TypeError` inside the gem
+  read as Ruby's and `rescue GraphWeaver::TypeError` outside it read as a type
+  error in the caller's own code. `GraphWeaver::ValidationError` is now
+  **`GraphWeaver::QueryValidationError`** — it means the *query* failed schema
+  validation at build time, which a Rails reader would not guess from
+  "validation": their input's validation is `InputError`. The old names are
+  **gone**, not deprecated — rescuing one is a `NameError`, which is the loud
+  failure, and a constant alias would carry the confusion forward forever.
+  Rename at every rescue site and in any `to_h["error"]` string an app matches
+  on; `GraphWeaver::Error` still catches both, as it always did.
 - **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
   time was inherited by every child, and a round trip carries nothing saying
   which process opened it — so forked workers interleaved requests on one fd and

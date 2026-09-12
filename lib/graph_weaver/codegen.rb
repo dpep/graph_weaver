@@ -348,10 +348,10 @@ class GraphWeaver::Codegen
     rescue GraphQL::ParseError => e
       # unparseable queries wrap like invalid ones — everything raised
       # here descends from GraphWeaver::Error
-      raise GraphWeaver::ValidationError.new([detail(e.message, e.line, e.col)])
+      raise GraphWeaver::QueryValidationError.new([detail(e.message, e.line, e.col)])
     end
     if errors.any?
-      raise GraphWeaver::ValidationError.new(errors.map { |e| validation_detail(e) })
+      raise GraphWeaver::QueryValidationError.new(errors.map { |e| validation_detail(e) })
     end
 
     validate_registrations!
@@ -649,7 +649,7 @@ class GraphWeaver::Codegen
     GraphQL.parse(query)
   rescue GraphQL::ParseError => e
     prefix = [path && GraphWeaver::Internal::Util.relative(path), e.line, e.col].compact.join(":")
-    raise GraphWeaver::ValidationError.new(
+    raise GraphWeaver::QueryValidationError.new(
       [{ message: prefix.empty? ? e.message : "#{prefix} #{e.message}", line: e.line, column: e.col }],
     )
   end
@@ -691,13 +691,13 @@ class GraphWeaver::Codegen
   private_class_method :fragment_spreads
 
   # Structured shape for a schema-validation error: message plus its first
-  # source location, so ValidationError#errors is inspectable.
+  # source location, so QueryValidationError#errors is inspectable.
   def validation_detail(error)
     loc = (error.to_h["locations"]&.first if error.respond_to?(:to_h))
     detail(error.message, loc && loc["line"], loc && loc["column"])
   end
 
-  # One ValidationError entry, its message prefixed "file:line:col" like a
+  # One QueryValidationError entry, its message prefixed "file:line:col" like a
   # compiler — the position is captured either way, and without it a project
   # with thirty query files leaves the reader hunting for the typo.
   def detail(message, line, column)

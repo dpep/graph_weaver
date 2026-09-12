@@ -474,7 +474,7 @@ fake = GraphWeaver::Testing::FakeClient.new(schema:)
 GraphWeaver::Testing::Sequence.new(Failure.transport, Failure.transport, fake)
 
 # type mismatch: corrupt: derives a wrong-typed wire value for the field —
-# casting raises GraphWeaver::TypeError (overrides remain the manual escape hatch)
+# casting raises GraphWeaver::CastError (overrides remain the manual escape hatch)
 GraphWeaver::Testing::FakeClient.new(schema:, corrupt: "Person.birthday")
 
 # field-level partial failure with real GraphQL null propagation: the error

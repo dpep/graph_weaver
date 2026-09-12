@@ -191,11 +191,11 @@ describe "error handling" do
     end
   end
 
-  describe "ValidationError" do
+  describe "QueryValidationError" do
     it "is raised for invalid queries, under the Error umbrella, with structured errors" do
       expect {
         GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", name: "Bad")
-      }.to raise_error(GraphWeaver::ValidationError) do |e|
+      }.to raise_error(GraphWeaver::QueryValidationError) do |e|
         expect(e).to be_a GraphWeaver::Error # one rescue catches everything
         expect(e.message).to match(/invalid query/)
         expect(e.errors.first[:message]).to be_a String
@@ -206,7 +206,7 @@ describe "error handling" do
       expect {
         GraphWeaver::Codegen.generate(schema: Demo::Schema, name: "Bad", path: "queries/typo.graphql",
           query: "query { person(id: 1) { nmae birthdy } }")
-      }.to raise_error(GraphWeaver::ValidationError) do |e|
+      }.to raise_error(GraphWeaver::QueryValidationError) do |e|
         expect(e.message.lines.map(&:chomp)).to match [
           "invalid query in queries/typo.graphql:",
           /\A {2}1:25 {2}Field 'nmae' /,
@@ -219,13 +219,13 @@ describe "error handling" do
 
     it "omits the file from a dynamically parsed query, rather than a dangling 'in'" do
       expect { GraphWeaver.parse(schema: Demo::Schema, query: "{ nope }") }
-        .to raise_error(GraphWeaver::ValidationError) do |e|
+        .to raise_error(GraphWeaver::QueryValidationError) do |e|
           expect(e.message.lines.map(&:chomp)).to match ["invalid query:", /\A {2}1:3 {2}Field 'nope' /]
         end
     end
 
     it "omits the position from an error that carries none, rather than a bare colon" do
-      error = GraphWeaver::ValidationError.new([{ message: "no location for this one" }])
+      error = GraphWeaver::QueryValidationError.new([{ message: "no location for this one" }])
 
       expect(error.message).to eq "invalid query:\n  no location for this one"
     end
@@ -392,14 +392,14 @@ describe "error handling" do
 
       validation = begin
         GraphWeaver::Codegen.generate(schema: Demo::Schema, query: "{ nope }", name: "Bad")
-      rescue GraphWeaver::ValidationError => e
+      rescue GraphWeaver::QueryValidationError => e
         e
       end
       expect(validation.to_h["errors"].first).to include("message")
     end
   end
 
-  describe "TypeError" do
+  describe "CastError" do
     # the checked-in fixture module, so generated structs have real names
     def run_generated(payload)
       executor = Object.new
@@ -411,7 +411,7 @@ describe "error handling" do
       # birthday should be an iso8601 string; a number breaks the Date cast
       bad = { "person" => { "id" => "1", "name" => "Daniel", "birthday" => 123, "pets" => [] } }
 
-      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::TypeError) do |e|
+      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::CastError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
         expect(e.message).to match(/failed to cast response/)
         expect(e.cause).not_to be_nil
@@ -427,7 +427,7 @@ describe "error handling" do
         },
       }
 
-      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::TypeError) do |e|
+      expect { run_generated("data" => bad) }.to raise_error(GraphWeaver::CastError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person::Pets"
       end
     end
@@ -457,15 +457,15 @@ describe "error handling" do
 
     # each used to arrive as a Response reporting success with no data
     it "refuses a response carrying neither data nor errors" do
-      expect { run(nil) }.to raise_error(GraphWeaver::TypeError, /neither "data" nor "errors"/)
+      expect { run(nil) }.to raise_error(GraphWeaver::CastError, /neither "data" nor "errors"/)
 
-      expect { run(data: person_data) }.to raise_error(GraphWeaver::TypeError, /got :data/)
-      expect { run("dat" => person_data) }.to raise_error(GraphWeaver::TypeError, /got "dat"/)
+      expect { run(data: person_data) }.to raise_error(GraphWeaver::CastError, /got :data/)
+      expect { run("dat" => person_data) }.to raise_error(GraphWeaver::CastError, /got "dat"/)
     end
 
     it "brands a response that isn't an object at all" do
       expect { GraphWeaver.check_envelope!('{"data":{}}', mod::Result) }
-        .to raise_error(GraphWeaver::TypeError, /must be an object, got String/)
+        .to raise_error(GraphWeaver::CastError, /must be an object, got String/)
     end
 
     # #struct was the generated class from one door and a GraphQL type name
@@ -497,7 +497,7 @@ describe "error handling" do
     end
 
     # the frame sorbet appends is a path into the gem, never into the code
-    # with the problem — TypeError already drops it
+    # with the problem — CastError already drops it
     it "keeps sorbet's own frame out of an InputError" do
       require_relative "generated/types"
       expect { GraphQLTypes::AdoptionInput.coerce("species" => "DOG") }

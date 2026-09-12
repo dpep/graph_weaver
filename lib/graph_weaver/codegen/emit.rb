@@ -395,7 +395,7 @@ class GraphWeaver::Codegen
       out << "#{pad}  rescue GraphWeaver::Error"
       out << "#{pad}    raise # already branded by a nested struct or leaf — keep the innermost context"
       out << "#{pad}  rescue StandardError => e" # sorbet's prop check, mostly
-      out << "#{pad}    raise GraphWeaver::TypeError.new(struct: self, " \
+      out << "#{pad}    raise GraphWeaver::CastError.new(struct: self, " \
         "message: GraphWeaver::Hints.cast_message(self, data, e))"
       out << "#{pad}  end"
 
@@ -440,7 +440,7 @@ class GraphWeaver::Codegen
         out << "#{pad}    # schema grew since generation"
         out << "#{pad}    else #{node.catch_all.class_name}.from_h(data)"
       else
-        out << "#{pad}    else raise GraphWeaver::TypeError.new(struct: self, message: \"unexpected __typename: \#{typename}\")"
+        out << "#{pad}    else raise GraphWeaver::CastError.new(struct: self, message: \"unexpected __typename: \#{typename}\")"
       end
       out << "#{pad}    end"
       out << "#{pad}  end"

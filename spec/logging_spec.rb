@@ -123,8 +123,8 @@ describe "GraphWeaver.logger" do
     expect(io.string).to include("GraphWeaver::ServerError: HTTP 404")
 
     expect { GraphWeaver.parse(schema: Demo::Schema, query: "{ nope }") }
-      .to raise_error(GraphWeaver::ValidationError)
-    expect(io.string).to include("GraphWeaver::ValidationError: invalid query")
+      .to raise_error(GraphWeaver::QueryValidationError)
+    expect(io.string).to include("GraphWeaver::QueryValidationError: invalid query")
   end
 
   # debug is the loudest level and the one an incident turns on — the token

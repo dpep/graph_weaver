@@ -96,7 +96,7 @@ describe "failure simulation" do
 
       expect {
         PersonQuery.execute(client: corrupt, id: "1")
-      }.to raise_error(GraphWeaver::TypeError) do |e|
+      }.to raise_error(GraphWeaver::CastError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
     end
@@ -106,7 +106,7 @@ describe "failure simulation" do
       name_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.name")
       expect {
         PersonQuery.execute(client: name_corrupt, id: "1")
-      }.to raise_error(GraphWeaver::TypeError) do |e|
+      }.to raise_error(GraphWeaver::CastError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
       end
 
@@ -116,7 +116,7 @@ describe "failure simulation" do
       pets_corrupt = GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, corrupt: "Person.pets")
       expect {
         PersonQuery.execute(client: pets_corrupt, id: "1")
-      }.to raise_error(GraphWeaver::TypeError) do |e|
+      }.to raise_error(GraphWeaver::CastError) do |e|
         expect(e.struct.name).to eq "PersonQuery::Result::Person"
         expect(e.cause&.message).to include("Pets.from_h")
       end
@@ -131,13 +131,13 @@ describe "failure simulation" do
         pets.execute!(client: GraphWeaver::Testing::FakeClient.new(
           schema: Demo::Schema, seed: 1, corrupt: "Pet.species",
         ))
-      }.to raise_error(GraphWeaver::TypeError)
+      }.to raise_error(GraphWeaver::CastError)
 
       schema = GraphQL::Schema.from_definition("type Query { total: Int! }")
       totals = GraphWeaver.parse(schema:, name: "CorruptInt", query: "query CorruptInt { total }")
       expect {
         totals.execute!(client: GraphWeaver::Testing::FakeClient.new(schema:, seed: 1, corrupt: "Query.total"))
-      }.to raise_error(GraphWeaver::TypeError)
+      }.to raise_error(GraphWeaver::CastError)
     end
 
     it "overrides remain the manual escape hatch for exact corrupt values" do
@@ -147,7 +147,7 @@ describe "failure simulation" do
         overrides: { "Person.birthday" => "not-iso8601" },
       )
 
-      expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TypeError)
+      expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::CastError)
     end
 
     it "appends verbatim errors alongside fake data" do

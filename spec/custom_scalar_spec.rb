@@ -332,7 +332,7 @@ describe "custom scalar deserialization" do
     mod.module_eval(generate)
 
     expect { mod.const_get(:StoreQuery).from_response!("data" => { "product" => { "name" => "W", "price" => "12" } }) }
-      .to raise_error(GraphWeaver::TypeError, /not money/)
+      .to raise_error(GraphWeaver::CastError, /not money/)
   end
 
   # A stdlib type should take one argument beyond the name, because the
@@ -734,6 +734,6 @@ describe "narrowing a JSON field with a type string" do
   it "refuses a value that isn't one, naming the struct" do
     narrow
 
-    expect { meta(["dark"]) }.to raise_error(GraphWeaver::TypeError, /SettingsQuery::Result::Settings/)
+    expect { meta(["dark"]) }.to raise_error(GraphWeaver::CastError, /SettingsQuery::Result::Settings/)
   end
 end

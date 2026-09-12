@@ -161,7 +161,7 @@ module GraphWeaver
       # and nothing else notices when that server's answers drift out of the
       # shape the structs were generated for: `verify`, `queries:check` and
       # `schema:diff` all ask about the local side. Without this the drift
-      # surfaces mid-spec as a `TypeError` naming a struct and a sorbet
+      # surfaces mid-spec as a `CastError` naming a struct and a sorbet
       # frame, with nothing pointing at the stale file.
       #
       # Matching is on the query text, which is the module that sent it — a

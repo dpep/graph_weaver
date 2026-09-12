@@ -52,6 +52,6 @@ describe "schema drift at runtime" do
     }
 
     expect { PersonQuery.from_response(wire) }
-      .to raise_error(GraphWeaver::TypeError, /the server also reported: name is hidden/)
+      .to raise_error(GraphWeaver::CastError, /the server also reported: name is hidden/)
   end
 end

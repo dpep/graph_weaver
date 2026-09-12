@@ -37,6 +37,8 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
 |---|---|
 | `graphql: false` (rspec tag) | `graphql: :live` — the opt-out is your own client, which is a mode like the other four; `false` is refused, naming it |
 | `config.default_mode = nil` | `config.default_mode = :live`, which is now the **default** — every example has exactly one mode, and `nil` is no longer a value it reads back |
+| `GraphWeaver::TypeError` | `GraphWeaver::CastError` — the response wouldn't cast into the generated structs; the old name shadowed a core class it doesn't descend from. No alias: the old constant is gone, so a stale `rescue` is a `NameError` |
+| `GraphWeaver::ValidationError` | `GraphWeaver::QueryValidationError` — build time, the *query* against the schema. Your input's validation is `InputError`. No alias here either |
 
 ### Behavior that changed under you
 

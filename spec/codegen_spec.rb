@@ -226,9 +226,9 @@ describe GraphWeaver::Codegen do
 
   end
 
-  it "wraps unparseable queries as ValidationError, not GraphQL::ParseError" do
+  it "wraps unparseable queries as QueryValidationError, not GraphQL::ParseError" do
     expect { GraphWeaver.parse(schema: Demo::Schema, query: "query {") }
-      .to raise_error(GraphWeaver::ValidationError)
+      .to raise_error(GraphWeaver::QueryValidationError)
   end
 
   it "rejects queries that do not validate against the schema" do
@@ -239,14 +239,14 @@ describe GraphWeaver::Codegen do
       name: "Bad",
     )
 
-    expect { codegen.generate }.to raise_error(GraphWeaver::ValidationError, /invalid query/)
+    expect { codegen.generate }.to raise_error(GraphWeaver::QueryValidationError, /invalid query/)
   end
 
   it "names the file and position of each validation error" do
     expect {
       described_class.generate(schema: Demo::Schema, name: "Bad", path: "queries/typo.graphql",
         query: "query { person(id: 1) { nmae } }")
-    }.to raise_error(GraphWeaver::ValidationError, %r{queries/typo\.graphql:\n  1:25  Field 'nmae'})
+    }.to raise_error(GraphWeaver::QueryValidationError, %r{queries/typo\.graphql:\n  1:25  Field 'nmae'})
   end
 
   describe "the generated module" do
@@ -447,7 +447,7 @@ describe GraphWeaver::Codegen do
       client = Object.new.tap { |o| o.define_singleton_method(:execute) { |*, **| "<html>502</html>" } }
 
       expect { PersonQuery.execute(id: "1", client:) }
-        .to raise_error(GraphWeaver::TypeError, /response must be an object, got String/)
+        .to raise_error(GraphWeaver::CastError, /response must be an object, got String/)
     end
 
     it "carries top-level errors into the envelope" do
@@ -471,7 +471,7 @@ describe GraphWeaver::Codegen do
       "non-object extensions" => { "extensions" => "cost" },
     }.each do |label, body|
       it "brands #{label} under the error umbrella" do
-        expect { PersonQuery.from_response(body) }.to raise_error(GraphWeaver::TypeError)
+        expect { PersonQuery.from_response(body) }.to raise_error(GraphWeaver::CastError)
       end
     end
 
@@ -479,7 +479,7 @@ describe GraphWeaver::Codegen do
       # String#[] answers "data" with nil, so this used to deserialize to an
       # empty envelope rather than saying the server misbehaved
       body = Object.new.tap { |o| o.define_singleton_method(:to_h) { "<html>502</html>" } }
-      expect { PersonQuery.from_response(body) }.to raise_error(GraphWeaver::TypeError, /must be an object/)
+      expect { PersonQuery.from_response(body) }.to raise_error(GraphWeaver::CastError, /must be an object/)
     end
   end
 
@@ -1355,7 +1355,7 @@ describe GraphWeaver::Codegen do
         query: 'query Q($s: Boolean!) { people { name ... on Person @skip(if: $s) { name } } }',
       )
 
-      expect { mod.from_response!("data" => { "people" => [{}] }) }.to raise_error(GraphWeaver::TypeError)
+      expect { mod.from_response!("data" => { "people" => [{}] }) }.to raise_error(GraphWeaver::CastError)
       expect(mod.from_response!("data" => { "people" => [{ "name" => "D" }] }).people.first&.name).to eq "D"
     end
 

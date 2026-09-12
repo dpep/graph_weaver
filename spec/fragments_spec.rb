@@ -93,9 +93,9 @@ RSpec.describe "shared fragments" do
     end
   end
 
-  it "surfaces an undefined fragment as a ValidationError" do
+  it "surfaces an undefined fragment as a QueryValidationError" do
     expect { GraphWeaver::Codegen.generate(schema:, query: "query P { people { ...Nope } }", name: "P") }
-      .to raise_error(GraphWeaver::ValidationError, /Nope/)
+      .to raise_error(GraphWeaver::QueryValidationError, /Nope/)
   end
 
   describe "dispatch + cycles (review fixes)" do

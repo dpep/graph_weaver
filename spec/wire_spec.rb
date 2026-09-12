@@ -59,7 +59,7 @@ describe "registered scalar wire types" do
     mod = GraphWeaver.parse(schema: enum_schema, query: "query M { c }")
 
     expect { mod.from_response!("data" => { "c" => "PURPLE" }) }
-      .to raise_error(GraphWeaver::TypeError, /c: "PURPLE" is not a .*expected one of: GREEN, RED.*regenerate/m)
+      .to raise_error(GraphWeaver::CastError, /c: "PURPLE" is not a .*expected one of: GREEN, RED.*regenerate/m)
   end
 
   # the same registration used only for a variable is fine — nothing casts it

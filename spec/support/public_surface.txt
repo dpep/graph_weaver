@@ -46,6 +46,10 @@ GraphWeaver.types_module=
 GraphWeaver.unmatched_registrations
 GraphWeaver.untyped_scalars
 GraphWeaver.verify_generated!
+GraphWeaver::CastError (Class)
+GraphWeaver::CastError#struct
+GraphWeaver::CastError#to_h
+GraphWeaver::CastError::SORBET_CALLER = Regexp
 GraphWeaver::Client (Class)
 GraphWeaver::Client#execute
 GraphWeaver::Client#run
@@ -223,6 +227,10 @@ GraphWeaver::QueryError::DRIFT_HINT = String
 GraphWeaver::QueryModule (Module)
 GraphWeaver::QueryModule#client
 GraphWeaver::QueryModule#client=
+GraphWeaver::QueryValidationError (Class)
+GraphWeaver::QueryValidationError#errors
+GraphWeaver::QueryValidationError#to_h
+GraphWeaver::QueryValidationError.split
 GraphWeaver::Representation (Module)
 GraphWeaver::Representation.build
 GraphWeaver::Representation.field
@@ -463,13 +471,5 @@ GraphWeaver::Transport::HTTP (Class)
 GraphWeaver::Transport::HTTP.default_pool_size
 GraphWeaver::TransportError (Class)
 GraphWeaver::TransportError#to_h
-GraphWeaver::TypeError (Class)
-GraphWeaver::TypeError#struct
-GraphWeaver::TypeError#to_h
-GraphWeaver::TypeError::SORBET_CALLER = Regexp
 GraphWeaver::TypeHelpers (Module)
 GraphWeaver::VERSION = String
-GraphWeaver::ValidationError (Class)
-GraphWeaver::ValidationError#errors
-GraphWeaver::ValidationError#to_h
-GraphWeaver::ValidationError.split

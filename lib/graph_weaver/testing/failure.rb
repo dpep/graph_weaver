@@ -16,7 +16,7 @@ module GraphWeaver
     #
     # For type mismatches, corrupt the wire with a FakeClient override:
     #      FakeClient.new(schema:, overrides: { "Person.birthday" => 123 })
-    # casting then raises GraphWeaver::TypeError, exactly as a bad server
+    # casting then raises GraphWeaver::CastError, exactly as a bad server
     # payload would. For partial failures, see FakeClient's fail_at:.
     module Failure
       include Kernel # for sorbet

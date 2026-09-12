@@ -15,7 +15,7 @@ What logs at which level — pick the level, get the story:
 |-------|--------------|
 | `debug` | the wire: query + variables per call (long queries truncated), response status/bytes, request timing, connection open/drop, dynamically parsed modules |
 | `info` | schema introspection (with timing) and cache hits/misses, the transport a client built, generated files written and any unregistered scalars, query modules loaded, a retry's wait and attempt number — and in development, what's being watched and what a save regenerated |
-| `warn` | every GraphWeaver error raised — `TransportError`, `ServerError`, `QueryError`, `ValidationError`, `TypeError` — registrations the schema being generated against can't match, a retry skipped because the operation was a mutation, and every fetch the test router answered with fabricated data |
+| `warn` | every GraphWeaver error raised — `TransportError`, `ServerError`, `QueryError`, `QueryValidationError`, `CastError` — registrations the schema being generated against can't match, a retry skipped because the operation was a mutation, and every fetch the test router answered with fabricated data |
 | `error` | development only: a `.graphql` edit that won't compile, with its file and position — the modules already loaded keep serving |
 
 Every line carries `graph_weaver` as the progname, so formatter-based

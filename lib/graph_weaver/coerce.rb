@@ -194,7 +194,6 @@ module GraphWeaver
         raise mismatch(::TypeError, "#{expected(scalar)}, got a #{value.class} — #{hint}", scalar)
       end
 
-      # ::TypeError — inside GraphWeaver, a bare TypeError is ours
       def refuse(value, scalar, hint = nil)
         raise mismatch(::TypeError, "#{expected(scalar)}, got #{value.inspect}#{" — #{hint}" if hint}", scalar)
       end

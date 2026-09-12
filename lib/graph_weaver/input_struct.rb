@@ -190,8 +190,7 @@ module GraphWeaver
         raise # already contextualized by a nested input / enum coercion
       rescue ::TypeError, ::ArgumentError, KeyError => e
         # a wrong-typed field, a missing required field, or an out-of-range
-        # enum — surface one branded, structured error for a 422. (`::` so the
-        # rescue catches Ruby's TypeError, not GraphWeaver::TypeError.)
+        # enum — surface one branded, structured error for a 422.
         raise mistyped(supplied) ||
           GraphWeaver::InputError.new(
             "invalid input for #{self}: #{e.message}",

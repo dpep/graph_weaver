@@ -200,9 +200,9 @@ describe "built-in scalar coercion" do
     mod = GraphWeaver.parse(schema:, query: "query M { ratio }")
 
     expect { mod.from_response!("data" => { "ratio" => "not a number" }) }
-      .to raise_error(GraphWeaver::TypeError)
+      .to raise_error(GraphWeaver::CastError)
     expect { mod.from_response!("data" => { "ratio" => true }) }
-      .to raise_error(GraphWeaver::TypeError, /ratio: expected a Float/)
+      .to raise_error(GraphWeaver::CastError, /ratio: expected a Float/)
   end
 
   # spec: Int serializes as a JSON integer. Nothing about the wire format
@@ -213,7 +213,7 @@ describe "built-in scalar coercion" do
     mod = GraphWeaver.parse(schema:, query: "query M { n }")
 
     expect { mod.from_response!("data" => { "n" => 2.0 }) }
-      .to raise_error(GraphWeaver::TypeError, /'n'.*Float/m)
+      .to raise_error(GraphWeaver::CastError, /'n'.*Float/m)
   end
 
   # a cast raises about the value alone — "invalid date" locates nothing on
@@ -225,7 +225,7 @@ describe "built-in scalar coercion" do
     mod = GraphWeaver.parse(schema:, query: "query M { born died }")
 
     expect { mod.from_response!("data" => { "born" => "2024-01-01", "died" => "not a date" }) }
-      .to raise_error(GraphWeaver::TypeError, /died: invalid date/)
+      .to raise_error(GraphWeaver::CastError, /died: invalid date/)
   end
 
   # ID is a String on the wire whatever the server stores; a raw integer
@@ -235,6 +235,6 @@ describe "built-in scalar coercion" do
     mod = GraphWeaver.parse(schema:, query: "query M { id }")
 
     expect { mod.from_response!("data" => { "id" => 42 }) }
-      .to raise_error(GraphWeaver::TypeError, /"id" unquoted.*register_scalar\("ID", "T\.untyped"\)/m)
+      .to raise_error(GraphWeaver::CastError, /"id" unquoted.*register_scalar\("ID", "T\.untyped"\)/m)
   end
 end

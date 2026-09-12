@@ -58,7 +58,7 @@ module GraphWeaver
     rescue GraphWeaver::Error
       raise # a nested struct already named its own field
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct:, message: "#{key}: #{e.message}")
+      raise GraphWeaver::CastError.new(struct:, message: "#{key}: #{e.message}")
     end
 
     # A wire value the generated enum doesn't have — the response-side twin
@@ -88,7 +88,7 @@ module GraphWeaver
     # its raw integer primary key is the case that keeps happening — so
     # say that GraphQL requires the quotes, and how to take it anyway.
     def self.cast_message(struct, data, error)
-      message = error.message.sub(GraphWeaver::TypeError::SORBET_CALLER, "")
+      message = error.message.sub(GraphWeaver::CastError::SORBET_CALLER, "")
       keys = unquoted_keys(struct, data)
       return message if keys.empty?
 

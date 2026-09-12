@@ -55,7 +55,7 @@ module StarredQuery
           rescue GraphWeaver::Error
             raise # already branded by a nested struct or leaf — keep the innermost context
           rescue StandardError => e
-            raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+            raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
           end
         end
 
@@ -71,7 +71,7 @@ module StarredQuery
         rescue GraphWeaver::Error
           raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
-          raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+          raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
       end
 
@@ -85,7 +85,7 @@ module StarredQuery
       rescue GraphWeaver::Error
         raise # already branded by a nested struct or leaf — keep the innermost context
       rescue StandardError => e
-        raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+        raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
     end
 
@@ -99,7 +99,7 @@ module StarredQuery
     rescue GraphWeaver::Error
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
-      raise GraphWeaver::TypeError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+      raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
     end
   end
 

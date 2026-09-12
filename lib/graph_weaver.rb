@@ -98,11 +98,11 @@ module GraphWeaver
     end
     def cast_data(struct, data, errors)
       struct.from_h(data)
-    rescue GraphWeaver::TypeError => e
+    rescue GraphWeaver::CastError => e
       raise if errors.empty?
 
       detail = e.message.delete_prefix("failed to cast response into #{struct}: ")
-      raise GraphWeaver::TypeError.new(
+      raise GraphWeaver::CastError.new(
         struct:,
         message: "#{detail} — the server also reported: #{errors.map(&:message).join("; ")}",
       )
@@ -118,19 +118,19 @@ module GraphWeaver
     def check_envelope!(raw, struct)
       raw = raw.to_h if !raw.is_a?(Hash) && raw.respond_to?(:to_h)
       unless raw.is_a?(Hash)
-        raise GraphWeaver::TypeError.new(struct:, message: "response must be an object, got #{raw.class}")
+        raise GraphWeaver::CastError.new(struct:, message: "response must be an object, got #{raw.class}")
       end
 
       %w[data extensions].each do |key|
         value = raw[key]
         next if value.nil? || value.is_a?(Hash)
 
-        raise GraphWeaver::TypeError.new(struct:, message: "response #{key.inspect} must be an object, got #{value.class}")
+        raise GraphWeaver::CastError.new(struct:, message: "response #{key.inspect} must be an object, got #{value.class}")
       end
 
       errors = raw["errors"]
       unless errors.nil? || (errors.is_a?(Array) && errors.all?(Hash))
-        raise GraphWeaver::TypeError.new(struct:, message: "response \"errors\" must be an array of objects")
+        raise GraphWeaver::CastError.new(struct:, message: "response \"errors\" must be an array of objects")
       end
 
       # A response with neither key isn't a GraphQL response at all — a client
@@ -138,7 +138,7 @@ module GraphWeaver
       # "dat". Each otherwise passes as a success carrying no data.
       unless raw.key?("data") || raw.key?("errors")
         found = raw.empty? ? "it is empty" : "got #{raw.keys.first(5).map(&:inspect).join(", ")}"
-        raise GraphWeaver::TypeError.new(struct:, message:
+        raise GraphWeaver::CastError.new(struct:, message:
           "response carried neither \"data\" nor \"errors\" — #{found}; " \
           "the keys are the wire's own, as strings")
       end
@@ -592,12 +592,12 @@ module GraphWeaver
         }
         subgraphs.empty? ? entry : entry.merge("subgraphs" => subgraphs)
       end
-    rescue GraphWeaver::ValidationError => e
+    rescue GraphWeaver::QueryValidationError => e
       # an unparseable query: codegen folds the position (and the file) into
       # the message, and this report keeps them separate — same splitter the
       # rendered error uses, so the two can't drift apart
       e.errors.map do |detail|
-        _path, _position, message = ValidationError.split(detail)
+        _path, _position, message = QueryValidationError.split(detail)
         detail.transform_keys(&:to_s).merge("message" => message)
       end
     end

@@ -43,9 +43,9 @@ subclass says where it failed:
 | `TransportError` | no response came back — DNS, connection refused, TLS, timeout, a socket that died mid-body |
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
-| `TypeError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
+| `CastError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#kind`, `#path`, `#coordinate`, `#value`, `#details`, `#field`, `#struct` |
-| `ValidationError` | build time: the query didn't validate against the schema |
+| `QueryValidationError` | build time: the query didn't validate against the schema |
 | `Codegen::Aliases::UnknownSegment` | build time: an [`alias:`](generated_modules.md#flat-accessors-with-alias) path names a field no type here has — a typo, so `optional: true` won't skip it |
 | `ConfigurationError` | setup judged against your schema — which Ruby schema serves which subgraph (`Testing::Router`, `federation:diff`) |
 | `Testing::Unplannable` | the local test router won't plan this operation — `#category`, `#detail` |
@@ -380,7 +380,7 @@ refresh the schema cache.
 
 When wire data disagrees with the types the schema promised at generation time
 (a nil where non-null was declared, a malformed scalar, an unknown enum value),
-casting raises `GraphWeaver::TypeError` naming the failing generated struct,
+casting raises `GraphWeaver::CastError` naming the failing generated struct,
 with the original exception as `#cause`.
 
 A cast's own complaint is about the value and nothing else — "invalid date"

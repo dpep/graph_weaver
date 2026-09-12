@@ -38,7 +38,7 @@ describe GraphWeaver::Parsing do
     mod = GraphWeaver.parse(schema: Demo::Schema, query:)
 
     expect { mod::Result.from_h("person" => { "name" => 42 }) }
-      .to raise_error(GraphWeaver::TypeError) { |e|
+      .to raise_error(GraphWeaver::CastError) { |e|
         expect(e.message).to include("GraphWeaver.parse::Who::Result::Person")
         expect(e.message).not_to match(/0x\h+/)
       }

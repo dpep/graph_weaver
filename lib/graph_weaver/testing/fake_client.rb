@@ -30,7 +30,7 @@ require_relative "../parsing"
 # takes one. Keys are checked against the schema, since a typo'd one would
 # pin nothing and leave the test green. (A pin with a wrong-typed value is
 # also the way to simulate a corrupt payload — casting raises
-# GraphWeaver::TypeError.)
+# GraphWeaver::CastError.)
 #
 #      FakeClient.new({ "Money" => "12.00", "Person" => build(:person),
 #                       "email" => -> { "test@example.com" } }, schema:)
@@ -74,7 +74,7 @@ require_relative "../parsing"
 #
 # Type mismatches: corrupt: names fields ("Type.field") that should
 # arrive wire-corrupted — a wrong-typed value derived from the schema,
-# so casting raises GraphWeaver::TypeError. One spec checks the failure
+# so casting raises GraphWeaver::CastError. One spec checks the failure
 # path; every other spec gets working data:
 #
 #      FakeClient.new(schema:, corrupt: "Person.birthday")

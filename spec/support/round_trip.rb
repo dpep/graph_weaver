@@ -522,7 +522,7 @@ module RoundTrip
 
     # The mirror of #check: build a legal response, spoil exactly one leaf with
     # a value its scalar can't mean, and require generated code to refuse it —
-    # with a GraphWeaver::TypeError that names the field, not a bare sorbet
+    # with a GraphWeaver::CastError that names the field, not a bare sorbet
     # complaint. Silently passing a wrong-typed value along is the worst
     # outcome available, so "accepted" is a failure here.
     def check_hostile(schema:, query:, name: "Hostile", rng: Random.new(0))
@@ -662,14 +662,14 @@ module RoundTrip
       at = "#{spoiled.inspect} at #{path.join(".")}"
       mod.from_response!(envelope)
       [Failure.new(kind: "accepted", path:, detail: "accepted #{at}")]
-    rescue GraphWeaver::TypeError => e
+    rescue GraphWeaver::CastError => e
       # the response key, or the prop it generates — sorbet's complaints name
       # the latter
       key = path.reverse.find { |step| step.is_a?(String) }
       named = [key, GraphWeaver::Inflect.underscore(key)].any? { |n| e.message.include?(n) }
       named ? [] : [Failure.new(kind: "unattributed", path:, detail: "refused #{at} without naming it: #{e.message}")]
     rescue StandardError => e
-      [Failure.new(kind: "unbranded", path:, detail: "#{e.class} (not GraphWeaver::TypeError) for #{at}: #{e.message}")]
+      [Failure.new(kind: "unbranded", path:, detail: "#{e.class} (not GraphWeaver::CastError) for #{at}: #{e.message}")]
     end
 
     def variable_query(schema, field, arguments, defaults, mutation:)

@@ -329,7 +329,7 @@ describe "graphql: :wire" do
       GraphWeaver.register_scalar("Money", Integer, cast: ->(expr) { "Integer(#{expr})" })
       order_query = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY)
 
-      expect { order_query.execute! }.to raise_error(GraphWeaver::TypeError, /total/)
+      expect { order_query.execute! }.to raise_error(GraphWeaver::CastError, /total/)
     end
 
     # graphql_context reaches the resolvers behind the endpoint, not the
