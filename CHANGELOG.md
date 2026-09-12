@@ -108,6 +108,16 @@
   — an average over an empty set, `(10**400).to_f` — so the `JSON::GeneratorError`
   landed *inside* the app's error handler, losing the diagnosis and turning a
   422 into a 500.
+- **`InputError#path` now holds the list index for a list of leaves.**
+  `execute(ids: [1, 2, "x"])` reported `["ids"]` and the whole list as `#value`;
+  it now reports `["ids", 2]`. The index wrapper only caught `InputError`, and
+  no leaf coercer raises one — so a list of *input objects* was the single
+  shape where the documented path held. A list-of-lists element that wasn't a
+  list (`[[1, 2], nil]`) reached the caller as a raw `NoMethodError` and is now
+  a branded refusal naming the element.
+- **`InputError#field` skips a trailing list index.** It is `#path`'s last
+  *named* segment, so `["ids", 2]` is `"ids"` rather than `"2"` — an index is a
+  position, and `"2"` is nothing a form can highlight.
 <!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)

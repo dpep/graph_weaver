@@ -662,11 +662,12 @@ module GraphWeaver
       end
     end
 
-    # The input field the value actually landed on — the last segment of
-    # #path, which is the coordinate a form can act on. nil when nothing
-    # named a slot.
+    # The input field the value actually landed on — #path's last *named*
+    # segment, which is the coordinate a form can act on. A trailing list
+    # index is a position rather than a field, so `["ids", 2]` is still the
+    # `ids` field. nil when nothing named a slot.
     sig { returns(T.nilable(String)) }
-    def field = path.last&.to_s
+    def field = T.cast(path.reverse.find { |segment| segment.is_a?(String) }, T.nilable(String))
 
     # The same refusal one level out: prepend the segment that led here.
     # Every enclosing layer — a list index, an input field, the variable —

@@ -38,10 +38,21 @@ module GraphWeaver
 
     # A list element's index, prepended when something inside it refused —
     # `where._and.0._not.species` needs the 0 to name one form field.
+    #
+    # A nested input's coercer raises an InputError that already holds a path;
+    # every LEAF coercer (Coerce.*, .enum) raises a branded plain error instead,
+    # so without the second branch the index was dropped for every list of
+    # leaves — and an element that wasn't a list at all reached the caller as a
+    # raw NoMethodError from the inner `.map`.
     def self.element(index)
       yield
     rescue GraphWeaver::InputError => e
       raise e.within(index)
+    rescue StandardError => e
+      raise GraphWeaver::InputError.new(
+        e.message, kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [index],
+        details: GraphWeaver::Internal::Refusal.details_of(e),
+      )
     end
 
     # the same, for an enum mapped onto an app-owned T::Enum (register_enum),

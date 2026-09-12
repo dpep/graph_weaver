@@ -143,7 +143,7 @@ or an API response needs is beside it, as data:
 | `#coordinate` | the [schema coordinate](https://github.com/graphql/graphql-spec/pull/794) for the slot — `"PetFilter.species"`. `nil` when there isn't one |
 | `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables), and always JSON-representable (a non-finite Float travels as `"NaN"`/`"Infinity"`). `nil` when it was never known — a missing field has none, and an unknown key owns no slot to hold one |
 | `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }` |
-| `#field` | `#path`'s last segment — the one field a form highlights |
+| `#field` | `#path`'s last *named* segment — the one field a form highlights. A trailing list index is a position, not a field, so `["ids", 2]` is still `"ids"` |
 | `#struct` | the input type being built |
 
 So a form reads `e.field` and either `e.message` or — better — its own sentence
@@ -156,6 +156,7 @@ passed and its last is the field that actually held the value:
 |---|---|---|
 | `execute(input: {name: "Rex", species: "LIZARD"})` | `["input", "species"]` | `"AdoptionInput.species"` |
 | `execute(where: {_and: [{_not: {species: "LIZARD"}}]})` | `["where", "_and", 0, "_not", "species"]` | `"PetFilter.species"` |
+| `execute(ids: [1, 2, "x"])` — a list of leaves | `["ids", 2]` | `nil` — a list element is a position, not a slot |
 | `AdoptionInput.coerce(name: "Rex", speceis: "DOG")` — no variable to name | `["speceis"]` | `nil` — the type defines no such field |
 | `execute(count: "lots")` — a top-level scalar | `["count"]` | `nil` — a variable names no schema element |
 

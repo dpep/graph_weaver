@@ -55,6 +55,47 @@ describe "input errors" do
       expect(error.coordinate).to eq "PetFilter.species"
     end
 
+    # The index above rides on the nested input's own InputError. A list of
+    # LEAVES has no nested struct: every leaf coercer raises a branded plain
+    # ArgumentError/TypeError/KeyError, which the index wrapper used not to
+    # catch — so a list of input objects was the one shape where #path held.
+    describe "a list of leaves" do
+      lists = GraphWeaver.parse(schema: GraphQL::Schema.from_definition(<<~GRAPHQL), query: <<~QUERY)
+        enum Sp { CAT DOG }
+        type Query { ok(ids: [Int!], names: [String!], kinds: [Sp!], grid: [[Int!]!]): Boolean }
+        schema { query: Query }
+      GRAPHQL
+        query Lists($ids: [Int!], $names: [String!], $kinds: [Sp!], $grid: [[Int!]!]) {
+          ok(ids: $ids, names: $names, kinds: $kinds, grid: $grid)
+        }
+      QUERY
+
+      it "reaches the element that refused, for every leaf kind" do
+        expect(refusal { lists.execute(ids: [1, 2, "x"]) }).to have_attributes(kind: :unparseable, path: ["ids", 2])
+        expect(refusal { lists.execute(names: ["a", 7]) }).to have_attributes(kind: :type_mismatch, path: ["names", 1])
+        expect(refusal { lists.execute(kinds: %w[CAT LIZARD]) })
+          .to have_attributes(kind: :not_a_member, path: ["kinds", 1], details: { members: %w[CAT DOG] })
+      end
+
+      # an index is a position, not a field — "2" is nothing a form can highlight
+      it "still names the list itself as #field" do
+        expect(refusal { lists.execute(ids: [1, 2, "x"]) }).to have_attributes(path: ["ids", 2], field: "ids")
+      end
+
+      it "reaches both indices of a list of lists" do
+        expect(refusal { lists.execute(grid: [[1, 2], [3, "x"]]) })
+          .to have_attributes(kind: :unparseable, path: ["grid", 1, 1])
+      end
+
+      # the inner .map was unguarded, so this came out as a raw NoMethodError
+      # under kind: :refused — which reads as a graph_weaver bug rather than
+      # as "element 1 should have been a list"
+      it "names the element that wasn't a list at all" do
+        expect(refusal { lists.execute(grid: [[1, 2], nil]) }).to have_attributes(path: ["grid", 1])
+        expect(refusal { lists.execute(grid: [1, 2]) }).to have_attributes(path: ["grid", 0])
+      end
+    end
+
     it "names a required field that wasn't supplied" do
       error = refusal { AdoptMutation.execute(input: { name: "Rex" }) }
 
