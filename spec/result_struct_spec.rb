@@ -67,6 +67,17 @@ describe GraphWeaver::ResultStruct do
       expect(person.to_h[:person][:birthday]).to eq Date.new(1984, 5, 6)
       expect(pets.to_h.keys).to eq [:find_pets]
     end
+
+    # A leaf is the object the codec built, in to_h and off the reader alike —
+    # duping one here would hand back a different Money than `result.price`,
+    # and freezing it reaches into an object register_scalar owns. So a result
+    # is immutable as far as its props go and no further, like Struct or Data:
+    # `result.name << "!"` changes the result, and the docs say so.
+    it "hands back the leaf itself, not a copy" do
+      result = person
+
+      expect(result.to_h[:person][:name]).to equal result.person.name
+    end
   end
 
   # the behaviour is only real if every struct codegen emits gets the module

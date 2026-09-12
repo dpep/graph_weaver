@@ -171,6 +171,9 @@ end
 - A `Result` is an **ordinary Ruby object**: value `==` (with `eql?` and
   `hash`, so a result works as a hash key), `deconstruct_keys` for pattern
   matching, and `#to_h`. All three go the whole way down a nested result.
+  Immutable as far as its props go, like `Struct` or `Data` — and no further:
+  the `String` or `Hash` a leaf holds is the one the response carried, so
+  `result.name << "!"` changes the result, and its `hash` with it.
 
   ```ruby
   PersonQuery.from_response!(raw) == PersonQuery.from_response!(raw)  # true — value, not identity
@@ -189,7 +192,10 @@ end
   `#to_h` is the **Ruby** shape, not the wire's: snake_case prop names as
   Symbols, nils kept, enums as their `T::Enum` members, and a registered
   scalar as whatever object its codec built. So it is a view, not something
-  to send back to a server — keep the raw hash for that
+  to send back to a server, and `JSON.generate` is one keystroke from trying:
+  it writes a `BigDecimal` as `"0.125e2"` and a `Time` as
+  `"2024-01-15 10:20:30 UTC"`, neither of which is what the schema means.
+  Keep the raw hash for that
   ([below](#deserializing-a-response-from-another-client)).
 - `OPERATION_NAME` rides along on every request as the spec's
   `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
