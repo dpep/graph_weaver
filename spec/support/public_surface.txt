@@ -389,7 +389,6 @@ GraphWeaver::Testing::RSpecIntegration.endpoint!
 GraphWeaver::Testing::RSpecIntegration.install
 GraphWeaver::Testing::RSpecIntegration.mode_for
 GraphWeaver::Testing::RSpecIntegration.serve!
-GraphWeaver::Testing::RSpecIntegration.set_context
 GraphWeaver::Testing::RSpecIntegration.unserve!
 GraphWeaver::Testing::RSpecIntegration::Helpers (Module)
 GraphWeaver::Testing::RSpecIntegration::Helpers#graphql_context

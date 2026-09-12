@@ -46,10 +46,14 @@ describe GraphWeaver::Internal::TestClients do
   it "runs a bound module against the mode's client, not the one baked in" do
     GraphWeaver.client = fake
     described_class.install(:fake)
+    # what the rspec hook installs: the mode's own client for this app's one
+    # graph, which is also what GraphWeaver.client then reads back as
+    installed = described_class.standin(GraphWeaver.graphs.first)
 
     expect(bound.execute!(id: "1").person.name).to be_a String
     expect(BoundClient::SPY.requests).to be_empty
-    expect(fake.requests.size).to eq 1
+    expect(fake.requests).to be_empty
+    expect(installed.requests.size).to eq 1
   end
 
   it "leaves the baked client alone with no mode installed" do

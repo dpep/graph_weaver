@@ -28,46 +28,48 @@ require_relative "testing"
 # `rspec --tag graphql:router` runs one mode's examples.
 #
 # `GraphWeaver.client` is snapshotted before every example and restored
-# after — whatever its mode, and whatever the example did to it. So
-# an example (or a `before` block, or a shared context) is free to build
-# the client it wants:
+# after — whatever its mode, and whatever the example did to it. So an
+# untagged (:live) example, a `before` block, or a shared context is free to
+# build the client it wants and have it cleaned up like a tagged one:
 #
-#      before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
-#      it "pins the name" { graphql_fake(overrides: { "Person.name" => "Ada" }) }
+#      it "backs off" { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
 #
-# **Nothing needs configuring.** Each mode derives what it runs against,
-# and refuses — naming what it looked for — rather than guessing:
+# **Nothing needs configuring.** Each mode derives what it runs against —
+# **per graph**, since with more than one the honest answer varies — and
+# refuses, naming what it looked for, rather than guessing:
 #
 #   - the schema is GraphWeaver::Testing.config.schema if you set one, else
-#     the committed dump at GraphWeaver.schema_path, else the schema of
-#     GraphWeaver.client.
-#   - :in_process runs against config.schema, or the schema class your
-#     client already uses. Only a live class has resolvers, so when
-#     neither is there it says so rather than hunting for one.
-#   - :router plans against the composed supergraph: config.router =
-#     { supergraph: … }, else the schema a declared graph names when that's
-#     what it is, else the dump when that's what it is. Subgraphs are
-#     derived from what each loaded schema defines; one nothing here serves
-#     is absent, and only a query that reaches its fields is refused.
-#   - :wire serves whichever of those two a graph is — the router when
-#     there's a composed supergraph, the live schema class otherwise — at
-#     the endpoint that graph's own client posts to, one per declared graph
-#     plus GraphWeaver.client's, leaving every client in place so the real
-#     transport runs. Needs webmock (`require "webmock/rspec"`), which hooks
-#     Net::HTTP, Faraday and HTTPX.
+#     the one that graph names, else the committed dump at
+#     GraphWeaver.schema_path, else the schema of GraphWeaver.client.
+#   - :in_process runs against config.schema, or the class that graph names,
+#     or the one your client already uses. Only a live class has resolvers,
+#     so when none is there it says so rather than hunting for one.
+#   - :router plans against the composed supergraph that graph names, else
+#     config.router = { supergraph: … }, else the dump when that's what it
+#     is — and refuses a graph that is in none by name, rather than routing
+#     it into another graph's. Subgraphs are derived from what each loaded
+#     schema defines; one nothing here serves is absent, and only a query
+#     that reaches its fields is refused.
+#   - :wire serves whichever of those two each graph is — its router when
+#     that graph is in a composed supergraph, its live schema class
+#     otherwise — at the endpoint that graph's own client posts to, leaving
+#     every client in place so the real transport runs. An app whose graphs
+#     all bake a `client:` needs no GraphWeaver.client at all. Needs webmock
+#     (`require "webmock/rspec"`), which hooks Net::HTTP, Faraday and HTTPX.
 #
 # What it wires up:
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces
 #     fake data along with test order
-#   - a client per example, from the tag (or config.default_mode for an
-#     untagged one; :live, the default, leaves GraphWeaver.client alone),
-#     and GraphWeaver.client restored afterwards either way — so a client
-#     an example builds for itself is cleaned up like a tagged one.
+#   - a stand-in per graph, from the tag (or config.default_mode for an
+#     untagged one; :live, the default, leaves every client alone), and
+#     GraphWeaver.client restored afterwards either way.
 #   - graphql_context — the GraphQL context resolvers see, merged onto
-#     config.context and reset between examples.
+#     config.context, reaching every stand-in the example runs through, and
+#     reset between examples.
 #
-# The router is built once for the suite (parsing a supergraph per example
-# would be real time) and installed for each.
+# A helper — graphql_fake, graphql_in_process, graphql_router — is the
+# stand-in for the modules of the graph its schema names, for this app's only
+# graph when it names none, and refuses when there is none it can reach.
 #
 # A module generated with a baked-in client: is covered too — the mode
 # stands in for that constant (Internal::TestClients).
@@ -98,21 +100,20 @@ module GraphWeaver
           # former
           @__graph_weaver_tag = metadata[TAG] if metadata.key?(TAG)
           @__graph_weaver_mode = GraphWeaver::Testing::RSpecIntegration.mode_for(metadata)
+          GraphWeaver::Internal::TestClients.install(@__graph_weaver_mode)
           # :wire is the one mode that does NOT take the client slot — every
           # client staying where it is is the whole point, so what the tag
           # builds is served at each of their endpoints instead
-          @__graph_weaver_served = nil
           @__graph_weaver_stubs = nil
           if @__graph_weaver_mode == :wire
             @__graph_weaver_stubs = GraphWeaver::Testing::RSpecIntegration.serve!
-            @__graph_weaver_served = @__graph_weaver_stubs.map(&:last)
-          elsif (client = GraphWeaver::Internal::TestClients.app_client(@__graph_weaver_mode))
-            # :live builds none — the app's own client is what it runs
-            # against — and neither does an app whose several graphs each
-            # answer for themselves
-            GraphWeaver.client = client
+          elsif @__graph_weaver_mode != :live && GraphWeaver.graphs.one?
+            # one graph, one answer — so the app's client slot holds it too,
+            # the same object that graph's modules resolve. :live builds none,
+            # and neither does an app whose several graphs each answer for
+            # themselves.
+            GraphWeaver.client = GraphWeaver::Internal::TestClients.standin(GraphWeaver.graphs.first)
           end
-          GraphWeaver::Internal::TestClients.install(@__graph_weaver_mode)
         end
 
         rspec_config.after(:each) do
@@ -121,12 +122,9 @@ module GraphWeaver
           next unless defined?(@__graph_weaver_prior_client)
 
           if defined?(@__graph_weaver_stubs) && @__graph_weaver_stubs
-            @__graph_weaver_stubs.each do |stub, _client|
-              GraphWeaver::Testing::RSpecIntegration.unserve!(stub)
-            end
+            @__graph_weaver_stubs.each { |stub| GraphWeaver::Testing::RSpecIntegration.unserve!(stub) }
           end
           remove_instance_variable(:@__graph_weaver_stubs) if defined?(@__graph_weaver_stubs)
-          remove_instance_variable(:@__graph_weaver_served) if defined?(@__graph_weaver_served)
           GraphWeaver.client = @__graph_weaver_prior_client
           remove_instance_variable(:@__graph_weaver_prior_client)
           # a refused tag raises before the mode is ever set, and its message
@@ -153,18 +151,20 @@ module GraphWeaver
 
       # Serve each graph's resolvers at the endpoint its own client posts to,
       # so every module an example can reach crosses a real wire — not just
-      # the ones posting to GraphWeaver.client. Returns [stub, client] pairs;
-      # {unserve!} takes a stub back down after the example, and nothing else
-      # about the suite's WebMock setup is touched.
+      # the ones posting to GraphWeaver.client. Returns the stubs; {unserve!}
+      # takes one back down after the example, and nothing else about the
+      # suite's WebMock setup is touched.
       def self.serve!
         webmock!
         wire_targets.map do |url, graph|
-          client = GraphWeaver::Internal::TestClients.client_for(:wire, graph)
+          # through the stand-in table, so graphql_context reaches what is
+          # served here as it reaches every other mode's client
+          client = GraphWeaver::Internal::TestClients.standin(graph)
           stub = WebMock::API.stub_request(:post, url)
           # to_rack returns the stub's response list, not the stub, so the
           # handle unserve! needs is the one stub_request handed back
           stub.to_rack(GraphWeaver::Testing::Endpoint.new(client))
-          [stub, client]
+          stub
         end
       end
 
@@ -263,6 +263,13 @@ module GraphWeaver
       # One helper per mode that has a per-example argument, named for that
       # mode: graphql_<mode> is `graphql: <mode>` with something passed.
       # :live and :wire have none, so they are the tag alone.
+      #
+      # **A helper called in an example is the stand-in for the modules of the
+      # graph its schema names — for this app's only graph when it names none
+      # — and it refuses, naming the graphs, when there is none it can reach.**
+      # So what an example says applies to what it then runs: a helper used to
+      # install itself at GraphWeaver.client, which each module's per-graph
+      # stand-in outranks, and a correct pin was silently dropped.
       module Helpers
         # The fake this example runs against, built here rather than by the
         # tag — which is how it takes pins and options. `graphql: :fake` is
@@ -284,16 +291,22 @@ module GraphWeaver
         #      2.times { Dashboard.load }
         #      expect(fake.requests.size).to eq 1
         #
-        # Installed as GraphWeaver.client and restored after the example,
-        # like a tagged one — so the tag is optional here, not required.
+        # With more than one graph, `schema:` says which one's modules this
+        # fake stands in for — pins are schema-shaped, so there is no app-wide
+        # answer to guess at.
+        #
+        # Installed for that graph and restored after the example, like a
+        # tagged one — so the tag is optional here, not required.
         def graphql_fake(pins = {}, **options)
           claim_mode!(:fake)
           refuse_seed!(options)
+          graphs = targets!("graphql_fake", options[:schema],
+            "say which: graphql_fake(schema: MySchema). A fake fabricates that schema's shapes, " \
+            "with that graph's scalar registrations.")
           # the same two defaults the tag builds with (Internal::TestClients)
-          graph = GraphWeaver::Internal::TestClients.app_graph
-          options[:schema] ||= GraphWeaver::Testing.config.reference_schema!(graph)
-          options[:registry] ||= graph&.registry
-          GraphWeaver.client = GraphWeaver::Testing::FakeClient.new(pins, **options)
+          options[:schema] ||= GraphWeaver::Testing.config.reference_schema!(graphs.first)
+          options[:registry] ||= graphs.first&.registry
+          stand_in!(GraphWeaver::Testing::FakeClient.new(pins, **options), graphs)
         end
 
         # Run this example against one schema class's real resolvers.
@@ -314,9 +327,12 @@ module GraphWeaver
         # one — so the tag is optional here.
         def graphql_in_process(schema = nil, **options)
           claim_mode!(:in_process)
-          schema ||= GraphWeaver::Testing.config.schema_class!
-          options[:context] ||= GraphWeaver::Testing.config.context
-          GraphWeaver.client = GraphWeaver::InProcess.new(schema, **options)
+          graphs = targets!("graphql_in_process", schema,
+            "say which: graphql_in_process(MySchema). Its resolvers stand in for that graph's " \
+            "modules.")
+          schema ||= GraphWeaver::Testing.config.schema_class!(graphs.first)
+          options[:context] ||= GraphWeaver::Internal::TestClients.context
+          stand_in!(GraphWeaver::InProcess.new(schema, **options), graphs)
         end
 
         # Run this example against the whole federated graph. `graphql:
@@ -329,15 +345,21 @@ module GraphWeaver
         #        …
         #      end
         #
-        # The router itself is built once for the suite — parsing a
-        # supergraph per example is real time — so this installs that one and
-        # tells it where this example starts.
+        # A router is built once per supergraph — parsing one per example is
+        # real time — so this installs that one and tells it where this
+        # example starts. It names no schema, so an app with several graphs is
+        # refused: the tag alone already routes each module through its own
+        # graph's supergraph.
         def graphql_router(fake: nil)
           claim_mode!(:router)
           refuse_seed!(fake) if fake
-          router = GraphWeaver::Internal::TestClients.client_for(:router)
+          graphs = targets!("graphql_router", nil,
+            "the tag alone already routes each module through its own graph's supergraph, and " \
+            "graphql_router has no way to say which graph the fake: is for. Put it in " \
+            "GraphWeaver::Testing.config.router = { fake: … } for the suite.")
+          router = GraphWeaver::Internal::TestClients.standin(graphs.first)
           router.fake = fake if fake
-          GraphWeaver.client = router
+          stand_in!(router, graphs)
         end
 
         # A tag and a helper are two spellings of one choice, so they can
@@ -364,6 +386,21 @@ module GraphWeaver
           GraphWeaver::Internal::TestClients.install(mode)
         end
 
+        # The graphs this helper's client stands in for — see the rule above.
+        private def targets!(helper, schema, advice)
+          GraphWeaver::Internal::TestClients.targets!(helper, schema, advice)
+        end
+
+        # Put `client` in the slot those graphs' modules read. An app with one
+        # graph has one answer, so the app slot holds it too — which is what
+        # GraphWeaver.client reads back as, and what makes this helper's
+        # return value the object the modules actually run against.
+        private def stand_in!(client, graphs)
+          GraphWeaver::Internal::TestClients.override!(client, graphs)
+          GraphWeaver.client = client if GraphWeaver.graphs.one?
+          client
+        end
+
         # rspec's own --seed already drives the fake (config.seed takes it
         # at suite start), so a per-example seed: is a second answer to one
         # question — and the one that stops `rspec --seed` reproducing the run.
@@ -383,34 +420,29 @@ module GraphWeaver
         #      graphql_context                      # read it back
         def graphql_context(values = nil, &block)
           mode = defined?(@__graph_weaver_mode) ? @__graph_weaver_mode : nil
-          # under :wire the resolvers run behind the endpoints, so the context
-          # is on what's served there rather than on GraphWeaver.client — one
-          # per graph, and the context is the example's, not a graph's
-          served = (@__graph_weaver_served if defined?(@__graph_weaver_served))
-          clients = served || [GraphWeaver.client]
-          baseline = GraphWeaver::Testing::RSpecIntegration.context!(mode, clients.first)
+          baseline = GraphWeaver::Testing::RSpecIntegration.context!(mode)
           return baseline unless values
 
           merged = baseline.merge(values)
-          GraphWeaver::Testing::RSpecIntegration.set_context(mode, merged, clients)
+          GraphWeaver::Internal::TestClients.context = merged
           return merged unless block
 
           begin
             block.call
           ensure
-            GraphWeaver::Testing::RSpecIntegration.set_context(mode, baseline, clients)
+            GraphWeaver::Internal::TestClients.context = baseline
           end
         end
       end
 
       # A fake has no resolvers to hand a context to, so silently ignoring
       # one would leave an example asserting on data nothing scoped.
-      def self.context!(mode, client = GraphWeaver.client)
+      def self.context!(mode)
         case mode
         when :in_process, :router, :wire
           # a context: proc is answered from the request's headers, so
           # there is no baseline here to merge onto
-          Internal::Util.context!(client.context)
+          Internal::Util.context!(Internal::TestClients.context)
         when :fake
           raise GraphWeaver::Error, "graphql_context needs resolvers to receive it, and a " \
             "#{TAG}: :fake example runs against fabricated data — tag it #{TAG}: :in_process or " \
@@ -422,15 +454,6 @@ module GraphWeaver
         end
       end
 
-      # The router is built once for the suite and an in-process client is
-      # rebuilt every example, so neither is replaced here — both take the
-      # new context in place. :wire serves one client per graph, so it hands
-      # over the list.
-      def self.set_context(mode, values, clients = [GraphWeaver.client])
-        return unless %i[in_process router wire].include?(mode)
-
-        clients.each { |client| client.context = values }
-      end
     end
   end
 end

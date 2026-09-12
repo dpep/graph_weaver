@@ -173,6 +173,71 @@ describe "graph_weaver/rspec" do
       # nothing app-wide to install, so the app's own client stays in the slot
       expect(GraphWeaver.client).to be_a GraphWeaver::Client
     end
+
+    # graphql_fake installed itself at GraphWeaver.client, which each module's
+    # per-graph stand-in outranks — so a correct pin was quietly dropped and
+    # the example passed on data nobody pinned
+    it "pins the graph its schema names, and leaves the other alone", graphql: :fake do
+      drafts = module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "DraftsPinned")
+      pets = module_for(:pets, Demo::Schema, "query { person(id: 1) { name } }", "PetsUnpinned")
+
+      fake = graphql_fake({ "Draft.owner" => "ada" }, schema: DraftsDemo::Schema)
+
+      expect(drafts.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+      expect(fake.requests.size).to eq 1
+      expect(pets.execute!.person&.name).to be_a String
+      expect(fake.requests.size).to eq 1 # pets ran against its own graph's fake
+    end
+
+    # the advice used to lead straight into that silent drop
+    it "refuses a bare graphql_fake, naming the graphs and schema:", graphql: :fake do
+      expect { graphql_fake("Draft.owner" => "ada") }
+        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_fake\(schema:/m)
+    end
+
+    it "refuses a schema no declared graph names", graphql: :fake do
+      expect { graphql_fake(schema: RouterGraph::Reviews::Schema) }
+        .to raise_error(GraphWeaver::Error, /names none of this app's graphs.*:drafts, :pets/m)
+    end
+  end
+
+  # Every helper writes to the same slot a module reads, so what an example
+  # says applies to the modules it runs — or refuses, naming the graphs.
+  describe "the helpers, with more than one graph" do
+    around do |example|
+      require_relative "support/federation_router_graph"
+      app_client!(DraftsDemo::Schema)
+      GraphWeaver.graph(:drafts) { schema DraftsDemo::Schema }
+      GraphWeaver.graph(:pets) { schema Demo::Schema }
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    let(:drafts) do
+      module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "DraftsScoped")
+    end
+
+    it "runs the resolvers of the graph graphql_in_process names", graphql: :in_process do
+      graphql_in_process(DraftsDemo::Schema)
+      graphql_context(current_user: "alice")
+
+      expect(drafts.execute!.drafts.map(&:id)).to eq %w[d1 d2]
+    end
+
+    # the tag alone: no helper named a graph, and the context still has to
+    # reach the stand-in each module resolves for itself
+    it "reaches a stand-in the tag built, with no helper at all", graphql: :in_process do
+      GraphWeaver::Testing.config.schema = DraftsDemo::Schema
+      graphql_context(current_user: "alice")
+
+      expect(drafts.execute!.drafts.map(&:id)).to eq %w[d1 d2]
+    end
+
+    it "refuses graphql_in_process with no schema, naming the graphs", graphql: :in_process do
+      expect { graphql_in_process }
+        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_in_process\(MySchema\)/m)
+    end
   end
 
   describe "the README's pins", graphql: :fake do
@@ -336,6 +401,18 @@ describe "graph_weaver/rspec" do
       dashboard = module_for(:storefront, supergraph, "query { me { username } }", "RoutedDashboard")
 
       expect(dashboard.execute!.me.username).to eq "dpep"
+    end
+
+    # graphql_context wrote to GraphWeaver.client, which a multi-graph app
+    # leaves alone — so it raised NoMethodError on nil instead of reaching
+    # the routers the example's modules run through
+    it "reaches the router each module runs through" do
+      supergraph = GraphWeaver::Internal::Util.schema_for(RouterGraph::SUPERGRAPH)
+      dashboard = module_for(:storefront, supergraph, "query { me { username } }", "ScopedDashboard")
+
+      graphql_context(current_user_id: "2")
+
+      expect(dashboard.execute!.me.username).to eq "ada"
     end
 
     it "refuses a module whose graph is in no supergraph, naming the graph" do
