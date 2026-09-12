@@ -273,6 +273,17 @@ describe GraphWeaver::Codegen do
       expect(source).to include('OPERATION_NAME = T.let("PeopleQuery", T.nilable(String))')
     end
 
+    # Trailing whitespace is significant inside a GraphQL block string: the
+    # spec's BlockStringValue strips common indentation and blank first/last
+    # lines, nothing else. The heredoc used to .rstrip every line, so a
+    # different string reached the server than the one in the .graphql file.
+    it "keeps every byte of the query, including trailing whitespace" do
+      query = %(query Probe {\n  search(term: """keep these   \n   \ntail""") { __typename }\n})
+      mod = GraphWeaver.parse(schema: Demo::Schema, query:)
+
+      expect(mod::QUERY).to eq "#{query.strip}\n"
+    end
+
     # graphql-ruby reports a byte offset rather than a column for a token with
     # no newline after it (Parser#column_at), which .strip guarantees for the
     # last line — so the splice can't take col on trust.

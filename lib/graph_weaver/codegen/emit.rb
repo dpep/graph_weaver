@@ -245,7 +245,13 @@ class GraphWeaver::Codegen
       delimiter = "GRAPHQL"
       delimiter += "_" while @query.match?(/^\s*#{delimiter}\s*$/)
       out << "  QUERY = T.let(<<~'#{delimiter}', String)"
-      @query.each_line { |line| out << "    #{line}".rstrip }
+      # only the line's own newline comes off: trailing whitespace is part of a
+      # block-string argument's value, and <<~ takes the indent back off again.
+      # An empty line has no content to indent, so it stays empty.
+      @query.each_line do |line|
+        content = line.chomp
+        out << (content.empty? ? "" : "    #{content}")
+      end
       out << "  #{delimiter}"
       out << ""
       out << "  # sent as the request's operationName — what an APM keys traces on"

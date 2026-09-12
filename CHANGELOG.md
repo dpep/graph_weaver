@@ -57,6 +57,10 @@
   call failed on the wire. The splice is now measured correctly **and** the
   spliced document is re-parsed — if it doesn't declare the name, generation
   refuses and names the file rather than shipping a module that can't run.
+- **`QUERY` keeps the query byte for byte.** The heredoc used to right-strip
+  every line, which silently edits the *value* of a block-string argument —
+  trailing whitespace inside `"""…"""` is significant. A query with one now
+  sends what the `.graphql` file says.
 <!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
