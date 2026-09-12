@@ -193,8 +193,8 @@ are emitted `private_constant`, so **regenerate**.
   for the type** — `Testing.config.overrides = { "Money" => "12.00" }`, or the
   same key on one example's `graphql_fake`. Without one, `FakeClient` and
   cassette anonymization refuse rather than feeding your cast a `"Money-1"`
-  placeholder. Scalars registered as `Time`, `Date`, `Integer`, `Float`,
-  `String` or `T::Boolean` need nothing.
+  placeholder. Scalars registered as `BigDecimal`, `Time`, `Date`, `Integer`,
+  `Float`, `String` or `T::Boolean` need nothing.
 - **Re-run `rake graph_weaver:cassettes:anonymize`** on any committed cassette
   holding a registered custom scalar: the anonymizer used to write a value the
   generated codec couldn't read back.

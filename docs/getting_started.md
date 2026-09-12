@@ -325,7 +325,7 @@ either way it is baked into generated source as a name.)
 **The block runs where you write it**, registrations included — so a
 registration naming one of your own constants is in exactly the position a
 top-level one is, and has the same answer: declare that graph from a
-`to_prepare` block, as [above](#2-what-the-generator-writes).
+`to_prepare` block, as [above](#2-run-the-generator).
 
 ```ruby
 Rails.application.config.to_prepare do
