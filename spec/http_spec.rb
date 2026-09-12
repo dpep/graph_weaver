@@ -266,6 +266,54 @@ describe GraphWeaver::Transport::HTTP do
     server&.close
   end
 
+  # A garbage status line is a misbehaving proxy, HTTP sent to a port speaking
+  # something else — or a keep-alive socket that desynced, which the retry a
+  # TransportError earns fixes on a fresh connection. Faraday's transport
+  # already classifies it this way; net/http's escaped the umbrella entirely.
+  it "raises TransportError on a garbage status line, and retries it" do
+    accepted = 0
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new do
+      loop do
+        socket = server.accept
+        accepted += 1
+        socket.readpartial(4096)
+        socket.write("HELLO THERE\r\n\r\n")
+        socket.close
+      end
+    end
+    rude = described_class.new("http://127.0.0.1:#{server.addr[1]}/graphql", pool_size: 1)
+
+    expect { rude.execute("query { x }") }
+      .to raise_error(GraphWeaver::TransportError, /Net::HTTPBadResponse/)
+
+    accepted = 0
+    expect { GraphWeaver::Retry.new(rude, retries: 2, sleeper: ->(_) {}).execute("query { x }") }
+      .to raise_error(GraphWeaver::TransportError)
+    expect(accepted).to eq 3
+  ensure
+    thread&.kill
+    server&.close
+  end
+
+  it "raises TransportError on a body that isn't the gzip it claims to be" do
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new do
+      socket = server.accept
+      socket.readpartial(4096)
+      junk = "not gzip at all"
+      socket.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\n" \
+        "Content-Length: #{junk.bytesize}\r\n\r\n#{junk}")
+      socket.close
+    end
+    mangled = described_class.new("http://127.0.0.1:#{server.addr[1]}/graphql")
+
+    expect { mangled.execute("query { x }") }.to raise_error(GraphWeaver::TransportError, /Zlib/)
+  ensure
+    thread&.join
+    server&.close
+  end
+
   it "reclassifies a user-registered exception (e.g. a pool error) as TransportError" do
     pool_error = Class.new(StandardError)
     GraphWeaver.register_transport_error(pool_error)

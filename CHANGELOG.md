@@ -97,6 +97,15 @@
   process that built it — on the first request after a fork the inherited
   sockets are abandoned (not closed: that would take down the fd the parent is
   still using) and the pool's permits are rebuilt.
+- **Two more net/http failures arrive as `TransportError`.** A garbage status
+  line (`Net::HTTPBadResponse` — a misbehaving proxy, HTTP sent to a port
+  speaking something else, or a keep-alive socket that desynced) and a body
+  that isn't the gzip it claims to be (`Zlib::Error`) used to escape the
+  `GraphWeaver::Error` umbrella entirely, so `rescue GraphWeaver::Error` missed
+  them and `Retry` treated a retriable failure as fatal. Both are now
+  `TransportError` — which retries, on a fresh connection — as is
+  `Net::ProtocolError`. `Transport::Faraday` already classified all three this
+  way; the two shipped transports now agree.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

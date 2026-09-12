@@ -20,8 +20,16 @@ module GraphWeaver
     class HTTP < Transport
       # net/http's own network-level failures (Errno/SocketError/IOError
       # are already seeded) — added to the shared, extensible
-      # transport-error set.
-      GraphWeaver.register_transport_error(Timeout::Error, OpenSSL::SSL::SSLError)
+      # transport-error set. A garbage status line and a mangled compressed
+      # body are as much "never got a usable response" as a reset socket is,
+      # and both recover on a fresh connection when the cause was a desynced
+      # keep-alive socket; Faraday's transport classifies them the same way.
+      GraphWeaver.register_transport_error(
+        Timeout::Error, OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::ProtocolError
+      )
+      # net/http gunzips through zlib, so a build without it can't receive a
+      # compressed body in the first place
+      GraphWeaver.register_transport_error(Zlib::Error) if defined?(Zlib::Error)
 
       # How many requests this process can have in flight at once. Rails sizes
       # its own connection pool from RAILS_MAX_THREADS and this is the same
