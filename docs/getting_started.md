@@ -387,16 +387,17 @@ one; a `to_prepare` block that re-runs on every reload is safe.
 
 ## 5. Verify in CI
 
-Four questions, four tasks — the last only on a federated graph:
+Five questions, five tasks — the last only on a federated graph:
 
 | ask | task | needs network |
 |---|---|---|
 | is the checked-in Ruby fresh? | `rake graph_weaver:verify` | no |
 | has the server's schema drifted from the dump? | `rake graph_weaver:schema:diff` | yes |
 | did that drift break any of my queries? | `rake graph_weaver:queries:check` | yes |
+| does the app still read what it selects? | `rake graph_weaver:unused` | no |
 | did a subgraph change without a recompose? | `rake graph_weaver:federation:diff` | no |
 
-(`rake graph_weaver:graphs` answers a fifth, when an app has more than one
+(`rake graph_weaver:graphs` answers a sixth, when an app has more than one
 schema: which graphs are configured, and where each generates.)
 
 `verify` compares the committed generated files against what the current
@@ -472,6 +473,53 @@ GraphWeaver.check_queries(schema: GraphWeaver::SchemaLoader.load("proposed.graph
 Left off, it re-introspects the url the dump records — and when that dump is a
 composed supergraph, each error also names the subgraphs behind the type it
 points at ([federation](federation.md#the-routing-table)).
+
+### The selections nothing reads
+
+`rake graph_weaver:unused` asks the one question the others can't: not "is the
+Ruby fresh" but "does the app still use what the query asks for". A field
+someone stopped rendering stays in the `.graphql` forever — the query keeps
+validating, the struct keeps casting, and the server keeps paying to resolve
+it. graphql-client catches that at runtime by masking the data a caller didn't
+declare; the structs are checked in here, so it can be recovered without
+running anything:
+
+```
+app/graphql/queries/products.graphql: Products.sku — selected, never read (Catalog::ProductsQuery::Result::Products#sku)
+app/graphql/queries/products.graphql: Products.blurb — selected, never read (Catalog::ProductsQuery::Result::Products#blurb)
+
+13 selections, 2 unread — 2 queries, 58 files swept under .
+```
+
+Each line names the query file, the selection to go and delete, and the
+generated prop behind it. It reads the generated structs for the props a
+query produced, then sweeps your `.rb`, `.erb`, `.slim`, `.haml` and
+`.jbuilder` **once** for every name they could be read by — `.sku`, `sku:`,
+`:sku`, `"sku"`. `PATHS=app,lib` narrows the sweep; everything under a
+directory named `generated`, plus `vendor`, `node_modules`, `tmp` and `log`,
+is skipped either way, as is any file defining a graphql-ruby type (a
+`field :sku` there is your *server* offering a field, not this app reading one
+back). Nothing is edited and the exit is 0; `STRICT=1` exits 1 when anything
+is unread, for teams who want the gate.
+
+A line handing a query module straight to a serializer — `render json:`,
+`to_h`, `to_json`, `as_json`, `serialize`, `deconstruct_keys` — reads every
+prop at once, so that module is excused and the line is quoted, because
+matching a serializer by name is the softest thing here and a wrong excuse
+should be obvious:
+
+```
+Accounts::MeQuery: every prop counted as read — handed whole to a serializer at app/controllers/accounts_controller.rb:3
+  render json: Accounts::MeQuery.execute!.me
+```
+
+**It is a lint, not a proof**, and the task's own footer says so. It matches
+names as text, so a prop called `name` counts as read the moment anything at
+all says `.name`; and it can't see a prop reached by `public_send`, a struct
+that reaches a serializer through a local variable, or a read in a file type
+it doesn't sweep. Treat a finding as a prompt to go and look, and a clean run
+as nothing more than the absence of an obvious one — which is why it exits 0
+unless you ask it not to.
 
 ## Sorbet, with or without
 

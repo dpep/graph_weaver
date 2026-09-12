@@ -677,4 +677,151 @@ describe "graph_weaver rake tasks" do
       expect(result.out).to eq "no recordings in #{@root}/cassettes\n"
     end
   end
+  # The over-fetch check: not "is the Ruby fresh" but "does the query still
+  # ask for what the app uses". It reads the generated modules, so each
+  # example needs a module name of its own (see cassettes:check).
+  describe "graph_weaver:unused" do
+    before { GraphWeaver.root = @root }
+
+    after { GraphWeaver.root = nil }
+
+    def generate_query(name, selections)
+      write_schema
+      write_query("#{name}.graphql", "query { person(id: \"1\") { #{selections} } }")
+      invoke("generate")
+      GraphWeaver.load_generated!
+    end
+
+    def write_app(path, body)
+      full = File.join(@root, path)
+      FileUtils.mkdir_p(File.dirname(full))
+      File.write(full, body)
+    end
+
+    it "names the selection nothing reads, and says nothing about the one something does" do
+      generate_query("unused_basic", "name birthday")
+      write_app("app/models/greeter.rb", "def greet(result) = result.person.name")
+
+      result = invoke("unused")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "queries/unused_basic.graphql: Person.birthday — selected, " \
+        "never read (UnusedBasicQuery::Result::Person#birthday)"
+      expect(result.out).not_to include "Person.name"
+    end
+
+    # the four forms the sweep accepts, one file each — a prop read as a
+    # pattern-match key is as read as one read through a method call
+    it "counts a symbol, a string and a hash key as reads" do
+      generate_query("unused_forms", "name birthday nickname")
+      write_app("app/models/forms.rb", <<~RUBY)
+        def show(result) = result.person
+        KEYS = [:name]
+        LABELS = { "birthday" => "born" }
+        def match(person) = person => { nickname: }
+      RUBY
+
+      expect(invoke("unused").out).not_to include "never read"
+    end
+
+    # a struct handed whole to a serializer reads every prop at once, by a
+    # call that names none of them — accusing those props would be wrong.
+    # Matching a serializer by name is the mushiest thing here, so the line
+    # that caused the suppression is quoted: a wrong one has to be visible.
+    it "counts every prop as read when a line hands the module to a serializer, and quotes it" do
+      generate_query("unused_whole", "name birthday")
+      write_app("app/controllers/people_controller.rb",
+        "def show = render json: UnusedWholeQuery.execute!(id: params[:id]).person")
+
+      result = invoke("unused")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "UnusedWholeQuery: every prop counted as read — handed whole " \
+        "to a serializer at app/controllers/people_controller.rb:1",
+        "def show = render json: UnusedWholeQuery.execute!"
+      expect(result.out).not_to include "never read"
+    end
+
+    # anywhere-in-the-file was the first cut, and it suppressed this gem's own
+    # report wholesale: a doc comment naming a module hundreds of lines above
+    # an unrelated to_h counted as serializing it
+    it "doesn't count a serializer elsewhere in the file as serializing the module" do
+      generate_query("unused_far", "name birthday")
+      write_app("app/models/far.rb", <<~RUBY)
+        # UnusedFarQuery is what feeds this.
+        def greet(result) = result.person.name
+
+        def dump(other) = other.to_h
+      RUBY
+
+      expect(invoke("unused").out).to include "Person.birthday — selected, never read"
+    end
+
+    # An app that serves the graph it consumes names every field twice: once
+    # in the query, once in its own graphql-ruby type. Counting the second as
+    # a read made the task report nothing however much such an app over-fetched.
+    it "doesn't count a graphql-ruby type's own field declarations as reads" do
+      generate_query("unused_in_process", "name birthday")
+      write_app("app/graphql/types/person_type.rb", <<~RUBY)
+        class PersonType < GraphQL::Schema::Object
+          field :name, String
+          field :birthday, GraphQL::Types::ISO8601Date
+        end
+      RUBY
+      write_app("app/models/in_process_greeter.rb", "def greet(result) = result.person.name")
+
+      expect(invoke("unused").out).to include "Person.birthday — selected, never read"
+    end
+
+    it "exits 0 by default and non-zero under STRICT" do
+      generate_query("unused_strict", "name birthday")
+      write_app("app/models/strict_greeter.rb", "def greet(result) = result.person.name")
+
+      expect(invoke("unused").status).to eq 0
+
+      result = invoke("unused", STRICT: "1")
+
+      expect(result.status).to eq 1
+      expect(result.err).to include "1 selection nothing reads"
+    end
+
+    it "sweeps only the directories PATHS names" do
+      generate_query("unused_paths", "name birthday")
+      write_app("app/models/paths_greeter.rb", "def greet(result) = result.person.name")
+      write_app("lib/paths_birthday.rb", "def born(person) = person.birthday")
+
+      expect(invoke("unused", PATHS: "app").out).to include "Person.birthday — selected, never read"
+      expect(invoke("unused", PATHS: "app, lib").out).not_to include "never read"
+    end
+
+    # an empty PATHS= would sweep nowhere, and sweeping nowhere reports every
+    # prop unread — the one wrong answer this task must not give
+    it "sweeps everything when PATHS is empty" do
+      generate_query("unused_empty_paths", "name birthday")
+      write_app("app/models/empty_paths.rb", "def greet(result) = result.person.name")
+
+      expect(invoke("unused", PATHS: "").out).to include "1 unread"
+    end
+
+    # a run that read no generated module would report "0 unread" whatever the
+    # queries said — the same vacuous pass federation:diff and cassettes:check refuse
+    it "says so when no generated module is loaded for any query" do
+      write_schema
+      write_query("unused_ungenerated.graphql", "query { person(id: \"1\") { name } }")
+
+      result = invoke("unused")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "nothing to check", "0 selections, 0 unread"
+    end
+
+    # the caveats are the task: a finding is a prompt to look, and a clean run
+    # is not a proof of anything
+    it "states its blind spots whether or not it found something" do
+      generate_query("unused_footer", "name")
+      write_app("app/models/footer_greeter.rb", "def greet(result) = result.person.name")
+
+      expect(invoke("unused").out).to include "a lint, not a proof", "public_send"
+    end
+  end
 end

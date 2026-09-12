@@ -16,6 +16,7 @@
 #      rake graph_weaver:generate        # queries_paths -> generated_paths.first
 #      rake graph_weaver:graphs          # which graphs this app has, and where each writes
 #      rake graph_weaver:verify          # fail if generated files are stale (CI)
+#      rake graph_weaver:unused          # report selections no code reads
 #      rake graph_weaver:queries:check   # fail if a query no longer validates (CI)
 #      rake graph_weaver:schema:diff     # fail if the server has drifted from the dump
 #      rake graph_weaver:schema:refresh  # re-introspect and rewrite the dump
@@ -172,6 +173,33 @@ namespace :graph_weaver do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
     GraphWeaver::Internal::Tasks.report_registry
+  rescue GraphWeaver::Error => e
+    abort e.message
+  end
+
+  # The over-fetch nothing else here can see. verify says the Ruby matches the
+  # query; this asks whether the query still asks for what the app uses — the
+  # drift that happens on the app's side, silently, when a template stops
+  # reading a field. Nothing is edited, and the default exit is 0: a finding is
+  # a prompt to look.
+  desc "Report selections whose generated props no code reads (PATHS= to scope, STRICT=1 to fail)"
+  task unused: :environment do
+    require "graph_weaver/internal/unused"
+
+    # like cassettes:check, this reads generated modules — they are what says
+    # which props a query produced
+    GraphWeaver.load_generated!
+    unused = GraphWeaver::Internal::Unused.new(paths: ENV["PATHS"]&.split(","))
+    puts unused.report
+
+    # abort writes to unbuffered stderr; the report above went to
+    # block-buffered stdout, so a piped CI log shows it first
+    $stdout.flush
+    count = unused.findings.size
+    if count.positive? && !ENV["STRICT"].to_s.empty?
+      abort "#{count} #{(count == 1) ? "selection" : "selections"} nothing reads — drop " \
+        "#{(count == 1) ? "it" : "them"} from the query and regenerate (rake graph_weaver:generate)"
+    end
   rescue GraphWeaver::Error => e
     abort e.message
   end

@@ -1,3 +1,21 @@
+###  Unreleased
+<!-- lane: unused -->
+- **New: `rake graph_weaver:unused`, the over-fetch the other checks can't see.**
+  `verify` says the Ruby matches the query; this asks whether the query still
+  asks for what the app *uses*. It reads the props each query's generated
+  structs carry, sweeps your `.rb`/`.erb`/`.slim`/`.haml`/`.jbuilder` once for
+  every form a prop could be read by (`.sku`, `sku:`, `:sku`, `"sku"`), and
+  names what nothing reads — by query file, selection, and generated
+  coordinate. Nothing is edited and it exits 0; `STRICT=1` exits 1 when
+  anything is unread, and `PATHS=app,lib` narrows the sweep. A line handing a
+  query module straight to `render json:` / `to_h` / `to_json` / `as_json` /
+  `serialize` / `deconstruct_keys` reads every prop at once, so that module is
+  excused and the line is quoted — matching a serializer by name is the
+  softest thing here and a wrong excuse should be visible. It matches names as
+  text, which makes it a lint and not a proof: the task's own footer names what
+  it is blind to
+  ([getting started](docs/getting_started.md#the-selections-nothing-reads)).
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
