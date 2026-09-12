@@ -128,8 +128,12 @@ module GraphWeaver
             router.context = context
             # a router is built once per supergraph, so it has to be told
             # where this example starts — the trace, and any faked subgraph's
-            # fabricated data
-            router.reset!
+            # fabricated data. Once per router, not once per graph: two
+            # graphs naming one supergraph share it, and resetting again when
+            # the second's first module resolved wiped what the first had
+            # already accumulated, mid-example.
+            router.reset! unless @clients&.value?(router)
+            router
           when :wire
             # what sits behind the wire is decided the way the other tags
             # already decide it, per graph — the router when that graph is in

@@ -504,6 +504,29 @@ describe "graph_weaver/rspec" do
       expect { drafts.execute! }.to raise_error(GraphWeaver::Error,
         /composed supergraph.*graph :drafts is in none.*graphql: :in_process/m)
     end
+
+    # two graphs naming one supergraph share one Router — and the reset that
+    # puts an example's router back to its start used to run again when the
+    # SECOND graph's first module resolved, wiping the trace and any fake:
+    # pins the example had already accumulated
+    context "with two graphs on the same supergraph" do
+      around do |example|
+        GraphWeaver.graph(:admin) { schema RouterGraph::SUPERGRAPH }
+        example.run
+      end
+
+      it "resets the shared router once, not once per graph" do
+        supergraph = GraphWeaver::Internal::Util.schema_for(RouterGraph::SUPERGRAPH)
+        storefront = module_for(:storefront, supergraph, "query { me { username } }", "SharedStorefront")
+        admin = module_for(:admin, supergraph, "query { me { username } }", "SharedAdmin")
+
+        storefront.execute!
+        admin.execute!
+
+        router = GraphWeaver::Testing.config.built_router(GraphWeaver.graphs.first)
+        expect(router.trace.size).to eq 2
+      end
+    end
   end
 
   # The router is built once for the suite, so per-example fake data has to

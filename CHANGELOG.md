@@ -40,6 +40,11 @@
   `GraphWeaver.client=` beats it. Both have been the other way round since
   0.7.0, and an example written the documented way asserted on a failure path
   while running against the fake.
+- **A router two graphs share is reset once per example, not once per graph.**
+  Two graphs naming the same supergraph get the same `Testing::Router`, and the
+  reset that puts it back to the example's start ran again when the second
+  graph's first module resolved — wiping the `#trace` and any fake pins the
+  first graph's requests had already accumulated, mid-example.
 <!-- /lane: harness -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
