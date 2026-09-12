@@ -211,8 +211,12 @@ module GraphWeaver
           "#{TAG}: :in_process or #{TAG}: :router — they run above the wire."
       end
 
-      # included into every example group, so graphql_context is there
-      # whether or not this example took a client from the hook
+      # Included into every example group, so graphql_context is there
+      # whether or not this example took a client from the hook.
+      #
+      # One helper per mode that has a per-example argument, named for that
+      # mode: graphql_<mode> is `graphql: <mode>` with something passed.
+      # :live and :wire have none, so they are the tag alone.
       module Helpers
         # The fake this example runs against, built here rather than by the
         # tag — which is how it takes pins and options. `graphql: :fake` is
@@ -286,10 +290,6 @@ module GraphWeaver
           router.fake = fake if fake
           GraphWeaver.client = router
         end
-
-        # `graphql: :wire` has no helper: it takes no per-example argument.
-        # What the router fakes behind the wire is config.router = { fake: … },
-        # suite-wide.
 
         # A tag and a helper are two spellings of one choice, so they can
         # agree (`graphql: :fake` plus `graphql_fake(overrides:)` is the
