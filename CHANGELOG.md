@@ -1,151 +1,4 @@
-## Unreleased
-- **A `graphql:` tag now reaches a module generated with `client:`.** The
-  baked `DEFAULT_CLIENT` sits above `GraphWeaver.client`, which is the slot a
-  tag swapped, so `it "…", graphql: :fake` ran a bound module against its real
-  endpoint. The mode now stands in for that constant too — a per-call
-  `client:` and `MyQuery.client =` still win, and `:wire` still leaves every
-  client where it is. **If a spec relied on a bound module ignoring the tag,
-  it now runs against the fake.**
-- With more than one graph, each module's stand-in is built from its own
-  schema: `graphql: :fake` for a billing module fabricates billing's shapes
-  instead of refusing to pick a schema for the suite. Modules carry a private
-  `GRAPH` naming the graph they were generated from, so **regenerate after
-  upgrading** if you declare graphs — a multi-graph app whose modules predate
-  this says so and refuses rather than guessing.
-
-  The tag itself now reaches a multi-graph app: it used to derive one client
-  for the whole example and refuse ("this app has 2 graphs…") before any
-  module was reached. With several graphs it installs the mode and leaves
-  `GraphWeaver.client` alone, and each module resolves its own — so
-  `graphql: :fake` works where `graphql_fake(schema:)` was the only way in.
-
-  **And so do the helpers.** `graphql_fake`, `graphql_in_process` and
-  `graphql_router` installed themselves at `GraphWeaver.client`, which every
-  module's per-graph stand-in outranks — so in an app with several graphs a
-  correct pin was **silently dropped** and the example passed on data nobody
-  pinned. The rule now: *a helper is the stand-in for the modules of the graph
-  its schema names, for your only graph when it names none, and it refuses —
-  naming your graphs — when there is none it could reach.*
-
-  ```ruby
-  graphql_fake("Product.name" => "Ada's Book", schema: Catalog::Schema)
-  ```
-
-  `graphql_router` names no schema, so an app with several graphs is refused:
-  the tag alone already routes each module through its own graph's supergraph,
-  and `config.router = { fake: … }` says how faked subgraphs fabricate for the
-  suite.
-
-  `graphql_context` had the same root cause and is fixed with it: it never
-  reached the resolvers under `:in_process`, and raised `NoMethodError` under
-  `:router` (`undefined method 'context' for nil`). It is now example state on
-  the same table, so it reaches every stand-in the example runs through — the
-  ones `:wire` serves behind its endpoints included.
-
-  (`GraphWeaver::Testing::RSpecIntegration.set_context` is gone with the split
-  it existed to bridge. Under a `graphql:` tag the mode's client is what a
-  module runs against; an example that wants its own passes `client:`, sets
-  `MyQuery.client =`, or is untagged.)
-
-  (`GraphWeaver::Testing::RSpecIntegration.client_for` is gone: one
-  implementation answers "what client does this mode use", per graph, and it
-  is internal. Nothing documented pointed at it.)
-
-  A fake now fabricates with **that graph's** registrations too. A graph whose
-  `schema:` is a file loads a fresh schema object each time, so the fake
-  couldn't match the graph back off it and fell through to the top-level
-  registrations — `register_scalar "Money", BigDecimal` inside
-  `GraphWeaver.graph` emitted a `BigDecimal(...)` cast that then choked on the
-  string the fake invented. `FakeClient.new` takes `registry:` for the callers
-  that know the graph.
-- `GraphWeaver.graph` refuses a name that isn't a Symbol or a String; the
-  name now reaches generated source.
-- **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
-  app's own client, untouched — which is a mode like the other four, so it is
-  spelled like one. Rename the tag; `false` is refused, and the refusal names
-  `:live`.
-
-  `config.default_mode` is the suite-level spelling of the same thing, and it
-  now **defaults to `:live`** rather than to `nil`, which is no longer a value:
-  every example has exactly one mode, an untagged one takes
-  `config.default_mode`, and `graphql: :live` steps a single example back out
-  of a default the suite set. Behavior is unchanged — `:live` leaves
-  `GraphWeaver.client` exactly as it is, and it is still restored after the
-  example — but `config.default_mode = nil` and `config.default_mode` reading
-  back `nil` are both gone.
-
-  A helper now contradicts `graphql: :live` the way it contradicts any other
-  tag: `graphql: :live` plus `graphql_fake` refuses rather than letting the
-  helper quietly win.
-- **`:router` asks each graph where its own supergraph is.** An app that wrote
-  `GraphWeaver.graph(:api) { schema "config/supergraph.graphql" }` had said
-  where its supergraph is, and `graphql: :router` still asked for
-  `config.router = { supergraph: … }` on top. Worse, the answer was one
-  supergraph for the whole suite: a module from a graph that is in none was
-  planned against **another graph's**, and the failure blamed a stale dump
-  ("schema may have changed since generation").
-
-  It is now per graph — the supergraph that graph names, else
-  `config.router[:supergraph]`, else the committed dump when it carries
-  `@join__*` — and a graph in no supergraph is refused by name, pointed at
-  `graphql: :in_process`. Two graphs naming one supergraph share one router,
-  parsed once; two naming different ones each plan against their own, so the
-  "this app declares 2 composed supergraphs" refusal is gone.
-- **`graphql: :wire` runs a spec against your own transport.** The other tags
-  sit *in* the client slot, so the transport an app ships — APM tracing, a
-  caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`
-  where it is and serves your resolvers at the endpoint it posts to: the request
-  is serialized, posted through your middleware, and deserialized by `from_h`
-  over the server's own bytes. Behind each endpoint — decided **per graph** —
-  is that graph's router when it is in a composed supergraph, its live schema
-  class otherwise, so one federated graph no longer puts its router behind a
-  plain graph's url.
-
-  One endpoint is served per graph: the client that graph bakes into its
-  modules with `client:`, or `GraphWeaver.client` for a graph that bakes none
-  — so an app whose graphs all bake one needs no app default at all. A graph
-  whose baked client posts nowhere is refused by name rather than its requests
-  leaving the suite.
-
-  It needs [webmock](https://github.com/bblimke/webmock) **enabled** — `require
-  "webmock/rspec"` in the spec helper — which hooks Net::HTTP, Faraday and
-  HTTPX, so every bundled transport runs unchanged. Having it in the Gemfile is
-  not enough: `Bundler.require` makes it *loaded* without installing the
-  adapters, and `:wire` used to take that as yes and let the first request
-  leave the suite for the real endpoint. It now checks before serving and says
-  which line to add.
-
-  `GraphWeaver::Testing::Endpoint` is the ordinary Rack app behind it, mountable
-  anywhere for anyone who'd rather have a real socket.
-
-  A `context:` can now be a **proc**, called per request with the headers as
-  sent — the identity seam nothing above the wire could reach:
-
-  ```ruby
-  config.context = ->(headers) { { current_user: User.find_by(token: headers["Authorization"]) } }
-  ```
-
-  See [docs/testing.md](docs/testing.md#over-the-wire--graphql-wire).
-- **Breaking: `config.context` is refused once an example is running.** An
-  example's clients are built before any group hook — a `:wire` example's
-  before its endpoints are stubbed — so `before { config.context = … }` was
-  read too late and silently never reached a resolver, while the same line
-  from `configure` or an `around` hook worked. It is now suite setup: setting
-  it inside an example refuses and names `graphql_context`, which is the
-  per-example answer and now reaches every stand-in. An `around` hook still
-  works — it wraps the setup a tag does.
-- **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime`
-  is a `Date` to Ruby, so it passed straight through the cast and went on the
-  wire as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema
-  said `ISO8601Date`. A lenient server truncated it; a strict one refused it.
-  The `Date` serializer now writes the date alone.
-
-###  v0.7.0  (2026-09-11)
-- **A `cast:` or `serialize:` proc that returns a value is refused at
-  registration.** A proc there builds *source* for the generated file, so
-  `cast: ->(v) { v.to_sym }` interpolated to nothing and every response
-  failed far from the registration, blaming the codec. The proc is now probed
-  once when registered, and a non-String return names the spelling to use.
+###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
   Everything a graph knows is said inside its block, in call style — six
   settings and the three registrations you already write at the top level:
@@ -164,11 +17,10 @@
   `schema "x"` sets and a bare `schema` reads back; there is no `schema = "x"`
   form, since the block is `instance_eval`'d and that would be a local variable
   that silently does nothing — graphql-ruby's `field :name` convention. Anything
-  else the block calls is refused, naming the nine it takes. `client`,
-  `namespace` and `types_module` each take the constant or its name, since
-  generated source spells it either way; a setting a graph doesn't say falls
-  back to the top-level one. The object the block runs against has no public
-  name — nothing new to learn beyond `GraphWeaver.graph` itself.
+  else the block calls is refused, naming the nine it takes, as is a graph name
+  that isn't a Symbol or a String. `client`, `namespace` and `types_module` each
+  take the constant or its name, since generated source spells it either way; a
+  setting a graph doesn't say falls back to the top-level one.
 
   `generate!`, `verify_generated!`, `check_queries`, `load_generated!`,
   `reload_generated!`, the rake tasks and watch mode all walk every graph, so
@@ -183,60 +35,134 @@
   class with a lambda** — `schema -> { Billing::Schema }`. Zeitwerk is set up
   after `config/initializers` run, so a bare constant there raises; the lambda
   resolves when generation asks, and again after a dev reload has replaced the
-  class object. A registration naming one of your own constants is in the same
-  position as a top-level one, and has the same answer: declare that graph from
-  a `to_prepare` block, which is safe to re-run (the graph's name is its
-  identity, so re-declaring replaces it) but runs too late for watch mode to
-  see the graph.
+  class object. The block runs where you write it, registrations included, so a
+  registration naming one of your own constants is in the position a top-level
+  one is and has the same answer: declare that graph from a `to_prepare` block,
+  which is safe to re-run (the graph's name is its identity) but runs too late
+  for watch mode to see the graph.
 
   **Nothing changes for a single-schema app**: the top-level settings *are* the
   default graph, and top-level registrations still reach every graph, so a
   `register_scalar` in an initializer can't be dropped by declaring a second
-  schema. `namespace:` nests everything a graph generates, including its shared
+  schema. `namespace` nests everything a graph generates, including its shared
   types module (`Billing::GraphQLTypes`); without one, two files that generate
   the same module refuse as they always have, and the message now names the
   graphs and the fix.
-- **A router's `fake:` refuses `seed:`**, as `graphql_fake` and
-  `graphql_router` already did — rspec's `--seed` drives the fake, and a
-  router is built once for the suite, so a seed there would pin every example
-  to one run. `GraphWeaver::Testing.config.seed` remains the override for a
-  harness that isn't rspec.
-- **A `client` that isn't a constant is refused at generation.** The value is
-  spelled into every generated module, so a `client` given the endpoint url
-  emitted `-> { https://api.example.com/graphql }` — a file that doesn't parse
-  — from a run that reported success. The message names the constant to
-  declare instead.
-- **`GraphWeaver::Transport::Faraday` resolves without a require.** The
-  constant is autoloaded, so the `Transport::Faraday.new(url) { |conn| … }`
-  [docs/transports.md](docs/transports.md) shows works where you'd write it —
-  an initializer — instead of raising `NameError` at boot. Still opt-in:
-  naming it is what loads faraday, and an app that never mentions it never
-  loads the gem. `require "graph_weaver/transport/faraday"` keeps working.
-- **`rails g graph_weaver:install` writes the current scalar spelling.** Its
-  example registration was `register_scalar("DateTime", Time, serialize:
-  :iso8601, requires: "time")` — a scalar 0.6.1 registered for you, in the
-  three-keyword form the same release made unnecessary. It now shows
-  `register_scalar("Money", BigDecimal)`, which is a scalar that does need
-  one, spelled the way [docs/scalars.md](docs/scalars.md) teaches.
-- **The unregistered-scalar report prints where the task that found it
-  prints.** `rake graph_weaver:generate` and `:verify` said one of their two
-  registry advisories on the terminal and the other only on the logger — which
-  in Rails is `log/development.log`, so nobody running the task saw it. Both
-  now go to the task's own output, once for the run.
-  `GraphWeaver.untyped_scalars` is the list, beside
-  `GraphWeaver.unmatched_registrations`.
+- **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
+  app's own client, untouched — which is a mode like the other four, so it is
+  spelled like one. Rename the tag; `false` is refused, and the refusal names
+  `:live`. `config.default_mode` is the suite-level spelling of the same thing,
+  and it now **defaults to `:live`** rather than to `nil`, which is no longer a
+  value: every example has exactly one mode, an untagged one takes
+  `config.default_mode`, and `graphql: :live` steps a single example back out of
+  a default the suite set. Behavior is unchanged — `:live` leaves
+  `GraphWeaver.client` exactly as it is, and it is still restored after the
+  example — but `config.default_mode = nil` is gone, and a helper now
+  contradicts `graphql: :live` the way it contradicts any other tag rather than
+  quietly winning.
+- **Every test mode decides what to run against per graph, and the helpers say
+  which graph they mean.** With more than one schema the honest answer varies
+  per module: `graphql: :fake` for a billing module fabricates billing's shapes
+  with billing's own scalar registrations, where it used to refuse to pick a
+  schema for the suite. `graphql_fake`, `graphql_in_process` and
+  `graphql_router` are the stand-in for the modules of the graph their schema
+  names — for your only graph when they name none — and they refuse, naming
+  your graphs, when there is none they could reach:
+
+  ```ruby
+  graphql_fake("Product.name" => "Ada's Book", schema: Catalog::Schema)
+  ```
+
+  `:router` asks each graph where its own supergraph is: the one that graph
+  names, else `config.router[:supergraph]`, else the committed dump when it
+  carries `@join__*`. So an app that had already said where its supergraph is
+  doesn't repeat it in `config.router`, and a module is never planned against
+  **another graph's** — which used to fail blaming a stale dump ("schema may
+  have changed since generation"). A graph in no supergraph is refused by name
+  and pointed at `graphql: :in_process`; two graphs naming one supergraph share
+  one router, parsed once.
+
+  Generated modules carry a private `GRAPH` naming the graph they were generated
+  from, so **regenerate** — a multi-graph app whose modules predate this says so
+  and refuses rather than guessing. `FakeClient.new` takes `registry:` for a
+  caller that holds the graph, since a graph whose `schema` is a file can't be
+  matched back off the schema object. (The per-graph registry behind all of
+  this, `Codegen::Registry`, is internal, like the rest of codegen's IR.)
+- **A `graphql:` tag now reaches a module generated with `client:`.** The baked
+  `DEFAULT_CLIENT` sits above `GraphWeaver.client`, which is the slot a tag
+  swapped, so `it "…", graphql: :fake` ran a bound module against its real
+  endpoint. The mode now stands in for that constant too — a per-call `client:`
+  and `MyQuery.client =` still win, and `:wire` still leaves every client where
+  it is. **If a spec relied on a bound module ignoring the tag, it now runs
+  against the fake.**
+- **`graphql: :wire` runs a spec against your own transport.** The other tags
+  sit *in* the client slot, so the transport an app ships — APM tracing, a
+  caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`
+  where it is and serves your resolvers at the endpoint it posts to: the request
+  is serialized, posted through your middleware, and deserialized by `from_h`
+  over the server's own bytes. Behind each endpoint — decided **per graph** — is
+  that graph's router when it is in a composed supergraph, its live schema class
+  otherwise. One endpoint is served per graph: the client that graph bakes into
+  its modules with `client:`, or `GraphWeaver.client` for a graph that bakes
+  none — so an app whose graphs all bake one needs no app default at all. A
+  graph whose baked client posts nowhere is refused by name rather than its
+  requests leaving the suite.
+
+  It needs [webmock](https://github.com/bblimke/webmock) **enabled** — `require
+  "webmock/rspec"` in the spec helper — which hooks Net::HTTP, Faraday and
+  HTTPX, so every bundled transport runs unchanged. Having it in the Gemfile is
+  not enough: `Bundler.require` makes it *loaded* without installing the
+  adapters, so `:wire` checks before serving and names the line to add rather
+  than letting the first request leave the suite for the real endpoint.
+  `GraphWeaver::Testing::Endpoint` is the ordinary Rack app behind it, mountable
+  anywhere for anyone who'd rather have a real socket. See
+  [docs/testing.md](docs/testing.md#over-the-wire--graphql-wire).
+- **A `context:` can be a proc**, called per request with the headers as sent —
+  the identity seam nothing above the wire could reach:
+
+  ```ruby
+  config.context = ->(headers) { { current_user: User.find_by(token: headers["Authorization"]) } }
+  ```
+
+  A hash still works, and is still the baseline `graphql_context` merges onto.
+  `config.context` is suite setup either way, so setting it **inside an example
+  now refuses**, naming `graphql_context`: an example's clients are built before
+  any group hook, so `before { config.context = … }` was read too late and
+  silently never reached a resolver. `configure` and an `around` hook are
+  unchanged.
+- **A `DateTime` given for a `Date` variable is sent as a date.** `DateTime` is
+  a `Date` to Ruby, so it passed straight through the cast and went on the wire
+  as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema said
+  `ISO8601Date`. A lenient server truncated it; a strict one refused it. The
+  `Date` serializer now writes the date alone.
+- **Three things are refused where they used to go wrong later.** A `client`
+  that isn't a constant is refused at generation: the value is spelled into
+  every generated module, so a `client` given the endpoint url emitted
+  `-> { https://api.example.com/graphql }` — a file that doesn't parse — from a
+  run that reported success, and the message now names the constant to declare
+  instead. A `cast:` or `serialize:` **proc that returns a value** is refused at
+  registration: a proc there builds *source* for the generated file, so
+  `cast: ->(v) { v.to_sym }` interpolated to nothing and every response failed
+  far from the registration, blaming the codec; it is probed once when
+  registered, and a non-String return names the spelling to use. And a router's
+  `fake:` refuses `seed:`, as `graphql_fake` and `graphql_router` already did —
+  rspec's `--seed` drives the fake, and a router is built once for the suite, so
+  a seed there would pin every example to one run.
+  (`GraphWeaver::Testing.config.seed` remains the override for a harness that
+  isn't rspec.)
 - **`rake graph_weaver:federation:diff` no longer calls an absent subgraph
   stale.** A schema was recognized by the types its subgraph declares, and two
   subgraphs extending one entity declare the same one — so a `prefs` running in
   another process was matched to its neighbour `accounts`, every field only
   `prefs` resolves was reported stale, and the gate failed red advising a
-  recompose that would change nothing. A schema now also has to define
-  something the supergraph attributes to that subgraph **alone**; one that
-  shares everything it declares is "not here", which
+  recompose that would change nothing. A schema now also has to define something
+  the supergraph attributes to that subgraph **alone**; one that shares
+  everything it declares is "not here", which
   [docs/federation.md](docs/federation.md) already promised doesn't fail the
   task. `#skipped` (and the `not checked` section) now names those coordinates
   rather than the types.
-- **The `federation:*` tasks ask the declared graphs where the supergraph is.**
+
+  The `federation:*` tasks also ask the declared graphs where the supergraph is.
   `federation:diff`, `:subgraphs` and `:coverage` looked only at the
   conventional dump, so an app that had written
   `GraphWeaver.graph(:accounts) { schema "…/supergraph.graphql" }` had to repeat
@@ -245,14 +171,22 @@
   composed supergraph, heading each report with the graph's name, and
   `:coverage` measures that graph's own `queries` rather than
   `GraphWeaver.queries_paths`. `SUPERGRAPH=` still overrides for one run, and a
-  single-schema app with a composed dump prints exactly what it did. An app with
-  no composed schema anywhere is refused once, naming every graph it looked at
-  and what it found there.
-- **`rake graph_weaver:cassettes:check` sees a namespaced graph's modules.**
-  It looked for top-level constants, so an app whose graphs set `namespace:`
-  found "0 generated modules", refused for having checked nothing, and blamed
-  the cassette directory. It now asks each graph for its own queries and
-  constants.
+  single-schema app with a composed dump prints exactly what it did.
+- **Four smaller fixes.** `GraphWeaver::Transport::Faraday` resolves without a
+  require — the constant is autoloaded, so the `Transport::Faraday.new(url) { |conn| … }`
+  that [docs/transports.md](docs/transports.md) shows works where you'd write
+  it, an initializer, instead of raising `NameError` at boot (still opt-in:
+  naming it is what loads faraday). `rails g graph_weaver:install` writes the
+  current scalar spelling, `register_scalar("Money", BigDecimal)`, rather than a
+  three-keyword registration for a scalar 0.6.1 registers for you. The
+  unregistered-scalar report prints where the task that found it prints: one of
+  `generate`'s and `verify`'s two registry advisories went only to the logger,
+  which in Rails is `log/development.log`, so nobody running the task saw it —
+  `GraphWeaver.untyped_scalars` is the list, beside
+  `GraphWeaver.unmatched_registrations`. And `rake graph_weaver:cassettes:check`
+  sees a namespaced graph's modules: it looked for top-level constants, so an
+  app whose graphs set `namespace` found "0 generated modules", refused for
+  having checked nothing, and blamed the cassette directory.
 
 ###  v0.6.1  (2026-09-10)
 - **A stdlib scalar registers with nothing but its class.**

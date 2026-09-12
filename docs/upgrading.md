@@ -19,6 +19,42 @@ moved. That's the reminder working, not a false alarm.
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
 
+## Upgrading from 0.6.1
+
+Small, and almost all of it is the rspec tags. Two commands find it:
+
+```sh
+rake graph_weaver:generate   # every module now names the graph it came from
+bundle exec rspec            # the renamed tag and the deleted nil raise
+```
+
+### Renames
+
+| before | after |
+|---|---|
+| `graphql: false` (rspec tag) | `graphql: :live` — the opt-out is your own client, which is a mode like the other four; `false` is refused, naming it |
+| `config.default_mode = nil` | `config.default_mode = :live`, which is now the **default** — every example has exactly one mode, and `nil` is no longer a value it reads back |
+
+### Behavior that changed under you
+
+- **A `graphql:` tag reaches a module generated with `client:`.** The baked
+  client used to sit above the slot a tag swaps, so a bound module ran against
+  its real endpoint under `graphql: :fake`. **If a spec relied on that**, it now
+  runs against the fake — pass `client:` on the call, set `MyQuery.client =`, or
+  tag the example `graphql: :live`.
+- **`config.context` is suite setup.** Setting it once an example is running
+  refuses, naming `graphql_context`. From a `before` hook it was read too late
+  and silently never reached a resolver, so the refusal replaces a line that
+  wasn't working; `configure` and an `around` hook are unchanged.
+- **Regenerate**, as ever — generated modules carry a private `GRAPH` naming the
+  graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
+  app whose modules predate it refuses rather than guessing which schema a
+  module belongs to.
+- **`graphql: :wire`, if you adopt it, needs webmock *enabled*** — `require
+  "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
+  `Bundler.require` loads webmock without installing its adapters, and the tag
+  refuses before the first request rather than letting it leave the suite.
+
 ## Upgrading from 0.5.1
 
 Much smaller than 0.5.0, and mostly mechanical. Three commands find most of it:
