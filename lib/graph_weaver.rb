@@ -20,8 +20,6 @@ require_relative "graph_weaver/schema_loader"
 require_relative "graph_weaver/version"
 require_relative "graph_weaver/railtie" if defined?(::Rails::Railtie)
 
-# opt-in extras:
-#      require "graph_weaver/transport/faraday"        # Faraday transport
 module GraphWeaver
   # The line every generated file opens with (see Codegen::Emit) — the marker
   # that tells generate! which files in the output directory are its to prune.

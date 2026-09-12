@@ -21,7 +21,8 @@ without one. `load_queries!` is the same rule over a directory.
 
 A *transport* is the network end of that contract — GraphQL-over-HTTP. The bundled
 two — `Transport::HTTP` (net/http, zero dependencies, loaded by default)
-and `Transport::Faraday` (opt-in) — subclass `GraphWeaver::Transport`,
+and `Transport::Faraday` (opt-in: naming it loads faraday, so an app that
+doesn't needs no faraday) — subclass `GraphWeaver::Transport`,
 which owns the shared flow: encode the request, reclassify network
 failures as `TransportError`, raise `ServerError` on non-2xx, parse the
 body. A subclass only implements `post(body) => [status, body]` — that's

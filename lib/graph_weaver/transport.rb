@@ -23,6 +23,12 @@ class GraphWeaver::Transport
   extend T::Helpers
   abstract!
 
+  # Opt-in without the require: naming the constant loads the file, which is
+  # where `require "faraday"` lives — so an initializer can write
+  # Transport::Faraday.new(url) as the docs show, and an app that never names
+  # it never loads faraday. Without the gem the LoadError names it.
+  autoload :Faraday, "graph_weaver/transport/faraday"
+
   # What every request sends unless the caller says otherwise.
   # graphql-over-http requires a conforming client to accept
   # application/graphql-response+json; the q=0.9 fallback keeps servers

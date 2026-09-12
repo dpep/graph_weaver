@@ -151,6 +151,12 @@
   router is built once for the suite, so a seed there would pin every example
   to one run. `GraphWeaver::Testing.config.seed` remains the override for a
   harness that isn't rspec.
+- **`GraphWeaver::Transport::Faraday` resolves without a require.** The
+  constant is autoloaded, so the `Transport::Faraday.new(url) { |conn| … }`
+  [docs/transports.md](docs/transports.md) shows works where you'd write it —
+  an initializer — instead of raising `NameError` at boot. Still opt-in:
+  naming it is what loads faraday, and an app that never mentions it never
+  loads the gem. `require "graph_weaver/transport/faraday"` keeps working.
 - **`rails g graph_weaver:install` writes the current scalar spelling.** Its
   example registration was `register_scalar("DateTime", Time, serialize:
   :iso8601, requires: "time")` — a scalar that has needed no registration

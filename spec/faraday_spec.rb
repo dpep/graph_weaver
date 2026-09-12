@@ -1,6 +1,30 @@
+require "open3"
 require "socket"
 require "graph_weaver/transport/faraday"
 require_relative "generated/person_query"
+
+# The docs show `GraphWeaver::Transport::Faraday.new(url) { |conn| … }` in an
+# initializer, and without the autoload that is a NameError at boot: the file
+# is opt-in and nothing in `require "graph_weaver"` pulls it. Opt-in has to
+# stay true in the other direction too — the gem must not load faraday for
+# everyone who doesn't name it.
+describe "GraphWeaver::Transport::Faraday, unrequired" do
+  def run(ruby)
+    out, status = Open3.capture2e(RbConfig.ruby, "-Ilib", "-e", ruby)
+    raise out unless status.success?
+
+    out.lines.map(&:chomp)
+  end
+
+  it "resolves the constant on first mention, and not before" do
+    expect(run(<<~RUBY)).to eq ["no faraday", "GraphWeaver::Transport::Faraday", "faraday"]
+      require "graph_weaver"
+      puts defined?(::Faraday) ? "faraday" : "no faraday"
+      puts GraphWeaver::Transport::Faraday.name
+      puts defined?(::Faraday) ? "faraday" : "no faraday"
+    RUBY
+  end
+end
 
 describe GraphWeaver::Transport::Faraday do
   include_context "graphql http server"

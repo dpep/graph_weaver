@@ -7,9 +7,9 @@ require_relative "../transport"
 
 module GraphWeaver
   class Transport
-    # Faraday-backed transport. Opt-in (faraday is not a hard dependency):
-    #
-    #      require "graph_weaver/transport/faraday"
+    # Faraday-backed transport. Opt-in — faraday is not a hard dependency, and
+    # naming this constant is what loads it (Transport autoloads this file), so
+    # an app that never mentions it never pays for it:
     #
     #      # simplest: build a default connection from a url
     #      GraphWeaver::Transport::Faraday.new("https://api.example.com/graphql")
