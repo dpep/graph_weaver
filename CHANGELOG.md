@@ -58,6 +58,11 @@
   over the server's own bytes. Behind the wire is the router when there's a
   composed supergraph, the live schema class otherwise.
 
+  One endpoint is served per graph: `GraphWeaver.client`'s, plus the one each
+  declared graph bakes into its modules with `client:`, each with that graph's
+  own resolvers behind it. A graph whose baked client posts nowhere is refused
+  by name rather than its requests leaving the suite.
+
   It needs [webmock](https://github.com/bblimke/webmock) — `require
   "webmock/rspec"` in the spec helper — which hooks Net::HTTP, Faraday and
   HTTPX, so every bundled transport runs unchanged.

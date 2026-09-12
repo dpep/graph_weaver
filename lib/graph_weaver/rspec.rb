@@ -49,11 +49,12 @@ require_relative "testing"
 #     what it is, else the dump when that's what it is. Subgraphs are
 #     derived from what each loaded schema defines; one nothing here serves
 #     is absent, and only a query that reaches its fields is refused.
-#   - :wire serves whichever of those two this graph is — the router when
+#   - :wire serves whichever of those two a graph is — the router when
 #     there's a composed supergraph, the live schema class otherwise — at
-#     the endpoint GraphWeaver.client posts to, leaving that client in
-#     place, so the real transport runs. Needs webmock (`require
-#     "webmock/rspec"`), which hooks Net::HTTP, Faraday and HTTPX.
+#     the endpoint that graph's own client posts to, one per declared graph
+#     plus GraphWeaver.client's, leaving every client in place so the real
+#     transport runs. Needs webmock (`require "webmock/rspec"`), which hooks
+#     Net::HTTP, Faraday and HTTPX.
 #
 # What it wires up:
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces
@@ -97,14 +98,14 @@ module GraphWeaver
           # former
           @__graph_weaver_tag = metadata[TAG] if metadata.key?(TAG)
           @__graph_weaver_mode = GraphWeaver::Testing::RSpecIntegration.mode_for(metadata)
-          # :wire is the one mode that does NOT take the client slot — the
-          # app's own client staying in it is the whole point, so what the
-          # tag builds is served at that client's endpoint instead
+          # :wire is the one mode that does NOT take the client slot — every
+          # client staying where it is is the whole point, so what the tag
+          # builds is served at each of their endpoints instead
           @__graph_weaver_served = nil
-          @__graph_weaver_stub = nil
+          @__graph_weaver_stubs = nil
           if @__graph_weaver_mode == :wire
-            @__graph_weaver_served = GraphWeaver::Internal::TestClients.client_for(:wire)
-            @__graph_weaver_stub = GraphWeaver::Testing::RSpecIntegration.serve!(@__graph_weaver_served)
+            @__graph_weaver_stubs = GraphWeaver::Testing::RSpecIntegration.serve!
+            @__graph_weaver_served = @__graph_weaver_stubs.map(&:last)
           elsif (client = GraphWeaver::Internal::TestClients.client_for(@__graph_weaver_mode))
             # :live builds none — the app's own client is what it runs against
             GraphWeaver.client = client
@@ -117,10 +118,12 @@ module GraphWeaver
           GraphWeaver::Internal::TestClients.reset!
           next unless defined?(@__graph_weaver_prior_client)
 
-          if defined?(@__graph_weaver_stub) && @__graph_weaver_stub
-            GraphWeaver::Testing::RSpecIntegration.unserve!(@__graph_weaver_stub)
+          if defined?(@__graph_weaver_stubs) && @__graph_weaver_stubs
+            @__graph_weaver_stubs.each do |stub, _client|
+              GraphWeaver::Testing::RSpecIntegration.unserve!(stub)
+            end
           end
-          remove_instance_variable(:@__graph_weaver_stub) if defined?(@__graph_weaver_stub)
+          remove_instance_variable(:@__graph_weaver_stubs) if defined?(@__graph_weaver_stubs)
           remove_instance_variable(:@__graph_weaver_served) if defined?(@__graph_weaver_served)
           GraphWeaver.client = @__graph_weaver_prior_client
           remove_instance_variable(:@__graph_weaver_prior_client)
@@ -146,49 +149,92 @@ module GraphWeaver
           "as it is, which is how one example steps back out of config.default_mode."
       end
 
-      # Serve `client` at the endpoint GraphWeaver.client posts to, so the
-      # app's own transport runs against it. Returns the WebMock stub, which
-      # {unserve!} removes after the example — nothing else about the
-      # suite's WebMock setup is touched.
-      def self.serve!(client)
-        unless defined?(WebMock)
-          raise GraphWeaver::Error, "#{TAG}: :wire serves your resolvers over HTTP, which needs " \
-            "webmock — it hooks Net::HTTP, Faraday and HTTPX, so your own transport runs unchanged. " \
-            "Add it to the Gemfile (group :test) and `require \"webmock/rspec\"` in your spec helper."
+      # Serve each graph's resolvers at the endpoint its own client posts to,
+      # so every module an example can reach crosses a real wire — not just
+      # the ones posting to GraphWeaver.client. Returns [stub, client] pairs;
+      # {unserve!} takes a stub back down after the example, and nothing else
+      # about the suite's WebMock setup is touched.
+      def self.serve!
+        webmock!
+        wire_targets.map do |url, graph|
+          client = GraphWeaver::Internal::TestClients.client_for(:wire, graph)
+          stub = WebMock::API.stub_request(:post, url)
+          # to_rack returns the stub's response list, not the stub, so the
+          # handle unserve! needs is the one stub_request handed back
+          stub.to_rack(GraphWeaver::Testing::Endpoint.new(client))
+          [stub, client]
         end
-
-        begin
-          require "rack" # WebMock's to_rack builds a Rack env but doesn't depend on rack
-        rescue LoadError
-          raise GraphWeaver::Error, "#{TAG}: :wire needs rack — webmock's to_rack builds a Rack " \
-            "env with it, but doesn't depend on it. Add it to the Gemfile (group :test)."
-        end
-
-        stub = WebMock::API.stub_request(:post, endpoint!)
-        # to_rack returns the stub's response list, not the stub, so the
-        # handle unserve! needs is the one stub_request handed back
-        stub.to_rack(GraphWeaver::Testing::Endpoint.new(client))
-        stub
       end
 
       # Take one stub back down. Only ours — a suite's other stubs, and
       # whether it allows net connections, are its own business.
       def self.unserve!(stub) = WebMock::API.remove_request_stub(stub)
 
-      # The endpoint the app's own client posts to: a transport, a Retry
-      # around one, or a Client that built one.
-      def self.endpoint!(client = GraphWeaver.client)
+      # Every endpoint an example's modules can post to, each with the graph
+      # whose resolvers belong behind it: one per declared graph baking a
+      # client of its own, then GraphWeaver.client's for the modules baking
+      # none. Distinct by endpoint, graphs first — two clients on one url get
+      # one server, as they would in production.
+      def self.wire_targets
+        bound = GraphWeaver.graphs.filter_map do |graph|
+          client = baked_client(graph)
+          [endpoint!(client, graph), graph] if client
+        end
+        app = [endpoint!(GraphWeaver.client), GraphWeaver::Internal::TestClients.app_graph]
+        (bound << app).uniq(&:first)
+      end
+
+      # The client a graph's generated modules call. `client:` holds a
+      # constant or its name — codegen writes it into source — so a name is
+      # resolved here the way the generated DEFAULT_CLIENT lambda resolves it.
+      def self.baked_client(graph)
+        named = graph.client
+        return named unless named.is_a?(String)
+
+        Object.const_get(named)
+      rescue NameError
+        raise GraphWeaver::Error, "#{TAG}: graph #{graph.name.inspect} bakes client: " \
+          "#{named.inspect} into its modules and nothing defines that constant, so :wire can't " \
+          "find the endpoint they post to."
+      end
+
+      # The endpoint a client posts to: a transport, a Retry around one, or a
+      # Client that built one. `graph` says whose client it is, when it isn't
+      # the app's own.
+      def self.endpoint!(client = GraphWeaver.client, graph = nil)
         target = (client.transport if client.respond_to?(:transport)) || client
         url = target.url if target.respond_to?(:url)
         return url if url
 
         raise GraphWeaver::Error, "#{TAG}: :wire runs your own transport against your resolvers, " \
-          "so it needs the endpoint that transport posts to — and " \
-          "#{client ? "GraphWeaver.client is #{client.class}, which posts to none" : "GraphWeaver.client isn't set"}. " \
+          "so it needs the endpoint that transport posts to — and #{whose_client(client, graph)}. " \
           "There is nothing to serve. Point the client at a url " \
           "(GraphWeaver.new(\"https://api.example.com/graphql\")), or tag the example " \
           "#{TAG}: :in_process or #{TAG}: :router — they run above the wire."
       end
+
+      # which client posts to nothing — the app's, or one graph's
+      def self.whose_client(client, graph)
+        return "GraphWeaver.client isn't set" unless client
+        return "GraphWeaver.client is #{client.class}, which posts to none" unless graph&.name
+
+        "graph #{graph.name.inspect} bakes client: #{client.class}, which posts to none"
+      end
+
+      def self.webmock!
+        unless defined?(WebMock)
+          raise GraphWeaver::Error, "#{TAG}: :wire serves your resolvers over HTTP, which needs " \
+            "webmock — it hooks Net::HTTP, Faraday and HTTPX, so your own transport runs unchanged. " \
+            "Add it to the Gemfile (group :test) and `require \"webmock/rspec\"` in your spec helper."
+        end
+
+        require "rack" # WebMock's to_rack builds a Rack env but doesn't depend on rack
+      rescue LoadError
+        raise GraphWeaver::Error, "#{TAG}: :wire needs rack — webmock's to_rack builds a Rack " \
+          "env with it, but doesn't depend on it. Add it to the Gemfile (group :test)."
+      end
+
+      private_class_method :wire_targets, :baked_client, :whose_client, :webmock!
 
       # Included into every example group, so graphql_context is there
       # whether or not this example took a client from the hook.
@@ -316,20 +362,22 @@ module GraphWeaver
         #      graphql_context                      # read it back
         def graphql_context(values = nil, &block)
           mode = defined?(@__graph_weaver_mode) ? @__graph_weaver_mode : nil
-          # under :wire the resolvers run behind the endpoint, so the context
-          # is on what's served there rather than on GraphWeaver.client
-          client = (@__graph_weaver_served if defined?(@__graph_weaver_served)) || GraphWeaver.client
-          baseline = GraphWeaver::Testing::RSpecIntegration.context!(mode, client)
+          # under :wire the resolvers run behind the endpoints, so the context
+          # is on what's served there rather than on GraphWeaver.client — one
+          # per graph, and the context is the example's, not a graph's
+          served = (@__graph_weaver_served if defined?(@__graph_weaver_served))
+          clients = served || [GraphWeaver.client]
+          baseline = GraphWeaver::Testing::RSpecIntegration.context!(mode, clients.first)
           return baseline unless values
 
           merged = baseline.merge(values)
-          GraphWeaver::Testing::RSpecIntegration.set_context(mode, merged, client)
+          GraphWeaver::Testing::RSpecIntegration.set_context(mode, merged, clients)
           return merged unless block
 
           begin
             block.call
           ensure
-            GraphWeaver::Testing::RSpecIntegration.set_context(mode, baseline, client)
+            GraphWeaver::Testing::RSpecIntegration.set_context(mode, baseline, clients)
           end
         end
       end
@@ -355,9 +403,12 @@ module GraphWeaver
 
       # The router is built once for the suite and an in-process client is
       # rebuilt every example, so neither is replaced here — both take the
-      # new context in place.
-      def self.set_context(mode, values, client = GraphWeaver.client)
-        client.context = values if %i[in_process router wire].include?(mode)
+      # new context in place. :wire serves one client per graph, so it hands
+      # over the list.
+      def self.set_context(mode, values, clients = [GraphWeaver.client])
+        return unless %i[in_process router wire].include?(mode)
+
+        clients.each { |client| client.context = values }
       end
     end
   end

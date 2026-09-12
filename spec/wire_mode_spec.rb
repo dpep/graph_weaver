@@ -42,6 +42,39 @@ module WireDemo
   end
 
   QUERY = "query Order { order { id total buyer } }"
+
+  CLIENT = GraphWeaver.new(ENDPOINT)
+  # a client that posts nowhere — what :wire has nothing to serve for
+  IN_PROCESS = GraphWeaver::InProcess.new(Schema)
+end
+
+# A second graph, with a schema of its own and a client of its own posting
+# somewhere of its own — the endpoint nothing used to stub.
+module BillingWire
+  ENDPOINT = "http://billing.wire.test/graphql"
+
+  class InvoiceType < GraphQL::Schema::Object
+    graphql_name "Invoice"
+
+    field :id, ID, null: false
+    field :buyer, String, null: false
+  end
+
+  class QueryType < GraphQL::Schema::Object
+    graphql_name "Query"
+
+    field :invoice, InvoiceType, null: false
+
+    def invoice = { id: "i1", buyer: "billing" }
+  end
+
+  class Schema < GraphQL::Schema
+    query QueryType
+  end
+
+  QUERY = "query Invoice { invoice { id buyer } }"
+
+  CLIENT = GraphWeaver.new(ENDPOINT)
 end
 
 # The fourth tag: your resolvers, served at the endpoint your own client
@@ -150,6 +183,39 @@ describe "graphql: :wire" do
     end
   end
 
+  # One stub read off GraphWeaver.client served one endpoint, so a module
+  # generated with `client:` for a second graph posted straight past it.
+  describe "several graphs, each behind its own wire" do
+    around do |example|
+      GraphWeaver.graph :orders, schema: WireDemo::Schema, client: "WireDemo::CLIENT"
+      GraphWeaver.graph :billing, schema: BillingWire::Schema, client: "BillingWire::CLIENT"
+      GraphWeaver.client = WireDemo::CLIENT
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "serves each graph's own endpoint that graph's own resolvers", graphql: :wire do
+      orders = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY,
+        client: "WireDemo::CLIENT")
+      invoices = GraphWeaver.parse(schema: BillingWire::Schema, query: BillingWire::QUERY,
+        client: "BillingWire::CLIENT")
+
+      expect(orders.execute!.order.buyer).to eq "nobody"       # WireDemo's resolver
+      expect(invoices.execute!.invoice.buyer).to eq "billing"  # BillingWire's
+
+      expect(exchanges.map { |request, _| request.uri.host })
+        .to contain_exactly("wire.test", "billing.wire.test")
+    end
+
+    it "takes every stub down after the example" do
+      expect { WireDemo::CLIENT.execute("{ order { buyer } }") }
+        .to raise_error(WebMock::NetConnectNotAllowedError)
+      expect { BillingWire::CLIENT.execute("{ invoice { buyer } }") }
+        .to raise_error(WebMock::NetConnectNotAllowedError)
+    end
+  end
+
   describe "identity from the request's headers" do
     around do |example|
       GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
@@ -228,7 +294,7 @@ describe "graphql: :wire" do
     it "names webmock and the line to add when it isn't loaded" do
       webmock = Object.send(:remove_const, :WebMock)
 
-      expect { integration.serve!(GraphWeaver::Internal::TestClients.client_for(:wire)) }
+      expect { integration.serve! }
         .to raise_error(GraphWeaver::Error, /webmock.*require "webmock\/rspec"/m)
     ensure
       Object.const_set(:WebMock, webmock)
@@ -245,6 +311,26 @@ describe "graphql: :wire" do
       GraphWeaver.client = nil
 
       expect { integration.endpoint! }.to raise_error(GraphWeaver::Error, /GraphWeaver\.client isn't set/)
+    end
+
+    it "names the graph whose baked client posts nowhere, not just the app's" do
+      GraphWeaver.graph :billing, schema: BillingWire::Schema, client: "WireDemo::IN_PROCESS"
+
+      expect { integration.serve! }
+        .to raise_error(GraphWeaver::Error, /graph :billing bakes client: GraphWeaver::InProcess.*nothing to serve/m)
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    # Zeitwerk hasn't loaded it, or it's a typo — either way the generated
+    # DEFAULT_CLIENT would fail the same way, one layer further in
+    it "names the constant a graph bakes when nothing defines it" do
+      GraphWeaver.graph :billing, schema: BillingWire::Schema, client: "Nope::CLIENT"
+
+      expect { integration.serve! }
+        .to raise_error(GraphWeaver::Error, /bakes client: "Nope::CLIENT".*nothing defines/m)
+    ensure
+      GraphWeaver.reset_graphs!
     end
 
     it "names :wire among the modes" do

@@ -376,6 +376,13 @@ supergraph, the [live schema class](#real-resolvers--graphql-in_process)
 otherwise. The tag takes no options and has no helper: what a faked subgraph
 behind the wire fabricates is `config.router = { fake: … }`, suite-wide.
 
+**Every endpoint an example can reach is served**, one per graph: your
+client's, plus the one each [declared graph](getting_started.md#more-than-one-schema) bakes into its
+modules with `client:`. Each gets that graph's own resolvers behind it, so a
+billing module posts to billing's url and is answered by billing's schema. A
+graph whose baked client posts nowhere is refused by name, rather than its
+requests quietly leaving the suite.
+
 **Identity comes from the request.** A `context:` **proc** is called per
 request with the headers as sent, which is the seam nothing above the wire can
 test:
@@ -396,7 +403,7 @@ arrives as `X-Caller`.)
 That is what makes this a *transport* test rather than a mock of one: webmock hooks
 Net::HTTP, Faraday and HTTPX underneath, so every transport
 [documented here](transports.md) runs unchanged, pooling and all. The tag adds
-one stub for the endpoint and takes it back after the example — it never
+one stub per endpoint and takes each back after the example — it never
 disables net connections on your behalf, and never resets stubs it didn't make.
 
 The ceiling is the router's: the wire adds a hop, not a capability, so
