@@ -354,6 +354,10 @@ GraphWeaver::Testing::Coverage::Result#servable?
 GraphWeaver::Testing::Coverage::Result#subgraph
 GraphWeaver::Testing::Coverage::Result.[]
 GraphWeaver::Testing::Coverage::Result.members
+GraphWeaver::Testing::Endpoint (Class)
+GraphWeaver::Testing::Endpoint#call
+GraphWeaver::Testing::Endpoint#inspect
+GraphWeaver::Testing::Endpoint#to_s
 GraphWeaver::Testing::Failure (Module)
 GraphWeaver::Testing::Failure.graphql
 GraphWeaver::Testing::Failure.server
