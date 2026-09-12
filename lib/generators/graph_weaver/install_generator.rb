@@ -83,22 +83,37 @@ module GraphWeaver
         return if globs.empty?
 
         entries = globs.map { |glob| "    - #{glob.inspect}" }.join("\n")
-        if body.match?(/^AllCops:/)
-          # rubocop takes the LAST of two duplicate keys, so appending a second
-          # AllCops: would replace the app's own rather than add to it. Name
-          # the lines instead of guessing where inside theirs they belong.
+        reason =
+          if body.match?(/^AllCops:/)
+            # rubocop takes the LAST of two duplicate keys, so appending a second
+            # AllCops: would replace the app's own rather than add to it
+            "sets AllCops already, and a second one would replace it rather than merge"
+          elsif yaml_documents(body) > 1
+            # rubocop reads only the first document, so the append lands where
+            # nothing will ever read it
+            "holds more than one YAML document, and rubocop reads only the first"
+          end
+
+        # Name the lines instead of guessing where inside theirs they belong.
+        if reason
           say <<~TEXT
 
-            #{RUBOCOP_CONFIG} sets AllCops already, and a second one would replace it
-            rather than merge — so add this under its Exclude:
+            #{RUBOCOP_CONFIG} #{reason} — so add this under AllCops/Exclude:
 
             #{entries}
           TEXT
         else
+          # inherit_mode is what makes this an addition: rubocop REPLACES an
+          # Exclude array on merge, so without it the block below wipes the
+          # effective list — rubocop's own vendor/node_modules/tmp defaults
+          # included, along with any Exclude reaching here through inherit_from.
           append_to_file RUBOCOP_CONFIG, <<~YAML + entries + "\n"
 
             # Machine-written by `rake graph_weaver:generate` — not yours to style.
             AllCops:
+              inherit_mode:
+                merge:
+                  - Exclude
               Exclude:
           YAML
         end
@@ -152,6 +167,14 @@ module GraphWeaver
       RUBOCOP_CONFIG = ".rubocop.yml"
 
       def rubocop_config = File.join(GraphWeaver.root, RUBOCOP_CONFIG)
+
+      # Parsed, not counted: a `---` can also be a line inside a block scalar.
+      # A file rubocop itself can't read is left to rubocop to complain about.
+      def yaml_documents(body)
+        YAML.parse_stream(body).children.size
+      rescue Psych::SyntaxError
+        1
+      end
 
       # Every graph's output directory, so a multi-schema app is covered by
       # the same run — read off the graphs rather than restated here.

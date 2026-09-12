@@ -1,3 +1,17 @@
+###  Unreleased
+<!-- lane: transport -->
+- **`rails g graph_weaver:install` no longer deletes your `AllCops/Exclude`.**
+  RuboCop *replaces* an `Exclude` array on merge rather than unioning it, so the
+  block the generator appended wiped the app's effective exclude list —
+  RuboCop's own `vendor`, `node_modules` and `tmp` defaults included, along with
+  anything reaching the file through `inherit_from:`. The appended block now
+  carries `inherit_mode: merge: [Exclude]`, which unions. **If you ran the
+  installer before this release, add those three lines to the `AllCops:` block
+  it wrote** — otherwise rubocop is still linting your vendored code. The
+  generator also no longer appends to a multi-document `.rubocop.yml` (rubocop
+  reads only the first document, so the block landed where nothing would read
+  it); it prints the lines to add instead.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

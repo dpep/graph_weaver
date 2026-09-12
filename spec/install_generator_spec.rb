@@ -262,11 +262,33 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       actions.filter_map { |kind, path, content| content if kind == :append_to_file && path == ".rubocop.yml" }
     end
 
-    it "excludes every graph's output directory from an app that lints" do
+    # inherit_mode is load-bearing, not decoration: rubocop REPLACES an Exclude
+    # array on merge, so without it the appended block wipes the effective list —
+    # rubocop's own vendor/node_modules/tmp defaults, and any Exclude the app
+    # inherited from a shared config the generator can't see. Verified against
+    # real RuboCop::ConfigLoader resolution in the hunt (rubocop isn't a
+    # dev dependency here — the gem doesn't lint itself), so the spec pins the
+    # directive the generator must write.
+    it "excludes every graph's output directory from an app that lints, unioning with what's there" do
       rubocop_config("Style/StringLiterals:\n  EnforcedStyle: double_quotes\n")
 
-      expect(YAML.safe_load(appended(run_generator).join))
-        .to eq("AllCops" => { "Exclude" => ["app/graphql/generated/**/*"] })
+      expect(YAML.safe_load(appended(run_generator).join)).to eq(
+        "AllCops" => {
+          "inherit_mode" => { "merge" => ["Exclude"] },
+          "Exclude" => ["app/graphql/generated/**/*"],
+        }
+      )
+    end
+
+    # rubocop reads only the first document of a multi-document file, so the
+    # append lands where nothing will ever read it
+    it "names the lines rather than appending to a second YAML document" do
+      rubocop_config("Style/StringLiterals:\n  EnforcedStyle: double_quotes\n---\nStyle/Documentation:\n  Enabled: false\n")
+      actions = run_generator
+
+      expect(appended(actions)).to be_empty
+      expect(actions.filter_map { |kind, text| text if kind == :say }.join)
+        .to include("more than one YAML document", %(- "app/graphql/generated/**/*"))
     end
 
     it "does nothing on a re-run" do
