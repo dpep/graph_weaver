@@ -53,6 +53,16 @@
   rehydrates a duplicate, so `pet.species == Species::Dog` comes back false.
 <!-- /lane: codegen -->
 
+<!-- lane: host -->
+- **A generated output nested deeper than a `generated_paths` glob reaches is
+  hidden from Zeitwerk again, and loaded.** `app/graphql/a/b/generated` was read
+  as already covered by the default `app/graphql/*/generated` — `File.fnmatch?`
+  lets `*` cross a `/`, and `Dir.glob`, which expands the same pattern
+  everywhere else, does not. It was then neither ignored nor required:
+  production boot died on a `Zeitwerk::NameError` naming a constant you never
+  wrote, and development simply had the modules missing. Nothing to do — a
+  layout like `app/graphql/subgraphs/billing/generated` now works.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

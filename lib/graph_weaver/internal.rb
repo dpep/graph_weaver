@@ -117,9 +117,16 @@ module GraphWeaver
         # default glob (app/graphql/*/generated) covers the conventional layout,
         # so listing a graph's output as well would name the same directory
         # twice — in the log, and in the globbing.
+        #
+        # FNM_PATHNAME because Dir.glob is what expands these patterns
+        # everywhere else (Zeitwerk's ignore, load_generated!) and its * stops
+        # at a /. Without it app/graphql/*/generated "covered"
+        # app/graphql/a/b/generated, which was then neither ignored nor loaded.
         def generated_dirs
           extra = GraphWeaver.graphs.map(&:output).reject do |dir|
-            GraphWeaver.generated_paths.any? { |pattern| File.fnmatch?(resolve(pattern), resolve(dir)) }
+            GraphWeaver.generated_paths.any? do |pattern|
+              File.fnmatch?(resolve(pattern), resolve(dir), File::FNM_PATHNAME)
+            end
           end
           GraphWeaver.generated_paths | extra
         end
