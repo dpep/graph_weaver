@@ -112,6 +112,14 @@ describe "GraphWeaver.graph block" do
       .to raise_error(ArgumentError, /not its name/)
   end
 
+  # what a Rails initializer gets for `register_enum "Status", AccountStatus`:
+  # Ruby raises before the registration is even called, so only the block can
+  # say why — and the answer is the one a top-level registration already has
+  it "points a constant that hasn't autoloaded yet at to_prepare" do
+    expect { declared { register_enum "Status", NotAutoloadedYet } }
+      .to raise_error(NameError, /uninitialized constant NotAutoloadedYet.*to_prepare.*:billing/m)
+  end
+
   it "keeps its registrations to itself, on top of the top-level ones" do
     GraphWeaver.register_scalar("Money", BigDecimal, requires: "bigdecimal")
     graph = declared { register_scalar "Doubloon", String }

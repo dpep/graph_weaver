@@ -17,9 +17,10 @@ module GraphWeaver
     # nothing to be called because there is nothing to tell it apart from.
     attr_reader :name
 
-    # The registrations this graph generates with: the top-level ones plus
-    # whatever its own block added. Filled as the graph is declared, so a
-    # top-level register_scalar belongs above the declarations it should reach.
+    # The registrations this graph generates with. A declared graph gets a copy
+    # of the top-level ones plus whatever its block added, taken as it is
+    # declared — so a top-level register_scalar belongs above the declarations
+    # it should reach. The default graph holds the top-level registry itself.
     attr_reader :registry
 
     # Each of these falls back to the matching top-level setting, so a graph
@@ -134,6 +135,16 @@ module GraphWeaver
         builder = new(name)
         builder.instance_eval(&block)
         GraphWeaver::Graph.new(name:, registry: builder.registry, **builder.settings)
+      rescue NameError => e
+        # Ruby raises on the argument before the registration is ever called, so
+        # the block is the only place that can say why — and in Rails this is
+        # the commonest way to meet it. NoMethodError is a NameError too, and
+        # means something else entirely.
+        raise if e.is_a?(NoMethodError)
+
+        raise e.class, "#{e.message} — a graph block runs where it is written, so a registration " \
+          "in it stands where a top-level one does. #{GraphWeaver::Codegen::AUTOLOAD_HINT} " \
+          "Declare graph #{name.inspect} from one.", e.backtrace
       end
 
       def initialize(name)
