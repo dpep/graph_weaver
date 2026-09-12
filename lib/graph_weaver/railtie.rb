@@ -216,10 +216,12 @@ class GraphWeaver::Railtie < Rails::Railtie
   # (what the docs say to do when its block names an autoloaded constant) isn't
   # declared until every initializer has run, and a watcher built before it
   # watched the default queries_paths — an edit to that graph's .graphql
-  # silently never regenerated. Registered after the app's own blocks, so every
-  # graph is in by the time this runs, and app.reloaders is read per request, so
-  # joining it this late still counts. Once, though: a dev reload re-runs
-  # to_prepare, and a second watcher is a second reloader over the same files.
+  # silently never regenerated. to_prepare blocks run in registration order and
+  # an app registers its own during :load_config_initializers, which this is
+  # `after:`, so every graph is in by the time this runs; app.reloaders is read
+  # per request, so joining it this late still counts. Once, though: a dev
+  # reload re-runs to_prepare, and a second watcher is a second reloader over
+  # the same files.
   initializer "graph_weaver.watch", after: :load_config_initializers do |app|
     watched = false
     app.config.to_prepare do
