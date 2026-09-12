@@ -630,7 +630,7 @@ keys** (`"person"`, `"nameWithOwner"`), the top-level `"data"` / `"errors"` /
 
 Which is checked, since symbolizing is the likeliest thing to go wrong at this
 seam: a hash carrying neither `"data"` nor `"errors"` raises a
-`GraphWeaver::TypeError` naming the keys it *did* find, rather than handing back
+`GraphWeaver::CastError` naming the keys it *did* find, rather than handing back
 an envelope that reports success with no data. `nil` and a bare String are
 refused the same way.
 
