@@ -157,8 +157,8 @@ describe "graph_weaver/rspec" do
   describe "graphql: :fake, with more than one graph" do
     around do |example|
       app_client!(DraftsDemo::Schema)
-      GraphWeaver.graph :drafts, schema: DraftsDemo::Schema
-      GraphWeaver.graph :pets, schema: Demo::Schema
+      GraphWeaver.graph(:drafts) { schema DraftsDemo::Schema }
+      GraphWeaver.graph(:pets) { schema Demo::Schema }
       example.run
     ensure
       GraphWeaver.reset_graphs!

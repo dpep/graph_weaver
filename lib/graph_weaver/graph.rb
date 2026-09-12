@@ -17,11 +17,16 @@ module GraphWeaver
     # nothing to be called because there is nothing to tell it apart from.
     attr_reader :name
 
+    # The registrations this graph generates with: the top-level ones plus
+    # whatever its own block added. Filled as the graph is declared, so a
+    # top-level register_scalar belongs above the declarations it should reach.
+    attr_reader :registry
+
     # Each of these falls back to the matching top-level setting, so a graph
     # says only what differs. output is one directory (a graph writes to one
     # place); generated_paths stays the list of places to READ from.
     def initialize(name: nil, schema: nil, queries: nil, output: nil, client: nil,
-      namespace: nil, types_module: nil, registry: nil, &registrations)
+      namespace: nil, types_module: nil, registry: nil)
       @name = name
       @schema = schema
       @queries = queries
@@ -29,13 +34,7 @@ module GraphWeaver
       @client = client
       @namespace = namespace
       @types_module = types_module
-      # nil means "a copy of the top-level registrations", taken on first read
-      # rather than now: an app declaring its graphs in one initializer and
-      # registering a scalar in another shouldn't depend on which ran first.
-      @registry = registry
-      # deferred to #registry: an app registers its own constants, and in Rails
-      # those don't resolve while config/initializers run (Codegen::AUTOLOAD_HINT)
-      @registrations = registrations
+      @registry = registry || GraphWeaver::Codegen.registry
     end
 
     def queries = @queries || GraphWeaver.queries_paths
@@ -102,22 +101,89 @@ module GraphWeaver
       [namespace ? "#{namespace}::#{module_name}" : module_name, filename]
     end
 
-    # This graph's registrations, with its block applied. The block runs the
-    # first time anything asks — generation, or a fake deciding what a scalar
-    # looks like on the wire — rather than at declaration, so an autoloaded
-    # constant has resolved by then. Idempotent: it fills a registry built for
-    # it, once.
-    def registry
-      @registry ||= GraphWeaver::Codegen.registry.dup
-      if @registrations
-        registrations, @registrations = @registrations, nil
-        @registry.instance_exec(&registrations)
-      end
-      @registry
-    end
-
     # How a message names this graph: " in graph :billing", or nothing at all
     # for the default one, so a single-schema app's errors are unchanged.
     def described = name ? " in graph #{name.inspect}" : ""
+  end
+
+  module Internal
+    # What a `GraphWeaver.graph` block is evaluated against: it collects the
+    # settings, runs the registrations, and refuses everything else — a typo
+    # is a mistake worth a message, not a call that vanishes.
+    #
+    # A separate object rather than the Graph itself, so a block can't reach a
+    # Graph's internals and a Graph stays a plain value. An app writes the
+    # block and never names this.
+    class GraphBuilder
+      # Everything a graph can say, in the order the docs teach it. `schema "x"`
+      # sets and bare `schema` reads back — there is no `schema =` form, because
+      # instance_eval would make that a local variable that silently does nothing.
+      SETTINGS = %i[schema queries output client namespace types_module].freeze
+      # The same three calls an app already writes at the top level, scoped here
+      # to this graph alone.
+      REGISTRATIONS = %i[register_scalar register_enum extend_type].freeze
+      # These three end up spelled in generated source, so each takes the
+      # constant or its name and stores the name.
+      CONSTANT_SETTINGS = %i[client namespace types_module].freeze
+      private_constant :CONSTANT_SETTINGS
+
+      attr_reader :settings, :registry
+
+      # The Graph a block describes.
+      def self.build(name, &block)
+        builder = new(name)
+        builder.instance_eval(&block)
+        GraphWeaver::Graph.new(name:, registry: builder.registry, **builder.settings)
+      end
+
+      def initialize(name)
+        @name = name
+        @settings = {}
+        # the top-level registrations, copied as the graph is declared, with the
+        # block's own added on top
+        @registry = GraphWeaver::Codegen.registry.dup
+      end
+
+      SETTINGS.each do |setting|
+        define_method(setting) do |*value|
+          return @settings[setting] if value.empty?
+          raise ArgumentError, "#{setting} takes one value, got #{value.size}" if value.size > 1
+
+          @settings[setting] = GraphBuilder.constant_name(setting, value.first)
+        end
+      end
+
+      REGISTRATIONS.each do |registration|
+        define_method(registration) do |*args, **kwargs, &block|
+          @registry.public_send(registration, *args, **kwargs, &block)
+        end
+      end
+
+      def method_missing(name, *, **, &) = raise(ArgumentError, refusal(name))
+
+      # Nothing reaches method_missing but a mistake, so the honest answer for
+      # every name it would catch is false.
+      def respond_to_missing?(name, _private = false) = false
+
+      # A Module where a constant's name goes says the same thing, and is what
+      # `client Billing::CLIENT` reads like. Anything else passes through:
+      # a schema is a path, SDL, a class, a Client, or a callable.
+      # On the singleton so the define_method setters above can reach it — srb
+      # reads a define_method block's self as the class.
+      def self.constant_name(setting, value)
+        return value unless CONSTANT_SETTINGS.include?(setting) && value.is_a?(Module)
+
+        value.name || raise(ArgumentError, "#{setting} needs a constant — generated source has " \
+          "to spell it — and #{value.inspect} is anonymous")
+      end
+
+      def refusal(name)
+        takes = SETTINGS + REGISTRATIONS
+        near = GraphWeaver::Internal::Util.did_you_mean(takes.map(&:to_s), name.to_s)
+        "#{name} isn't something a graph block takes#{near ? " (did you mean #{near}?)" : ""} — " \
+          "graph #{@name.inspect} takes #{takes.join(", ")}"
+      end
+      private :refusal
+    end
   end
 end

@@ -194,7 +194,7 @@ module GraphWeaver
           "is the API schema the router serves, with the @join__* routing table stripped out, so " \
           "the supergraph has to be named. #{path ? "#{path} carries no @join__* markers" : "Nothing on disk at #{GraphWeaver.schema_path}"}. " \
           "Set GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }, or " \
-          "name it where the graph is declared: GraphWeaver.graph :api, schema: \"supergraph.graphql\"."
+          "name it where the graph is declared: GraphWeaver.graph(:api) { schema \"supergraph.graphql\" }."
       end
 
       # The live schema class :in_process runs when the example didn't name
@@ -252,8 +252,8 @@ module GraphWeaver
         if graph&.name
           "graph #{graph.name.inspect} names " \
             "#{graph.named_schema? ? "type information, not a class" : "no schema of its own"}. " \
-            "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}, " \
-            "schema: -> { MySchema }, …)."
+            "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}) " \
+            "{ schema -> { MySchema } }."
         else
           "GraphWeaver.client isn't running one in-process to borrow. Name it in the example — " \
             "graphql_in_process(MySchema) — or set GraphWeaver::Testing.config.schema = MySchema " \

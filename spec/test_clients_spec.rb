@@ -91,8 +91,8 @@ describe GraphWeaver::Internal::TestClients do
   end
 
   it "refuses to guess which graph a module that doesn't say belongs to" do
-    GraphWeaver.graph :pets, schema: Demo::Schema
-    GraphWeaver.graph :billing, schema: Demo::Schema
+    GraphWeaver.graph(:pets) { schema Demo::Schema }
+    GraphWeaver.graph(:billing) { schema Demo::Schema }
     described_class.install(:fake)
 
     expect { bound.execute!(id: "1") }

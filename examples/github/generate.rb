@@ -8,10 +8,11 @@
 #      examples/github/generate.rb
 require_relative "setup"
 
-GraphWeaver.graph :github,
-  schema: GraphWeaver.client.schema,
-  queries: File.join(__dir__, "queries"),
-  output: File.join(__dir__, "generated")
+GraphWeaver.graph :github do
+  schema GraphWeaver.client.schema
+  queries File.join(__dir__, "queries")
+  output File.join(__dir__, "generated")
+end
 
 GraphWeaver.generate!
 changed = GraphWeaver.changed_files

@@ -378,7 +378,7 @@ a list, or a per-schema registry object (`registry = GraphWeaver::Registry.new;
 registry.register_scalar(...)`) passed to `generate!`.
 
 **Rejected because** both make the user hold a thing whose only purpose is to be
-handed straight back. `GraphWeaver.graph :billing, ... do ... end` says the same
+handed straight back. `GraphWeaver.graph :billing do ... end` says the same
 thing once, and the block is what scopes the registrations — no object to name,
 no second call to remember to make. `Codegen::Registry` still exists, because the
 scoping has to live somewhere, but an app never names it.
@@ -432,12 +432,36 @@ because the failed `generate!` meant `reload_generated!` never ran. And
 watch mode, so editing its `.graphql` silently never regenerates.
 
 So the name is the identity — re-declaring replaces in place — which makes
-`to_prepare` safe, and `schema:` accepts a callable, which makes it unnecessary:
-`schema: -> { Billing::Schema }` at the top of the initializer resolves when
-generation asks. That is not a second way to say the same thing. Deferring only
-the registrations block bought nothing while `schema:` was still eager, and a
-lambda is *more* correct than a captured class either way: Zeitwerk replaces the
-class object on reload, so a graph holding one holds a stale object.
+`to_prepare` safe, and `schema` accepts a callable, which makes it unnecessary:
+`schema -> { Billing::Schema }` at the top of the initializer resolves when
+generation asks. That is not a second way to say the same thing. A lambda is
+*more* correct than a captured class either way: Zeitwerk replaces the class
+object on reload, so a graph holding one holds a stale object.
+
+## A graph is declared in a block, and the block runs there
+
+**Considered:** keeping the keyword form beside the block (`GraphWeaver.graph
+:billing, schema: …, queries: … do … end`), and keeping the registrations
+deferred to the first read of a graph's registry so a Rails initializer could
+name an autoloaded constant.
+
+**Rejected because** two spellings for one declaration is one more thing to
+know, and the deferral was a timing rule you could not see in the code in front
+of you. It also could not survive the settings moving into the block: Zeitwerk's
+ignore list is built from every graph's `output` at
+`after: :load_config_initializers, before: :setup_main_autoloader`, so a graph's
+settings must be readable *before* autoloading exists — which means the block
+cannot wait for it.
+
+So the block runs where it is written, registrations included, and a
+registration naming one of your own constants stands exactly where a top-level
+one does: the answer is `to_prepare`, and the refusal says so. What the block
+gives back is a DSL object that answers the six settings and the three
+registrations and refuses everything else, so `schmea "x"` is a message rather
+than a call that vanishes — which the keyword form got from Ruby for free and a
+bare `instance_eval` on the `Graph` would have lost. There is no `schema =` form
+for the same reason: `instance_eval` makes it a local variable that silently
+does nothing, so the one spelling is the call, as in graphql-ruby's `field :x`.
 
 ## A namespaced graph reloads; an un-namespaced one requires
 
@@ -524,7 +548,7 @@ Three corollaries the passes kept running into:
 - **`Graph#{described, generated_names, dump_path, named_schema?, live_schema}`.**
   The declarative half of `Graph` (`name`, `schema`, `queries`, `output`,
   `client`, `namespace`, `types_module`, `registry`) is genuinely public — it is
-  every `GraphWeaver.graph` keyword read back, and `rake graph_weaver:graphs`
+  every setting a graph block says, read back, and `rake graph_weaver:graphs`
   prints four of them. These five
   are mechanism `GraphWeaver` asks of a graph from another file, and the same
   limit applies as to `Testing::Config`: the state lives on the object, so a
@@ -532,8 +556,9 @@ Three corollaries the passes kept running into:
 **`Codegen::Registry` is a private constant.** It landed public — the class plus
 thirteen instance methods — which said the opposite of what the graph decision
 above intends ("an app never names it"). A graph block reaches the same methods
-by `instance_exec`, and a top-level `register_scalar` by delegation, so both
-documented doors keep working with the name shut. It stays *inside* `Codegen`
+through the builder it is `instance_eval`'d against, and a top-level
+`register_scalar` by delegation, so both documented doors keep working with the
+name shut. It stays *inside* `Codegen`
 rather than moving under `Internal`: its methods build a `ScalarType` and an
 `EnumType`, which are private constants there, so only a lexical child can see
 them. `GraphWeaver.registry_for` went with it, to `Internal::Util` — the fakes

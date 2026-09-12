@@ -187,8 +187,14 @@ describe "graphql: :wire" do
   # generated with `client:` for a second graph posted straight past it.
   describe "several graphs, each behind its own wire" do
     around do |example|
-      GraphWeaver.graph :orders, schema: WireDemo::Schema, client: "WireDemo::CLIENT"
-      GraphWeaver.graph :billing, schema: BillingWire::Schema, client: "BillingWire::CLIENT"
+      GraphWeaver.graph :orders do
+        schema WireDemo::Schema
+        client "WireDemo::CLIENT"
+      end
+      GraphWeaver.graph :billing do
+        schema BillingWire::Schema
+        client "BillingWire::CLIENT"
+      end
       GraphWeaver.client = WireDemo::CLIENT
       example.run
     ensure
@@ -314,7 +320,10 @@ describe "graphql: :wire" do
     end
 
     it "names the graph whose baked client posts nowhere, not just the app's" do
-      GraphWeaver.graph :billing, schema: BillingWire::Schema, client: "WireDemo::IN_PROCESS"
+      GraphWeaver.graph :billing do
+        schema BillingWire::Schema
+        client "WireDemo::IN_PROCESS"
+      end
 
       expect { integration.serve! }
         .to raise_error(GraphWeaver::Error, /graph :billing bakes client: GraphWeaver::InProcess.*nothing to serve/m)
@@ -325,7 +334,10 @@ describe "graphql: :wire" do
     # Zeitwerk hasn't loaded it, or it's a typo — either way the generated
     # DEFAULT_CLIENT would fail the same way, one layer further in
     it "names the constant a graph bakes when nothing defines it" do
-      GraphWeaver.graph :billing, schema: BillingWire::Schema, client: "Nope::CLIENT"
+      GraphWeaver.graph :billing do
+        schema BillingWire::Schema
+        client "Nope::CLIENT"
+      end
 
       expect { integration.serve! }
         .to raise_error(GraphWeaver::Error, /bakes client: "Nope::CLIENT".*nothing defines/m)

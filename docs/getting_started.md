@@ -262,50 +262,77 @@ An app with a second schema declares it:
 
 ```ruby
 # config/initializers/graph_weaver.rb
-GraphWeaver.graph :billing,
-  schema:    -> { Billing::Schema },
-  queries:   "app/graphql/billing/queries",
-  output:    "app/graphql/billing/generated",
-  client:    "Billing::Schema",
-  namespace: "Billing" do
-    register_scalar "Money", BigDecimal
-  end
+GraphWeaver.graph :billing do
+  schema    -> { Billing::Schema }
+  queries   "app/graphql/billing/queries"
+  output    "app/graphql/billing/generated"
+  client    "Billing::Schema"
+  namespace "Billing"
+  register_scalar "Money", BigDecimal
+end
 
-GraphWeaver.graph :github,
-  schema:    "db/github.json",
-  queries:   "app/graphql/github/queries",
-  output:    "app/graphql/github/generated",
-  client:    "GITHUB",
-  namespace: "GitHub"
+GraphWeaver.graph :github do
+  schema    "db/github.json"
+  queries   "app/graphql/github/queries"
+  output    "app/graphql/github/generated"
+  client    "GITHUB"
+  namespace "GitHub"
+end
 ```
 
 One `rake graph_weaver:generate` does the app, one `rake graph_weaver:verify`
-gates it, and `rake graph_weaver:graphs` lists what is configured. Each keyword
-falls back to the matching top-level setting, so a graph says only what differs.
+gates it, and `rake graph_weaver:graphs` lists what is configured. Everything a
+graph knows is said inside the block: six settings — `schema`, `queries`,
+`output`, `client`, `namespace`, `types_module` — and the same three
+registrations you write at the top level. Each setting falls back to the
+matching top-level one, so a graph says only what differs, and anything else
+the block calls is refused naming the nine it takes.
+
+`schema "x"` sets and a bare `schema` reads back. There is no `schema = "x"`
+form: the block is `instance_eval`'d, so that would be a local variable that
+silently does nothing — the same reason graphql-ruby writes `field :name`.
 
 **In Rails, declare graphs in the initializer itself, and name an autoloaded
-schema class with a lambda** — `schema: -> { Billing::Schema }` — as above.
+schema class with a lambda** — `schema -> { Billing::Schema }` — as above.
 Zeitwerk is set up *after* `config/initializers` run, so a bare
 `Billing::Schema` there raises `uninitialized constant`; the lambda is resolved
 when generation asks, and resolved again after a dev reload has replaced the
-class object. (`client:` takes the constant's *name* as a string for the same
-reason — `client: "Billing::Schema"` — since it is baked into generated source
-either way.) A `to_prepare` block works too, and is safe to re-run, but it runs
-too late for watch mode and Zeitwerk to see the graph: an edit to that graph's
-`.graphql` then won't regenerate, and an `output:` outside
-`app/graphql/*/generated` won't be hidden from eager loading.
+class object. (`client` and `namespace` take the constant or its name, since
+either way it is baked into generated source as a name.)
+
+**The block runs where you write it**, registrations included — so a
+registration naming one of your own constants is in exactly the position a
+top-level one is, and has the same answer: declare that graph from a
+`to_prepare` block, as [above](#2-what-the-generator-writes).
+
+```ruby
+Rails.application.config.to_prepare do
+  GraphWeaver.graph :billing do
+    schema    Billing::Schema
+    queries   "app/graphql/billing/queries"
+    output    "app/graphql/billing/generated"
+    namespace "Billing"
+    register_enum "Species", PetKind
+  end
+end
+```
+
+Re-running is safe — the name is the identity, so the second declaration
+replaces the first — but `to_prepare` runs too late for watch mode to see the
+graph: an edit to that graph's `.graphql` won't regenerate on the next request.
+An `output` under the conventional `app/graphql/*/generated` is still hidden
+from eager loading.
 
 Two things are worth knowing:
 
-- **`namespace:` nests everything that graph generates** — `person.graphql`
+- **`namespace` nests everything that graph generates** — `person.graphql`
   becomes `Billing::PersonQuery`, and its shared types module becomes
   `Billing::GraphQLTypes`. Constants are global, so two schemas that both have a
   `person.graphql`, or that both hoist an enum, would otherwise fight over one
   name. Without a namespace the collision is refused at generation, naming both
   files.
-- **The block's registrations reach that graph alone**, on top of any
-  registered at the top level. It runs the first time anything reads them, so
-  an autoloaded constant resolves. That is what makes the build quiet: `Money`
+- **The block's registrations reach that graph alone**, on top of the top-level
+  ones as they stand at that line. That is what makes the build quiet: `Money`
   is checked against the schema it was registered for, and against no other.
 
 Declaring any graph replaces the implicit one the settings describe — an app

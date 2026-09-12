@@ -53,18 +53,25 @@ describe "GraphWeaver.graph" do
 
   # the two graphs the rest of the examples share: same file name in both, so
   # only the namespaces keep them apart
-  def two_graphs(namespace: true)
+  def two_graphs(namespaced: true)
     write_query(:pets, "person", "query { person(id: 1) { birthday pets { species } } }\n")
     write_query(:billing, "person", "query { invoice(id: 1) { id total } }\n")
 
-    GraphWeaver.graph :pets,
-      schema: Demo::Schema, queries: File.join(@dir, "pets/queries"), output: output(:pets),
-      client: Demo::Schema, namespace: (namespace ? "Pets" : nil)
-    GraphWeaver.graph :billing,
-      schema: billing_schema, queries: File.join(@dir, "billing/queries"), output: output(:billing),
-      namespace: (namespace ? "Billing" : nil) do
-        register_scalar "Money", BigDecimal, requires: "bigdecimal"
-      end
+    dir, billing = @dir, billing_schema
+    GraphWeaver.graph :pets do
+      schema Demo::Schema
+      queries File.join(dir, "pets/queries")
+      output File.join(dir, "pets/generated")
+      client Demo::Schema
+      namespace "Pets" if namespaced
+    end
+    GraphWeaver.graph :billing do
+      schema billing
+      queries File.join(dir, "billing/queries")
+      output File.join(dir, "billing/generated")
+      namespace "Billing" if namespaced
+      register_scalar "Money", BigDecimal, requires: "bigdecimal"
+    end
   end
 
   it "generates each graph into its own output, under its own namespace" do
@@ -91,18 +98,21 @@ describe "GraphWeaver.graph" do
   end
 
   it "refuses two graphs whose files generate the same module, naming both" do
-    two_graphs(namespace: false)
+    two_graphs(namespaced: false)
 
     expect { GraphWeaver.generate! }.to raise_error(GraphWeaver::Error, /PersonQuery.*namespace:/m)
   end
 
   it "reports every graph's changed files and unmatched registrations in one run" do
     two_graphs
-    GraphWeaver.graph :extra,
-      schema: billing_schema, queries: File.join(@dir, "billing/queries"), output: output(:extra),
-      namespace: "Extra" do
-        register_scalar "Doubloon", String
-      end
+    dir, billing = @dir, billing_schema
+    GraphWeaver.graph :extra do
+      schema billing
+      queries File.join(dir, "billing/queries")
+      output File.join(dir, "extra/generated")
+      namespace "Extra"
+      register_scalar "Doubloon", String
+    end
     GraphWeaver.generate!
 
     expect(GraphWeaver.changed_files.grep(/pets/)).not_to be_empty
@@ -163,10 +173,14 @@ describe "GraphWeaver.graph" do
   # with, or it hands a generated cast a value that cast can't read.
   it "fabricates a scalar the way the graph that owns the schema reads it" do
     schema = GraphQL::Schema.from_definition(BILLING_SDL)
-    GraphWeaver.graph :billing, schema:, queries: File.join(@dir, "billing/queries"),
-      output: output(:billing), namespace: "Billing" do
-        register_scalar "Money", Date
-      end
+    dir, billing = @dir, schema
+    GraphWeaver.graph :billing do
+      schema billing
+      queries File.join(dir, "billing/queries")
+      output File.join(dir, "billing/generated")
+      namespace "Billing"
+      register_scalar "Money", Date
+    end
 
     fake = GraphWeaver::Testing::FakeClient.new(schema:)
     total = fake.execute("query { invoice(id: 1) { total } }").dig("data", "invoice", "total")
@@ -174,15 +188,21 @@ describe "GraphWeaver.graph" do
     expect { Date.iso8601(total) }.not_to raise_error
   end
 
-  # graphs are declared in one initializer and scalars registered in another,
-  # so a graph that copied the top-level registrations when it was DECLARED
-  # would depend on which of the two ran first
-  it "takes the top-level registrations as they are when it generates" do
+  # a graph block runs where it is written, registrations included, so it takes
+  # the top-level registrations as they stand at that line — which is the rule
+  # an app reads off the order of its own initializer
+  it "takes the top-level registrations as they stand at the declaration" do
+    GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
+    two_graphs
+    GraphWeaver.generate!
+    expect(File.read(File.join(output(:pets), "person_query.rb"))).not_to include("Date.iso8601")
+
+    GraphWeaver.reset_graphs!
+    GraphWeaver::Codegen.reset_registrations!
     two_graphs
     GraphWeaver.register_scalar("Date", String, cast: :itself, serialize: :itself)
     GraphWeaver.generate!
-
-    expect(File.read(File.join(output(:pets), "person_query.rb"))).not_to include("Date.iso8601")
+    expect(File.read(File.join(output(:pets), "person_query.rb"))).to include("Date.iso8601")
   end
 
   # `graphql: :fake` derives one schema for the suite; with two graphs that
@@ -207,12 +227,20 @@ describe "GraphWeaver.graph" do
     # fake — and this is the graph with `client: Demo::Schema` baked in
     write_query(:faked_pets, "contact", "query { person(id: 1) { email } }\n")
     write_query(:faked_billing, "statement", "query { invoice(id: 1) { id } }\n")
-    GraphWeaver.graph :faked_pets, schema: Demo::Schema, client: Demo::Schema,
-      queries: File.join(@dir, "faked_pets/queries"), output: output(:faked_pets),
-      namespace: "FakedPets"
-    GraphWeaver.graph :faked_billing, schema: billing_schema,
-      queries: File.join(@dir, "faked_billing/queries"), output: output(:faked_billing),
-      namespace: "FakedBilling"
+    dir, billing = @dir, billing_schema
+    GraphWeaver.graph :faked_pets do
+      schema Demo::Schema
+      client Demo::Schema
+      queries File.join(dir, "faked_pets/queries")
+      output File.join(dir, "faked_pets/generated")
+      namespace "FakedPets"
+    end
+    GraphWeaver.graph :faked_billing do
+      schema billing
+      queries File.join(dir, "faked_billing/queries")
+      output File.join(dir, "faked_billing/generated")
+      namespace "FakedBilling"
+    end
     GraphWeaver.generate!
     GraphWeaver.load_generated!
     GraphWeaver::Internal::TestClients.install(:fake)
@@ -233,11 +261,14 @@ describe "GraphWeaver.graph" do
   it "fabricates a file-backed graph's scalar the way that graph casts it" do
     GraphWeaver::Testing.reset!
     write_query(:money, "statement", "query { invoice(id: 1) { id total } }\n")
-    GraphWeaver.graph :money, schema: billing_schema,
-      queries: File.join(@dir, "money/queries"), output: output(:money),
-      namespace: "Statements" do
-        register_scalar "Money", BigDecimal, requires: "bigdecimal"
-      end
+    dir, billing = @dir, billing_schema
+    GraphWeaver.graph :money do
+      schema billing
+      queries File.join(dir, "money/queries")
+      output File.join(dir, "money/generated")
+      namespace "Statements"
+      register_scalar "Money", BigDecimal, requires: "bigdecimal"
+    end
     GraphWeaver.generate!
     GraphWeaver.load_generated!
     # the app's single graph: what the rspec hook puts in the client slot
@@ -253,13 +284,20 @@ describe "GraphWeaver.graph" do
   it "fabricates each graph's scalars the way that graph casts them" do
     GraphWeaver::Testing.reset!
     write_query(:invoiced, "statement", "query { invoice(id: 1) { id total } }\n")
-    GraphWeaver.graph :pets, schema: Demo::Schema,
-      queries: File.join(@dir, "pets/queries"), output: output(:pets), namespace: "Pets"
-    GraphWeaver.graph :invoiced, schema: billing_schema,
-      queries: File.join(@dir, "invoiced/queries"), output: output(:invoiced),
-      namespace: "Invoiced" do
-        register_scalar "Money", BigDecimal, requires: "bigdecimal"
-      end
+    dir, billing = @dir, billing_schema
+    GraphWeaver.graph :pets do
+      schema Demo::Schema
+      queries File.join(dir, "pets/queries")
+      output File.join(dir, "pets/generated")
+      namespace "Pets"
+    end
+    GraphWeaver.graph :invoiced do
+      schema billing
+      queries File.join(dir, "invoiced/queries")
+      output File.join(dir, "invoiced/generated")
+      namespace "Invoiced"
+      register_scalar "Money", BigDecimal, requires: "bigdecimal"
+    end
     GraphWeaver.generate!
     GraphWeaver.load_generated!
     GraphWeaver::Internal::TestClients.install(:fake)
@@ -273,7 +311,7 @@ describe "GraphWeaver.graph" do
   # a mode asks the graph what it runs against before it asks the app
   it "runs :in_process against the class a graph names, not the client's" do
     GraphWeaver.client = GraphWeaver::InProcess.new(RouterGraph::Reviews::Schema)
-    GraphWeaver.graph :pets, schema: Demo::Schema
+    GraphWeaver.graph(:pets) { schema Demo::Schema }
 
     expect(GraphWeaver::Testing.config.schema_class!(GraphWeaver.graphs.first)).to be Demo::Schema
   ensure
@@ -283,7 +321,7 @@ describe "GraphWeaver.graph" do
   # a graph is told where ITS class is declared; the app-wide advice
   # (config.schema, graphql_in_process) can't name a second graph's
   it "names the graph, and where to declare its class, when it names a dump" do
-    GraphWeaver.graph :storefront, schema: RouterGraph::SUPERGRAPH
+    GraphWeaver.graph(:storefront) { schema RouterGraph::SUPERGRAPH }
 
     expect { GraphWeaver::Testing.config.schema_class!(GraphWeaver.graphs.first) }
       .to raise_error(GraphWeaver::Error,
@@ -296,8 +334,13 @@ describe "GraphWeaver.graph" do
   it "names the subgraphs behind a validation error in a federated graph" do
     FileUtils.mkdir_p(File.join(@dir, "fed"))
     File.write(File.join(@dir, "fed/federated.graphql"), "{ product(upc: \"1\") { colour } }\n")
-    GraphWeaver.graph :storefront, schema: RouterGraph::SUPERGRAPH,
-      queries: File.join(@dir, "fed"), output: output(:fed), namespace: "Storefront"
+    dir = @dir
+    GraphWeaver.graph :storefront do
+      schema RouterGraph::SUPERGRAPH
+      queries File.join(dir, "fed")
+      output File.join(dir, "fed/generated")
+      namespace "Storefront"
+    end
 
     errors = GraphWeaver.check_queries.fetch(File.join(@dir, "fed/federated.graphql"))
     expect(errors.first["subgraphs"]).to eq %w[products reviews]
@@ -309,8 +352,13 @@ describe "GraphWeaver.graph" do
   it "keeps both graphs' errors when they share a queries directory" do
     two_graphs
     write_query(:pets, "broken", "query { person(id: 1) { nope } }\n")
-    GraphWeaver.graph :sibling, schema: Demo::Schema, queries: File.join(@dir, "pets/queries"),
-      output: output(:sibling), namespace: "Sibling"
+    dir = @dir
+    GraphWeaver.graph :sibling do
+      schema Demo::Schema
+      queries File.join(dir, "pets/queries")
+      output File.join(dir, "sibling/generated")
+      namespace "Sibling"
+    end
 
     errors = GraphWeaver.check_queries.fetch(File.join(@dir, "pets/queries/broken.graphql"))
     expect(errors.size).to eq 1 # both graphs say the same thing, said once
@@ -322,9 +370,14 @@ describe "GraphWeaver.graph" do
   it "refuses two graphs that write the same file, namespaces notwithstanding" do
     write_query(:pets, "person", "query { person(id: 1) { name } }\n")
     write_query(:billing, "person", "query { person(id: 1) { name } }\n")
-    %i[pets billing].each do |name|
-      GraphWeaver.graph name, schema: Demo::Schema, queries: File.join(@dir, "#{name}/queries"),
-        output: output(:shared), namespace: name.to_s.capitalize
+    dir = @dir
+    %i[pets billing].each do |graph|
+      GraphWeaver.graph graph do
+        schema Demo::Schema
+        queries File.join(dir, "#{graph}/queries")
+        output File.join(dir, "shared/generated")
+        namespace graph.to_s.capitalize
+      end
     end
 
     expect { GraphWeaver.generate! }
@@ -344,7 +397,7 @@ describe "GraphWeaver.graph" do
   # the name is written into every module the graph generates, so it has to be
   # something generated source can spell
   it "refuses a name that isn't a Symbol or a String" do
-    expect { GraphWeaver.graph(Demo::Schema, schema: Demo::Schema) }
+    expect { GraphWeaver.graph(Demo::Schema) { schema Demo::Schema } }
       .to raise_error(ArgumentError, /Symbol or a String/)
   end
 
@@ -354,8 +407,13 @@ describe "GraphWeaver.graph" do
   it "takes a callable schema, resolved when it is asked for" do
     write_query(:pets, "person", "query { person(id: 1) { name } }\n")
     resolved = 0
-    GraphWeaver.graph :pets, schema: -> { resolved += 1; Demo::Schema },
-      queries: File.join(@dir, "pets/queries"), output: output(:pets), namespace: "Pets"
+    dir = @dir
+    GraphWeaver.graph :pets do
+      schema -> { resolved += 1; Demo::Schema }
+      queries File.join(dir, "pets/queries")
+      output File.join(dir, "pets/generated")
+      namespace "Pets"
+    end
 
     expect(resolved).to be_zero # not at declaration
     GraphWeaver.generate!
@@ -369,9 +427,13 @@ describe "GraphWeaver.graph" do
   it "refuses two graphs that hoist into the same shared types module" do
     write_query(:pets, "person", "query { person(id: 1) { pets { species } } }\n")
     write_query(:billing, "invoice", "query { person(id: 1) { pets { species } } }\n")
-    %i[pets billing].each do |name|
-      GraphWeaver.graph name, schema: Demo::Schema,
-        queries: File.join(@dir, "#{name}/queries"), output: output(name)
+    dir = @dir
+    %i[pets billing].each do |graph|
+      GraphWeaver.graph graph do
+        schema Demo::Schema
+        queries File.join(dir, "#{graph}/queries")
+        output File.join(dir, "#{graph}/generated")
+      end
     end
 
     expect { GraphWeaver.generate! }

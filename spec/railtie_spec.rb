@@ -122,7 +122,10 @@ describe "GraphWeaver::Railtie" do
   end
 
   it "hides a graph's output when it lies outside the conventional glob" do
-    GraphWeaver.graph :odd, schema: Demo::Schema, output: "app/graphql/odd_output"
+    GraphWeaver.graph :odd do
+      schema Demo::Schema
+      output "app/graphql/odd_output"
+    end
 
     ignored = []
     loader = Object.new
@@ -182,8 +185,13 @@ describe "GraphWeaver::Railtie" do
       FileUtils.mkdir_p(queries)
       File.write(File.join(queries, "probe.graphql"), "query { person(id: 1) { name } }\n")
       generated = File.join(dir, "generated")
-      GraphWeaver.graph :probe, schema: Demo::Schema, queries:, output: generated,
-        namespace: "RailtieNamespaceProbe"
+      query_dir = queries
+      GraphWeaver.graph :probe do
+        schema Demo::Schema
+        queries query_dir
+        output generated
+        namespace "RailtieNamespaceProbe"
+      end
       GraphWeaver.generate!
 
       register_generated_load.each(&:call)
@@ -392,8 +400,12 @@ describe "GraphWeaver::Railtie" do
     # every graph's queries reach the watcher, or an edit in the second one
     # silently never regenerates
     it "watches every graph's query directories" do
-      GraphWeaver.graph :second, schema: Demo::Schema,
-        queries: File.join(@dir, "second"), output: File.join(@dir, "second_generated")
+      dir = @dir
+      GraphWeaver.graph :second do
+        schema Demo::Schema
+        queries File.join(dir, "second")
+        output File.join(dir, "second_generated")
+      end
 
       watcher = GraphWeaver::Railtie.watch!(app)
 

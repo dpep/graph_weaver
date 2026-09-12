@@ -50,7 +50,7 @@
   tag: `graphql: :live` plus `graphql_fake` refuses rather than letting the
   helper quietly win.
 - **`:router` finds the supergraph a graph already declares.** An app that
-  wrote `GraphWeaver.graph :api, schema: "config/supergraph.graphql"` had said
+  wrote `GraphWeaver.graph(:api) { schema "config/supergraph.graphql" }` had said
   where its supergraph is, and `graphql: :router` still asked for
   `config.router = { supergraph: … }` on top. It now looks in order:
   `config.router[:supergraph]`, then a declared graph's schema when that schema
@@ -96,23 +96,29 @@
   `cast: ->(v) { v.to_sym }` interpolated to nothing and every response
   failed far from the registration, blaming the codec. The proc is now probed
   once when registered, and a non-String return names the spelling to use.
-- **An app can have more than one schema.** `GraphWeaver.graph` declares one —
-  a schema, where its queries live, where its Ruby goes, the client its modules
-  call, a `namespace:`, and a block of `register_scalar`/`register_enum`/
-  `extend_type` calls that reach that graph alone:
+- **An app can have more than one schema.** `GraphWeaver.graph` declares one.
+  Everything a graph knows is said inside its block, in call style — six
+  settings and the three registrations you already write at the top level:
 
   ```ruby
-  GraphWeaver.graph :billing,
-    schema: Billing::Schema, queries: "app/graphql/billing/queries",
-    output: "app/graphql/billing/generated", client: Billing::Schema,
-    namespace: "Billing" do
-      register_scalar "Money", BigDecimal
-    end
+  GraphWeaver.graph :billing do
+    schema    Billing::Schema
+    queries   "app/graphql/billing/queries"
+    output    "app/graphql/billing/generated"
+    client    Billing::Schema
+    namespace "Billing"
+    register_scalar "Money", BigDecimal
+  end
   ```
 
-  The block's three calls are the ones you already write at the top level, and
-  the object scoping them has no public name — nothing new to learn beyond
-  `GraphWeaver.graph` itself.
+  `schema "x"` sets and a bare `schema` reads back; there is no `schema = "x"`
+  form, since the block is `instance_eval`'d and that would be a local variable
+  that silently does nothing — graphql-ruby's `field :name` convention. Anything
+  else the block calls is refused, naming the nine it takes. `client`,
+  `namespace` and `types_module` each take the constant or its name, since
+  generated source spells it either way; a setting a graph doesn't say falls
+  back to the top-level one. The object the block runs against has no public
+  name — nothing new to learn beyond `GraphWeaver.graph` itself.
 
   `generate!`, `verify_generated!`, `check_queries`, `load_generated!`,
   `reload_generated!`, the rake tasks and watch mode all walk every graph, so
@@ -124,12 +130,14 @@
   [docs/federation.md](docs/federation.md).
 
   **In Rails, declare graphs in the initializer and name an autoloaded schema
-  class with a lambda** — `schema: -> { Billing::Schema }`. Zeitwerk is set up
+  class with a lambda** — `schema -> { Billing::Schema }`. Zeitwerk is set up
   after `config/initializers` run, so a bare constant there raises; the lambda
   resolves when generation asks, and again after a dev reload has replaced the
-  class object. A `to_prepare` block works and is safe to re-run (the graph's
-  name is its identity, so re-declaring replaces it), but it runs too late for
-  watch mode and Zeitwerk to see the graph.
+  class object. A registration naming one of your own constants is in the same
+  position as a top-level one, and has the same answer: declare that graph from
+  a `to_prepare` block, which is safe to re-run (the graph's name is its
+  identity, so re-declaring replaces it) but runs too late for watch mode to
+  see the graph.
 
   **Nothing changes for a single-schema app**: the top-level settings *are* the
   default graph, and top-level registrations still reach every graph, so a

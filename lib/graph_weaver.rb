@@ -204,55 +204,66 @@ module GraphWeaver
 
     def types_module = @types_module || "GraphQLTypes"
 
-    # Declare a second schema — and a third, and the rest. Each graph says
-    # where its queries live, where its Ruby goes, which client its modules
-    # call, and what its custom scalars and enums mean:
+    # Declare a second schema — and a third, and the rest. Everything a graph
+    # knows is said inside its block, in call style:
     #
-    #      GraphWeaver.graph :billing,
-    #        schema:    Billing::Schema,
-    #        queries:   "app/graphql/billing/queries",
-    #        output:    "app/graphql/billing/generated",
-    #        client:    Billing::Schema,
-    #        namespace: "Billing" do
-    #          register_scalar "Money", BigDecimal
-    #        end
+    #      GraphWeaver.graph :billing do
+    #        schema    -> { Billing::Schema }
+    #        queries   "app/graphql/billing/queries"
+    #        output    "app/graphql/billing/generated"
+    #        client    Billing::Schema
+    #        namespace "Billing"
+    #        register_scalar "Money", BigDecimal
+    #      end
     #
     # Every entry point then walks the list: one `rake graph_weaver:generate`
     # does the app, one `verify` gates it, `check_queries` checks each graph
     # against its own schema.
     #
-    # Each keyword falls back to the matching top-level setting, so a graph
-    # says only what differs; `namespace:` nests everything that graph
-    # generates (the query modules and its shared types module) so two schemas
-    # with a person.graphql don't fight over one constant. The block's
-    # registrations reach this graph alone, on top of the top-level ones — it
-    # runs the first time anything reads them, not at declaration, so an
-    # autoloaded constant has resolved by then.
+    # Six settings — schema, queries, output, client, namespace, types_module —
+    # and the three registrations you already write at the top level. `schema "x"`
+    # sets and bare `schema` reads back; there is no `schema = "x"` form, since
+    # the block is instance_eval'd and that would be a local variable (this is
+    # graphql-ruby's `field :x` convention). Anything else the block calls is
+    # refused, naming the nine it takes.
     #
-    # `schema:` also takes a callable, which is how a Rails app names an
-    # autoloaded schema class from an initializer: `schema: -> { Billing::Schema }`
-    # resolves when generation asks, and resolves again after a dev reload has
-    # replaced the class object.
+    # Each setting falls back to the matching top-level one, so a graph says
+    # only what differs; `namespace` nests everything that graph generates (the
+    # query modules and its shared types module) so two schemas with a
+    # person.graphql don't fight over one constant. The registrations reach this
+    # graph alone, on top of the top-level ones as they stand at declaration.
+    #
+    # The block runs where it is written. `schema` also takes a callable, which
+    # is how a Rails app names an autoloaded schema class from an initializer:
+    # `schema -> { Billing::Schema }` resolves when generation asks, and resolves
+    # again after a dev reload has replaced the class object. A registration
+    # naming an autoloaded constant has the same problem, and the same answer
+    # top-level registrations have always had (Codegen::AUTOLOAD_HINT).
     #
     # The name is the graph's identity, so re-declaring one REPLACES it —
     # declaring from a `to_prepare` block, which re-runs on every reload, is
     # safe. Declaring any graph replaces the implicit one the settings
     # describe: an app either has graphs or has settings, never a silent third
     # thing.
-    def graph(name, schema: nil, queries: nil, output: nil, client: nil,
-      namespace: nil, types_module: nil, &registrations)
+    def graph(name, **keywords, &block)
       unless name.is_a?(Symbol) || name.is_a?(String)
         # codegen writes the name into every module this graph generates, so
         # it has to be something source can spell
         raise ArgumentError, "graph name must be a Symbol or a String, got #{name.inspect}"
       end
-      # no registry: — a declared graph copies the top-level registrations when
-      # it is first read. They apply to every graph, because federation composes
-      # by name and an app that registered Money before it had two schemas
-      # shouldn't lose it; the block adds this graph's own on top.
-      graph = Graph.new(
-        name:, schema:, queries:, output:, client:, namespace:, types_module:, &registrations
-      )
+      unless keywords.empty?
+        raise ArgumentError, "GraphWeaver.graph takes a block, not keywords — say " \
+          "#{keywords.keys.join(", ")} inside it:\n" \
+          "    GraphWeaver.graph #{name.inspect} do\n" \
+          "      #{keywords.keys.first} #{keywords.values.first.inspect}\n" \
+          "    end"
+      end
+      unless block
+        raise ArgumentError, "GraphWeaver.graph #{name.inspect} needs a block — a graph says " \
+          "what it is inside one"
+      end
+
+      graph = Internal::GraphBuilder.build(name, &block)
       @graphs ||= []
       # replace in place, so the declaration order an app wrote is the order
       # generate! reports in however many times the initializer has re-run
@@ -274,7 +285,7 @@ module GraphWeaver
     # The graph the settings describe. Built fresh each time: the settings are
     # writable, and it holds the default registry rather than a copy so a
     # top-level register_scalar reaches it.
-    def default_graph = Graph.new(registry: Codegen.registry)
+    def default_graph = Graph.new
     private :default_graph
 
     # The graphs one generate!/verify run covers. Explicit arguments describe
@@ -284,7 +295,7 @@ module GraphWeaver
       overrides = overrides.compact
       return graphs if overrides.empty?
 
-      [Graph.new(registry: Codegen.registry, **overrides)]
+      [Graph.new(**overrides)]
     end
     private :graphs_for
 

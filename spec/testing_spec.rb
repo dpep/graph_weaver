@@ -597,14 +597,16 @@ describe GraphWeaver::Testing do
 
     # :wire asks per example, and a real supergraph is thousands of lines
     it "parses a source once, however often it is asked" do
-      GraphWeaver.graph :api, schema: supergraph
+      source = supergraph
+      GraphWeaver.graph(:api) { schema source }
       expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
 
       3.times { described_class.config.supergraph? }
     end
 
     it "takes the one a declared graph already names" do
-      GraphWeaver.graph :api, schema: supergraph
+      source = supergraph
+      GraphWeaver.graph(:api) { schema source }
 
       expect(described_class.config.supergraph?).to be true
       expect(described_class.config.built_router.execute("{ me { username } }").dig("data", "me", "username"))
@@ -612,7 +614,8 @@ describe GraphWeaver::Testing do
     end
 
     it "lets config.router name one over the graph's" do
-      GraphWeaver.graph :api, schema: File.expand_path("support/federation/package.json", __dir__)
+      source = File.expand_path("support/federation/package.json", __dir__)
+      GraphWeaver.graph(:api) { schema source }
       described_class.configure { |config| config.router = { supergraph: } }
 
       expect(described_class.config.built_router.faked).to eq []
@@ -621,7 +624,7 @@ describe GraphWeaver::Testing do
     # a graph naming a live class says nothing about a supergraph, so the
     # conventional dump is still the last place to look
     it "falls back to the dump when no graph names a composed schema" do
-      GraphWeaver.graph :api, schema: Demo::Schema
+      GraphWeaver.graph(:api) { schema Demo::Schema }
       GraphWeaver.schema_path = supergraph
 
       expect(described_class.config.supergraph?).to be true
@@ -630,8 +633,9 @@ describe GraphWeaver::Testing do
     it "refuses to pick when two graphs name composed schemas, naming both" do
       copy = File.join(Dir.mktmpdir, "other.graphql")
       FileUtils.cp(supergraph, copy)
-      GraphWeaver.graph :api, schema: supergraph
-      GraphWeaver.graph :admin, schema: copy
+      source = supergraph
+      GraphWeaver.graph(:api) { schema source }
+      GraphWeaver.graph(:admin) { schema copy }
 
       expect { described_class.config.built_router }
         .to raise_error(GraphWeaver::Error, /2 composed supergraphs.*supergraph\.graphql.*other\.graphql/m)
@@ -640,14 +644,15 @@ describe GraphWeaver::Testing do
     # two graphs, one supergraph: an app splitting queries and output by team
     # has named one graph, not two
     it "is content when both name the same one" do
-      GraphWeaver.graph :api, schema: supergraph
-      GraphWeaver.graph :admin, schema: supergraph
+      source = supergraph
+      GraphWeaver.graph(:api) { schema source }
+      GraphWeaver.graph(:admin) { schema source }
 
       expect(described_class.config.supergraph?).to be true
     end
 
     it "names both places it could be said when there is none" do
-      GraphWeaver.graph :api, schema: Demo::Schema
+      GraphWeaver.graph(:api) { schema Demo::Schema }
 
       expect { described_class.config.built_router }
         .to raise_error(GraphWeaver::Error, /config\.router = \{ supergraph:.*GraphWeaver\.graph/m)

@@ -19,22 +19,26 @@ else to decide.
 **Calling subgraphs directly?** One graph per subgraph, declared once:
 
 ```ruby
-GraphWeaver.graph :billing,
-  schema: "billing.graphql", queries: "app/graphql/billing",
-  output: "app/graphql/generated/billing", namespace: "Billing" do
-    register_scalar "Money", Money
-  end
+GraphWeaver.graph :billing do
+  schema    "billing.graphql"
+  queries   "app/graphql/billing"
+  output    "app/graphql/generated/billing"
+  namespace "Billing"
+  register_scalar "Money", Money
+end
 
-GraphWeaver.graph :directory,
-  schema: "directory.graphql", queries: "app/graphql/directory",
-  output: "app/graphql/generated/directory", namespace: "Directory" do
-    register_scalar "Person.birthday", Date
-  end
+GraphWeaver.graph :directory do
+  schema    "directory.graphql"
+  queries   "app/graphql/directory"
+  output    "app/graphql/generated/directory"
+  namespace "Directory"
+  register_scalar "Person.birthday", Date
+end
 ```
 
 One `rake graph_weaver:generate` generates both, and each subgraph is held only
 to the registrations declared for it. (Naming a live subgraph *class* from a
-Rails initializer takes a lambda — `schema: -> { Billing::Schema }` — see
+Rails initializer takes a lambda — `schema -> { Billing::Schema }` — see
 [getting started](getting_started.md#more-than-one-schema).)
 
 Registrations made at the *top* level still reach every graph, because names
