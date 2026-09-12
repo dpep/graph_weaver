@@ -306,6 +306,19 @@ describe "graphql: :wire" do
       Object.const_set(:WebMock, webmock)
     end
 
+    # Bundler.require makes `defined?(WebMock)` true in every Rails app with
+    # webmock in :test, while only webmock/rspec (or WebMock.enable!) installs
+    # the adapters — so the old check passed and the first request left the
+    # suite for the real endpoint
+    it "refuses before the first request when webmock is loaded but not enabled" do
+      WebMock.disable!
+
+      expect { integration.serve! }
+        .to raise_error(GraphWeaver::Error, /loaded but not enabled.*require "webmock\/rspec"/m)
+    ensure
+      WebMock.enable!
+    end
+
     it "names the client's class when it posts nowhere" do
       GraphWeaver.client = GraphWeaver::InProcess.new(WireDemo::Schema)
 

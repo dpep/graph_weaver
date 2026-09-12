@@ -229,6 +229,12 @@ module GraphWeaver
             "webmock — it hooks Net::HTTP, Faraday and HTTPX, so your own transport runs unchanged. " \
             "Add it to the Gemfile (group :test) and `require \"webmock/rspec\"` in your spec helper."
         end
+        unless webmock_enabled?
+          raise GraphWeaver::Error, "#{TAG}: :wire stubs your endpoints with webmock, which is " \
+            "loaded but not enabled — nothing is hooked, so this example's requests would leave " \
+            "the suite for the real endpoint. `require \"webmock/rspec\"` in your spec helper " \
+            "(Bundler.require only loads it), or WebMock.enable! for the suite."
+        end
 
         require "rack" # WebMock's to_rack builds a Rack env but doesn't depend on rack
       rescue LoadError
@@ -236,7 +242,16 @@ module GraphWeaver
           "env with it, but doesn't depend on it. Add it to the Gemfile (group :test)."
       end
 
-      private_class_method :wire_targets, :baked_client, :whose_client, :webmock!
+      # WebMock has no "am I enabled" of its own, so the signal is the swap it
+      # makes: enable! puts its own subclass in Net::HTTP, disable! puts the
+      # original back. Requiring it only registers the adapters.
+      def self.webmock_enabled?
+        return true unless defined?(WebMock::HttpLibAdapters::NetHttpAdapter::OriginalNetHTTP)
+
+        !WebMock::HttpLibAdapters::NetHttpAdapter::OriginalNetHTTP.equal?(Net::HTTP)
+      end
+
+      private_class_method :wire_targets, :baked_client, :whose_client, :webmock!, :webmock_enabled?
 
       # Included into every example group, so graphql_context is there
       # whether or not this example took a client from the hook.
