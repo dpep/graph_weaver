@@ -161,7 +161,6 @@ module GraphWeaver
 
         @router = arguments
         @built_routers = nil
-        @composed = nil
       end
 
       # The router `graph` plans against, built once per supergraph: parsing
@@ -195,12 +194,14 @@ module GraphWeaver
       # into someone else's. A client can't supply one — its schema is the API
       # schema a router serves, with the @join__* routing table stripped out.
       private def supergraph!(graph = nil)
-        named = (graph.dump_path if graph&.named_schema?)
-        return named if named && composed?(named)
+        # named_schema?, so a graph that declared no schema of its own falls
+        # through to config.router rather than past it to the conventional dump
+        named = (graph.supergraph if graph&.named_schema?)
+        return named if named
         return @router[:supergraph] if @router&.key?(:supergraph)
 
         path = GraphWeaver::SchemaLoader.locate_path
-        return path if path && composed?(path)
+        return path if path && GraphWeaver::Internal::Util.composed?(path)
 
         raise GraphWeaver::Error, supergraph_advice(graph, path)
       end
@@ -294,21 +295,6 @@ module GraphWeaver
         schema if schema.is_a?(Class) && schema <= GraphQL::Schema
       end
 
-      # whether this source carries the @join__* routing table, i.e. is a
-      # composed supergraph rather than an API schema. Parsing a supergraph
-      # is real time and :wire asks per example, so the answer is kept per
-      # source — for as long as this config lives.
-      def composed?(source)
-        @composed ||= {}
-        return @composed[source] if @composed.key?(source)
-
-        @composed[source] = begin
-          GraphWeaver::SchemaLoader.routing_table(source)
-          true
-        rescue GraphWeaver::Error
-          false
-        end
-      end
     end
 
     class << self

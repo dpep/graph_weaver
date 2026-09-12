@@ -420,6 +420,24 @@ describe "graph_weaver rake tasks" do
       expect(result.err).to include "config.rake_eager_load"
     end
 
+    # THE bug: an app that declared where its supergraph is had already said
+    # so, and the task asked SchemaLoader for the conventional dump instead —
+    # so it refused describing a file the user never pointed at, naming
+    # neither the flag nor the graph.
+    it "checks each declared graph that names a supergraph, heading each by name" do
+      write_schema
+      GraphWeaver.graph(:catalog) { schema GraphWeaver.schema_path }
+      GraphWeaver.graph(:accounts) { schema RouterGraph::SUPERGRAPH }
+
+      result = invoke("federation:diff")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "graph :accounts", "matches the schemas here"
+      # :catalog names an API schema, so there is nothing federated to check
+      expect(result.out).not_to include "graph :catalog"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
   end
 
   describe "graph_weaver:federation:subgraphs" do
@@ -466,13 +484,36 @@ describe "graph_weaver rake tasks" do
   # name ITS OWN task in the copy-pasteable line it prints
   %w[diff subgraphs coverage].each do |name|
     describe "graph_weaver:federation:#{name}" do
-      it "says what to pass when there is no supergraph" do
+      # "no routing table here" described whichever file locate_path found —
+      # a file the adopter never pointed at — and named neither the flag nor
+      # the graph. The refusal says where it looked, per graph, and both ways
+      # to answer it.
+      it "says where it looked and what to pass when nothing here is composed" do
         result = invoke("federation:#{name}")
 
         expect(result.status).to eq 1
         expect(result.err).to eq <<~ABORT
-          pass the composed supergraph: rake graph_weaver:federation:#{name} SUPERGRAPH=supergraph.graphql
+          no composed supergraph here — a federation task reads the @join__* routing table, and nothing this app declares carries one:
+            this app's schema: nothing on disk at #{GraphWeaver.schema_path}
+          Pass one for this run — rake graph_weaver:federation:#{name} SUPERGRAPH=supergraph.graphql — or name it where the graph is declared, so every run finds it: GraphWeaver.graph(:api) { schema "supergraph.graphql" }.
         ABORT
+      end
+
+      # a multi-graph app's whole question is "why not mine" — so the
+      # refusal names each graph and what it found there, not one dump
+      it "names every graph it looked at, and what it found there" do
+        write_schema
+        GraphWeaver.graph(:catalog) { schema GraphWeaver.schema_path }
+        GraphWeaver.graph(:billing) { schema -> { Demo::Schema } }
+
+        result = invoke("federation:#{name}")
+
+        expect(result.status).to eq 1
+        expect(result.err).to include "graph :catalog: #{GraphWeaver.schema_path}",
+          "graph :billing: Demo::Schema, a live class",
+          "GraphWeaver.graph(:catalog) { schema \"supergraph.graphql\" }"
+      ensure
+        GraphWeaver.reset_graphs!
       end
 
       it "aborts with one line when the supergraph isn't a composed one" do

@@ -136,6 +136,7 @@ GraphWeaver::Graph#output
 GraphWeaver::Graph#queries
 GraphWeaver::Graph#registry
 GraphWeaver::Graph#schema
+GraphWeaver::Graph#supergraph
 GraphWeaver::Graph#types_module
 GraphWeaver::GraphQLError (Class)
 GraphWeaver::GraphQLError#code

@@ -136,6 +136,27 @@ module GraphWeaver
           source
         end
 
+        # Whether this source carries the @join__* routing table, i.e. is a
+        # composed supergraph rather than an API schema. The one place that
+        # asks: Graph#supergraph reads it per graph, Testing::Config for the
+        # app-wide fallbacks, and the federation rake tasks through both.
+        #
+        # Kept per source for the life of the process — parsing a supergraph
+        # is milliseconds and :wire asks per example. Safe to keep because the
+        # answer is a property of the file's content, and nothing here rewrites
+        # a supergraph mid-process.
+        def composed?(source)
+          @composed ||= {}
+          return @composed[source] if @composed.key?(source)
+
+          @composed[source] = begin
+            SchemaLoader.routing_table(source)
+            true
+          rescue GraphWeaver::Error
+            false
+          end
+        end
+
         # the conventional schema dump, required
         def locate_schema!
           SchemaLoader.locate or raise GraphWeaver::Error,

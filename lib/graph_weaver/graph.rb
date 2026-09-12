@@ -79,6 +79,19 @@ module GraphWeaver
       path if path.is_a?(String) && File.exist?(path)
     end
 
+    # The composed supergraph this graph plans against, or nil — the dump it
+    # names (for the default graph, the conventional one) when that dump
+    # carries the @join__* routing table. A graph whose schema is an API
+    # schema, or a live class, is in no supergraph of its own.
+    #
+    # One rule, asked by everything that needs one: the federation rake tasks
+    # report per graph off this, and Testing::Config resolves :router's
+    # supergraph through it.
+    def supergraph
+      path = dump_path
+      path if path && GraphWeaver::Internal::Util.composed?(path)
+    end
+
     # The graphql-ruby schema class this graph runs in-process, or nil. The
     # default graph's is the app client's (Internal::Util.live_schema).
     def live_schema

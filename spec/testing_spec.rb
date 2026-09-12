@@ -607,13 +607,18 @@ describe GraphWeaver::Testing do
 
     def graph(name) = GraphWeaver.graphs.find { |declared| declared.name == name }
 
-    # :wire asks per example, and a real supergraph is thousands of lines
+    # :wire asks per example, and a real supergraph is thousands of lines.
+    # Its own copy, because Internal::Util.composed? keeps the answer for the
+    # life of the process — a shared fixture would already be cached here.
     it "parses a source once, however often it is asked" do
-      source = supergraph
-      GraphWeaver.graph(:api) { schema source }
-      expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
+      Dir.mktmpdir do |dir|
+        source = File.join(dir, "supergraph.graphql")
+        File.write(source, File.read(supergraph))
+        GraphWeaver.graph(:api) { schema source }
+        expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
 
-      3.times { described_class.config.supergraph?(graph(:api)) }
+        3.times { described_class.config.supergraph?(graph(:api)) }
+      end
     end
 
     it "takes the one a declared graph already names" do

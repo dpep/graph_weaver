@@ -29,14 +29,60 @@ module GraphWeaver
   module Internal
     # helpers the rake tasks share
     module Tasks
-      # The composed supergraph a federation task reads: SUPERGRAPH=, else the
-      # conventional dump when that is what it is. Aborts naming the task, so
-      # the message says the command to retype.
-      def self.supergraph!(task)
-        ENV["SUPERGRAPH"] || GraphWeaver::SchemaLoader.locate_path ||
-          abort("pass the composed supergraph: rake graph_weaver:federation:#{task} " \
-            "SUPERGRAPH=supergraph.graphql")
+      # What a federation task runs over: SUPERGRAPH= for one run, else every
+      # declared graph that names a composed supergraph — an app that said
+      # where its supergraph is has already answered. Each entry is the graph
+      # and its supergraph; SUPERGRAPH= has no graph behind it, so a
+      # single-schema app's output is what it always was.
+      def self.supergraphs!(task)
+        return [[nil, ENV["SUPERGRAPH"]]] if ENV["SUPERGRAPH"]
+
+        found = GraphWeaver.graphs.filter_map do |graph|
+          supergraph = graph.supergraph
+          [graph, supergraph] if supergraph
+        end
+        found.empty? ? abort(no_supergraph(task)) : found
       end
+
+      # A section heading, so a multi-graph app can tell whose report it is
+      # reading. Nothing for the default graph: a single-schema app never
+      # said the word "graph" and its output shouldn't either.
+      def self.heading(graph) = ("graph #{graph.name.inspect}" if graph&.name)
+
+      # Which graphs a verdict is about — "graph :a, graph :b: " — or nothing
+      # at all, so a single-schema app's aborts read exactly as they did.
+      def self.whose(graphs)
+        named = graphs.filter_map { |graph| heading(graph) }
+        named.empty? ? "" : "#{named.join(", ")}: "
+      end
+
+      # Nothing composed anywhere. Says where it looked — one line per graph,
+      # because the adopter's question is "why didn't it find mine" — then the
+      # two ways to answer it.
+      def self.no_supergraph(task)
+        declared = GraphWeaver.graphs
+        example = declared.map(&:name).compact.first || :api
+        ["no composed supergraph here — a federation task reads the @join__* routing table, " \
+          "and nothing this app declares carries one:",
+          *declared.map { |graph| "  #{looked_at(graph)}" },
+          "Pass one for this run — rake graph_weaver:federation:#{task} " \
+            "SUPERGRAPH=supergraph.graphql — or name it where the graph is declared, so every " \
+            "run finds it: GraphWeaver.graph(#{example.inspect}) { schema \"supergraph.graphql\" }."]
+          .join("\n")
+      end
+
+      # Where one graph's schema came from, in the three shapes it comes in.
+      def self.looked_at(graph)
+        label = graph.name ? "graph #{graph.name.inspect}" : "this app's schema"
+        path = graph.dump_path
+        return "#{label}: #{GraphWeaver::Internal::Util.relative(path)}" if path
+
+        live = graph.live_schema
+        found = live ? "#{live.name}, a live class — composition is what writes a routing table" :
+          "nothing on disk at #{GraphWeaver.schema_path}"
+        "#{label}: #{found}"
+      end
+      private_class_method :looked_at
 
       # What the run found worth saying about the registry, once each: the
       # registrations it couldn't match, and the scalars nothing registered.
@@ -202,21 +248,35 @@ namespace :graph_weaver do
     task diff: :loaded do
       require "graph_weaver/federation"
 
-      supergraph = GraphWeaver::Internal::Tasks.supergraph!("diff")
-      drift = GraphWeaver::Federation::Drift.new(supergraph:)
-      puts drift.report
+      # every graph's supergraph is its own gate: one that drifted fails the
+      # run whatever its neighbours say, and so does one that checked nothing
+      checked = GraphWeaver::Internal::Tasks.supergraphs!("diff").map do |graph, supergraph|
+        heading = GraphWeaver::Internal::Tasks.heading(graph)
+        puts heading if heading
+        drift = GraphWeaver::Federation::Drift.new(supergraph:)
+        puts drift.report
+        puts if heading
+        [graph, drift]
+      end
 
       # A partly-local supergraph is a supported setup, so a subgraph this
       # process doesn't serve isn't a failure — but comparing against NONE
       # of them is: the gate passes whatever the subgraphs say, which is
       # worse than failing.
       $stdout.flush
-      abort "the supergraph is out of date — recompose it and commit the result" if drift.drift?
-      if drift.vacuous?
-        abort "this checked nothing, so it proved nothing. No schema in this process defines what " \
-          "the supergraph says any of its subgraphs resolves — load them (in Rails, that is " \
-          "config.eager_load / config.rake_eager_load), or, if they all run elsewhere, drop this " \
-          "task from CI: there is nothing here for it to gate."
+      # not .any? — the default graph is nil in this slot, and [nil].any? is false
+      stale = checked.select { |_, drift| drift.drift? }.map(&:first)
+      unless stale.empty?
+        abort "#{GraphWeaver::Internal::Tasks.whose(stale)}the supergraph is out of date — " \
+          "recompose it and commit the result"
+      end
+      vacuous = checked.select { |_, drift| drift.vacuous? }.map(&:first)
+      unless vacuous.empty?
+        abort "#{GraphWeaver::Internal::Tasks.whose(vacuous)}this checked nothing, so it proved " \
+          "nothing. No schema in this process defines what the supergraph says any of its " \
+          "subgraphs resolves — load them (in Rails, that is config.eager_load / " \
+          "config.rake_eager_load), or, if they all run elsewhere, drop this task from CI: there " \
+          "is nothing here for it to gate."
       end
     rescue GraphWeaver::Error => e
       abort e.message
@@ -226,33 +286,37 @@ namespace :graph_weaver do
     task subgraphs: :loaded do
       require "graph_weaver/testing"
 
-      supergraph = GraphWeaver::Internal::Tasks.supergraph!("subgraphs")
+      GraphWeaver::Internal::Tasks.supergraphs!("subgraphs").each do |graph, supergraph|
+        heading = GraphWeaver::Internal::Tasks.heading(graph)
+        puts heading if heading
 
-      # Testing::Router derives this map itself; this is for reading what
-      # detection sees when it refuses, and for committing the map instead.
-      table = GraphWeaver::SchemaLoader.routing_table(supergraph)
-      rows = table.subgraphs.map do |name|
-        found = GraphWeaver::Internal::Subgraphs.candidates(table, name)
-        sought = GraphWeaver::Internal::Subgraphs.expected(table, name)
-        [name, found, sought]
-      end
-      width = rows.map { |name, found, _| %("#{name}" => #{found.first&.name || "nil"},).length }.max
-
-      puts "subgraphs: {"
-      rows.each do |name, found, sought|
-        entry = %(  "#{name}" => #{found.one? ? found.first.name : "nil"},).ljust(width + 2)
-        # fields first: every schema has a Query, so only the fields say why
-        evidence = (sought.grep(/\./) | sought).first(3).join(", ")
-        note = if found.one?
-          "# matched: defines #{evidence}"
-        elsif found.any?
-          "# AMBIGUOUS: #{found.map(&:name).sort.join(", ")} all match — pick one"
-        else
-          "# no loaded schema defines #{evidence} — fill this in"
+        # Testing::Router derives this map itself; this is for reading what
+        # detection sees when it refuses, and for committing the map instead.
+        table = GraphWeaver::SchemaLoader.routing_table(supergraph)
+        rows = table.subgraphs.map do |name|
+          found = GraphWeaver::Internal::Subgraphs.candidates(table, name)
+          sought = GraphWeaver::Internal::Subgraphs.expected(table, name)
+          [name, found, sought]
         end
-        puts "#{entry}  #{note}"
+        width = rows.map { |name, found, _| %("#{name}" => #{found.first&.name || "nil"},).length }.max
+
+        puts "subgraphs: {"
+        rows.each do |name, found, sought|
+          entry = %(  "#{name}" => #{found.one? ? found.first.name : "nil"},).ljust(width + 2)
+          # fields first: every schema has a Query, so only the fields say why
+          evidence = (sought.grep(/\./) | sought).first(3).join(", ")
+          note = if found.one?
+            "# matched: defines #{evidence}"
+          elsif found.any?
+            "# AMBIGUOUS: #{found.map(&:name).sort.join(", ")} all match — pick one"
+          else
+            "# no loaded schema defines #{evidence} — fill this in"
+          end
+          puts "#{entry}  #{note}"
+        end
+        puts "}"
+        puts if heading
       end
-      puts "}"
     rescue GraphWeaver::Error => e
       abort e.message
     end
@@ -261,10 +325,18 @@ namespace :graph_weaver do
     task coverage: :loaded do
       require "graph_weaver/testing"
 
-      puts GraphWeaver::Testing::Coverage.new(
-        supergraph: GraphWeaver::Internal::Tasks.supergraph!("coverage"),
-        queries: ENV["QUERIES"] || GraphWeaver.queries_paths,
-      ).report
+      GraphWeaver::Internal::Tasks.supergraphs!("coverage").each do |graph, supergraph|
+        heading = GraphWeaver::Internal::Tasks.heading(graph)
+        puts heading if heading
+        # the graph's own queries, not the top-level setting: a graph that
+        # names its own supergraph names its own queries too, and measuring
+        # the neighbour's against this one reports a coverage nobody has
+        puts GraphWeaver::Testing::Coverage.new(
+          supergraph:,
+          queries: ENV["QUERIES"] || (graph ? graph.queries : GraphWeaver.queries_paths),
+        ).report
+        puts if heading
+      end
     rescue GraphWeaver::Error => e
       # a supergraph the routing table can't read fully is itself the answer:
       # nothing is plannable, and the message says which construct
