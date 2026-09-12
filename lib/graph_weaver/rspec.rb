@@ -19,8 +19,8 @@ require_relative "testing"
 #      :fake        fabricated, schema-correct data; no resolvers run
 #      :in_process  your resolvers, one live schema class, in-process
 #      :router      your resolvers, across a federated graph
-#      :wire        your resolvers, served at your client's endpoint so
-#                   your real transport runs
+#      :wire        your resolvers, served at your client's endpoint, so
+#                   the transport you ship runs
 #      false        opt out — GraphWeaver.client is left exactly as it is,
 #                   even under config.default_mode
 #
@@ -47,11 +47,11 @@ require_relative "testing"
 #     what it is, else config.router = { supergraph: … }. Subgraphs are
 #     derived from what each loaded schema defines; one nothing here serves
 #     is absent, and only a query that reaches its fields is refused.
-#   - :wire serves whichever of those two the graph is — the router when
+#   - :wire serves whichever of those two this graph is — the router when
 #     there's a composed supergraph, the live schema class otherwise — at
-#     the endpoint GraphWeaver.client posts to, and leaves that client in
-#     place. It needs webmock (`require "webmock/rspec"`), which hooks
-#     Net::HTTP, Faraday and HTTPX.
+#     the endpoint GraphWeaver.client posts to, leaving that client in
+#     place, so the real transport runs. Needs webmock (`require
+#     "webmock/rspec"`), which hooks Net::HTTP, Faraday and HTTPX.
 #
 # What it wires up:
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces

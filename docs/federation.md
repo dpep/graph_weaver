@@ -251,11 +251,11 @@ query. The rspec tag resets it before each example; outside rspec call
 The router hands back a result hash *above* the wire, so the transport your app
 ships never runs. When that transport is the thing under test — a caller tag, an
 APM header, mTLS — [`graphql: :wire`](testing.md#over-the-wire--graphql-wire)
-serves this same router at the endpoint your client posts to, and leaves your
-client in place: real serialization, the same plan over your real resolvers,
+serves this same router at the endpoint your client posts to and leaves your
+client in place: real serialization, the same plan over the same resolvers,
 `from_h` over the server's own bytes, and a `context:` proc reading the headers
-that arrived. It refuses exactly what the router refuses — the wire adds a hop,
-not a capability.
+that arrived. It refuses exactly what the router refuses — a hop, not a
+capability.
 
 **[`examples/federation.rb`](https://github.com/dpep/graph_weaver/blob/main/examples/federation.rb)** is the whole shape
 in one runnable file, and the only example that needs no network: three real

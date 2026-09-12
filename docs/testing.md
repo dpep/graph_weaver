@@ -346,14 +346,12 @@ schema classes, and what to do about a supergraph only partly local:
 
 ## Over the wire — `graphql: :wire`
 
-The other three tags put a client *in the slot*, which means the transport your
-app actually ships never runs. If you wrote that transport — APM tracing, a
-caller tag, mTLS — the part you most need tested is the part they skip.
-
-`:wire` inverts it. **`GraphWeaver.client` is left exactly where it is**, and
-the resolvers another tag would have installed are served at the endpoint that
-client posts to. So the request really is serialized, posted through your
-middleware, and deserialized by `from_h` over the server's own bytes.
+Your resolvers, served at the endpoint your own client posts to — with
+**`GraphWeaver.client` left exactly where it is**. So the request really is
+serialized, posted through your middleware, planned and answered by real
+resolvers, and read back by `from_h` over the server's own bytes. That is the
+half the other three tags skip: they sit *in* the client slot, so the transport
+your app ships — APM tracing, a caller tag, mTLS — never runs.
 
 ```ruby
 it "sends the caller tag", graphql: :wire do
@@ -381,32 +379,27 @@ GraphWeaver::Testing.configure do |config|
 end
 ```
 
-The hash form still works and is still the baseline `graphql_context` merges
-onto; a proc replaces it, and `graphql_context` then says so rather than
-merging onto something that isn't there. (Rack drops a header's capitalization,
-so `X-CALLER` arrives as `X-Caller`.)
+A hash still works, and is still the baseline `graphql_context` merges onto; a
+proc replaces it, and `graphql_context` then says so rather than merging onto
+something that isn't there. (Rack drops a header's capitalization, so `X-CALLER`
+arrives as `X-Caller`.)
 
-**It needs [webmock](https://github.com/bblimke/webmock)** — one line in the
-spec helper, above the `graph_weaver/rspec` one:
-
-```ruby
-require "webmock/rspec"
-```
-
-webmock is what makes this a *transport* test rather than a mock of one: it
-hooks Net::HTTP, Faraday and HTTPX underneath, so every transport
+**It needs [webmock](https://github.com/bblimke/webmock)** — `require
+"webmock/rspec"` in the spec helper, above the `graph_weaver/rspec` line. That
+is what makes this a *transport* test rather than a mock of one: webmock hooks
+Net::HTTP, Faraday and HTTPX underneath, so every transport
 [documented here](transports.md) runs unchanged, pooling and all. The tag adds
-one stub for the endpoint and removes it after the example — it never disables
-net connections on your behalf, and never resets stubs it didn't make.
+one stub for the endpoint and takes it back after the example — it never
+disables net connections on your behalf, and never resets stubs it didn't make.
 
-The ceiling is the router's: `:wire` adds a network hop to the same plan, so
+The ceiling is the router's: the wire adds a hop, not a capability, so
 everything [it refuses](federation.md#what-it-refuses) is still refused, before
-any resolver runs. For a shape it can't plan, fall back to a
-[cassette](cassettes.md) or a live gateway.
+any resolver runs. Fall back to a [cassette](cassettes.md) or a live gateway for
+a shape it can't plan.
 
-The Rack app is `GraphWeaver::Testing::Endpoint`, and it wraps anything
-satisfying the [client contract](transports.md) — so if you'd rather have a
-real socket, or you're not using webmock, mount it yourself:
+`GraphWeaver::Testing::Endpoint` is an ordinary Rack app wrapping anything that
+satisfies the [client contract](transports.md) — so mount it yourself if you'd
+rather have a real socket:
 
 ```ruby
 run GraphWeaver::Testing::Endpoint.new(router)   # config.ru, or a Puma in a thread
