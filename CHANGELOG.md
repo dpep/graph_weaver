@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
   response wouldn't cast into the generated structs, and the old name shadowed
@@ -12,14 +12,37 @@
   failure, and a constant alias would carry the confusion forward forever.
   Rename at every rescue site and in any `to_h["error"]` string an app matches
   on; `GraphWeaver::Error` still catches both, as it always did.
-- **`filter_parameters` scrubs a message's value at every depth, as it already
-  did `#value`.** The message side only ever asked whether the *variable's own*
-  name was filtered, so `execute(credentials: { token: "…" })` refused with the
-  secret quoted in the sentence — and in the `warn` line `Error#initialize`
-  writes — while `InputError#value` sitting beside it read `[FILTERED]`. The
-  value a message quotes now goes through the same scrub as `#value`, so a
-  filtered key one level in reads `got {"token" => "[FILTERED]"}`. Messages
-  change only where a filter matches; nothing else moved.
+- **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
+  app's own client, untouched — which is a mode like the other four, so it is
+  spelled like one. Rename the tag; `false` is refused, and the refusal names
+  `:live`. `config.default_mode` is the suite-level spelling of the same thing,
+  and it now **defaults to `:live`** rather than to `nil`, which is no longer a
+  value: every example has exactly one mode, an untagged one takes
+  `config.default_mode`, and `graphql: :live` steps a single example back out of
+  a default the suite set. Behavior is unchanged — `:live` leaves
+  `GraphWeaver.client` exactly as it is, and it is still restored after the
+  example — but `config.default_mode = nil` is gone, and a helper now
+  contradicts `graphql: :live` the way it contradicts any other tag rather than
+  quietly winning.
+- **A form can highlight the input field that was wrong, without reading
+  English — and `InputError#field` changed meaning (breaking).** `InputError`
+  now carries `#kind` (one of eight — `KINDS`), `#path` rooted at the variable
+  (`["where", "_and", 0, "_not", "species"]`), `#coordinate`
+  (`"PetFilter.species"`), `#value` (through `filter_parameters`) and
+  `#details` (`members:`, `type:`, `suggestion:`, `min:`…), so an app
+  translates a stable key instead of parsing a sentence ([i18n](docs/i18n.md)).
+  **`#field` is now `#path`'s last segment** — the input field that actually
+  held the value, which is the one a form highlights — where it used to be
+  re-branded on the way out with the *variable* name; read `#path.first` for
+  that. Nothing raises, so the change passes unnoticed until the first refusal
+  inside an input object. And the other half of the question is answered too:
+  `Response#input_errors` / `QueryError#input_errors` /
+  `GraphQLError#input_errors` read a **server's** rejection back into the same
+  `InputError`, from the `extensions.input` convention, graphql-ruby's
+  variable-coercion `problems`, or a recognized `extensions.code`. A rejection
+  that says nothing identifying it as input — a bare `validates:` failure —
+  is left alone rather than guessed at; the convention is one `Validator` away
+  ([errors](docs/errors.md#what-your-server-can-send)).
 - **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
   time was inherited by every child, and a round trip carries nothing saying
   which process opened it — so forked workers interleaved requests on one fd and
@@ -30,30 +53,35 @@
   process that built it — on the first request after a fork the inherited
   sockets are abandoned (not closed: that would take down the fd the parent is
   still using) and the pool's permits are rebuilt.
-- **Naming an anonymous operation no longer corrupts the query.** The generated
-  `QUERY` splices the module's name into the operation's own declaration at a
-  position graphql-ruby reports — which is a byte offset measured against
-  character line starts, and a whole-document offset for a token with no
-  newline after it. A comment above a single-line `{ … }`, or any multibyte
-  character before the operation, put the name in the wrong place; the emitted
-  module still generated and `verify` still reported it up to date, and every
-  call failed on the wire. The splice is now measured correctly **and** the
-  spliced document is re-parsed — if it doesn't declare the name, generation
-  refuses and names the file rather than shipping a module that can't run.
-- **`QUERY` keeps the query byte for byte.** The heredoc used to right-strip
-  every line, which silently edits the *value* of a block-string argument —
-  trailing whitespace inside `"""…"""` is significant. A query with one now
-  sends what the `.graphql` file says.
-- **A date and a timestamp are refused for each other, both ways.** v0.7.0 made
-  a date stay a `Date` and a timestamp a `Time` off the wire; the same rule now
-  holds for variables. A `Time` (or `Time.zone.now`) for an `ISO8601Date` used
-  to surface Ruby's raw *"no implicit conversion of Time into String"*, and a
-  `Date` for an `ISO8601DateTime` likewise. Both now raise an `InputError`
-  naming the variable and the class: `$on of Report: expected a Date, got a
-  Time — pass .to_date if dropping the time of day is what you meant`. What a
-  timestamp variable now *accepts* grew to match — a `DateTime` and the
-  `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert losslessly,
-  and both used to raise.
+- **The emitted `QUERY` is the query you wrote**, in two ways it wasn't.
+  Naming an anonymous operation splices the module's name into the operation's
+  own declaration at a position graphql-ruby reports — which is a byte offset
+  measured against character line starts, and a whole-document offset for a
+  token with no newline after it. A comment above a single-line `{ … }`, or any
+  multibyte character before the operation, put the name in the wrong place;
+  the emitted module still generated and `verify` still reported it up to date,
+  and every call failed on the wire. The splice is now measured correctly
+  **and** the spliced document is re-parsed — if it doesn't declare the name,
+  generation refuses and names the file rather than shipping a module that
+  can't run. The heredoc also used to right-strip every line, which silently
+  edits the *value* of a block-string argument — trailing whitespace inside
+  `"""…"""` is significant — so a query carrying one now sends what the
+  `.graphql` file says.
+- **A date and a timestamp are refused for each other, both ways.** A date
+  reads back as a `Date` and a timestamp as a `Time`; the same rule now holds
+  for variables on the way out. `DateTime` is a `Date` to Ruby, so it passed
+  straight through the cast and went on the wire as a full timestamp —
+  `"2024-01-15T10:20:30+00:00"` where the schema said `ISO8601Date`, which a
+  lenient server truncated and a strict one refused — while a `Time` for an
+  `ISO8601Date`, and a `Date` for an `ISO8601DateTime`, surfaced Ruby's raw
+  *"no implicit conversion of Time into String"*. Truncating to the date here
+  would be the same guess made silently, so each now raises an `InputError`
+  naming the variable and the class: `$d of On: expected a Date, got a DateTime
+  — pass .to_date if dropping the time of day is what you meant`, and `$t of
+  At: expected a Time, got a Date — a Date has no time of day — pass the Time
+  you mean`. What a timestamp variable *accepts* grew to match — a `DateTime`
+  and the `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert
+  losslessly, and both used to raise.
 - **A timestamp keeps its sub-second part on the way out.** `Time#iso8601`
   takes no precision, so `"2024-01-15T10:20:30.500Z"` read off the wire went
   back out as `"2024-01-15T10:20:30Z"` — half a second gone from an
@@ -75,13 +103,21 @@
   *outside* the coercion's rescue, so anything it raised arrived as a bare
   `NoMethodError` naming neither the variable nor the operation — now it reads
   `$budget of Store: …`, the way a coercion failure already did.
-- **Four codegen refusals name what you wrote.** A result key that collides
-  with a struct method now suggests an alias you can actually write (for
-  `class: a` it said `` `classValue: class` ``, which is not a query); two
-  keys generating one class name both of them, the way the sibling
-  prop-collision message already did; a module named `T` is refused rather
-  than emitting code that shadows Sorbet's `T` in its own body; and a
-  `client:` that isn't a constant says what one looks like.
+- **`filter_parameters` scrubs a message's value at every depth, as it already
+  did `#value`.** The message side only ever asked whether the *variable's own*
+  name was filtered, so `execute(credentials: { token: "…" })` refused with the
+  secret quoted in the sentence — and in the `warn` line `Error#initialize`
+  writes — while `InputError#value` sitting beside it read `[FILTERED]`. The
+  value a message quotes now goes through the same scrub as `#value`, so a
+  filtered key one level in reads `got {"token" => "[FILTERED]"}`. Messages
+  change only where a filter matches; nothing else moved.
+- **A `graphql:` tag now reaches a module generated with `client:`.** The baked
+  `DEFAULT_CLIENT` sits above `GraphWeaver.client`, which is the slot a tag
+  swapped, so `it "…", graphql: :fake` ran a bound module against its real
+  endpoint. The mode now stands in for that constant too — a per-call `client:`
+  and `MyQuery.client =` still win, and `:wire` still leaves every client where
+  it is. **If a spec relied on a bound module ignoring the tag, it now runs
+  against the fake.**
 - **Two more net/http failures arrive as `TransportError`.** A garbage status
   line (`Net::HTTPBadResponse` — a misbehaving proxy, HTTP sent to a port
   speaking something else, or a keep-alive socket that desynced) and a body
@@ -94,9 +130,8 @@
 - **`Transport::Faraday#url` keeps a url's query string.** Faraday moves it
   into the connection's default params and strips it from `url_prefix`, so
   `Transport::Faraday.new("https://api.example.com/graphql?apiKey=…").url`
-  reported an endpoint no request goes to — `graphql: :wire` stubbed that one
-  and the real POST went elsewhere (`WebMock::NetConnectNotAllowedError`
-  blaming your query), and the boot log line named it too. `#url` is now
+  reported an endpoint no request goes to — the one the boot log line names,
+  and the one `graphql: :wire` serves a graph's resolvers at. `#url` is now
   reconstructed from where requests actually go.
 - **Turning on debug logging no longer changes what happens.** The debug line
   rendered the variables as JSON itself, *before* the guarded encode — so a
@@ -110,90 +145,34 @@
   sent, and the one a caller reaches for — used to return nil. Lookup by name
   (`#[]`, `#fetch`, `#dig`, `#key?`) now folds the case; iteration, `#keys` and
   `#to_h` still yield the downcased spelling, so logs are unchanged.
-- **A request header can be a callable.** On `Transport::HTTP` a `headers:`
-  value answering `#call` is resolved per request rather than captured when the
-  transport was built, so a rotating credential needs no new transport:
-
-  ```ruby
-  GraphWeaver::Transport::HTTP.new(url, headers: {
-    "Authorization" => -> { "Bearer #{Tokens.fetch}" },
-    "X-Tenant" => -> { Current.tenant&.id },   # nil ⇒ header omitted
-  })
-  ```
-
-  A value (or a call) of `nil` sends no such header. `Transport::Faraday`
-  raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
-  Faraday resolves this in middleware, and the message says so.
 - **A test-time schema memo notices the file underneath it changing.**
   `GraphWeaver::Testing.config.schema` keys its located dump on the resolved
   path, so `GraphWeaver.schema_path=` and `root=` are no longer invisible to
   `:fake` — only `Testing.reset!` used to clear it, which made the fabricated
   shapes order-dependent across spec files. It still loads once while the file
   stands still.
-- Docs: [errors](docs/errors.md) now says what `InputError#field` actually names
-  (the variable, not the field inside it) and what a *server's* input rejection
-  carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
-  for both. New [i18n](docs/i18n.md) page proposes stable keys for input
-  problems; nothing in it ships yet. The two samples that raised as pasted run
-  now — `Codegen.generate(client:)` takes the constant's *name*, and
-  `Federation::Drift` needs `require "graph_weaver/federation"` — and
-  `spec/doc_samples_spec.rb` parses every fenced Ruby sample in README +
-  `docs/` and resolves every link between them, so the next one can't ship.
-- **A graph declared from `config.to_prepare` is watched in development**: its
-  query directories reach the file watcher, so an edit to its `.graphql`
-  regenerates before the next request. The watcher was built from an
-  initializer, before any `to_prepare` block had run.
-- **A graph declared from `config.to_prepare` whose `output` lies outside
-  `GraphWeaver.generated_paths` is refused at boot**, naming the graph and the
-  two fixes. Rails sets Zeitwerk up before `to_prepare` runs and Zeitwerk reads
-  its ignore list only then, so such a directory cannot be hidden from
-  autoloading — it used to fail in every environment with a Zeitwerk error that
-  blamed a dropped `extend_type`.
-- **`config.graph_weaver` refuses a key the railtie doesn't read.** It takes
-  `watch`; `config.graph_weaver.queries_paths = ...` was taken silently and did
-  nothing. The refusal names `GraphWeaver.queries_paths =` as the setting that
-  works.
-- **A form can highlight the input field that was wrong, without reading
-  English.** `InputError` now carries `#kind` (one of eight — `KINDS`), `#path`
-  rooted at the variable (`["where", "_and", 0, "_not", "species"]`),
-  `#coordinate` (`"PetFilter.species"`), `#value` (through
-  `filter_parameters`) and `#details` (`members:`, `type:`, `suggestion:`,
-  `min:`…), so an app translates a stable key instead of parsing a sentence
-  ([i18n](docs/i18n.md)). **`#field` changed meaning**: it is now `#path`'s last
-  segment — the input field that actually held the value — where it used to be
-  re-branded on the way out with the *variable* name; read `#path.first` for
-  that. And the other half of the question is answered too:
-  `Response#input_errors` / `QueryError#input_errors` /
-  `GraphQLError#input_errors` read a **server's** rejection back into the same
-  `InputError`, from the `extensions.input` convention, graphql-ruby's
-  variable-coercion `problems`, or a recognized `extensions.code`. A rejection
-  that says nothing identifying it as input — a bare `validates:` failure —
-  is left alone rather than guessed at; the convention is one `Validator` away
-  ([errors](docs/errors.md#what-your-server-can-send)).
-- **Generated result structs behave like ordinary Ruby objects**: value `==`
-  (with `eql?` and `hash`, so a result works as a hash key), `deconstruct_keys`
-  for pattern matching, and `#to_h`. All three go the whole way down a nested
-  result. `#to_h` is the Ruby shape, not the wire's — snake_case prop names as
-  Symbol keys, nils kept, enums as their `T::Enum` members — so it is a view,
-  not something to send back to a server. A result key that would collide with
-  one of the new names (`deconstruct_keys`) is refused at generation with the
-  same alias-it hint `to_h` already had. **Regenerate.**
-- **`GraphWeaver.configure do |config| ... end`** — `GraphWeaver::Testing.configure`
-  existed and the top level didn't. `config` is `GraphWeaver` itself, so the
-  flat `GraphWeaver.client = ...` spelling is the same call and stays valid.
-- **`rails g graph_weaver:install` adds each graph's output directory to
-  `AllCops: Exclude:`** when the app already has a `.rubocop.yml`, so plain
-  `rubocop` stops reporting `Style/Documentation`, `Style/ClassAndModuleChildren`
-  and `Metrics/*` on generated files. It never creates the file, and it leaves an
-  `AllCops:` you already have alone — a second one would replace it rather than
-  merge — printing the lines to add instead.
-- **`load_generated!` tells a `Zeitwerk::NameError` apart from a dropped
-  `extend_type`/`register_enum`.** The old message sent you hunting for a
-  registration that was still there; the new one says Zeitwerk owns the
-  directory and names the fix (`GraphWeaver.generated_paths`, or the
-  conventional `app/graphql/*/generated`).
+- **`rake graph_weaver:federation:diff` no longer calls an absent subgraph
+  stale.** A schema was recognized by the types its subgraph declares, and two
+  subgraphs extending one entity declare the same one — so a `prefs` running in
+  another process was matched to its neighbour `accounts`, every field only
+  `prefs` resolves was reported stale, and the gate failed red advising a
+  recompose that would change nothing. A schema now also has to define something
+  the supergraph attributes to that subgraph **alone**; one that shares
+  everything it declares is "not here", which
+  [docs/federation.md](docs/federation.md) already promised doesn't fail the
+  task. `#skipped` (and the `not checked` section) now names those coordinates
+  rather than the types.
 
-###  v0.7.0  (2026-09-12)
+  The `federation:*` tasks also ask the declared graphs where the supergraph is.
+  `federation:diff`, `:subgraphs` and `:coverage` looked only at the
+  conventional dump, so an app that had written
+  `GraphWeaver.graph(:accounts) { schema "…/supergraph.graphql" }` had to repeat
+  it in `SUPERGRAPH=` — and without the flag got a refusal describing a file it
+  never named. Each task now runs once per declared graph whose schema is a
+  composed supergraph, heading each report with the graph's name, and
+  `:coverage` measures that graph's own `queries` rather than
+  `GraphWeaver.queries_paths`. `SUPERGRAPH=` still overrides for one run, and a
+  single-schema app with a composed dump prints exactly what it did.
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
   Everything a graph knows is said inside its block, in call style — six
   settings and the three registrations you already write at the top level:
@@ -233,8 +212,9 @@
   class object. The block runs where you write it, registrations included, so a
   registration naming one of your own constants is in the position a top-level
   one is and has the same answer: declare that graph from a `to_prepare` block,
-  which is safe to re-run (the graph's name is its identity) but runs too late
-  for watch mode to see the graph.
+  which is safe to re-run (the graph's name is its identity) and whose query
+  directories still reach the development file watcher, so an edit to its
+  `.graphql` regenerates before the next request.
 
   **Nothing changes for a single-schema app**: the top-level settings *are* the
   default graph, and top-level registrations still reach every graph, so a
@@ -243,18 +223,6 @@
   types module (`Billing::GraphQLTypes`); without one, two files that generate
   the same module refuse as they always have, and the message now names the
   graphs and the fix.
-- **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
-  app's own client, untouched — which is a mode like the other four, so it is
-  spelled like one. Rename the tag; `false` is refused, and the refusal names
-  `:live`. `config.default_mode` is the suite-level spelling of the same thing,
-  and it now **defaults to `:live`** rather than to `nil`, which is no longer a
-  value: every example has exactly one mode, an untagged one takes
-  `config.default_mode`, and `graphql: :live` steps a single example back out of
-  a default the suite set. Behavior is unchanged — `:live` leaves
-  `GraphWeaver.client` exactly as it is, and it is still restored after the
-  example — but `config.default_mode = nil` is gone, and a helper now
-  contradicts `graphql: :live` the way it contradicts any other tag rather than
-  quietly winning.
 - **Every test mode decides what to run against per graph, and the helpers say
   which graph they mean.** With more than one schema the honest answer varies
   per module: `graphql: :fake` for a billing module fabricates billing's shapes
@@ -283,13 +251,6 @@
   caller that holds the graph, since a graph whose `schema` is a file can't be
   matched back off the schema object. (The per-graph registry behind all of
   this, `Codegen::Registry`, is internal, like the rest of codegen's IR.)
-- **A `graphql:` tag now reaches a module generated with `client:`.** The baked
-  `DEFAULT_CLIENT` sits above `GraphWeaver.client`, which is the slot a tag
-  swapped, so `it "…", graphql: :fake` ran a bound module against its real
-  endpoint. The mode now stands in for that constant too — a per-call `client:`
-  and `MyQuery.client =` still win, and `:wire` still leaves every client where
-  it is. **If a spec relied on a bound module ignoring the tag, it now runs
-  against the fake.**
 - **`graphql: :wire` runs a spec against your own transport.** The other tags
   sit *in* the client slot, so the transport an app ships — APM tracing, a
   caller tag, mTLS — never ran in a spec. `:wire` leaves `GraphWeaver.client`
@@ -325,14 +286,43 @@
   any group hook, so `before { config.context = … }` was read too late and
   silently never reached a resolver. `configure` and an `around` hook are
   unchanged.
-- **A `DateTime` given for a `Date` variable is refused.** `DateTime` is a
-  `Date` to Ruby, so it passed straight through the cast and went on the wire
-  as a full timestamp — `"2024-01-15T10:20:30+00:00"` where the schema said
-  `ISO8601Date`. A lenient server truncated it; a strict one refused it.
-  Truncating it to the date would be the same guess made silently, so it now
-  raises an `InputError` naming the class and the fix: `$d of On: expected a
-  Date, got a DateTime — pass .to_date if dropping the time of day is what you
-  meant`.
+- **Generated result structs behave like ordinary Ruby objects**: value `==`
+  (with `eql?` and `hash`, so a result works as a hash key), `deconstruct_keys`
+  for pattern matching, and `#to_h`. All three go the whole way down a nested
+  result. `#to_h` is the Ruby shape, not the wire's — snake_case prop names as
+  Symbol keys, nils kept, enums as their `T::Enum` members — so it is a view,
+  not something to send back to a server. A result key that would collide with
+  one of the new names (`deconstruct_keys`) is refused at generation with the
+  same alias-it hint `to_h` already had. **Regenerate.**
+- **A request header can be a callable.** On `Transport::HTTP` a `headers:`
+  value answering `#call` is resolved per request rather than captured when the
+  transport was built, so a rotating credential needs no new transport:
+
+  ```ruby
+  GraphWeaver::Transport::HTTP.new(url, headers: {
+    "Authorization" => -> { "Bearer #{Tokens.fetch}" },
+    "X-Tenant" => -> { Current.tenant&.id },   # nil ⇒ header omitted
+  })
+  ```
+
+  A value (or a call) of `nil` sends no such header. `Transport::Faraday`
+  raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
+  Faraday resolves this in middleware, and the message says so.
+- **`GraphWeaver.configure do |config| ... end`** — `GraphWeaver::Testing.configure`
+  existed and the top level didn't. `config` is `GraphWeaver` itself, so the
+  flat `GraphWeaver.client = ...` spelling is the same call and stays valid.
+- **`rails g graph_weaver:install` adds each graph's output directory to
+  `AllCops: Exclude:`** when the app already has a `.rubocop.yml`, so plain
+  `rubocop` stops reporting `Style/Documentation`, `Style/ClassAndModuleChildren`
+  and `Metrics/*` on generated files. It never creates the file, and it leaves an
+  `AllCops:` you already have alone — a second one would replace it rather than
+  merge — printing the lines to add instead.
+- **Three codegen refusals name what you wrote.** A result key that collides
+  with a struct method now suggests an alias you can actually write (for
+  `class: a` it said `` `classValue: class` ``, which is not a query); two
+  keys generating one class name name both of them, the way the sibling
+  prop-collision message already did; and a module named `T` is refused rather
+  than emitting code that shadows Sorbet's `T` in its own body.
 - **Three things are refused where they used to go wrong later.** A `client`
   that isn't a constant is refused at generation: the value is spelled into
   every generated module, so a `client` given the endpoint url emitted
@@ -348,28 +338,21 @@
   a seed there would pin every example to one run.
   (`GraphWeaver::Testing.config.seed` remains the override for a harness that
   isn't rspec.)
-- **`rake graph_weaver:federation:diff` no longer calls an absent subgraph
-  stale.** A schema was recognized by the types its subgraph declares, and two
-  subgraphs extending one entity declare the same one — so a `prefs` running in
-  another process was matched to its neighbour `accounts`, every field only
-  `prefs` resolves was reported stale, and the gate failed red advising a
-  recompose that would change nothing. A schema now also has to define something
-  the supergraph attributes to that subgraph **alone**; one that shares
-  everything it declares is "not here", which
-  [docs/federation.md](docs/federation.md) already promised doesn't fail the
-  task. `#skipped` (and the `not checked` section) now names those coordinates
-  rather than the types.
-
-  The `federation:*` tasks also ask the declared graphs where the supergraph is.
-  `federation:diff`, `:subgraphs` and `:coverage` looked only at the
-  conventional dump, so an app that had written
-  `GraphWeaver.graph(:accounts) { schema "…/supergraph.graphql" }` had to repeat
-  it in `SUPERGRAPH=` — and without the flag got a refusal describing a file it
-  never named. Each task now runs once per declared graph whose schema is a
-  composed supergraph, heading each report with the graph's name, and
-  `:coverage` measures that graph's own `queries` rather than
-  `GraphWeaver.queries_paths`. `SUPERGRAPH=` still overrides for one run, and a
-  single-schema app with a composed dump prints exactly what it did.
+- **A graph declared from `config.to_prepare` whose `output` lies outside
+  `GraphWeaver.generated_paths` is refused at boot**, naming the graph and the
+  two fixes. Rails sets Zeitwerk up before `to_prepare` runs and Zeitwerk reads
+  its ignore list only then, so such a directory cannot be hidden from
+  autoloading — it used to fail in every environment with a Zeitwerk error that
+  blamed a dropped `extend_type`.
+- **`config.graph_weaver` refuses a key the railtie doesn't read.** It takes
+  `watch`; `config.graph_weaver.queries_paths = ...` was taken silently and did
+  nothing. The refusal names `GraphWeaver.queries_paths =` as the setting that
+  works.
+- **`load_generated!` tells a `Zeitwerk::NameError` apart from a dropped
+  `extend_type`/`register_enum`.** The old message sent you hunting for a
+  registration that was still there; the new one says Zeitwerk owns the
+  directory and names the fix (`GraphWeaver.generated_paths`, or the
+  conventional `app/graphql/*/generated`).
 - **Four smaller fixes.** `GraphWeaver::Transport::Faraday` resolves without a
   require — the constant is autoloaded, so the `Transport::Faraday.new(url) { |conn| … }`
   that [docs/transports.md](docs/transports.md) shows works where you'd write
@@ -385,7 +368,14 @@
   sees a namespaced graph's modules: it looked for top-level constants, so an
   app whose graphs set `namespace` found "0 generated modules", refused for
   having checked nothing, and blamed the cassette directory.
-
+- Docs: [errors](docs/errors.md) now says what a *server's* input rejection
+  carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
+  for both. New [i18n](docs/i18n.md) page proposes stable keys for input
+  problems; nothing in it ships yet. And `spec/doc_samples_spec.rb` parses every
+  fenced Ruby sample in README + `docs/` and resolves every link between them,
+  so a sample that doesn't run can't ship — two that didn't now do
+  (`Codegen.generate(client:)` takes the constant's *name*, and
+  `Federation::Drift` needs `require "graph_weaver/federation"`).
 ###  v0.6.1  (2026-09-10)
 - **A stdlib scalar registers with nothing but its class.**
   `GraphWeaver.register_scalar("Decimal", BigDecimal)` now emits the whole

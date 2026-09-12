@@ -21,11 +21,14 @@ differently and nothing else — worth reading rather than rubber-stamping.
 
 ## Upgrading from 0.6.1
 
-Small, and most of it is the rspec tags — but three things that used to run now
-refuse, and one changes what a `Date` variable puts on the wire. Two commands
-find everything except that last one, which is silent by nature:
+Mostly mechanical — two error constants and one rspec tag to rename — but
+`InputError#field` changed meaning without raising, five things that used to run
+now refuse, and a `DateTime` that used to reach a `Date` variable now raises.
+Three commands find everything except the `#field` change, which is silent by
+nature:
 
 ```sh
+grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
 rake graph_weaver:generate   # every module now names the graph it came from,
                              # plus the client: and cast:/serialize: refusals
 bundle exec rspec            # the renamed tag, the deleted nil, the seed: refusal
@@ -62,7 +65,9 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
 - **Regenerate**, as ever — generated modules carry a private `GRAPH` naming the
   graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
   app whose modules predate it refuses rather than guessing which schema a
-  module belongs to.
+  module belongs to. Result structs also gained `==`/`eql?`/`hash`,
+  `deconstruct_keys` and `#to_h`, so a result key spelled `deconstruct_keys` is
+  now refused at generation with the same alias-it hint `to_h` already had.
 - **`graphql: :wire`, if you adopt it, needs webmock *enabled*** — `require
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
   `Bundler.require` loads webmock without installing its adapters, and the tag
@@ -74,7 +79,11 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   same guess made silently, so it now raises an `InputError` naming the class
   and the fix: `$d of On: expected a Date, got a DateTime — pass .to_date if
   dropping the time of day is what you meant`. **Pass `.to_date` where a
-  `DateTime` reaches a `Date` variable.**
+  `DateTime` reaches a `Date` variable.** The pairings that already raised —
+  a `Time` for a date, a `Date` for a timestamp — now raise that branded
+  `InputError` rather than Ruby's *"no implicit conversion of Time into
+  String"*, and a `DateTime` or `Time.zone.now` for a *timestamp* converts
+  losslessly where it used to raise.
 - **A `client` that isn't a constant is refused at generation.** Its value is
   spelled into every module the graph generates, so `client` given an endpoint
   url emitted a file that doesn't parse, from a run that reported success.
@@ -86,6 +95,10 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   far from the registration, blaming the codec. It is probed once when
   registered now: return the source (`cast: ->(v) { "Money.parse(#{v})" }`) or
   name a method instead (`cast: :parse`).
+- **`config.graph_weaver` refuses a key the railtie doesn't read**, at boot. It
+  takes `watch`; `config.graph_weaver.queries_paths = …` was taken silently and
+  did nothing, so the refusal replaces a line that wasn't working. **Move it to
+  `GraphWeaver.queries_paths =`**, which is what the message says.
 - **A router's `fake:` refuses `seed:`**, as `graphql_fake` already did. A
   router is built once for the suite, so a seed inside
   `graphql_router(fake: …)` would pin every example to one run — `rspec --seed
