@@ -120,7 +120,7 @@ module StarredQuery
       "first" => GraphWeaver::Coerce.variable("first", OPERATION_NAME, first) { |v| GraphWeaver::Coerce.integer(v) },
     }
 
-    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(dispatch(variables, client:))
   end
 
   sig { params(login: String, first: Integer, client: T.untyped).returns(Result).checked(:never) }

@@ -102,7 +102,7 @@ module PersonQuery
       "id" => GraphWeaver::Coerce.variable("id", OPERATION_NAME, id) { |v| GraphWeaver::Coerce.id(v) },
     }
 
-    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(dispatch(variables, client:))
   end
 
   sig { params(id: String, client: T.untyped).returns(Result).checked(:never) }

@@ -81,7 +81,7 @@ module AddPetMutation
       "species" => GraphWeaver::Coerce.variable("species", OPERATION_NAME, species) { |v| GraphWeaver::InputStruct.enum(Species, v).serialize },
     }
 
-    from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
+    from_response(dispatch(variables, client:))
   end
 
   sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(Result).checked(:never) }

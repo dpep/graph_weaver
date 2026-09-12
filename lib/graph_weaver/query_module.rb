@@ -33,6 +33,22 @@ module GraphWeaver
 
     private
 
+    # The one call a generated `execute` makes: resolve the client, run this
+    # module's own operation, hand the raw response back for from_response to
+    # wrap. Here rather than emitted, so anything that has to BRACKET a
+    # request costs nothing in every generated file, and one reading of it
+    # covers every module in the app.
+    #
+    # The constants come off the module rather than the caller: a generated
+    # `execute` already knows them, but reading them here is what makes this
+    # the whole of the call instead of three arguments' worth of it.
+    sig { params(variables: T::Hash[String, T.untyped], client: T.untyped).returns(T.untyped) }
+    def dispatch(variables, client:)
+      mod = T.unsafe(self)
+      client_for(client).execute(mod.const_get(:QUERY), variables:,
+        operation_name: mod.const_get(:OPERATION_NAME))
+    end
+
     # The client one execute runs through: the per-call `client:`, else the
     # module's, else the app default. Checked here so a wrong one names the
     # contract and the module, rather than surfacing as a NoMethodError from

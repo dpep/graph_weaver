@@ -495,7 +495,10 @@ class GraphWeaver::Codegen
           flag ? "#{var.kwarg}: (#{flag} = true; nil)" : "#{var.kwarg}: nil"
         } + ["client: nil"]
 
-      call = "client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME)"
+      # QueryModule#dispatch reads QUERY/OPERATION_NAME/GRAPH off the module,
+      # so the gem gets to bracket every request without a line of it landing
+      # in every generated file
+      call = "dispatch(variables, client:)"
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # the typed result, or a raised QueryError.
