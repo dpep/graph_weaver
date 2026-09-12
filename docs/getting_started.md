@@ -97,6 +97,12 @@ What it wrote:
 - **`app/graphql/queries/`, `app/graphql/fragments/`, `app/graphql/generated/`.**
   Where you write queries, where shared fragments live, and where generation
   writes Ruby.
+- **`.rubocop.yml`**, if you have one. Generated code is machine-written and
+  marked "do not edit," so the output directory is added to `AllCops: Exclude:`
+  — otherwise `Style/Documentation`, `Style/ClassAndModuleChildren` and
+  `Metrics/*` fire on every generated file. An `AllCops:` you already have is
+  left alone (a second one would replace it, not merge); the generator prints
+  the line to add.
 
 Rake needs no wiring either: in Rails the `graph_weaver:*` tasks register
 themselves (a Railtie) and depend on `:environment`, so your initializer —

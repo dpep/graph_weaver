@@ -1,4 +1,5 @@
 # typed: ignore — stubs the Rails::Generators constants sorbet can't resolve
+require "tmpdir"
 require "yaml"
 
 
@@ -45,6 +46,8 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     end
 
     def create_file(*args) = @actions << [:create_file, *args]
+
+    def append_to_file(*args) = @actions << [:append_to_file, *args]
 
     def say_status(*args) = @actions << [:say_status, *args]
 
@@ -237,5 +240,57 @@ describe "GraphWeaver::Generators::InstallGenerator" do
   it "refuses --auth for a source that never authenticates" do
     expect { run_generator("db/schema.graphql", auth: "TOKEN") }
       .to raise_error Thor::Error, /--auth applies to a url/
+  end
+
+  # Generated code is machine-written and says "do not edit", but plain
+  # `rubocop` lints it anyway — Style/Documentation on every struct,
+  # Metrics/* on every from_h.
+  describe "the rubocop exclude" do
+    around do |example|
+      Dir.mktmpdir do |app|
+        @app = app
+        GraphWeaver.root = app
+        example.run
+      ensure
+        GraphWeaver.root = nil
+      end
+    end
+
+    def rubocop_config(body) = File.write(File.join(@app, ".rubocop.yml"), body)
+
+    def appended(actions)
+      actions.filter_map { |kind, path, content| content if kind == :append_to_file && path == ".rubocop.yml" }
+    end
+
+    it "excludes every graph's output directory from an app that lints" do
+      rubocop_config("Style/StringLiterals:\n  EnforcedStyle: double_quotes\n")
+
+      expect(YAML.safe_load(appended(run_generator).join))
+        .to eq("AllCops" => { "Exclude" => ["app/graphql/generated/**/*"] })
+    end
+
+    it "does nothing on a re-run" do
+      rubocop_config("AllCops:\n  Exclude:\n    - \"app/graphql/generated/**/*\"\n")
+      actions = run_generator
+
+      expect(appended(actions)).to be_empty
+      expect(actions.filter_map { |kind, text| text if kind == :say }.join).not_to include "AllCops"
+    end
+
+    # writing one would turn rubocop on for a project that never asked for it
+    it "does not create the file when the app doesn't lint" do
+      expect(appended(run_generator)).to be_empty
+    end
+
+    # rubocop takes the last of two duplicate keys, so a second AllCops:
+    # would replace the app's own rather than add to it
+    it "names the lines rather than replacing an AllCops the app already has" do
+      rubocop_config("AllCops:\n  NewCops: enable\n")
+      actions = run_generator
+
+      expect(appended(actions)).to be_empty
+      expect(actions.filter_map { |kind, text| text if kind == :say }.join)
+        .to include(%(- "app/graphql/generated/**/*"))
+    end
   end
 end

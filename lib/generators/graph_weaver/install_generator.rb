@@ -69,6 +69,41 @@ module GraphWeaver
         create_file "graphql.config.yml", editor_config
       end
 
+      # Generated files are machine-written and say "do not edit", but plain
+      # `rubocop` still fires Style/Documentation, Style/ClassAndModuleChildren
+      # and Metrics/* on every one of them. Only an app that already lints is
+      # touched: writing a .rubocop.yml would turn rubocop on for a project
+      # that never asked for it.
+      def exclude_generated_from_rubocop
+        return unless File.exist?(rubocop_config)
+
+        body = File.read(rubocop_config)
+        # already excluded — a re-run, or done by hand
+        globs = generated_globs.reject { |glob| body.include?(glob) }
+        return if globs.empty?
+
+        entries = globs.map { |glob| "    - #{glob.inspect}" }.join("\n")
+        if body.match?(/^AllCops:/)
+          # rubocop takes the LAST of two duplicate keys, so appending a second
+          # AllCops: would replace the app's own rather than add to it. Name
+          # the lines instead of guessing where inside theirs they belong.
+          say <<~TEXT
+
+            #{RUBOCOP_CONFIG} sets AllCops already, and a second one would replace it
+            rather than merge — so add this under its Exclude:
+
+            #{entries}
+          TEXT
+        else
+          append_to_file RUBOCOP_CONFIG, <<~YAML + entries + "\n"
+
+            # Machine-written by `rake graph_weaver:generate` — not yours to style.
+            AllCops:
+              Exclude:
+          YAML
+        end
+      end
+
       # A url is introspected and a schema class dumped; a dump the app
       # already has is left where it is (schema_path points at it instead).
       def fetch_schema
@@ -113,6 +148,16 @@ module GraphWeaver
       end
 
       private
+
+      RUBOCOP_CONFIG = ".rubocop.yml"
+
+      def rubocop_config = File.join(GraphWeaver.root, RUBOCOP_CONFIG)
+
+      # Every graph's output directory, so a multi-schema app is covered by
+      # the same run — read off the graphs rather than restated here.
+      def generated_globs
+        GraphWeaver.graphs.map { |graph| File.join(graph.output, "**/*") }.uniq
+      end
 
       # This install run is the one moment the user is guaranteed to be
       # reading, and a composed supergraph changes what the next steps are:
