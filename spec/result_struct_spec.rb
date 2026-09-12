@@ -25,6 +25,14 @@ describe GraphWeaver::ResultStruct do
       expect(person.person).not_to eq Struct.new(:id, :name, :birthday, :pets)
     end
 
+    # The promise the docs make about caching: Marshal restores the canonical
+    # T::Enum member, so the result still equals itself. YAML can't — Psych
+    # allocates the object before filling it, and sorbet compares enum members
+    # by identity — which is why the docs say Marshal.
+    it "survives a Marshal round trip" do
+      expect(Marshal.load(Marshal.dump(pets))).to eq pets
+    end
+
     it "works as a hash key" do
       counts = Hash.new(0)
       counts[person] += 1

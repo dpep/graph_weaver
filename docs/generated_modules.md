@@ -175,6 +175,13 @@ end
   the `String` or `Hash` a leaf holds is the one the response carried, so
   `result.name << "!"` changes the result, and its `hash` with it.
 
+  **Cache a result with `Marshal`, not YAML.** A `T::Enum` member is a
+  singleton that sorbet compares by identity, and Psych allocates an object
+  before filling it in, so YAML has no way to hand back the canonical one:
+  after a round trip `pet.species == Species::Dog` is false and the result no
+  longer equals itself. `Marshal` restores it intact — as does keeping the raw
+  response hash and calling `from_response!` again.
+
   ```ruby
   PersonQuery.from_response!(raw) == PersonQuery.from_response!(raw)  # true — value, not identity
 
