@@ -232,6 +232,8 @@ Detection is therefore what drift breaks, so the same
 and a named schema skips detection:
 
 ```ruby
+require "graph_weaver/federation"   # the rake tasks do this for you
+
 GraphWeaver::Federation::Drift.new(
   supergraph: "supergraph.graphql",
   subgraphs: { "products" => Products::Schema, "inventory" => :fake },

@@ -200,7 +200,8 @@ takes a `Client` or any bare transport/fake):
 2. per module: `MyQuery.client = something`
 3. a test mode's stand-in: under `graphql: :fake` / `:in_process` /
    `:router`, built from the graph this module was generated from
-4. baked constant: `Codegen.generate(..., client: MyApi::CLIENT)`
+4. baked constant: `Codegen.generate(..., client: "MyApi::CLIENT")` — the
+   constant's *name*, not the object, because generated source spells it
 5. the app default: `GraphWeaver.client=`
 
 The mode replaces what codegen baked in, not what your example said — 1 and 2
