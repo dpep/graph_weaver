@@ -144,6 +144,7 @@ module GraphWeaver
 
         @router = arguments
         @built_router = nil
+        @composed = nil
       end
 
       # Built once: parsing the supergraph is setup, not per-example work.
@@ -248,12 +249,19 @@ module GraphWeaver
       end
 
       # whether this source carries the @join__* routing table, i.e. is a
-      # composed supergraph rather than an API schema
+      # composed supergraph rather than an API schema. Parsing a supergraph
+      # is real time and :wire asks per example, so the answer is kept per
+      # source — for as long as this config lives.
       def composed?(source)
-        GraphWeaver::SchemaLoader.routing_table(source)
-        true
-      rescue GraphWeaver::Error
-        false
+        @composed ||= {}
+        return @composed[source] if @composed.key?(source)
+
+        @composed[source] = begin
+          GraphWeaver::SchemaLoader.routing_table(source)
+          true
+        rescue GraphWeaver::Error
+          false
+        end
       end
     end
 

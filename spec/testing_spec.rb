@@ -595,6 +595,14 @@ describe GraphWeaver::Testing do
       GraphWeaver.schema_path = nil
     end
 
+    # :wire asks per example, and a real supergraph is thousands of lines
+    it "parses a source once, however often it is asked" do
+      GraphWeaver.graph :api, schema: supergraph
+      expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
+
+      3.times { described_class.config.supergraph? }
+    end
+
     it "takes the one a declared graph already names" do
       GraphWeaver.graph :api, schema: supergraph
 
