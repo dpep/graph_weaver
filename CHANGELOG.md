@@ -152,10 +152,10 @@
   to one run. `GraphWeaver::Testing.config.seed` remains the override for a
   harness that isn't rspec.
 - **A `client` that isn't a constant is refused at generation.** The value is
-  spelled into every generated module, so `client "https://api.example.com/
-  graphql"` emitted `-> { https://api.example.com/graphql }` — a file that
-  doesn't parse — from a run that reported success. The message names the
-  constant to declare instead.
+  spelled into every generated module, so a `client` given the endpoint url
+  emitted `-> { https://api.example.com/graphql }` — a file that doesn't parse
+  — from a run that reported success. The message names the constant to
+  declare instead.
 - **`GraphWeaver::Transport::Faraday` resolves without a require.** The
   constant is autoloaded, so the `Transport::Faraday.new(url) { |conn| … }`
   [docs/transports.md](docs/transports.md) shows works where you'd write it —
@@ -164,8 +164,8 @@
   loads the gem. `require "graph_weaver/transport/faraday"` keeps working.
 - **`rails g graph_weaver:install` writes the current scalar spelling.** Its
   example registration was `register_scalar("DateTime", Time, serialize:
-  :iso8601, requires: "time")` — a scalar that has needed no registration
-  since 0.6.0, in the pre-0.6.1 three-keyword form. It now shows
+  :iso8601, requires: "time")` — a scalar 0.6.1 registered for you, in the
+  three-keyword form the same release made unnecessary. It now shows
   `register_scalar("Money", BigDecimal)`, which is a scalar that does need
   one, spelled the way [docs/scalars.md](docs/scalars.md) teaches.
 - **The unregistered-scalar report prints where the task that found it
