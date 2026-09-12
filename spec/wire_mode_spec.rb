@@ -77,6 +77,13 @@ module BillingWire
   CLIENT = GraphWeaver.new(ENDPOINT)
 end
 
+# A third graph, federated: what sits behind ITS endpoint is the router,
+# while the two above are answered by their own schema classes.
+module RoutedWire
+  ENDPOINT = "http://routed.wire.test/graphql"
+  CLIENT = GraphWeaver.new(ENDPOINT)
+end
+
 # The fourth tag: your resolvers, served at the endpoint your own client
 # posts to, so the transport you ship actually runs.
 describe "graphql: :wire" do
@@ -219,6 +226,48 @@ describe "graphql: :wire" do
         .to raise_error(WebMock::NetConnectNotAllowedError)
       expect { BillingWire::CLIENT.execute("{ invoice { buyer } }") }
         .to raise_error(WebMock::NetConnectNotAllowedError)
+    end
+
+    # every module bakes its own client, so there is no app-wide endpoint to
+    # serve and nothing left for GraphWeaver.client to answer
+    context "with no app-default client" do
+      # the tag reads the endpoints in a before hook, so the slot has to be
+      # empty before that runs
+      around do |example|
+        GraphWeaver.client = nil
+        example.run
+      end
+
+      it "serves every graph anyway", graphql: :wire do
+        expect(WireDemo::CLIENT.execute(WireDemo::QUERY).dig("data", "order", "buyer")).to eq "nobody"
+        expect(BillingWire::CLIENT.execute(BillingWire::QUERY).dig("data", "invoice", "buyer"))
+          .to eq "billing"
+      end
+    end
+  end
+
+  # "router or live class" was decided once for the suite, so one federated
+  # graph put its router behind EVERY endpoint — a plain graph's included.
+  describe "one graph federated and one not" do
+    around do |example|
+      GraphWeaver.graph :orders do
+        schema WireDemo::Schema
+        client "WireDemo::CLIENT"
+      end
+      GraphWeaver.graph :storefront do
+        schema RouterGraph::SUPERGRAPH
+        client "RoutedWire::CLIENT"
+      end
+      GraphWeaver.client = WireDemo::CLIENT
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "serves each endpoint what its own graph is", graphql: :wire do
+      expect(WireDemo::CLIENT.execute(WireDemo::QUERY).dig("data", "order", "buyer")).to eq "nobody"
+      expect(RoutedWire::CLIENT.execute("{ me { username } }").dig("data", "me", "username"))
+        .to eq "dpep"
     end
   end
 

@@ -173,17 +173,21 @@ module GraphWeaver
       def self.unserve!(stub) = WebMock::API.remove_request_stub(stub)
 
       # Every endpoint an example's modules can post to, each with the graph
-      # whose resolvers belong behind it: one per declared graph baking a
-      # client of its own, then GraphWeaver.client's for the modules baking
-      # none. Distinct by endpoint, graphs first — two clients on one url get
-      # one server, as they would in production.
+      # whose resolvers belong behind it: the client each graph bakes into its
+      # modules, or GraphWeaver.client for a graph baking none. Distinct by
+      # endpoint — two graphs on one url get one server, as they would in
+      # production — and an app whose graphs all bake clients needs no app
+      # default at all.
       def self.wire_targets
-        bound = GraphWeaver.graphs.filter_map do |graph|
-          client = baked_client(graph)
+        targets = GraphWeaver.graphs.filter_map do |graph|
+          client = baked_client(graph) || GraphWeaver.client
           [endpoint!(client, graph), graph] if client
-        end
-        app = [endpoint!(GraphWeaver.client), GraphWeaver::Internal::TestClients.app_graph]
-        (bound << app).uniq(&:first)
+        end.uniq(&:first)
+        return targets if targets.any?
+
+        # nothing bakes a client and the app has none: the endpoint refusal
+        # names the empty slot, which is the thing to fix
+        endpoint!(GraphWeaver.client)
       end
 
       # The client a graph's generated modules call. `client:` holds a

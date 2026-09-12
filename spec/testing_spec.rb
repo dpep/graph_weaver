@@ -584,7 +584,9 @@ describe GraphWeaver::Testing do
 
   # An app that declared a graph has already said where its schema is. When
   # that schema is a composed supergraph, :router has been told — asking for
-  # config.router = { supergraph: } on top would be asking twice.
+  # config.router = { supergraph: } on top would be asking twice. Asked PER
+  # GRAPH, because a graph in no supergraph must be refused by name rather
+  # than routed into another graph's.
   describe "the supergraph :router plans against" do
     let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
 
@@ -595,67 +597,83 @@ describe GraphWeaver::Testing do
       GraphWeaver.schema_path = nil
     end
 
+    def graph(name) = GraphWeaver.graphs.find { |declared| declared.name == name }
+
     # :wire asks per example, and a real supergraph is thousands of lines
     it "parses a source once, however often it is asked" do
       source = supergraph
       GraphWeaver.graph(:api) { schema source }
       expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
 
-      3.times { described_class.config.supergraph? }
+      3.times { described_class.config.supergraph?(graph(:api)) }
     end
 
     it "takes the one a declared graph already names" do
       source = supergraph
       GraphWeaver.graph(:api) { schema source }
 
-      expect(described_class.config.supergraph?).to be true
-      expect(described_class.config.built_router.execute("{ me { username } }").dig("data", "me", "username"))
-        .to eq "dpep"
+      expect(described_class.config.supergraph?(graph(:api))).to be true
+      expect(described_class.config.built_router(graph(:api))
+        .execute("{ me { username } }").dig("data", "me", "username")).to eq "dpep"
     end
 
-    it "lets config.router name one over the graph's" do
+    it "lets config.router name one for a graph that names none" do
       source = File.expand_path("support/federation/package.json", __dir__)
       GraphWeaver.graph(:api) { schema source }
       described_class.configure { |config| config.router = { supergraph: } }
 
-      expect(described_class.config.built_router.faked).to eq []
+      expect(described_class.config.built_router(graph(:api)).faked).to eq []
     end
 
     # a graph naming a live class says nothing about a supergraph, so the
     # conventional dump is still the last place to look
-    it "falls back to the dump when no graph names a composed schema" do
+    it "falls back to the dump when the graph names no composed schema" do
       GraphWeaver.graph(:api) { schema Demo::Schema }
       GraphWeaver.schema_path = supergraph
 
-      expect(described_class.config.supergraph?).to be true
+      expect(described_class.config.supergraph?(graph(:api))).to be true
     end
 
-    it "refuses to pick when two graphs name composed schemas, naming both" do
-      copy = File.join(Dir.mktmpdir, "other.graphql")
-      FileUtils.cp(supergraph, copy)
+    # what a suite-wide answer had to refuse to pick between: each graph
+    # plans against its own, and neither is a guess
+    it "plans each graph against the supergraph that graph names" do
+      chained = File.expand_path("support/federation/supergraph_chain.graphql", __dir__)
       source = supergraph
       GraphWeaver.graph(:api) { schema source }
-      GraphWeaver.graph(:admin) { schema copy }
+      GraphWeaver.graph(:admin) { schema chained }
 
-      expect { described_class.config.built_router }
-        .to raise_error(GraphWeaver::Error, /2 composed supergraphs.*supergraph\.graphql.*other\.graphql/m)
+      api = described_class.config.built_router(graph(:api))
+      admin = described_class.config.built_router(graph(:admin))
+      expect(api).not_to be admin
+      expect(api.table.subgraphs).not_to eq admin.table.subgraphs
     end
 
     # two graphs, one supergraph: an app splitting queries and output by team
-    # has named one graph, not two
-    it "is content when both name the same one" do
+    # has named one graph, not two — and one plan, built once
+    it "builds one router when both name the same one" do
       source = supergraph
       GraphWeaver.graph(:api) { schema source }
       GraphWeaver.graph(:admin) { schema source }
 
-      expect(described_class.config.supergraph?).to be true
+      expect(described_class.config.built_router(graph(:api)))
+        .to be described_class.config.built_router(graph(:admin))
     end
 
+    # the app-wide ask — a helper, or a suite with one unnamed graph — can't
+    # be told where THIS graph's supergraph is declared
     it "names both places it could be said when there is none" do
       GraphWeaver.graph(:api) { schema Demo::Schema }
 
       expect { described_class.config.built_router }
         .to raise_error(GraphWeaver::Error, /config\.router = \{ supergraph:.*GraphWeaver\.graph/m)
+    end
+
+    it "names the graph, and the tag for one schema, when that graph is in none" do
+      GraphWeaver.graph(:api) { schema Demo::Schema }
+
+      expect { described_class.config.built_router(graph(:api)) }
+        .to raise_error(GraphWeaver::Error,
+          /graph :api is in none.*graphql: :in_process.*GraphWeaver\.graph\(:api\)/m)
     end
   end
 

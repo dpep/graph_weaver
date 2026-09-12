@@ -65,17 +65,17 @@ module GraphWeaver
           when :in_process
             GraphWeaver::InProcess.new(config.schema_class!(graph), context: config.context)
           when :router
-            router = config.built_router
+            router = config.built_router(graph)
             router.context = config.context
-            # one composed supergraph, built once for the suite, so it has to
-            # be told where this example starts — the trace, and any faked
-            # subgraph's fabricated data
+            # a router is built once per supergraph, so it has to be told
+            # where this example starts — the trace, and any faked subgraph's
+            # fabricated data
             router.reset!
           when :wire
             # what sits behind the wire is decided the way the other tags
-            # already decide it — the router when there's a composed
-            # supergraph, the live schema class otherwise
-            client_for(config.supergraph? ? :router : :in_process, graph)
+            # already decide it, per graph — the router when that graph is in
+            # a composed supergraph, its live schema class otherwise
+            client_for(config.supergraph?(graph) ? :router : :in_process, graph)
           end
         end
 

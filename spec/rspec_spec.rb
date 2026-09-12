@@ -318,6 +318,34 @@ describe "graph_weaver/rspec" do
     end
   end
 
+  # :router used to plan against ONE supergraph for the suite, so a module
+  # from a graph that has none was posted at another graph's — and the
+  # failure blamed a stale dump instead of naming the graph.
+  describe "graphql: :router, with more than one graph", graphql: :router do
+    around do |example|
+      require_relative "support/federation_router_graph"
+      GraphWeaver.graph(:storefront) { schema RouterGraph::SUPERGRAPH }
+      GraphWeaver.graph(:drafts) { schema DraftsDemo::Schema }
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "plans each module against the supergraph its own graph names" do
+      supergraph = GraphWeaver::Internal::Util.schema_for(RouterGraph::SUPERGRAPH)
+      dashboard = module_for(:storefront, supergraph, "query { me { username } }", "RoutedDashboard")
+
+      expect(dashboard.execute!.me.username).to eq "dpep"
+    end
+
+    it "refuses a module whose graph is in no supergraph, naming the graph" do
+      drafts = module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "RoutedDrafts")
+
+      expect { drafts.execute! }.to raise_error(GraphWeaver::Error,
+        /composed supergraph.*graph :drafts is in none.*graphql: :in_process/m)
+    end
+  end
+
   # The router is built once for the suite, so per-example fake data has to
   # reach it without rebuilding it — the tag alone leaves nowhere to put it.
   describe "graphql_router(fake:)" do

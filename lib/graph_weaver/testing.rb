@@ -143,58 +143,67 @@ module GraphWeaver
         raise ArgumentError, "router: doesn't take #{unknown.join(", ")}" if unknown.any?
 
         @router = arguments
-        @built_router = nil
+        @built_routers = nil
         @composed = nil
       end
 
-      # Built once: parsing the supergraph is setup, not per-example work.
-      # #context is settable, so an example that runs as someone else sets
-      # that rather than rebuilding — the rspec hook resets it each time.
-      def built_router
-        @built_router ||= Router.new(
-          supergraph: supergraph!,
+      # The router `graph` plans against, built once per supergraph: parsing
+      # one is setup, not per-example work, and two graphs naming the same
+      # supergraph are one plan. #context is settable, so an example that runs
+      # as someone else sets that rather than rebuilding.
+      def built_router(graph = nil)
+        source = supergraph!(graph)
+        @built_routers ||= {}
+        @built_routers[source] ||= Router.new(
+          supergraph: source,
           subgraphs: @router && @router[:subgraphs],
           fake: (@router && @router[:fake]) || {},
         )
       end
 
-      # Whether there is a composed supergraph to plan against — what
+      # Whether `graph` has a composed supergraph to plan against — what
       # decides whether :wire serves the router or the live schema class,
       # the same question :router and :in_process each answer for themselves.
-      def supergraph?
-        supergraph!
+      def supergraph?(graph = nil)
+        supergraph!(graph)
         true
       rescue GraphWeaver::Error
         false
       end
 
-      # The composed supergraph :router plans against, looked for where an app
-      # has already said it: config.router names one, else a declared graph's
-      # schema IS one, else the conventional dump when that's what it is. A
-      # client can't supply one — its schema is the API schema a router serves,
-      # with the @join__* routing table stripped out.
-      private def supergraph!
+      # The composed supergraph `graph` plans against: the one that graph
+      # names when it names one, else config.router[:supergraph], else the
+      # conventional dump when that's what it is. Per graph, because a graph
+      # that is in no supergraph must be refused by name rather than routed
+      # into someone else's. A client can't supply one — its schema is the API
+      # schema a router serves, with the @join__* routing table stripped out.
+      private def supergraph!(graph = nil)
+        named = (graph.dump_path if graph&.named_schema?)
+        return named if named && composed?(named)
         return @router[:supergraph] if @router&.key?(:supergraph)
-
-        # two graphs may name one supergraph (a team's queries and output, not
-        # a second graph), so it's the distinct sources that have to be one
-        declared = GraphWeaver.graphs.filter_map(&:dump_path).uniq.select { |source| composed?(source) }
-        return declared.first if declared.one?
-
-        if declared.size > 1
-          raise GraphWeaver::Error, "this app declares #{declared.size} composed supergraphs " \
-            "(#{declared.join(", ")}) — :router plans against one, and picking either would be a " \
-            "guess. Name it: GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }."
-        end
 
         path = GraphWeaver::SchemaLoader.locate_path
         return path if path && composed?(path)
 
-        raise GraphWeaver::Error, ":router needs the composed supergraph SDL — a client's schema " \
-          "is the API schema the router serves, with the @join__* routing table stripped out, so " \
-          "the supergraph has to be named. #{path ? "#{path} carries no @join__* markers" : "Nothing on disk at #{GraphWeaver.schema_path}"}. " \
-          "Set GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }, or " \
-          "name it where the graph is declared: GraphWeaver.graph(:api) { schema \"supergraph.graphql\" }."
+        raise GraphWeaver::Error, supergraph_advice(graph, path)
+      end
+
+      # what to do about it, which differs by who asked: a graph in no
+      # supergraph is one schema, so the tag for one schema is the answer;
+      # the app-wide ask is told the two app-wide places to name one
+      private def supergraph_advice(graph, path)
+        if graph&.name
+          ":router plans a query across a composed supergraph, and graph #{graph.name.inspect} " \
+            "is in none — tag the example graphql: :in_process, which runs one schema class's " \
+            "resolvers, or name the supergraph where the graph is declared: " \
+            "GraphWeaver.graph(#{graph.name.inspect}) { schema \"supergraph.graphql\" }."
+        else
+          ":router needs the composed supergraph SDL — a client's schema is the API schema the " \
+            "router serves, with the @join__* routing table stripped out, so the supergraph has " \
+            "to be named. #{path ? "#{path} carries no @join__* markers" : "Nothing on disk at #{GraphWeaver.schema_path}"}. " \
+            "Set GraphWeaver::Testing.config.router = { supergraph: \"supergraph.graphql\" }, or " \
+            "name it where the graph is declared: GraphWeaver.graph(:api) { schema \"supergraph.graphql\" }."
+        end
       end
 
       # The live schema class :in_process runs when the example didn't name
