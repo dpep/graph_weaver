@@ -1,3 +1,19 @@
+## Unreleased
+- **A request header can be a callable.** On `Transport::HTTP` a `headers:`
+  value answering `#call` is resolved per request rather than captured when the
+  transport was built, so a rotating credential needs no new transport:
+
+  ```ruby
+  GraphWeaver::Transport::HTTP.new(url, headers: {
+    "Authorization" => -> { "Bearer #{Tokens.fetch}" },
+    "X-Tenant" => -> { Current.tenant&.id },   # nil ⇒ header omitted
+  })
+  ```
+
+  A value (or a call) of `nil` sends no such header. `Transport::Faraday`
+  raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
+  Faraday resolves this in middleware, and the message says so.
+
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.
   Everything a graph knows is said inside its block, in call style — six

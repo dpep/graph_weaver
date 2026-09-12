@@ -95,6 +95,13 @@ describe GraphWeaver::Transport::Faraday do
     expect(@requests.last[:headers]["authorization"]).to eq ["Bearer t0ken"]
   end
 
+  # Faraday stringifies a header value as it is set, so a callable would go
+  # out as "#<Proc:0x…>" — a broken Authorization nobody would read twice
+  it "refuses a callable header value, naming Faraday's own way to do it" do
+    expect { described_class.new(url, headers: { "Authorization" => -> { "Bearer t0ken" } }) }
+      .to raise_error(ArgumentError, /Authorization.*middleware.*:authorization/m)
+  end
+
   it "raises ServerError on a non-2xx response" do
     executor = described_class.new("http://127.0.0.1:#{@port}/nope")
 

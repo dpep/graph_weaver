@@ -141,6 +141,22 @@ can attribute the traffic. Anything you pass in `headers:` wins over
 these. A prebuilt `Faraday::Connection` owns its own headers; only the
 ones it leaves unset are filled in.
 
+**A header that expires.** On `Transport::HTTP` a header *value* may be
+anything answering `#call`, resolved per request rather than captured when the
+transport was built — the same way a graph's [`schema`](federation.md) takes a
+lambda. A value (or a call) of `nil` sends no such header:
+
+```ruby
+GraphWeaver::Transport::HTTP.new(url, headers: {
+  "Authorization" => -> { "Bearer #{Tokens.fetch}" },   # rotating token
+  "X-Tenant" => -> { Current.tenant&.id },              # nil ⇒ header omitted
+})
+```
+
+On `Transport::Faraday` a callable header raises instead — Faraday resolves
+this in middleware (`conn.request :authorization, "Bearer", -> { Tokens.fetch }`),
+which is the sample above, and keeping one way per transport beats two.
+
 **Request body.** `{"query": ..., "variables": ...}`, plus
 `"operationName"` when the operation has a name — the field Apollo Studio,
 Hasura and most APMs key traces, rate limits and slow-query reports on.

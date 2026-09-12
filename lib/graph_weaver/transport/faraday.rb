@@ -41,6 +41,15 @@ module GraphWeaver
 
           url_or_connection
         else
+          # Transport::HTTP resolves a callable header per request; Faraday
+          # sets connection headers once, stringifying as it goes, so the same
+          # value would ship as "#<Proc:0x…>". Middleware is Faraday's answer.
+          callable = headers.select { |_, value| value.respond_to?(:call) }.keys
+          unless callable.empty?
+            raise ArgumentError, "headers: #{callable.join(", ")} is callable — Faraday resolves a " \
+              "per-request header in middleware instead: conn.request :authorization, \"Bearer\", -> { ... }"
+          end
+
           # Faraday appends the default adapter when the block doesn't set
           # one. Our defaults go on the connection so ours is the
           # User-Agent, not Faraday's stock one; caller headers still win.

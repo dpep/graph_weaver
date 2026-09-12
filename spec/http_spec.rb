@@ -50,6 +50,27 @@ describe GraphWeaver::Transport::HTTP do
     expect(headers["user-agent"]).to eq ["myapp/1"]
   end
 
+  # a token that expires mid-process has to be asked for per request, not
+  # captured into the transport when the initializer ran
+  it "resolves a callable header value on every request" do
+    tokens = %w[one two].each
+    rotating = described_class.new(url, headers: { "Authorization" => -> { "Bearer #{tokens.next}" } })
+
+    2.times { PersonQuery.execute(client: rotating, id: "1") }
+
+    expect(@requests.last(2).map { |r| r[:headers]["authorization"] })
+      .to eq [["Bearer one"], ["Bearer two"]]
+  end
+
+  it "omits a header whose value resolves to nil" do
+    anonymous = described_class.new(url, headers: { "Authorization" => -> {}, "X-Tenant" => nil })
+    PersonQuery.execute(client: anonymous, id: "1")
+
+    expect(@requests.last[:headers]).not_to have_key "authorization"
+    expect(@requests.last[:headers]).not_to have_key "x-tenant"
+    expect(@requests.last[:headers]["accept"]).to eq [GraphWeaver::Transport::DEFAULT_HEADERS["Accept"]]
+  end
+
   it "reuses one connection across calls (keep-alive)" do
     expect(Net::HTTP).to receive(:start).once.and_call_original
 

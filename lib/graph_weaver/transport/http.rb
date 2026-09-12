@@ -81,13 +81,24 @@ module GraphWeaver
 
       sig { override.params(body: String).returns(T::Array[T.untyped]) }
       def post(body)
-        request = Net::HTTP::Post.new(@uri, DEFAULT_HEADERS.merge(@headers))
+        request = Net::HTTP::Post.new(@uri, request_headers)
         request.body = body
 
         response = with_connection { |http| http.request(request) }
 
         # each_header yields downcased names with repeats already joined
         [response.code.to_i, response.body, response.each_header.to_h]
+      end
+
+      # What this request sends. A value answering #call is resolved here
+      # rather than at construction, so a header that expires — a rotating
+      # token — is asked for per request; nil drops the header, which is how
+      # an optional one says "not this time".
+      def request_headers
+        DEFAULT_HEADERS.merge(@headers).filter_map do |name, value|
+          value = value.call if value.respond_to?(:call)
+          [name, value] unless value.nil?
+        end.to_h
       end
 
       # Lease a connection for one round trip. The permit is held across
