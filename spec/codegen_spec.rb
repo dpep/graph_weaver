@@ -273,6 +273,52 @@ describe GraphWeaver::Codegen do
       expect(source).to include('OPERATION_NAME = T.let("PeopleQuery", T.nilable(String))')
     end
 
+    # graphql-ruby reports a byte offset rather than a column for a token with
+    # no newline after it (Parser#column_at), which .strip guarantees for the
+    # last line — so the splice can't take col on trust.
+    describe "naming an anonymous operation" do
+      {
+        "one line" => "{ people { name } }",
+        "one line, after a comment" => "# who\n{ people { name } }",
+        "`query` keyword, after a comment" => "# who\nquery { people { name } }",
+        "named, after a comment" => "# who\nquery Existing { people { name } }",
+        "named, no comment" => "query Existing { people { name } }",
+        "multiline, after a comment" => "# who\n{\n  people { name }\n}",
+        "after a comment and a blank line" => "# who\n\n{ people { name } }",
+        "indented, after a comment" => "# who\n   { people { name } }",
+        "after a fragment definition" => "fragment F on Person { name }\n# who\n{ people { ...F } }",
+        "after a comment with an em dash" => "# who — everyone\n{ people { name } }",
+        "after a multibyte block-string argument" => %({ search(term: """naïve — x""") { __typename } }),
+        "variables, after a comment" => "# who\nquery($id: ID!) { person(id: $id) { name } }",
+      }.each do |shape, query|
+        it "declares the name in the document it emits (#{shape})" do
+          source = described_class.generate(schema: Demo::Schema, name: "PeopleQuery", query:)
+          document = source[/QUERY = T\.let\(<<~'GRAPHQL', String\)\n(.*?)\n  GRAPHQL\n/m, 1]
+            .gsub(/^ {4}/, "")
+
+          declared = GraphQL.parse(document).definitions
+            .grep(GraphQL::Language::Nodes::OperationDefinition).map(&:name)
+          expect(declared).to eq [query.include?("Existing") ? "Existing" : "PeopleQuery"]
+        end
+      end
+
+      # the safety net for the splice above: a wrong offset used to emit a
+      # module whose OPERATION_NAME the document didn't declare, and both
+      # generate! and verify called that a success
+      it "refuses rather than emitting a document that doesn't declare it" do
+        codegen = described_class.new(schema: Demo::Schema, name: "PeopleQuery",
+          query: "{ people { name } }", path: "queries/people.graphql")
+        allow(codegen).to receive(:operation_offset).and_return(4)
+
+        expect { codegen.generate }.to raise_error(
+          GraphWeaver::Error,
+          "queries/people.graphql: could not name the anonymous operation — the document GraphWeaver " \
+          "would send does not declare \"PeopleQuery\". Name the operation in the query itself " \
+          "(`query PeopleQuery { ... }`) and please report this as a bug.",
+        )
+      end
+    end
+
     # the client slot stays duck-typed: a graphql-ruby schema class takes
     # operation_name: as a kwarg, so widening the contract didn't shut it out
     it "runs against a bare graphql-ruby schema class in the client slot" do

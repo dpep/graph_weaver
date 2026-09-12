@@ -46,6 +46,18 @@
   graph's first module resolved — wiping the `#trace` and any fake pins the
   first graph's requests had already accumulated, mid-example.
 <!-- /lane: harness -->
+<!-- lane: codegen -->
+- **Naming an anonymous operation no longer corrupts the query.** The generated
+  `QUERY` splices the module's name into the operation's own declaration at a
+  position graphql-ruby reports — which is a byte offset measured against
+  character line starts, and a whole-document offset for a token with no
+  newline after it. A comment above a single-line `{ … }`, or any multibyte
+  character before the operation, put the name in the wrong place; the emitted
+  module still generated and `verify` still reported it up to date, and every
+  call failed on the wire. The splice is now measured correctly **and** the
+  spliced document is re-parsed — if it doesn't declare the name, generation
+  refuses and names the file rather than shipping a module that can't run.
+<!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the
   transport was built, so a rotating credential needs no new transport:

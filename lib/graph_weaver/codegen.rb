@@ -356,7 +356,7 @@ class GraphWeaver::Codegen
     # operationName the document doesn't declare). The conventional .graphql
     # file names nothing, so without this every trace arrives anonymous.
     operation_name = operation.name || @name.split("::").last
-    @query = declare_operation_name(operation, operation_name) unless operation.name
+    @query = declare_operation_name(operation_name) unless operation.name
 
     emit_module(root, variables, representation_nodes(operation, root_type), operation_name)
       .tap { report_untyped_scalars }
@@ -368,12 +368,51 @@ class GraphWeaver::Codegen
   # document exactly as written — re-printing the AST would reformat the query
   # the reader reviews. The module name is already constrained to
   # /[A-Z]\w*(::[A-Z]\w*)*/, so its last segment is always a legal GraphQL name.
-  def declare_operation_name(operation, name)
-    at = @query.lines.first(operation.line - 1).sum(&:length) + operation.col - 1
+  def declare_operation_name(name)
+    at = operation_offset
     keyword = @query[at..].to_s[/\A(?:query|mutation|subscription)\b/]
-    return "#{@query[0, at]}query #{name} #{@query[at..]}" unless keyword # `{ ... }` shorthand
+    named = if keyword
+      "#{@query[0, at + keyword.length]} #{name}#{@query[(at + keyword.length)..]}"
+    else # `{ ... }` shorthand
+      "#{@query[0, at]}query #{name} #{@query[at..]}"
+    end
 
-    "#{@query[0, at + keyword.length]} #{name}#{@query[(at + keyword.length)..]}"
+    declares!(named, name)
+  end
+
+  # Where the operation starts in @query, in characters. graphql-ruby subtracts
+  # a CHARACTER line start from the lexer's BYTE position
+  # (Language::Parser#column_at over Lexer's @scanner.pos), so line start plus
+  # col is a byte offset — and col falls back to a whole-document offset for a
+  # token with no newline after it, which .strip guarantees for the last line,
+  # hence the copy that ends in one.
+  def operation_offset
+    operation = sole_operation("#{@query}\n")
+    bytes = @query.lines.first(operation.line - 1).sum(&:length) + operation.col - 1
+    @query.byteslice(0, bytes).length
+  end
+
+  # The splice above is arithmetic over a position graphql-ruby reports, so it
+  # can land wrong and still emit a module that looks fine — and OPERATION_NAME
+  # would then be an operationName the document doesn't declare, which every
+  # server rejects. Nothing else re-reads the query, so this is the only place
+  # that can refuse.
+  def declares!(query, name)
+    declared = begin
+      sole_operation(query)&.name
+    rescue GraphQL::ParseError
+      nil
+    end
+    return query if declared == name
+
+    raise GraphWeaver::Error, "#{@path ? "#{@path}: " : ""}could not name the anonymous operation — " \
+      "the document GraphWeaver would send does not declare #{name.inspect}. Name the operation in " \
+      "the query itself (`query #{name} { ... }`) and please report this as a bug."
+  end
+
+  # load_operation has already refused a document with a second one.
+  def sole_operation(query)
+    GraphQL.parse(query).definitions.grep(GraphQL::Language::Nodes::OperationDefinition).first
   end
 
   # The operation's variables as execute's kwarg surface: one VarDef each,
