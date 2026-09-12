@@ -111,8 +111,19 @@ module GraphWeaver
 
     # What `schema:` was given, with a callable called. A Proc is how an
     # initializer names an autoloaded class; calling it here rather than at
-    # declaration is the whole point of allowing one.
-    def named_source = @schema.respond_to?(:call) ? @schema.call : @schema
+    # declaration is the whole point of allowing one — and the commonest way
+    # for one to be wrong is to answer nil (a config value that wasn't set, a
+    # guarded `defined?`, a safe_constantize). Refuse it here, where the graph
+    # and the setting are still in hand: dump_path, supergraph and live_schema
+    # all read this too, and every one of them would otherwise answer nil and
+    # send the blame somewhere else.
+    def named_source
+      source = @schema.respond_to?(:call) ? @schema.call : @schema
+      return source unless source.nil?
+
+      raise GraphWeaver::Error, "schema#{described} resolved to nil — schema takes a graphql-ruby " \
+        "schema class, a Client, a path to a dump, SDL, or a callable returning one"
+    end
     private :named_source
 
     # The module `path` generates, and the file it lands in. The namespace is
@@ -147,7 +158,10 @@ module GraphWeaver
       # These three end up spelled in generated source, so each takes the
       # constant or its name and stores the name.
       CONSTANT_SETTINGS = %i[client namespace types_module].freeze
-      private_constant :CONSTANT_SETTINGS
+      # …and these two are spelled as a `module` DEFINITION rather than a
+      # reference, which is why a root anchor is refused on them below.
+      MODULE_SETTINGS = %i[namespace types_module].freeze
+      private_constant :CONSTANT_SETTINGS, :MODULE_SETTINGS
 
       attr_reader :settings, :registrations
 
@@ -207,7 +221,16 @@ module GraphWeaver
       # On the singleton so the define_method setters above can reach it — srb
       # reads a define_method block's self as the class.
       def self.constant_name(setting, value)
-        return value unless CONSTANT_SETTINGS.include?(setting) && value.is_a?(Module)
+        return value unless CONSTANT_SETTINGS.include?(setting)
+
+        # Generated modules are defined at the top level, where a root anchor
+        # says nothing — and `module ::A::B` is not a name const_get can spell,
+        # so it used to surface as a verdict on the .graphql file's name.
+        if MODULE_SETTINGS.include?(setting) && value.is_a?(String) && value.start_with?("::")
+          raise ArgumentError, "#{setting} #{value.inspect}: drop the leading `::` — #{setting} " \
+            "names a module generated source defines, and it defines it at the top level either way"
+        end
+        return value unless value.is_a?(Module)
 
         value.name || raise(ArgumentError, "#{setting} needs a constant — generated source has " \
           "to spell it — and #{value.inspect} is anonymous")

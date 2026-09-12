@@ -97,8 +97,9 @@ class GraphWeaver::Codegen
     @client_const = CLIENT_CONST.call(client)
     # the graph this module belongs to, baked in beside the client: a test
     # mode builds its stand-in from the module's own schema, and only the
-    # module can say whose that is (GraphWeaver::Internal::TestClients)
-    @graph_name = graph_name
+    # module can say whose that is (GraphWeaver::Internal::TestClients).
+    # A Symbol, as GraphWeaver.graph makes it — the name is the identity.
+    @graph_name = graph_name&.to_sym
 
     if client && @client_const.nil?
       # a live object can't be spelled in generated source — parse can

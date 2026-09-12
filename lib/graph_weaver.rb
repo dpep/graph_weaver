@@ -249,6 +249,10 @@ module GraphWeaver
         # it has to be something source can spell
         raise ArgumentError, "graph name must be a Symbol or a String, got #{name.inspect}"
       end
+      # the name is the graph's identity, so the two spellings are one graph —
+      # re-declaring as `graph "billing"` replaces `graph :billing` rather than
+      # quietly making a second one that generates over the first's output
+      name = name.to_sym
       unless keywords.empty?
         raise ArgumentError, "GraphWeaver.graph takes a block, not keywords — say " \
           "#{keywords.keys.join(", ")} inside it:\n" \

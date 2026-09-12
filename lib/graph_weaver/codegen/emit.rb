@@ -454,7 +454,7 @@ class GraphWeaver::Codegen
         out << ""
         out << "  # the graph this module was generated from — what a test mode builds"
         out << "  # its stand-in client from"
-        out << "  GRAPH = T.let(#{@graph_name.inspect}, #{@graph_name.class})"
+        out << "  GRAPH = T.let(#{@graph_name.inspect}, Symbol)"
         out << "  private_constant :GRAPH"
       end
       if @client_const

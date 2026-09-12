@@ -394,6 +394,15 @@ describe "GraphWeaver.graph" do
     expect { GraphWeaver.generate! }.not_to raise_error
   end
 
+  # …and the identity is the name, not its spelling: `graph "billing"` used to
+  # declare a second graph beside `graph :billing` and generate over its output
+  it "treats a String name and a Symbol name as one graph" do
+    GraphWeaver.graph("solo") { schema Demo::Schema }
+    GraphWeaver.graph(:solo) { schema Demo::Schema }
+
+    expect(GraphWeaver.graphs.map(&:name)).to eq [:solo]
+  end
+
   # the name is written into every module the graph generates, so it has to be
   # something generated source can spell
   it "refuses a name that isn't a Symbol or a String" do

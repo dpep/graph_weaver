@@ -69,6 +69,14 @@
   `T.untyped` with the build advising you to register a scalar you had. A graph
   now reads the top-level layer when generation asks; its own registrations
   still run where the block is written, and still win.
+- **Three refusals in the graph block say what you got wrong.** A `schema`
+  lambda that resolves to nil is refused naming the graph, instead of reaching
+  codegen as nil and crashing on `undefined method 'validate'`; `namespace`
+  and `types_module` refuse a leading `::` naming the setting, instead of
+  blaming the `.graphql` file's name four steps later.
+- **`graph :billing` and `graph "billing"` are one graph.** The name is the
+  identity, so the second spelling replaces the first rather than declaring a
+  second graph that generates over its output.
 <!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

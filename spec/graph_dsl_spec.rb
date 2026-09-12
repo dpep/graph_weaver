@@ -128,6 +128,36 @@ describe "GraphWeaver.graph block" do
     expect(GraphWeaver::Codegen.scalar_registry).not_to have_key("Doubloon")
   end
 
+  # a leading :: is how you root-anchor a constant in Ruby, and it used to be
+  # refused four steps later as a verdict on the .graphql file's name
+  it "refuses a root-anchored namespace, naming the setting" do
+    expect { declared { namespace "::Billing" } }.to raise_error(
+      ArgumentError,
+      'namespace "::Billing": drop the leading `::` — namespace names a module generated source ' \
+      "defines, and it defines it at the top level either way",
+    )
+    expect { declared { types_module "::Billing::Types" } }
+      .to raise_error(ArgumentError, /\Atypes_module "::Billing::Types": drop the leading `::`/)
+
+    # client is a reference, not a definition, so ::Foo::CLIENT means what it says
+    expect(declared { client "::Billing::CLIENT" }.client).to eq "::Billing::CLIENT"
+  end
+
+  # the lambda form is what a Rails initializer has to use, and a lambda
+  # returns nil easily — a config value that wasn't set, a guarded `defined?`,
+  # a safe_constantize. It used to reach codegen as nil.
+  it "refuses a schema lambda that resolves to nil, naming the graph" do
+    graph = declared { schema -> {} }
+
+    [:schema, :dump_path, :supergraph, :live_schema].each do |reader|
+      expect { graph.public_send(reader) }.to raise_error(
+        GraphWeaver::Error,
+        "schema in graph :billing resolved to nil — schema takes a graphql-ruby schema class, " \
+        "a Client, a path to a dump, SDL, or a callable returning one",
+      )
+    end
+  end
+
   # In Rails the graph and the scalars usually live in two initializers, and
   # initializers run in alphabetical filename order — so declaring a graph in
   # billing.rb and registering in graph_weaver.rb must generate the same code
