@@ -559,56 +559,66 @@ module RoundTrip
     # The input half: a query taking one variable per argument of `field`, a
     # Ruby value for each, and the wire hash they must serialize to.
     def check_input(schema:, field:, mutation: false, name: "InputTrip", rng: Random.new(0))
-      arguments = field.arguments.each_value.to_a
-      return Trip.new(failures: [], refused: "no arguments") if arguments.empty?
+      draft = draft_input(schema:, field:, mutation:, name:, rng:)
+      return draft if draft.is_a?(Trip)
 
-      inputs = Inputs.new(schema, rng)
-      # a variable default makes the kwarg optional even where the type is non-null
-      defaults = arguments.to_h { |a| [a.graphql_name, rng.rand < 0.4 ? default_literal(a.type) : nil] }
-      query = variable_query(schema, field, arguments, defaults, mutation:)
-      return Trip.new(query:, failures: [], refused: "invalid draft") unless schema.validate(query).empty?
-
-      mod =
-        begin
-          GraphWeaver::Codegen.parse(schema:, query:, name:)
-        rescue GraphWeaver::Error, ArgumentError => e
-          return Trip.new(query:, failures: [], refused: "#{e.class}: #{e.message}")
-        end
-
-      kwargs = {}
-      expected = {}
-      arguments.each do |argument|
-        ruby, wire = inputs.build(argument.type)
-        required = argument.type.kind.name == "NON_NULL" && defaults[argument.graphql_name].nil?
-        next if wire == :omit && !required
-
-        ruby, wire = inputs.build!(argument.type.of_type) if wire == :omit
-        kwargs[GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym] = ruby
-        expected[argument.graphql_name] = wire
-      end
-
-      trip = Trip.new(query:, failures: [])
+      trip = Trip.new(query: draft.query, failures: [])
       capture = Capture.new
       begin
-        mod.execute(client: capture, **kwargs)
+        draft.mod.execute(client: capture, **draft.kwargs)
       rescue StandardError => e
         trip.failures = [Failure.new(kind: "raised", path: ["execute"], detail: "#{e.class}: #{e.message}")]
         return trip
       end
 
       trip.wire = capture.variables
-      if capture.variables != expected
+      if capture.variables != draft.expected
         trip.failures = [Failure.new(kind: "wire", path: ["variables"],
-          detail: "expected #{expected.inspect}, sent #{capture.variables.inspect}")]
+          detail: "expected #{draft.expected.inspect}, sent #{capture.variables.inspect}")]
         return trip
       end
 
       # second opinion: would a real server's variable coercion take this?
-      errors = GraphQL::Query.new(schema, query, variables: capture.variables).variables.errors
+      errors = GraphQL::Query.new(schema, draft.query, variables: capture.variables).variables.errors
       unless errors.empty?
         trip.failures = [Failure.new(kind: "coercion", path: ["variables"], detail: errors.first.message)]
       end
       trip
+    end
+
+    # The mirror of #check_hostile on the input side: draft a legal call, then
+    # corrupt exactly ONE leaf of it — a wrong type, a string that won't parse,
+    # a value the enum doesn't have, a nil in a non-null slot, a Hash where a
+    # scalar goes — at whatever depth the draw reached, lists included. The
+    # library has to refuse it with an InputError that says WHERE (#path) and
+    # WHAT (#kind); sending it to the server is the worst outcome available, so
+    # "accepted" is a failure here.
+    #
+    # Only builtin scalars and enums are corrupted. A registered scalar's
+    # coercer is whatever its registration says — Coerce.date, a bare
+    # Money.parse, an app's own lambda — so the kind it refuses with isn't
+    # knowable from the schema, and asserting one would be a guess.
+    def check_hostile_input(schema:, field:, mutation: false, name: "HostileInput", rng: Random.new(0))
+      draft = draft_input(schema:, field:, mutation:, name:, rng:)
+      return draft if draft.is_a?(Trip)
+
+      targets = draft.arguments.flat_map do |argument|
+        prop = GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym
+        next [] unless draft.kwargs.key?(prop)
+
+        # a variable default makes the kwarg optional, so a nil there means
+        # "let the server use the default" and is legitimately left off the wire
+        type = argument.type
+        type = type.of_type if draft.defaults[argument.graphql_name] && type.kind.name == "NON_NULL"
+        corruptible(draft.kwargs[prop], type).map { |path, pool| [argument.graphql_name, prop, path, pool] }
+      end
+      return Trip.new(query: draft.query, failures: [], refused: "no corruptible leaf") if targets.empty?
+
+      root, prop, path, pool = targets.sample(random: rng)
+      spoiled, kind = pool.sample(random: rng)
+      kwargs = draft.kwargs.merge(prop => poke_input(draft.kwargs[prop], path, spoiled))
+      expected = [root, *path.map { |step| step.is_a?(Integer) ? step : step.to_s }]
+      hostile_input_trip(draft, kwargs, expected, spoiled, kind)
     end
 
     # Walk the deserialized object beside the response that produced it: every
@@ -657,10 +667,152 @@ module RoundTrip
 
     private
 
+    # Everything both input modes need: the drafted query, the generated
+    # module, the kwargs to call it with and the wire hash they must produce.
+    # Returns a Trip instead when there was nothing to draft or codegen said no.
+    Draft = Struct.new(:query, :mod, :kwargs, :expected, :arguments, :defaults, keyword_init: true)
+
+    def draft_input(schema:, field:, mutation:, name:, rng:)
+      arguments = field.arguments.each_value.to_a
+      return Trip.new(failures: [], refused: "no arguments") if arguments.empty?
+
+      inputs = Inputs.new(schema, rng)
+      # a variable default makes the kwarg optional even where the type is non-null
+      defaults = arguments.to_h { |a| [a.graphql_name, rng.rand < 0.4 ? default_literal(a.type) : nil] }
+      query = variable_query(schema, field, arguments, defaults, mutation:)
+      return Trip.new(query:, failures: [], refused: "invalid draft") unless schema.validate(query).empty?
+
+      mod =
+        begin
+          GraphWeaver::Codegen.parse(schema:, query:, name:)
+        rescue GraphWeaver::Error, ArgumentError => e
+          return Trip.new(query:, failures: [], refused: "#{e.class}: #{e.message}")
+        end
+
+      kwargs = {}
+      expected = {}
+      arguments.each do |argument|
+        ruby, wire = inputs.build(argument.type)
+        required = argument.type.kind.name == "NON_NULL" && defaults[argument.graphql_name].nil?
+        next if wire == :omit && !required
+
+        ruby, wire = inputs.build!(argument.type.of_type) if wire == :omit
+        kwargs[GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym] = ruby
+        expected[argument.graphql_name] = wire
+      end
+
+      Draft.new(query:, mod:, kwargs:, expected:, arguments:, defaults:)
+    end
+
+    # Wrong-shaped values a caller might really pass, as [value, the kind the
+    # refusal must carry]. Only the builtin scalars and enums are here: their
+    # coercers are Coerce.* and InputStruct.enum whatever the app registers,
+    # so the verdict is knowable from the schema alone.
+    CORRUPTIONS = {
+      "Int" => [["lots", :unparseable], [1.5, :type_mismatch], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+      "Float" => [["lots", :unparseable], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+      "String" => [[7, :type_mismatch], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+      # an Integer is legal for ID (execute(id: user.id)), so it isn't here
+      "ID" => [[1.5, :type_mismatch], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+      "Boolean" => [["true", :type_mismatch], [1, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+    }.freeze
+
+    NOT_A_MEMBER = [["__no_such_member__", :not_a_member]].freeze
+
+    # Every leaf of a drafted Ruby input value that can be corrupted with a
+    # knowable verdict, as [path within the kwarg, pool]. Walks the value
+    # beside the type the schema declared for it, so a list index is a path
+    # segment exactly as InputError#path spells it.
+    def corruptible(value, type, path = [], out = [], non_null: false, in_object: false)
+      case type.kind.name
+      when "NON_NULL" then corruptible(value, type.of_type, path, out, non_null: true, in_object:)
+      when "LIST"
+        value.each_with_index { |el, i| corruptible(el, type.of_type, path + [i], out) } if value.is_a?(Array)
+      when "INPUT_OBJECT" then corruptible_fields(value, type, path, out)
+      else
+        pool = corruptions(type, non_null:, in_object:)
+        out << [path, pool] if pool && !value.nil?
+      end
+      out
+    end
+
+    def corruptible_fields(value, type, path, out)
+      return unless value.is_a?(Hash)
+
+      type.arguments.each_value do |argument|
+        key = GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym
+        next unless value.key?(key)
+
+        corruptible(value[key], argument.type, path + [key], out, in_object: true)
+      end
+    end
+
+    # A nil is only a corruption where null is illegal, and what it refuses as
+    # depends on who reads it: an input-object field left nil was never
+    # supplied, so it is :missing; a variable or a list element reaches the
+    # leaf's own coercer.
+    def corruptions(type, non_null:, in_object:)
+      pool =
+        case type.kind.name
+        when "ENUM" then NOT_A_MEMBER
+        when "SCALAR" then CORRUPTIONS[type.graphql_name]
+        end
+      return unless pool
+      return pool unless non_null
+
+      nil_kind = in_object ? :missing : (type.kind.name == "ENUM" ? :not_a_member : :type_mismatch)
+      pool + [[nil, nil_kind]]
+    end
+
+    def hostile_input_trip(draft, kwargs, path, spoiled, kind)
+      at = "#{spoiled.inspect} at #{path.join(".")}"
+      trip = Trip.new(query: draft.query, failures: [])
+      capture = Capture.new
+      begin
+        draft.mod.execute(client: capture, **kwargs)
+      rescue GraphWeaver::InputError => e
+        trip.failures = misdescribed(e, path, kind, at)
+        return trip
+      rescue StandardError => e
+        trip.failures = [Failure.new(kind: "unbranded", path:,
+          detail: "#{e.class} (not GraphWeaver::InputError) for #{at}: #{e.message}")]
+        return trip
+      end
+
+      trip.wire = capture.variables
+      trip.failures = [Failure.new(kind: "accepted", path:, detail: "sent #{at} to the server")]
+      trip
+    end
+
+    # An InputError that refuses without saying where, or says the wrong what,
+    # sends the caller looking in the wrong place — which is the whole reason
+    # #path and #kind exist.
+    def misdescribed(error, path, kind, at)
+      failures = []
+      unless error.path == path
+        failures << Failure.new(kind: "mispathed", path:,
+          detail: "#{at} refused at #{error.path.inspect}: #{error.message}")
+      end
+      unless error.kind == kind
+        failures << Failure.new(kind: "miskinded", path:,
+          detail: "#{at} refused as #{error.kind.inspect}, not #{kind.inspect}: #{error.message}")
+      end
+      failures
+    end
+
     # replace the value at `path` (response keys and list indexes) in place
     def poke(data, path, value)
       *parents, last = path
       parents.reduce(data) { |node, step| node[step] }[last] = value
+    end
+
+    # the same for a Ruby input value, where an empty path means the whole
+    # kwarg is the leaf — so it returns the new root rather than mutating
+    def poke_input(value, path, spoiled)
+      return spoiled if path.empty?
+
+      poke(value, path, spoiled)
+      value
     end
 
     def refusal_failures(mod, envelope, path, spoiled)

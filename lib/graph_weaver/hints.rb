@@ -126,9 +126,12 @@ module GraphWeaver
     # standard guard — `obj.pet if obj.respond_to?(:pet)` raised on the very
     # typo the hint exists for — which costs more than `#method(:nmae)` raising
     # Ruby's own bare NameError.
+    # Kernel.raise, not bare raise: this module is mixed into every generated
+    # struct, so a prop named `raise` would shadow it with a zero-arity reader.
+    # Codegen reserves the name; qualifying it here needs no such rule to hold.
     def method_missing(name, *args, &block)
       if args.empty? && (hint = prop_hint(name.to_s))
-        raise NoMethodError, "undefined method '#{name}' for #{self.class} — #{hint}"
+        Kernel.raise NoMethodError, "undefined method '#{name}' for #{self.class} — #{hint}"
       end
 
       super

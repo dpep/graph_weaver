@@ -12,10 +12,24 @@ describe "round trip" do
   ROUND_TRIP_SEED = Integer(ENV.fetch("ROUND_TRIP_SEED", "20260907"))
   ROUND_TRIP_CASES = Integer(ENV.fetch("ROUND_TRIP_CASES", "60"))
 
+  # Not a fixture anyone generates from: the three schemas below take no list
+  # of LEAVES anywhere, which is exactly the shape an input refusal used to
+  # lose the index for — so the input half would have passed vacuously on it.
+  ROUND_TRIP_LISTS = GraphQL::Schema.from_definition(<<~GRAPHQL)
+    enum Colour { RED GREEN }
+    input Tagging { ids: [ID!], names: [String!], colour: Colour, nested: Tagging }
+    type Thing { id: ID! name: String colour: Colour }
+    type Query {
+      things: [Thing!]
+      pick(ids: [Int!], colours: [Colour!], grid: [[Int!]!], tagging: Tagging, flag: Boolean): [Thing!]
+    }
+  GRAPHQL
+
   ROUND_TRIP_SCHEMAS = {
     "Demo" => Demo::Schema,                      # enums, a union, an interface, a custom + an unregistered scalar
     "Products" => RouterGraph::Products::Schema, # an interface whose members differ
     "Reviews" => RouterGraph::Reviews::Schema,   # unions whose members cross subgraphs
+    "Lists" => ROUND_TRIP_LISTS,                 # lists of leaves, a list of lists, lists inside an input
   }.freeze
 
   # Shapes worth holding onto by name: each one is a bug this suite has seen,
@@ -102,8 +116,7 @@ describe "round trip" do
     end
 
     it "puts #{label} inputs on the wire in the shape the schema wants" do
-      fields = [[schema.query, false], [schema.mutation, true]].reject { |root, _| root.nil? }
-        .flat_map { |root, mutation| root.fields.each_value.reject { |f| f.arguments.empty? }.map { |f| [f, mutation] } }
+      fields = argument_fields(schema)
       skip "#{label} takes no arguments anywhere" if fields.empty?
 
       failures = (0...ROUND_TRIP_CASES).flat_map do |i|
@@ -117,6 +130,32 @@ describe "round trip" do
 
       expect(failures).to be_empty, -> { failures.join("\n\n") }
     end
+
+    it "refuses a bad #{label} input value, saying where it was and what was wrong" do
+      fields = argument_fields(schema)
+      skip "#{label} takes no arguments anywhere" if fields.empty?
+
+      checked = 0
+      failures = (0...ROUND_TRIP_CASES).flat_map do |i|
+        seed = ROUND_TRIP_SEED + i
+        rng = Random.new(seed)
+        field, mutation = fields[seed % fields.size]
+        trip = RoundTrip.check_hostile_input(schema:, field:, mutation:, name: "HostileInput#{i}", rng:)
+        checked += 1 unless trip.refused
+        trip.failures.map { |failure| report(failure, trip, seed) }
+      end
+
+      # a draw that found nothing to corrupt asserts nothing, and enough of
+      # those in a row would pass this vacuously
+      expect(checked).to be > ROUND_TRIP_CASES / 4
+      expect(failures).to be_empty, -> { failures.join("\n\n") }
+    end
+  end
+
+  # every root field that takes an argument, paired with whether it's a mutation
+  def argument_fields(schema)
+    [[schema.query, false], [schema.mutation, true]].reject { |root, _| root.nil? }
+      .flat_map { |root, mutation| root.fields.each_value.reject { |f| f.arguments.empty? }.map { |f| [f, mutation] } }
   end
 
   # Everything a failure needs to be acted on without re-deriving it.

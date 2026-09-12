@@ -137,6 +137,14 @@
   under it smuggles just as well: `members: "not a list"` got through, and
   `details[:members].join(", ")` is what errors.rb's promise entitles an app to
   write. A detail whose type isn't the one its key means is now dropped.
+- Internal: `bin/round-trip --hostile` now spoils an **input** leaf as well as
+  a response one — a wrong type, an unparseable string, a value the enum
+  doesn't have, a nil where null is illegal, at any depth including inside
+  lists — and requires an `InputError` whose `#path` names the corrupted slot
+  and whose `#kind` says what was wrong. The 40,000 clean round trips before
+  it were evidence about response decoding and close to none about input
+  errors; run against the GitHub schema it finds the list-index bug above on
+  its own.
 <!-- /lane: input-errors -->
 
 ###  v0.7.0  (2026-09-12)

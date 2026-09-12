@@ -129,8 +129,10 @@ module GraphWeaver
             field.serializer && !value.nil? ? field.serializer.call(value) : value
           rescue GraphWeaver::InputError => e
             # a nested input's own refusal (@oneOf, a custom serialize:) —
-            # every layer prepends the segment that led to it
-            raise e.within(field.prop.to_s)
+            # every layer prepends the segment that led to it. Kernel.raise,
+            # since this module is mixed into the struct and a prop named
+            # `raise` would shadow a bare one with a zero-arity reader.
+            Kernel.raise e.within(field.prop.to_s)
           end
       end
 
@@ -152,7 +154,7 @@ module GraphWeaver
       if wire.size == 1 && wire.values.first.nil?
         name = wire.keys.first
         field = self.class.const_get(:FIELDS).find { |candidate| candidate.wire == name }
-        raise GraphWeaver::InputError.new(
+        Kernel.raise GraphWeaver::InputError.new(
           "#{self.class} is @oneOf and #{name} was null — supply a value for it, or a different field",
           kind: :missing, path: [field.prop.to_s], coordinate: field.coordinate, struct: self.class,
         )
@@ -160,7 +162,7 @@ module GraphWeaver
 
       return if wire.size == 1
 
-      raise GraphWeaver::InputError.new(
+      Kernel.raise GraphWeaver::InputError.new(
         "#{self.class} is @oneOf — supply exactly one field, non-null, got " \
           "#{wire.empty? ? "none" : wire.keys.sort.join(", ")}",
         struct: self.class,
