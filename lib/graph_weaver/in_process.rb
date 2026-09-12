@@ -36,6 +36,10 @@ class GraphWeaver::InProcess
   # the schema queries run against, and the context handed to every one
   attr_reader :schema, :context
 
+  # settable so Testing::Endpoint can answer a `context:` proc from the
+  # request's headers and put it back — the same seam Router#context= is
+  attr_writer :context
+
   def initialize(schema, context: {})
     unless schema.respond_to?(:execute)
       raise ArgumentError, "expected a graphql-ruby schema class, got #{schema.inspect}"
@@ -69,7 +73,8 @@ class GraphWeaver::InProcess
     result = GraphWeaver::Internal::Log.log_timed(:debug, "in-process #{@schema} #{tag} completed") do
       # a copy per query: graphql-ruby writes a resolver's `context[...] =`
       # into the hash it is handed, and one client serves every request
-      @schema.execute(query, variables:, operation_name:, context: @context.dup)
+      @schema.execute(query, variables:, operation_name:,
+        context: GraphWeaver::Internal::Util.context!(@context).dup)
     end
 
     # the same key the network transports set, so one instrumenter

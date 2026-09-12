@@ -21,6 +21,12 @@ module GraphWeaver
     # not an HTTP failure. Only a request that isn't a GraphQL request at
     # all — the wrong method, a body that isn't JSON — is a 400, and it says
     # what it got.
+    #
+    # A client whose `context` is a **proc** is asked what this request's
+    # headers mean, per request: that is the identity-propagation seam, the
+    # one thing an in-process client can't test.
+    #
+    #      Router.new(supergraph:, context: ->(headers) { { current_user: User.find_by(token: headers["Authorization"]) } })
     class Endpoint
       JSON_HEADERS = { "content-type" => "application/json" }.freeze
       TEXT_HEADERS = { "content-type" => "text/plain" }.freeze
@@ -48,8 +54,10 @@ module GraphWeaver
           return refuse("expected a JSON GraphQL request body with a \"query\" string, got #{excerpt(body)}")
         end
 
-        result = @client.execute(request["query"], variables: request["variables"] || {},
-          operation_name: request["operationName"])
+        result = with_context(headers(env)) do
+          @client.execute(request["query"], variables: request["variables"] || {},
+            operation_name: request["operationName"])
+        end
         [200, JSON_HEADERS, [JSON.generate(result)]]
       end
 
@@ -58,6 +66,37 @@ module GraphWeaver
       alias to_s inspect
 
       private
+
+      # A `context:` proc is answered from the request in hand, so it is
+      # resolved here and put back after — one request's identity must not
+      # leak into the next. A client with no context, or a hash one, is
+      # served untouched.
+      def with_context(headers)
+        context = @client.context if @client.respond_to?(:context) && @client.respond_to?(:context=)
+        return yield unless context.respond_to?(:call)
+
+        @client.context = context.call(headers)
+        begin
+          yield
+        ensure
+          @client.context = context
+        end
+      end
+
+      # Rack spells a header HTTP_X_CALLER; the proc reads "X-Caller".
+      # Capitalization is reconstructed, not remembered — the CGI env
+      # dropped it — so a header sent as X-CALLER arrives here as X-Caller.
+      def headers(env)
+        env.each_with_object({}) do |(key, value), headers|
+          name = case key
+          when /\AHTTP_(.+)\z/ then Regexp.last_match(1)
+          when "CONTENT_TYPE", "CONTENT_LENGTH" then key
+          end
+          next unless name && value.is_a?(String)
+
+          headers[name.downcase.split("_").map(&:capitalize).join("-")] = value
+        end
+      end
 
       def excerpt(body) = body.empty? ? "an empty body" : body[0, EXCERPT].inspect
 

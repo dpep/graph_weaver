@@ -214,8 +214,11 @@ module GraphWeaver
       # subgraphs answered with fabricated data instead of that refusal
       attr_reader :faked
 
-      # the context handed to every subgraph — settable, so one example can
-      # run as a different user without rebuilding the router
+      # The context handed to every subgraph — settable, so one example can
+      # run as a different user without rebuilding the router. A proc is
+      # answered from the request's headers, which only a wire supplies:
+      # `context: ->(headers) { { current_user: User.find_by(token:
+      # headers["Authorization"]) } }` served through {Endpoint}.
       attr_accessor :context
 
       # The planner injects key fields under this prefix, and the concrete
@@ -663,7 +666,8 @@ module GraphWeaver
         end
 
         GraphWeaver::Internal::Log.log_timed(:debug, "router -> #{name} #{tag} completed") do
-          @subgraphs.fetch(name).execute(query, variables:, operation_name:, context: @context).to_h
+          @subgraphs.fetch(name).execute(query, variables:, operation_name:,
+            context: Internal::Util.context!(@context)).to_h
         end
       end
 

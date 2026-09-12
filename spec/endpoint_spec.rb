@@ -114,14 +114,100 @@ describe GraphWeaver::Testing::Endpoint do
     end
   end
 
-  it "serves a client that has no context at all" do
-    bare = Class.new do
-      def execute(query, variables: {}, operation_name: nil) = { "data" => { "q" => query } }
-    end.new
-    status, = described_class.new(bare).call({
-      "REQUEST_METHOD" => "POST", "rack.input" => StringIO.new(JSON.generate({ "query" => "{ me }" })),
-    })
+  describe "context from the request's headers" do
+    it "asks a context proc what this request's headers mean" do
+      seen = nil
+      client.context = lambda do |headers|
+        seen = headers
+        { current_user: headers["Authorization"] }
+      end
 
-    expect(status).to eq 200
+      request("{ me }", "HTTP_AUTHORIZATION" => "Bearer abc", "HTTP_X_CALLER" => "checkout")
+
+      expect(client.calls.first[:context]).to eq({ current_user: "Bearer abc" })
+      expect(seen).to include("Authorization" => "Bearer abc", "X-Caller" => "checkout",
+        "Content-Type" => "application/json")
+    end
+
+    it "puts the proc back, so one request's identity can't leak into the next" do
+      reader = ->(headers) { { caller: headers["X-Caller"] } }
+      client.context = reader
+
+      request("{ me }", "HTTP_X_CALLER" => "one")
+      request("{ me }", "HTTP_X_CALLER" => "two")
+
+      expect(client.context).to be reader
+      expect(client.calls.map { |call| call[:context] }).to eq [{ caller: "one" }, { caller: "two" }]
+    end
+
+    it "leaves a hash context alone" do
+      client.context = { current_user: "alice" }
+
+      request("{ me }", "HTTP_AUTHORIZATION" => "Bearer abc")
+
+      expect(client.calls.first[:context]).to eq({ current_user: "alice" })
+    end
+
+    # the two clients the :wire tag can put behind the endpoint, so the
+    # header seam is the same one whichever the app's graph turns out to be
+    it "reaches a router's subgraph resolvers" do
+      router = GraphWeaver::Testing::Router.new(
+        supergraph: RouterGraph::SUPERGRAPH,
+        context: ->(headers) { { current_user_id: headers["X-User"] } },
+      )
+      _status, _headers, body = described_class.new(router).call({
+        "REQUEST_METHOD" => "POST", "HTTP_X_USER" => "2",
+        "rack.input" => StringIO.new(JSON.generate({ "query" => "{ me { username } }" })),
+      })
+
+      expect(JSON.parse(body.join).dig("data", "me", "username")).to eq "ada"
+    end
+
+    it "reaches an in-process schema's resolvers" do
+      in_process = GraphWeaver::InProcess.new(
+        RouterGraph::Accounts::Schema,
+        context: ->(headers) { { current_user_id: headers["X-User"] } },
+      )
+      _status, _headers, body = described_class.new(in_process).call({
+        "REQUEST_METHOD" => "POST", "HTTP_X_USER" => "2",
+        "rack.input" => StringIO.new(JSON.generate({ "query" => "{ me { username } }" })),
+      })
+
+      expect(JSON.parse(body.join).dig("data", "me", "username")).to eq "ada"
+    end
+
+    it "serves a client that has no context at all" do
+      bare = Class.new do
+        def execute(query, variables: {}, operation_name: nil) = { "data" => { "q" => query } }
+      end.new
+      status, = described_class.new(bare).call({
+        "REQUEST_METHOD" => "POST", "rack.input" => StringIO.new(JSON.generate({ "query" => "{ me }" })),
+      })
+
+      expect(status).to eq 200
+    end
+  end
+
+  # a context proc is answered from a request's headers, so off the wire
+  # there is no honest answer — and a Proc handed to graphql-ruby as a
+  # context fails somewhere far from the line that set it
+  describe "a context proc with no request behind it" do
+    it "is refused by the router, naming the tag that supplies one" do
+      router = GraphWeaver::Testing::Router.new(
+        supergraph: RouterGraph::SUPERGRAPH, context: ->(headers) { headers },
+      )
+
+      expect { router.execute("{ me { username } }") }
+        .to raise_error(GraphWeaver::Error, /context: is a proc.*graphql: :wire/m)
+    end
+
+    it "is refused in-process, naming the tag that supplies one" do
+      in_process = GraphWeaver::InProcess.new(
+        RouterGraph::Accounts::Schema, context: ->(headers) { headers },
+      )
+
+      expect { in_process.execute("{ me { username } }") }
+        .to raise_error(GraphWeaver::Error, /context: is a proc.*graphql: :wire/m)
+    end
   end
 end

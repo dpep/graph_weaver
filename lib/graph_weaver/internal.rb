@@ -148,6 +148,19 @@ module GraphWeaver
           target if target.is_a?(Class) && target <= GraphQL::Schema
         end
 
+        # The context to hand resolvers. A proc is answered from a request's
+        # headers (Testing::Endpoint resolves it), so off the wire there is
+        # nothing to answer it with — and a Proc reaching graphql-ruby as a
+        # context fails far from the line that set it.
+        def context!(context)
+          return context unless context.respond_to?(:call)
+
+          raise GraphWeaver::Error, "context: is a proc, so it is answered from a request's " \
+            "headers — and nothing here made a request. Tag the example graphql: :wire, which " \
+            "serves your resolvers at your client's endpoint so your transport's headers reach " \
+            "them; off the wire, pass the hash."
+        end
+
         private
 
         # "Mutation" for a mutation document, "Query" for everything else.

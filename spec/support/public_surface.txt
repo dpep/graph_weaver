@@ -159,6 +159,7 @@ GraphWeaver::Hints.mapped_enum
 GraphWeaver::Hints.validate_keys!
 GraphWeaver::InProcess (Class)
 GraphWeaver::InProcess#context
+GraphWeaver::InProcess#context=
 GraphWeaver::InProcess#execute
 GraphWeaver::InProcess#inspect
 GraphWeaver::InProcess#schema
