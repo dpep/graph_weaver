@@ -1,152 +1,3 @@
-###  Unreleased
-<!-- lane: transport -->
-- **`rails g graph_weaver:install` no longer deletes your `AllCops/Exclude`.**
-  RuboCop *replaces* an `Exclude` array on merge rather than unioning it, so the
-  block the generator appended wiped the app's effective exclude list —
-  RuboCop's own `vendor`, `node_modules` and `tmp` defaults included, along with
-  anything reaching the file through `inherit_from:`. The appended block now
-  carries `inherit_mode: merge: [Exclude]`, which unions. **If you ran the
-  installer before this release, add those three lines to the `AllCops:` block
-  it wrote** — otherwise rubocop is still linting your vendored code. The
-  generator also no longer appends to a multi-document `.rubocop.yml` (rubocop
-  reads only the first document, so the block landed where nothing would read
-  it); it prints the lines to add instead.
-- **`Transport::Faraday#url` reports Array and Hash connection params the way
-  the wire carries them.** It encoded with `URI.encode_www_form` rather than
-  Faraday's own encoder, so `a: [1, 2]` was reported as `?a=1&a=2` against
-  `a[]=1&a[]=2` on the wire and `a: {b: "c"}` as a URL-escaped Ruby `Hash#inspect`.
-  `#url` is what `graphql: :wire` keys its stub on and what the boot log prints,
-  so both were wrong. **A `:wire` stub written against the old string will now
-  miss** — restub it against the real endpoint.
-- **A non-String header value is sent as its `to_s`** on both transports, rather
-  than escaping as `NoMethodError: undefined method 'strip'` from inside
-  net/http, naming neither graph_weaver nor the header. The documented
-  `"X-Tenant" => -> { Current.tenant&.id }` crashed in any app whose ids are
-  Integers. A callable is still resolved first and `nil` still drops the header.
-- **A prebuilt `Faraday::Connection` now sends graph_weaver's `User-Agent`.**
-  Faraday pre-fills its own on every connection, so the fill-in-the-blanks
-  `||=` never fired and the traffic attributed to `Faraday v…` — defeating the
-  header's whole purpose. A User-Agent you set yourself still wins.
-<!-- lane: codegen -->
-- **The reserved prop names are a list the gem owns, not whatever `T::Struct`
-  answered to.** Deriving them made generation depend on require order: with
-  ActiveSupport loaded first a field named `asJson` was refused, loaded second
-  it became a prop that shadowed the real `#as_json`, so `render json: result`
-  serialized the field. **More names are refused now** — Kernel's private
-  methods (`raise`, `format`, `select`, `require`, …), which a prop reader
-  shadowed well enough to turn every cast error into *"wrong number of
-  arguments (given 2, expected 0)"*, and the hooks Ruby and Rails call on any
-  object (`deconstruct`, `to_a`, `to_ary`, `to_hash`, `to_json`, `as_json`,
-  `to_param`, `to_query`, `try`, `presence`, `each`). Alias those fields in the
-  query. The refusal now reads *"would become prop 'x', a name generated
-  structs reserve"*. **Regenerate.**
-- **`register_scalar` warns when the Ruby type defines `==` but inherits
-  `eql?`/`hash`.** A result compares its props with `eql?`, so that idiom — a
-  value object that stops at `==` — makes two results parsed from the same
-  response unequal, and useless as hash keys, while the leaf itself compares
-  fine. `alias_method :eql?, :==` plus a matching `hash` is the fix; see
-  [scalars](docs/scalars.md#registering-a-class-of-your-own).
-- **Docs: a result is immutable only as far as its props.** The `String` or
-  `Hash` a leaf holds is the one the response carried, so mutating it changes
-  the result — as with `Struct` or `Data`. And cache a result with `Marshal`,
-  not YAML: a `T::Enum` member is a singleton compared by identity, and Psych
-  rehydrates a duplicate, so `pet.species == Species::Dog` comes back false.
-<!-- /lane: codegen -->
-
-<!-- lane: host -->
-- **A generated output nested deeper than a `generated_paths` glob reaches is
-  hidden from Zeitwerk again, and loaded.** `app/graphql/a/b/generated` was read
-  as already covered by the default `app/graphql/*/generated` — `File.fnmatch?`
-  lets `*` cross a `/`, and `Dir.glob`, which expands the same pattern
-  everywhere else, does not. It was then neither ignored nor required:
-  production boot died on a `Zeitwerk::NameError` naming a constant you never
-  wrote, and development simply had the modules missing. Nothing to do — a
-  layout like `app/graphql/subgraphs/billing/generated` now works.
-- **A symlinked generated output is hidden from Zeitwerk, and refused when it
-  is declared too late to hide.** The railtie resolved a path with
-  `File.expand_path`, which doesn't follow symlinks, while Zeitwerk walks real
-  directories — so an `output` that was a symlink, or an absolute one through a
-  symlinked ancestor (the Capistrano `current/` shape), was ignored under a name
-  Zeitwerk never visits and its modules died on `uninitialized constant`. The
-  refusal that exists for a too-late output compared the same unresolved path
-  against real autoload roots, so it stayed silent for exactly that spelling; it
-  now fires, and names the output the way your graph spells it.
-- **No refusal when your app already hid the directory itself.** A graph
-  declared from `to_prepare` whose output an app had ignored with
-  `Rails.autoloaders.main.ignore(...)` was refused at boot and told the
-  directory "can't be hidden from autoloading" — it was already hidden. The
-  refusal asks Zeitwerk now, and only fires for a directory some loader would
-  really walk.
-- **An output under `config.autoload_once_paths` says what actually works.**
-  Rails sets the `once` autoloader up in bootstrap, so nothing an initializer
-  does can hide a directory from it — and the error you got said to name the
-  path in `GraphWeaver.generated_paths` from `config/initializers`, which
-  produced byte-identical output. Boot now refuses at the point that knows, and
-  names the two routes that work: `Rails.autoloaders.once.ignore(...)` from
-  `config/application.rb`, or generating somewhere that is not an autoload-once
-  path.
-- **`config.graph_weaver[:typo] = x` is refused too.** The refusal that names
-  the setting you meant only covered `config.graph_weaver.typo = x`; the
-  subscript form went straight to `Hash#[]=` and was the silent no-op the
-  refusal exists to prevent. `store` is covered as well, since it is the same
-  write.
-<!-- lane: input-errors -->
-- **`filter_parameters` now covers a typo'd key and a server's own message.**
-  A filter matches the key you *supplied*, and a typo is by definition not the
-  key you meant — so `passwrod` dodged the `password` filter and its value went
-  out on `InputError#value` and in `to_h`, in the same error whose
-  `details[:suggestion]` named the key it should have been. An unknown-key error
-  now carries **no `#value` at all**: the key is what was wrong, and it owns no
-  slot to hold one. Separately, a rejection read back off a *server* response
-  (`#input_errors`) now runs its `#message` through the same filter `#value`
-  already went through — graphql-ruby quotes the rejected value in its
-  explanation as a matter of course.
-- **`render json: e.to_h` no longer 500s on a number JSON can't spell.**
-  `InputError#value` and `#details` are now always JSON-representable: a
-  non-finite Float travels as its `to_s` (`"NaN"`, `"Infinity"`), at any depth.
-  The values that reached there were exactly the ones `Coerce` exists to refuse
-  — an average over an empty set, `(10**400).to_f` — so the `JSON::GeneratorError`
-  landed *inside* the app's error handler, losing the diagnosis and turning a
-  422 into a 500.
-- **`InputError#path` now holds the list index for a list of leaves.**
-  `execute(ids: [1, 2, "x"])` reported `["ids"]` and the whole list as `#value`;
-  it now reports `["ids", 2]`. The index wrapper only caught `InputError`, and
-  no leaf coercer raises one — so a list of *input objects* was the single
-  shape where the documented path held. A list-of-lists element that wasn't a
-  list (`[[1, 2], nil]`) reached the caller as a raw `NoMethodError` and is now
-  a branded refusal naming the element.
-- **`InputError#field` skips a trailing list index.** It is `#path`'s last
-  *named* segment, so `["ids", 2]` is `"ids"` rather than `"2"` — an index is a
-  position, and `"2"` is nothing a form can highlight.
-- **A `@oneOf` input with one explicitly-null field says so.** It used to be
-  told to "supply exactly one field", which is what it had done. It is now
-  `kind: :missing` with `#path` and `#coordinate` on that field, so a form has
-  something to highlight; the wrong *count* still reports as before.
-- **A server's `Field is not defined on X` no longer invents a coordinate.**
-  It was built from `#path`'s last segment, which is the *variable* name when
-  the problem states no path of its own — yielding `CredsIn.creds`, a slot the
-  schema doesn't have, and a silent miss for an app keying an i18n label off it.
-- **`respond_to?` on a generated result struct no longer answers true for a
-  name that doesn't exist.** It said true for any near miss, so the standard
-  duck-typing guard was the thing that broke — `obj.pet if obj.respond_to?(:pet)`
-  raised the very `NoMethodError` the hint exists to explain. `method_missing`
-  still hints; the cost is that `struct.method(:nmae)` now raises Ruby's own
-  bare `NameError` rather than the hinted one.
-- **`InputError#details` from a server is type-checked, not just key-checked.**
-  `InputError::DETAILS` closed the key set, but a right key with the wrong type
-  under it smuggles just as well: `members: "not a list"` got through, and
-  `details[:members].join(", ")` is what errors.rb's promise entitles an app to
-  write. A detail whose type isn't the one its key means is now dropped.
-- Internal: `bin/round-trip --hostile` now spoils an **input** leaf as well as
-  a response one — a wrong type, an unparseable string, a value the enum
-  doesn't have, a nil where null is illegal, at any depth including inside
-  lists — and requires an `InputError` whose `#path` names the corrupted slot
-  and whose `#kind` says what was wrong. The 40,000 clean round trips before
-  it were evidence about response decoding and close to none about input
-  errors; run against the GitHub schema it finds the list-index bug above on
-  its own.
-<!-- /lane: input-errors -->
-
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
@@ -176,22 +27,54 @@
 - **A form can highlight the input field that was wrong, without reading
   English — and `InputError#field` changed meaning (breaking).** `InputError`
   now carries `#kind` (one of eight — `KINDS`), `#path` rooted at the variable
-  (`["where", "_and", 0, "_not", "species"]`), `#coordinate`
-  (`"PetFilter.species"`), `#value` (through `filter_parameters`) and
-  `#details` (`members:`, `type:`, `suggestion:`, `min:`…), so an app
-  translates a stable key instead of parsing a sentence ([i18n](docs/i18n.md)).
-  **`#field` is now `#path`'s last segment** — the input field that actually
-  held the value, which is the one a form highlights — where it used to be
-  re-branded on the way out with the *variable* name; read `#path.first` for
-  that. Nothing raises, so the change passes unnoticed until the first refusal
-  inside an input object. And the other half of the question is answered too:
-  `Response#input_errors` / `QueryError#input_errors` /
-  `GraphQLError#input_errors` read a **server's** rejection back into the same
-  `InputError`, from the `extensions.input` convention, graphql-ruby's
-  variable-coercion `problems`, or a recognized `extensions.code`. A rejection
-  that says nothing identifying it as input — a bare `validates:` failure —
-  is left alone rather than guessed at; the convention is one `Validator` away
+  (`["where", "_and", 0, "_not", "species"]`, list indices included, so
+  `execute(ids: [1, 2, "x"])` reports `["ids", 2]`), `#coordinate`
+  (`"PetFilter.species"`), `#value` and `#details` (`members:`, `type:`,
+  `suggestion:`, `min:`…), so an app translates a stable key instead of parsing
+  a sentence ([i18n](docs/i18n.md)). **`#field` is now `#path`'s last *named*
+  segment** — the input field that actually held the value, which is the one a
+  form highlights, never an index — where it used to be re-branded on the way
+  out with the *variable* name; read `#path.first` for that. Nothing raises, so
+  the change passes unnoticed until the first refusal inside an input object.
+  `#value` goes through `filter_parameters`, and an unknown key carries no
+  `#value` at all — the key is what was wrong, and a typo'd key is by
+  definition not the filtered one it was meant to be. Both `#value` and
+  `#details` are always JSON-representable, at any depth (a non-finite Float
+  travels as `"NaN"` / `"Infinity"`), so `render json: e.to_h` can't turn a 422
+  into a 500 over exactly the values `Coerce` exists to refuse. A `@oneOf`
+  input given one explicitly null field is `kind: :missing` on that field
+  rather than being told to "supply exactly one field", which is what it had
+  done, and a list element that isn't what the list holds is a branded refusal
+  naming the element rather than a raw `NoMethodError`. And the other half of
+  the question is answered too: `Response#input_errors` /
+  `QueryError#input_errors` / `GraphQLError#input_errors` read a **server's**
+  rejection back into the same `InputError`, from the `extensions.input`
+  convention, graphql-ruby's variable-coercion `problems`, or a recognized
+  `extensions.code` — with its `#message` through the same filter, since
+  graphql-ruby quotes the rejected value as a matter of course; its `#details`
+  checked for type as well as key; and no `#coordinate` invented for a problem
+  that states no path of its own. A rejection that says nothing identifying it
+  as input — a bare `validates:` failure — is left alone rather than guessed
+  at; the convention is one `Validator` away
   ([errors](docs/errors.md#what-your-server-can-send)).
+- **The reserved prop names are a list the gem owns, not whatever `T::Struct`
+  answered to.** Deriving them made generation depend on require order: with
+  ActiveSupport loaded first a result key named `asJson` was refused, loaded
+  second it became a prop that shadowed the real `#as_json`, so
+  `render json: result` serialized the field. **More keys are refused now** —
+  Kernel's private methods (`raise`, `format`, `select`, `require`, …), which a
+  prop reader shadowed well enough to turn every cast error into *"wrong number
+  of arguments (given 2, expected 0)"*, and the hooks Ruby and Rails call on any
+  object (`deconstruct`, `to_a`, `to_ary`, `to_hash`, `to_json`, `as_json`,
+  `to_param`, `to_query`, `try`, `presence`, `each`). Alias those fields in the
+  query; the refusal reads *"would become prop 'x', a name generated structs
+  reserve"*. **Regenerate.**
+- **`respond_to?` on a generated result struct no longer answers true for a
+  name that doesn't exist.** It said true for any near miss, so the standard
+  duck-typing guard was the thing that broke — `obj.pet if obj.respond_to?(:pet)`
+  raised the very `NoMethodError` the hint exists to explain. `method_missing`
+  still hints; the cost is that `struct.method(:nmae)` now raises Ruby's own
+  bare `NameError` rather than the hinted one.
 - **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
   time was inherited by every child, and a round trip carries nothing saying
   which process opened it — so forked workers interleaved requests on one fd and
@@ -281,7 +164,18 @@
   `Transport::Faraday.new("https://api.example.com/graphql?apiKey=…").url`
   reported an endpoint no request goes to — the one the boot log line names,
   and the one `graphql: :wire` serves a graph's resolvers at. `#url` is now
-  reconstructed from where requests actually go.
+  reconstructed from where requests actually go, through Faraday's own encoder
+  — so an Array param reads `a[]=1&a[]=2`, the way the wire carries it, and a
+  Hash param is not a URL-escaped `Hash#inspect`.
+- **A non-String header value is sent as its `to_s`** on both transports, rather
+  than escaping as `NoMethodError: undefined method 'strip'` from inside
+  net/http, naming neither graph_weaver nor the header. The documented
+  `"X-Tenant" => -> { Current.tenant&.id }` crashed in any app whose ids are
+  Integers. A callable is still resolved first and `nil` still drops the header.
+- **A prebuilt `Faraday::Connection` now sends graph_weaver's `User-Agent`.**
+  Faraday pre-fills its own on every connection, so the fill-in-the-blanks
+  `||=` never fired and the traffic attributed to `Faraday v…` — defeating the
+  header's whole purpose. A User-Agent you set yourself still wins.
 - **Turning on debug logging no longer changes what happens.** The debug line
   rendered the variables as JSON itself, *before* the guarded encode — so a
   value with no JSON form (`NaN`, binary) raised a raw `JSON::GeneratorError`
@@ -463,9 +357,16 @@
 - **`rails g graph_weaver:install` adds each graph's output directory to
   `AllCops: Exclude:`** when the app already has a `.rubocop.yml`, so plain
   `rubocop` stops reporting `Style/Documentation`, `Style/ClassAndModuleChildren`
-  and `Metrics/*` on generated files. It never creates the file, and it leaves an
-  `AllCops:` you already have alone — a second one would replace it rather than
-  merge — printing the lines to add instead.
+  and `Metrics/*` on generated files. The block it appends carries
+  `inherit_mode: merge: [Exclude]`, because RuboCop *replaces* an `Exclude`
+  array on merge rather than unioning it — without that line the append would
+  wipe the app's effective excludes, RuboCop's own `vendor`, `node_modules` and
+  `tmp` defaults included, along with anything reaching the file through
+  `inherit_from:`. It never creates the file, and it leaves an `AllCops:` you
+  already have alone — a second one would replace it rather than merge —
+  printing the lines to add instead, as it does for a multi-document
+  `.rubocop.yml`, where rubocop reads only the first document and an appended
+  block would land where nothing reads it.
 - **Three codegen refusals name what you wrote.** A result key that collides
   with a struct method now suggests an alias you can actually write (for
   `class: a` it said `` `classValue: class` ``, which is not a query); two
@@ -487,16 +388,48 @@
   a seed there would pin every example to one run.
   (`GraphWeaver::Testing.config.seed` remains the override for a harness that
   isn't rspec.)
-- **A graph declared from `config.to_prepare` whose `output` lies outside
-  `GraphWeaver.generated_paths` is refused at boot**, naming the graph and the
-  two fixes. Rails sets Zeitwerk up before `to_prepare` runs and Zeitwerk reads
-  its ignore list only then, so such a directory cannot be hidden from
-  autoloading — it used to fail in every environment with a Zeitwerk error that
-  blamed a dropped `extend_type`.
+- **`register_scalar` warns when the Ruby type defines `==` but inherits
+  `eql?`/`hash`.** A result compares its props with `eql?`, so that idiom — a
+  value object that stops at `==` — makes two results parsed from the same
+  response unequal, and useless as hash keys, while the leaf itself compares
+  fine. `alias_method :eql?, :==` plus a matching `hash` is the fix; see
+  [scalars](docs/scalars.md#registering-a-class-of-your-own).
+- **A generated output nested deeper than a `generated_paths` glob reaches is
+  hidden from Zeitwerk again, and loaded.** `app/graphql/a/b/generated` was read
+  as already covered by the default `app/graphql/*/generated` — `File.fnmatch?`
+  lets `*` cross a `/`, and `Dir.glob`, which expands the same pattern
+  everywhere else, does not. It was then neither ignored nor required:
+  production boot died on a `Zeitwerk::NameError` naming a constant you never
+  wrote, and development simply had the modules missing. Nothing to do — a
+  layout like `app/graphql/subgraphs/billing/generated` now works.
+- **A symlinked generated output is hidden from Zeitwerk, and refused when it
+  is declared too late to hide.** The railtie resolved a path with
+  `File.expand_path`, which doesn't follow symlinks, while Zeitwerk walks real
+  directories — so an `output` that was a symlink, or an absolute one through a
+  symlinked ancestor (the Capistrano `current/` shape), was ignored under a name
+  Zeitwerk never visits and its modules died on `uninitialized constant`. The
+  refusal that exists for a too-late output compared the same unresolved path
+  against real autoload roots, so it stayed silent for exactly that spelling; it
+  now fires, and names the output the way your graph spells it.
+- **A graph declared from `config.to_prepare` whose `output` no loader can be
+  told to skip is refused at boot**, naming the graph and the fixes. Rails sets
+  Zeitwerk up before `to_prepare` runs and Zeitwerk reads its ignore list only
+  then, so such a directory cannot be hidden from autoloading — it used to fail
+  in every environment with a Zeitwerk error that blamed a dropped
+  `extend_type`. The refusal asks Zeitwerk which directories a loader would
+  really walk, so an app that hid the output itself with
+  `Rails.autoloaders.main.ignore(...)` is left alone. An output under
+  `config.autoload_once_paths` is refused at the point that knows, and names the
+  two routes that work — `Rails.autoloaders.once.ignore(...)` from
+  `config/application.rb`, or generating somewhere that is not an autoload-once
+  path — since Rails sets the `once` autoloader up in bootstrap, where nothing
+  an initializer does can reach it.
 - **`config.graph_weaver` refuses a key the railtie doesn't read.** It takes
   `watch`; `config.graph_weaver.queries_paths = ...` was taken silently and did
   nothing. The refusal names `GraphWeaver.queries_paths =` as the setting that
-  works.
+  works, and covers every spelling of that write —
+  `config.graph_weaver[:queries_paths] = ...` and `store` went straight to
+  `Hash#[]=`, which is the silent no-op the refusal exists to prevent.
 - **`load_generated!` tells a `Zeitwerk::NameError` apart from a dropped
   `extend_type`/`register_enum`.** The old message sent you hunting for a
   registration that was still there; the new one says Zeitwerk owns the
@@ -517,10 +450,26 @@
   sees a namespaced graph's modules: it looked for top-level constants, so an
   app whose graphs set `namespace` found "0 generated modules", refused for
   having checked nothing, and blamed the cassette directory.
+- Internal: `bin/round-trip --hostile` now spoils an **input** leaf as well as
+  a response one — a wrong type, an unparseable string, a value the enum
+  doesn't have, a nil where null is illegal, at any depth including inside
+  lists — and requires an `InputError` whose `#path` names the corrupted slot
+  and whose `#kind` says what was wrong. The 40,000 clean round trips before it
+  were evidence about response decoding and close to none about input errors;
+  run against the GitHub schema it found the missing list index in `#path` on
+  its own.
 - Docs: [errors](docs/errors.md) now says what a *server's* input rejection
   carries — the two shapes a graphql-ruby server sends, and why `#code` is nil
   for both. New [i18n](docs/i18n.md) page proposes stable keys for input
-  problems; nothing in it ships yet. And `spec/doc_samples_spec.rb` parses every
+  problems; nothing in it ships yet. New [alternatives](docs/alternatives.md)
+  compares the field — graphql-client, graphlient, artemis, hand-rolled —
+  including where this gem loses. [generated_modules](docs/generated_modules.md)
+  says how far a result's immutability goes: its props, so the `String` or
+  `Hash` a leaf holds is the one the response carried, as with `Struct` or
+  `Data` — and that caching one wants `Marshal`, not YAML, since a `T::Enum`
+  member is a singleton compared by identity and Psych rehydrates a duplicate,
+  so `pet.species == Species::Dog` comes back false. And
+  `spec/doc_samples_spec.rb` parses every
   fenced Ruby sample in README + `docs/` and resolves every link between them,
   so a sample that doesn't run can't ship — two that didn't now do
   (`Codegen.generate(client:)` takes the constant's *name*, and

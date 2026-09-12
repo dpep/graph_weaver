@@ -19,37 +19,19 @@ moved. That's the reminder working, not a false alarm.
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
 
-## Upgrading from 0.7.0
-
-### The reserved prop names are listed, not discovered
-
-The names a result key may not become — `hash`, `class`, `serialize` — used to
-be read off whatever `T::Struct` answered to in the generating process. That
-made generation depend on the Gemfile: with ActiveSupport loaded first a field
-named `asJson` was refused, loaded second it became a prop that shadowed the
-real `#as_json`, so `render json: result` serialized the field. The set is now a
-list the gem owns, so the same schema and query always generate the same bytes.
-
-**More names are refused than before**, and a field with one of them needs an
-alias in the query (`formatValue: format`). The list gained Kernel's private
-methods — `raise`, `format`, `select`, `require`, `puts` and the rest, which a
-prop reader would shadow inside the gem's own mixins — and the hooks Ruby and
-Rails call on any object: `deconstruct`, `to_a`/`to_ary`/`to_hash`/`to_str`,
-`to_json`, `as_json`, `to_param`, `to_query`, `try`, `presence`, `each`.
-`rake graph_weaver:generate` finds them all at once.
-
 ## Upgrading from 0.6.1
 
 Mostly mechanical — two error constants and one rspec tag to rename — but
-`InputError#field` changed meaning without raising, five things that used to run
-now refuse, and a `DateTime` that used to reach a `Date` variable now raises.
-Three commands find everything except the `#field` change, which is silent by
-nature:
+`InputError#field` changed meaning without raising, `respond_to?` on a result
+struct stopped answering true for props you don't have, six things that used to
+run now refuse, and a `DateTime` that used to reach a `Date` variable now
+raises. Three commands find everything except the two silent ones:
 
 ```sh
 grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
 rake graph_weaver:generate   # every module now names the graph it came from,
-                             # plus the client: and cast:/serialize: refusals
+                             # plus the reserved-key, client: and
+                             # cast:/serialize: refusals
 bundle exec rspec            # the renamed tag, the deleted nil, the seed: refusal
 ```
 
@@ -65,13 +47,22 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
 ### Behavior that changed under you
 
 - **`InputError#field` names the input field, not the variable.** It is now
-  `#path`'s last segment — the slot that actually held the bad value, which is
-  the one a form highlights — where it used to be re-branded on the way out
+  `#path`'s last *named* segment — the slot that actually held the bad value,
+  which is the one a form highlights — where it used to be re-branded on the way
+  out
   with the *variable* name. Nothing raises; the value just differs once a
   refusal happens inside an input object. **Read `error.path.first` wherever
   you wanted the variable**, and `#field` wherever you wanted the field. On a
   refusal that never got past the variable the two are the same, which is why
-  this can pass unnoticed until the first nested input fails.
+  this can pass unnoticed until the first nested input fails. An index is a
+  position rather than a field, so it never becomes one: `execute(ids: [1, 2,
+  "x"])` reports `#path` `["ids", 2]` and `#field` `"ids"`.
+- **`respond_to?` on a result struct no longer answers true for a name that
+  doesn't exist.** It used to say true for any near miss, which broke the
+  standard duck-typing guard — `obj.pet if obj.respond_to?(:pet)` raised the
+  very `NoMethodError` the hint exists to explain. **A branch that read the old
+  answer now takes the other path**, and `struct.method(:nmae)` raises Ruby's
+  bare `NameError` rather than a hinted one; `struct.nmae` still hints.
 - **A `graphql:` tag reaches a module generated with `client:`.** The baked
   client used to sit above the slot a tag swaps, so a bound module ran against
   its real endpoint under `graphql: :fake`. **If a spec relied on that**, it now
@@ -85,8 +76,19 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
   app whose modules predate it refuses rather than guessing which schema a
   module belongs to. Result structs also gained `==`/`eql?`/`hash`,
-  `deconstruct_keys` and `#to_h`, so a result key spelled `deconstruct_keys` is
-  now refused at generation with the same alias-it hint `to_h` already had.
+  `deconstruct_keys` and `#to_h`. And the names a result key may not become —
+  `hash`, `class`, `serialize` — are a list the gem owns now, rather than
+  whatever `T::Struct` answered to in the generating process, which had made
+  generation depend on the Gemfile: with ActiveSupport loaded first a field
+  named `asJson` was refused, loaded second it became a prop that shadowed the
+  real `#as_json`, so `render json: result` serialized the field. **More names
+  are refused than before** — Kernel's private methods (`raise`, `format`,
+  `select`, `require`, `puts` and the rest, which a prop reader would shadow
+  inside the gem's own mixins) and the hooks Ruby and Rails call on any object:
+  `deconstruct`, `to_a`/`to_ary`/`to_hash`/`to_str`, `to_json`, `as_json`,
+  `to_param`, `to_query`, `try`, `presence`, `each`. **Alias a field with one of
+  those names** (`formatValue: format`); `rake graph_weaver:generate` finds them
+  all at once.
 - **`graphql: :wire`, if you adopt it, needs webmock *enabled*** — `require
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
   `Bundler.require` loads webmock without installing its adapters, and the tag
@@ -116,8 +118,9 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   name a method instead (`cast: :parse`).
 - **`config.graph_weaver` refuses a key the railtie doesn't read**, at boot. It
   takes `watch`; `config.graph_weaver.queries_paths = …` was taken silently and
-  did nothing, so the refusal replaces a line that wasn't working. **Move it to
-  `GraphWeaver.queries_paths =`**, which is what the message says.
+  did nothing, so the refusal replaces a line that wasn't working — in every
+  spelling of that write, `config.graph_weaver[:queries_paths] = …` included.
+  **Move it to `GraphWeaver.queries_paths =`**, which is what the message says.
 - **A router's `fake:` refuses `seed:`**, as `graphql_fake` already did. A
   router is built once for the suite, so a seed inside
   `graphql_router(fake: …)` would pin every example to one run — `rspec --seed
