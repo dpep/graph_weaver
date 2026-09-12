@@ -519,6 +519,30 @@ describe "graph_weaver rake tasks" do
       expect(result.status).to eq 1
       expect(result.err).to include "this checked nothing"
     end
+
+    # A graph's namespace is where its constants live, so a task looking for
+    # top-level ones finds none — and then refuses for having checked nothing,
+    # blaming the cassette directory for a recording that was fine.
+    it "finds the modules of a namespaced graph" do
+      write_schema
+      write_query("namespaced.graphql", "query { person(id: \"1\") { name } }")
+      GraphWeaver.graph :namespaced do
+        queries File.join(GraphWeaver.queries_paths.first)
+        output File.join(GraphWeaver.generated_paths.first)
+        namespace "CassetteNs"
+      end
+      invoke("generate")
+      GraphWeaver.load_generated!
+      record(CassetteNs::NamespacedQuery::QUERY, { "data" => { "person" => { "name" => "Daniel" } } })
+
+      result = invoke("cassettes:check")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "1 checked"
+      expect(result.out).to end_with "every recording still casts\n"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
   end
 
   describe "graph_weaver:cassettes:anonymize" do

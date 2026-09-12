@@ -281,10 +281,16 @@ namespace :graph_weaver do
       # unlike its siblings this task reads generated modules — they are what
       # a recording is checked against
       GraphWeaver.load_generated!
-      modules = GraphWeaver::Internal::Util.query_files.filter_map do |path|
-        name = GraphWeaver::Internal::Util.module_name(path, File.read(path))
-        Object.const_get(name) if Object.const_defined?(name)
-      end
+      # asked of each graph, not of the top-level settings: a graph's queries
+      # are its own and its constants live under its namespace, so a top-level
+      # lookup finds nothing in a namespaced app and then refuses for having
+      # checked nothing
+      modules = GraphWeaver.graphs.flat_map do |graph|
+        GraphWeaver::Internal::Util.query_files(graph.queries).filter_map do |path|
+          name = graph.generated_names(path, File.read(path)).first
+          Object.const_get(name) if Object.const_defined?(name)
+        end
+      end.uniq
 
       # Testing.cassette_dir, not config.cassette_dir: the configured path is
       # relative by default and rake runs from wherever it runs from
