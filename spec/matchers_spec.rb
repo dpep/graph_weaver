@@ -107,8 +107,8 @@ describe GraphWeaverMatchers do
 
     it "prints what the block answered when it planned after all" do
       expect(failing(refuse_to_plan(:no_key), -> { router.execute("{ me { username } }") }))
-        .to eq "expected the block to refuse to plan :no_key, but it planned, returning:\n" \
-          '  {"data" => {"me" => {"username" => "dpep"}}}'
+        .to eq "expected the block to refuse to plan :no_key, but it planned, returning:\n  " +
+          RSpec::Support::ObjectFormatter.format("data" => { "me" => { "username" => "dpep" } })
     end
 
     it "says which refusal it got, when it shouldn't have" do

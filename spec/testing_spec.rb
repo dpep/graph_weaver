@@ -188,8 +188,7 @@ describe GraphWeaver::Testing do
         end
 
         it "fabricates a field the object doesn't answer" do
-          require "ostruct"
-          result = person("Person" => OpenStruct.new(name: "Ada"))
+          result = person("Person" => Struct.new(:name).new("Ada"))
 
           expect(result.name).to eq "Ada"
           expect(result.email).to match(/@/)

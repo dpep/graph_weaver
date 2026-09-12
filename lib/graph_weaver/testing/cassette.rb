@@ -3,6 +3,7 @@
 
 require "fileutils"
 require "graphql"
+require "json"
 require "yaml"
 
 module GraphWeaver
@@ -19,7 +20,7 @@ module GraphWeaver
       def initialize(path:, query:, variables:, recorded:, size:)
         super([
           "no recording for this request in #{GraphWeaver::Internal::Util.relative(path)}",
-          "  variables: #{GraphWeaver::Internal::Log.filter_variables(Internal::RequestKey.normalize_variables(variables)).inspect}",
+          "  variables: #{JSON.generate(GraphWeaver::Internal::Log.filter_variables(Internal::RequestKey.normalize_variables(variables)))}",
           "  #{self.class.recorded_summary(recorded, size)}",
           "  query: #{Internal::RequestKey.summarize(query)}",
           "re-record it (GRAPHWEAVER_RECORD=1 with a client:), or delete the cassette to start over.",
@@ -30,7 +31,7 @@ module GraphWeaver
         return "no entry recorded for this query (#{size} in the cassette)" if recorded.empty?
 
         more = recorded.size > SHOWN ? " (+#{recorded.size - SHOWN} more)" : ""
-        shown = recorded.first(SHOWN).map { |set| GraphWeaver::Internal::Log.filter_variables(set).inspect }
+        shown = recorded.first(SHOWN).map { |set| JSON.generate(GraphWeaver::Internal::Log.filter_variables(set)) }
         "#{recorded.size} #{(recorded.size == 1) ? "entry" : "entries"} recorded for this query, " \
           "with variables #{shown.join(", ")}#{more}"
       end
@@ -85,7 +86,7 @@ module GraphWeaver
 
           ["#{GraphWeaver::Internal::Util.relative(path)}: #{stale.size} stale (#{counted.join(", ")})"] +
             stale.flat_map do |entry|
-              ["  #{entry.module_name} #{entry.variables.inspect}", "    #{entry.message}"]
+              ["  #{entry.module_name} #{JSON.generate(entry.variables)}", "    #{entry.message}"]
             end
         end
       end

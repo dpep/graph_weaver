@@ -50,7 +50,7 @@ belongs in the normal PR run beside `verify`, and exits non-zero on drift:
 
 ```
 spec/cassettes/dashboard.yml: 1 stale (3 checked, 1 not sent by any query module)
-  DashboardQuery {"id" => "b1"}
+  DashboardQuery {"id":"b1"}
     failed to cast response into DashboardQuery::Result::Me::Reviews::Book: Parameter 'price_cents': Can't set …price_cents to 4200 (instance of Integer) - need a String
 ```
 

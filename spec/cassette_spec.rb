@@ -48,8 +48,8 @@ describe GraphWeaver::Testing::Cassette do
       expect {
         replay.execute(PersonQuery::QUERY, variables: { "id" => "2" })
       }.to raise_error(GraphWeaver::Testing::MissingRecording) { |error|
-        expect(error.message).to include('variables: {"id" => "2"}')
-        expect(error.message).to include('1 entry recorded for this query, with variables {"id" => "1"}')
+        expect(error.message).to include('variables: {"id":"2"}')
+        expect(error.message).to include('1 entry recorded for this query, with variables {"id":"1"}')
         expect(error.message).to include("re-record")
       }
     end
@@ -199,7 +199,7 @@ describe GraphWeaver::Testing::Cassette do
 
       expect(check).not_to be_ok
       expect(check.report.first).to eq "#{path}: 1 stale (1 checked)"
-      expect(check.report[1]).to eq '  PersonQuery {"id" => "1"}'
+      expect(check.report[1]).to eq '  PersonQuery {"id":"1"}'
       expect(check.report[2]).to include "failed to cast response into PersonQuery::Result::Person"
       # sorbet-runtime's own "Caller:" frame points into the gem, not at
       # anything the reader can act on
