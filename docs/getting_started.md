@@ -282,11 +282,33 @@ end
 
 One `rake graph_weaver:generate` does the app, one `rake graph_weaver:verify`
 gates it, and `rake graph_weaver:graphs` lists what is configured. Everything a
-graph knows is said inside the block: six settings — `schema`, `queries`,
-`output`, `client`, `namespace`, `types_module` — and the same three
+graph knows is said inside the block — six settings, and the same three
 registrations you write at the top level. Each setting falls back to the
 matching top-level one, so a graph says only what differs, and anything else
 the block calls is refused naming the nine it takes.
+
+| setting | takes |
+|---|---|
+| `schema` | a graphql-ruby schema class, a [`Client`](transports.md), a path to a dump, SDL, or a lambda returning one |
+| `queries` | a directory, or a list of them — the `.graphql` files this graph generates from |
+| `output` | one directory — where this graph's generated Ruby is written |
+| `client` | a constant, or its name — what this graph's modules execute against |
+| `namespace` | a constant, or its name — what every constant this graph generates nests under |
+| `types_module` | a constant name for the shared types module (default: `GraphQLTypes`, under `namespace`) |
+
+**`client` names a constant, not a url.** Its value is spelled into every module
+this graph generates and resolved the first time one of them executes — so it
+has to be something generated source can write down, and a url is not. Build
+the client wherever you like and put the constant holding it here:
+
+```ruby
+GITHUB = GraphWeaver.new("https://api.github.com/graphql", auth: ENV["GITHUB_TOKEN"])
+```
+
+Resolving at first use rather than at declaration is what lets an initializer
+name `Billing::Schema` before Zeitwerk has loaded it, and what lets a dev reload
+swap the class object underneath. A graph with no `client` generates modules
+that fall back to `GraphWeaver.client`, the app default.
 
 `schema "x"` sets and a bare `schema` reads back. There is no `schema = "x"`
 form: the block is `instance_eval`'d, so that would be a local variable that
