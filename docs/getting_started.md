@@ -6,7 +6,8 @@ Follow it once when you add the gem to an app. (Exploring an API from a console
 instead? Start with [dynamic mode](real_world.md) — no build step.)
 
 Rails is assumed below; the [non-Rails note](#not-rails) at the bottom
-covers the differences.
+covers the differences. Still deciding whether to adopt at all?
+[Alternatives](alternatives.md) compares the field, this gem included.
 
 ## 1. Install
 

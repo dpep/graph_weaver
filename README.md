@@ -188,6 +188,7 @@ upgrade, and `verify` is what tells you when you've skipped it.
 - **[Against a real API](docs/real_world.md)** — introspecting a live endpoint, GitHub end to end
 - **[Logging](docs/logging.md)** — point `GraphWeaver.logger` at any Logger
 - **[Upgrading](docs/upgrading.md)** — regenerate on every bump, and what each release moved
+- **[Alternatives](docs/alternatives.md)** — graphql-client, graphlient, artemis, hand-rolled: what each is good at, and where this one loses
 
 ----
 ## Development
