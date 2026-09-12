@@ -42,6 +42,14 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
 
 ### Behavior that changed under you
 
+- **`InputError#field` names the input field, not the variable.** It is now
+  `#path`'s last segment — the slot that actually held the bad value, which is
+  the one a form highlights — where it used to be re-branded on the way out
+  with the *variable* name. Nothing raises; the value just differs once a
+  refusal happens inside an input object. **Read `error.path.first` wherever
+  you wanted the variable**, and `#field` wherever you wanted the field. On a
+  refusal that never got past the variable the two are the same, which is why
+  this can pass unnoticed until the first nested input fails.
 - **A `graphql:` tag reaches a module generated with `client:`.** The baked
   client used to sit above the slot a tag swaps, so a bound module ran against
   its real endpoint under `graphql: :fake`. **If a spec relied on that**, it now
