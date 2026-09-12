@@ -328,19 +328,46 @@ class GraphWeaver::Codegen
   # Ruby local is unreachable by a GraphQL variable name, so this is a guard
   # rather than a rename.
   RESERVED_KWARGS = %w[client variables].to_set.freeze
-  # Every method a struct instance already answers: T::Props refuses to redefine
-  # those (`class`, `hash`, `send`, `to_s`), so the generated file would raise
-  # ArgumentError at require time. Derived rather than listed, so it tracks
-  # whatever the Ruby and sorbet-runtime in play actually define.
-  # plus what ResultStruct mixes in (==, hash, to_h, deconstruct_keys): (false)
-  # because it `include Kernel` for sorbet's benefit, and Kernel's methods are
-  # already covered by T::Struct's.
-  STRUCT_METHODS = (
-    GENERATED_METHODS + T::Struct.instance_methods.map(&:to_s) +
-    (GraphWeaver::ResultStruct.instance_methods(false) +
-     GraphWeaver::ResultStruct.private_instance_methods(false)).map(&:to_s)
-  ).freeze
-  private_constant :RUBY_KEYWORDS, :GENERATED_METHODS, :RESERVED_KWARGS, :STRUCT_METHODS
+  # One rule: a prop may not shadow a method its struct already answers to.
+  # Three kinds of name land in it — what T::Struct and Object define (T::Props
+  # raises at require time rather than redefine `class` or `hash`), Kernel's
+  # PRIVATE methods (the gem calls `raise` bare inside the modules it mixes in,
+  # and a prop reader would answer it), and the hooks Ruby and Rails call on any
+  # object without it defining them: `to_ary` from `puts`, `deconstruct` from an
+  # array pattern, `as_json` from `render json:`.
+  #
+  # Listed, not derived from the live T::Struct: derivation made generation a
+  # function of require order — with ActiveSupport loaded first `as_json` was
+  # refused, loaded second it became a prop that shadowed the real #as_json —
+  # and generated output must depend on nothing but the schema, the query and
+  # the gem. A name a later Ruby or sorbet-runtime adds and this misses is loud
+  # anyway: the generated file raises ArgumentError when it is required.
+  #
+  # The gem's own mixins stay derived — they are the gem's to track, so adding
+  # a method to either reserves its name without a second edit here.
+  RESERVED_PROPS = (GENERATED_METHODS + %w[
+    ! != !~ <=> == === Array Complex
+    Float Hash Integer Rational String __callee__ __dir__ __id__
+    __method__ __send__ ` abort as_json at_exit autoload autoload?
+    binding block_given? caller caller_locations catch class clone deconstruct
+    define_singleton_method deserialize display dup each enum_for eql? equal?
+    eval exec exit exit! extend fail fork format
+    freeze frozen? gets global_variables hash initialize initialize_clone initialize_copy
+    initialize_dup inspect instance_eval instance_exec instance_of? instance_variable_defined? instance_variable_get instance_variable_set
+    instance_variables is_a? iterator? itself kind_of? lambda load local_variables
+    loop method methods nil? object_id open p pp
+    presence pretty_inspect pretty_print pretty_print_cycle pretty_print_inspect pretty_print_instance_variables print printf
+    private_methods proc protected_methods public_method public_methods public_send putc puts
+    raise rand readline readlines remove_instance_variable require require_relative respond_to?
+    respond_to_missing? select send serialize set_trace_func singleton_class singleton_method singleton_methods
+    sleep spawn sprintf srand syscall system tap test
+    then throw to_a to_ary to_enum to_hash to_int to_json
+    to_param to_proc to_query to_s to_str to_yaml trace_var trap
+    try untrace_var warn with yield_self
+  ] + [GraphWeaver::ResultStruct, GraphWeaver::Hints].flat_map { |mod|
+    (mod.instance_methods(false) + mod.private_instance_methods(false)).map(&:to_s)
+  }).freeze
+  private_constant :RUBY_KEYWORDS, :GENERATED_METHODS, :RESERVED_KWARGS, :RESERVED_PROPS
 
   def generate
     begin
@@ -907,20 +934,20 @@ class GraphWeaver::Codegen
     node
   end
 
-  # Both ways a result key can fail to become a prop — a name the struct
-  # already answers, or a second key that underscores onto an earlier one.
-  # Either emits a file that raises ArgumentError at require time, so refuse
+  # Both ways a result key can fail to become a prop — a name RESERVED_PROPS
+  # holds, or a second key that underscores onto an earlier one. Either emits a
+  # struct that misbehaves (usually an ArgumentError at require time), so refuse
   # here; an alias in the query fixes both. `props` accumulates prop => key.
   def check_output_prop!(type, key, prop, field_name, props)
     # Keywords are fine: `const :next` and `next: data["next"]` are legal, and
     # the one place a prop is read bare (an alias delegator) qualifies it.
     # `pageInfo { next }` and `filter { in }` are ordinary API shapes.
-    if STRUCT_METHODS.include?(prop)
+    if RESERVED_PROPS.include?(prop)
       # the key may already be an alias (`class: a`), in which case there is no
       # Type.class to name and the fix aliases the FIELD, not the key
       raise GraphWeaver::Error,
-        "result key #{key.inspect} on #{type.graphql_name} would become prop '#{prop}', which " \
-        "every generated struct already defines — alias it in the query (`#{prop}Value: #{field_name}`)"
+        "result key #{key.inspect} on #{type.graphql_name} would become prop '#{prop}', a name " \
+        "generated structs reserve — alias it in the query (`#{prop}Value: #{field_name}`)"
     end
 
     if (earlier = props[prop])
@@ -1189,10 +1216,10 @@ class GraphWeaver::Codegen
       # through public_send), and `const :in` is legal — which matters, since a
       # schema's field name is not the user's to rename. `Tricky.in` filters are
       # standard Hasura/Gatsby shape.
-      if STRUCT_METHODS.include?(prop)
+      if RESERVED_PROPS.include?(prop)
         raise GraphWeaver::Error,
           "input field #{core.graphql_name}.#{argument.graphql_name} would become prop '#{prop}', " \
-          "which collides with a method every struct defines"
+          "a name generated structs reserve"
       end
 
       child = type_ref(argument.type) { variable_core(argument.type.unwrap) }

@@ -19,6 +19,25 @@ moved. That's the reminder working, not a false alarm.
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
 
+## Upgrading from 0.7.0
+
+### The reserved prop names are listed, not discovered
+
+The names a result key may not become — `hash`, `class`, `serialize` — used to
+be read off whatever `T::Struct` answered to in the generating process. That
+made generation depend on the Gemfile: with ActiveSupport loaded first a field
+named `asJson` was refused, loaded second it became a prop that shadowed the
+real `#as_json`, so `render json: result` serialized the field. The set is now a
+list the gem owns, so the same schema and query always generate the same bytes.
+
+**More names are refused than before**, and a field with one of them needs an
+alias in the query (`formatValue: format`). The list gained Kernel's private
+methods — `raise`, `format`, `select`, `require`, `puts` and the rest, which a
+prop reader would shadow inside the gem's own mixins — and the hooks Ruby and
+Rails call on any object: `deconstruct`, `to_a`/`to_ary`/`to_hash`/`to_str`,
+`to_json`, `as_json`, `to_param`, `to_query`, `try`, `presence`, `each`.
+`rake graph_weaver:generate` finds them all at once.
+
 ## Upgrading from 0.6.1
 
 Mostly mechanical — two error constants and one rspec tag to rename — but

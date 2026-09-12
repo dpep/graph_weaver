@@ -129,13 +129,13 @@ describe GraphWeaver::Codegen do
       expect(mod::Tricky.coerce({ in: %w[a b], end: "z" }).serialize).to eq({ "in" => %w[a b], "end" => "z" })
     end
 
-    it "refuses input fields that collide with a method every struct defines" do
+    it "refuses input fields whose prop name generated structs reserve" do
       # `class` is both a keyword and Object#class — T::Props refuses to redefine it
       %w[serialize class].each do |field|
         expect {
           GraphWeaver.parse(schema: schema_with_input("#{field}: String"),
             query: "mutation($input: Tricky!) { save(input: $input) }", name: "T#{field}")
-        }.to raise_error(GraphWeaver::Error, /Tricky\.#{field}.*every struct defines/)
+        }.to raise_error(GraphWeaver::Error, /Tricky\.#{field}.*a name generated structs reserve/)
       end
     end
 
@@ -156,13 +156,13 @@ describe GraphWeaver::Codegen do
       expect([page.next, page.end, page.in]).to eq %w[n e i]
     end
 
-    it "refuses result keys that collide with a method every struct defines" do
+    it "refuses result keys whose prop name generated structs reserve" do
       expect {
         GraphWeaver.parse(schema: schema_with_page("serialize: String"),
           query: "query P { page { serialize } }", name: "CollidingProp")
       }.to raise_error(GraphWeaver::Error,
-        "result key \"serialize\" on Page would become prop 'serialize', which every generated " \
-        "struct already defines — alias it in the query (`serializeValue: serialize`)")
+        "result key \"serialize\" on Page would become prop 'serialize', a name generated " \
+        "structs reserve — alias it in the query (`serializeValue: serialize`)")
     end
 
     # the colliding key can itself be an alias, and then there is no Page.class
@@ -172,8 +172,47 @@ describe GraphWeaver::Codegen do
         GraphWeaver.parse(schema: schema_with_page("ok: String"),
           query: "query P { page { serialize: ok } }", name: "AliasedCollidingProp")
       }.to raise_error(GraphWeaver::Error,
-        "result key \"serialize\" on Page would become prop 'serialize', which every generated " \
-        "struct already defines — alias it in the query (`serializeValue: ok`)")
+        "result key \"serialize\" on Page would become prop 'serialize', a name generated " \
+        "structs reserve — alias it in the query (`serializeValue: ok`)")
+    end
+
+    # The refusal set used to be read off the live T::Struct, which made it a
+    # function of require order: ActiveSupport defines Object#as_json, so the
+    # same schema and query generated different source depending on what else
+    # was in the Gemfile — and when the prop slipped through it shadowed the
+    # real #as_json, so `render json: result` serialised the field.
+    it "refuses the names Ruby and Rails call on any object" do
+      %w[as_json to_param to_json deconstruct to_a each try].each do |field|
+        expect {
+          GraphWeaver.parse(schema: schema_with_page("#{field}: String"),
+            query: "query P { page { #{field} } }", name: "Duck#{field.delete("_")}")
+        }.to raise_error(GraphWeaver::Error, /would become prop '#{field}'/)
+      end
+    end
+
+    # Kernel's private methods never reached `instance_methods`, so a prop could
+    # shadow one — and the gem calls `raise` bare inside the modules it mixes
+    # into every struct, so a field named `raise` turned every hint and cast
+    # error into "wrong number of arguments (given 2, expected 0)".
+    it "refuses result keys that shadow Kernel's private methods" do
+      %w[raise format puts select require].each do |field|
+        expect {
+          GraphWeaver.parse(schema: schema_with_page("#{field}: String"),
+            query: "query P { page { #{field} } }", name: "Kernel#{field}")
+        }.to raise_error(GraphWeaver::Error, /would become prop '#{field}'/)
+      end
+    end
+
+    it "generates the same source whatever else has patched Object" do
+      args = { schema: schema_with_page("deepDup: String"),
+               query: "query P { page { deepDup } }", name: "PatchedObject" }
+      before = described_class.generate(**args)
+
+      # ActiveSupport's Object#deep_dup, arriving after graph_weaver loaded
+      Object.send(:define_method, :deep_dup) { self }
+      expect(described_class.generate(**args)).to eq before
+    ensure
+      Object.send(:remove_method, :deep_dup)
     end
 
     # the collision message used to name neither key, while the sibling

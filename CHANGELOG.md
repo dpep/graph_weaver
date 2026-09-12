@@ -27,6 +27,20 @@
   Faraday pre-fills its own on every connection, so the fill-in-the-blanks
   `||=` never fired and the traffic attributed to `Faraday v…` — defeating the
   header's whole purpose. A User-Agent you set yourself still wins.
+<!-- lane: codegen -->
+- **The reserved prop names are a list the gem owns, not whatever `T::Struct`
+  answered to.** Deriving them made generation depend on require order: with
+  ActiveSupport loaded first a field named `asJson` was refused, loaded second
+  it became a prop that shadowed the real `#as_json`, so `render json: result`
+  serialized the field. **More names are refused now** — Kernel's private
+  methods (`raise`, `format`, `select`, `require`, …), which a prop reader
+  shadowed well enough to turn every cast error into *"wrong number of
+  arguments (given 2, expected 0)"*, and the hooks Ruby and Rails call on any
+  object (`deconstruct`, `to_a`, `to_ary`, `to_hash`, `to_json`, `as_json`,
+  `to_param`, `to_query`, `try`, `presence`, `each`). Alias those fields in the
+  query. The refusal now reads *"would become prop 'x', a name generated
+  structs reserve"*. **Regenerate.**
+<!-- /lane: codegen -->
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

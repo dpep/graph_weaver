@@ -281,10 +281,10 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     end
   end
 
-  # STRUCT_METHODS is derived from T::Struct so it tracks whatever is loaded;
-  # ALIAS_RESERVED is the class-method half and can't be, since it is consulted
-  # before any struct exists. So the list is checked against one instead — an
-  # alias colliding with a real class method breaks the file at require time.
+  # RESERVED_PROPS is the instance-method half and is listed outright;
+  # ALIAS_RESERVED is the class-method half, and is checked against a real
+  # generated class instead — an alias colliding with one breaks the file at
+  # require time.
   it "reserves exactly the class methods a generated struct defines" do
     require_relative "generated/person_query"
     # minus what any T::Struct subclass answers to (sorbet-runtime hangs an

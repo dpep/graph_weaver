@@ -62,7 +62,7 @@ class GraphWeaver::Codegen
     # than the file.
     def check_alias_name!(node, name)
       taken = node.fields.any? { |f| f.prop == name } ||
-        STRUCT_METHODS.include?(name) || ALIAS_RESERVED.include?(name) ||
+        RESERVED_PROPS.include?(name) || ALIAS_RESERVED.include?(name) ||
         RUBY_KEYWORDS.include?(name)
       return unless taken
 
@@ -75,7 +75,7 @@ class GraphWeaver::Codegen
       @registry.type_registry[graphql_name]&.dig(:aliases) || {}
     end
 
-    # The CLASS methods a generated struct defines; STRUCT_METHODS covers the
+    # The CLASS methods a generated struct defines; RESERVED_PROPS covers the
     # instance side, and both are checked with RUBY_KEYWORDS alongside (all
     # three are defined by the class this mixes into).
     ALIAS_RESERVED = %w[from_h].to_set.freeze
