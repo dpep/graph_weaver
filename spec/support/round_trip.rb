@@ -463,7 +463,11 @@ module RoundTrip
       else
         case GraphWeaver::Codegen.scalar(name).type
         when "Date" then loose? ? twice("2024-01-15") : [Date.new(2024, 1, 15), "2024-01-15"]
-        when "Time" then [Time.utc(2024, 1, 15, 10, 20, 30), "2024-01-15T10:20:30Z"]
+        # sometimes sub-second: a JS server writes milliseconds on every
+        # timestamp, and a whole second can't show a serializer losing them
+        when "Time"
+          loose? ? [Time.utc(2024, 1, 15, 10, 20, 30, 500_000), "2024-01-15T10:20:30.500000Z"]
+                 : [Time.utc(2024, 1, 15, 10, 20, 30), "2024-01-15T10:20:30Z"]
         when "Integer" then numeric(@rng.rand(1000))
         when "String" then twice("v#{@rng.rand(100)}")
         else twice({ "raw" => name }) # unregistered: T.untyped, straight through

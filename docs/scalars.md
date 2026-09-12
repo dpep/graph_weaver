@@ -59,8 +59,8 @@ stands alone.
 | `BigDecimal` | `BigDecimal(v)` | `v.to_s("F")` | `bigdecimal` |
 | `Float` | `GraphWeaver::Coerce.float(v)` | — | — |
 | `Date` | `Date.iso8601(v)` | `v.strftime("%F")` | `date` |
-| `Time` | `Time.parse(v)` | `v.iso8601` | `time` |
-| `DateTime` | `DateTime.iso8601(v)` | `v.iso8601` | `date` |
+| `Time` | `Time.parse(v)` | `GraphWeaver::Coerce.timestamp(v)` | `time` |
+| `DateTime` | `DateTime.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `date` |
 
 For a timestamp, reach for `Time`; Ruby's own `DateTime` is accepted if you
 register it, but never assumed. `BigDecimal(v)` is Ruby's own reader, so
@@ -248,7 +248,7 @@ the sig is `.checked(:never)`).
 | `ID` | `String` | an `Integer` — `execute(id: user.id)` | the string |
 | `Boolean` | `true`/`false` | nothing | the boolean |
 | `Date` | `Date` | an ISO-8601 string | `"2024-01-15"` |
-| `Time` | `Time` | a string `Time.parse` takes, a `DateTime`, `Time.zone.now` | `iso8601` |
+| `Time` | `Time` | a string `Time.parse` takes, a `DateTime`, `Time.zone.now` | ISO 8601, with microseconds when the value carries a fraction |
 | `BigInt` | `Integer` | a decimal string | the decimal string, which is what the server writes |
 | an enum | the member **or** its wire value | — | the wire value |
 | an input object | the struct **or** a Hash | — | the wire hash |

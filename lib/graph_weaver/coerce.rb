@@ -72,6 +72,17 @@ module GraphWeaver
         end
       end
 
+      # A timestamp on the wire: ISO 8601, carrying microseconds only when the
+      # value has them. A server that writes sub-second times (every JS one
+      # does) round-trips through Ruby unchanged, and a value that doesn't
+      # sends the bytes it always has.
+      def timestamp(value)
+        # DateTime spells its fraction #sec_fraction, Time (and an
+        # ActiveSupport::TimeWithZone) spell it #subsec
+        fraction = value.respond_to?(:subsec) ? value.subsec : value.sec_fraction
+        value.iso8601(fraction.zero? ? 0 : 6)
+      end
+
       # Ruby has no Kernel#Boolean, and every string rule ("0", "off", "no")
       # is somebody's convention — so refuse rather than pick one.
       def boolean(value)

@@ -143,6 +143,14 @@
   timestamp variable now *accepts* grew to match — a `DateTime` and the
   `ActiveSupport::TimeWithZone` from `Time.zone.now` both convert losslessly,
   and both used to raise.
+- **A timestamp keeps its sub-second part on the way out.** `Time#iso8601`
+  takes no precision, so `"2024-01-15T10:20:30.500Z"` read off the wire went
+  back out as `"2024-01-15T10:20:30Z"` — half a second gone from an
+  `updatedAt` concurrency token, or from the `since:` a window is read on.
+  graphql-ruby's own `ISO8601DateTime` writes whole seconds, so a stock Ruby
+  server never showed it; **any JS/Apollo server writes milliseconds on every
+  timestamp**. A `Time` (or `DateTime`) that carries a fraction is now written
+  with microseconds, and one that doesn't sends the bytes it always has.
 
 ###  v0.7.0  (2026-09-12)
 - **An app can have more than one schema.** `GraphWeaver.graph` declares one.

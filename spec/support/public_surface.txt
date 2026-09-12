@@ -91,6 +91,7 @@ GraphWeaver::Coerce.id
 GraphWeaver::Coerce.integer
 GraphWeaver::Coerce.string
 GraphWeaver::Coerce.time
+GraphWeaver::Coerce.timestamp
 GraphWeaver::Coerce.variable
 GraphWeaver::Coerce::INTEGER = Regexp
 GraphWeaver::Coerce::NUMBER = Regexp

@@ -74,6 +74,13 @@ class GraphWeaver::Codegen
     #     more than the ISO 8601 a Date scalar carries.
     #   - the file to require, so the generated source stands alone.
     # Only types whose wire form is unambiguous belong here.
+    #
+    # `call:` is the runnable twin of a Proc `serialize:`, which builds source
+    # and so can't be run — the testing harness needs both (see
+    # #serialize_value).
+    TIMESTAMP = ->(expr) { "GraphWeaver::Coerce.timestamp(#{expr})" }
+    TIMESTAMP_CALL = ->(value) { GraphWeaver::Coerce.timestamp(value) }
+
     STDLIB = {
       "BigDecimal" => { serialize: [:to_s, "F"], requires: "bigdecimal" },
       # JSON has one number type, so a whole Float arrives as `1` from every
@@ -82,8 +89,10 @@ class GraphWeaver::Codegen
       # strftime, not #iso8601: DateTime < Date passes the is_a? guard, and its
       # #iso8601 writes a timestamp where the schema said a date goes
       "Date" => { cast: :iso8601, serialize: [:strftime, "%F"], requires: "date" },
-      "Time" => { cast: :parse, serialize: :iso8601, requires: "time" },
-      "DateTime" => { cast: :iso8601, serialize: :iso8601, requires: "date" },
+      # #iso8601 takes no precision, so it writes whole seconds and a
+      # sub-second timestamp goes back out poorer than it came in
+      "Time" => { cast: :parse, serialize: TIMESTAMP, call: TIMESTAMP_CALL, requires: "time" },
+      "DateTime" => { cast: :iso8601, serialize: TIMESTAMP, call: TIMESTAMP_CALL, requires: "date" },
     }.freeze
 
     # Everything JSON.parse can hand back. A registered type outside this set
@@ -115,7 +124,8 @@ class GraphWeaver::Codegen
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
       @cast = normalize_cast(cast || known[:cast], codec&.cast || kernel_cast)
       @serialize = normalize_serialize(serialize || known[:serialize], codec&.serialize)
-      @serialize_value = runtime_serialize(serialize || known[:serialize], codec)
+      @serialize_value = (known[:call] if serialize.nil?) ||
+        runtime_serialize(serialize || known[:serialize], codec)
     end
 
     def cast(expr) = @cast&.call(expr)

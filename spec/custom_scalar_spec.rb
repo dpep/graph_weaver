@@ -484,6 +484,19 @@ describe "custom scalar deserialization" do
         expect(spy.variables).to eq("t" => "2024-01-15T12:30:45+00:00")
       end
 
+      # graphql-ruby's own ISO8601DateTime writes whole seconds, but a JS or
+      # Apollo server writes milliseconds on every timestamp — and a value
+      # read from one used to go back out a fraction poorer, which is how an
+      # `updatedAt` token stops matching or a `since:` window quietly widens
+      it "keeps the sub-second part of a timestamp on the way out" do
+        at.execute(t: Time.utc(2024, 1, 15, 12, 30, 45, 500_000))
+        expect(spy.variables).to eq("t" => "2024-01-15T12:30:45.500000Z")
+
+        # and a whole second still sends exactly what it always sent
+        at.execute(t: noon)
+        expect(spy.variables).to eq("t" => "2024-01-15T12:30:45Z")
+      end
+
       it "still takes the type the schema asked for, and the string form" do
         on.execute(d: Date.new(2024, 1, 15))
         expect(spy.variables).to eq("d" => "2024-01-15")

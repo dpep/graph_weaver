@@ -123,7 +123,9 @@ class GraphWeaver::Internal::Values
     # the plain-notation string BigDecimal() reads and #to_s("F") writes
     when :decimal then format("%.2f", @rng.rand(0.0..10_000.0))
     when :date then (Date.new(2020, 1, 1) + @rng.rand(0..2_000)).iso8601
-    when :time then Time.at(1_600_000_000 + @rng.rand(0..100_000_000)).utc.iso8601
+    # a fraction a quarter of the time: a JS/Apollo server writes milliseconds
+    # on every timestamp, and whole seconds alone can't show a lossy round trip
+    when :time then fake_time.then { |t| t.iso8601(t.subsec.zero? ? 0 : 3) }
     when :unregistered then "#{type_name}-#{@sequence += 1}" # nobody registered it: prop is T.untyped
     else unfakeable!(type_name, field_name, registered, coordinate, at)
     end
@@ -135,6 +137,11 @@ class GraphWeaver::Internal::Values
   end
 
   private
+
+  def fake_time
+    usec = @rng.rand(0..3).zero? ? @rng.rand(1..999) * 1_000 : 0
+    Time.at(1_600_000_000 + @rng.rand(0..100_000_000), usec).utc
+  end
 
   # The registration in play and the shape it wants, memoized per scalar (or
   # per coordinate, where a field-level registration overrides it).
