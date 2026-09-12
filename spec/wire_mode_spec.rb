@@ -3,6 +3,7 @@
 
 require "bigdecimal"
 require "graph_weaver/rspec"
+require "graph_weaver/transport/faraday"
 require "webmock"
 
 # One schema with a custom scalar, so the wire has something to disagree
@@ -98,6 +99,20 @@ describe "graphql: :wire" do
       expect(GraphWeaver.client.transport).to be_a GraphWeaver::Transport::HTTP
     end
 
+    # the claim the docs make for webmock: it hooks underneath, so the
+    # transport an app actually ships runs unchanged
+    %i[http faraday].each do |kind|
+      it "runs a #{kind} transport, and a Retry wrapping one", graphql: false do
+        app_client!("http://graph.test/graphql", transport: kind, retries: 2)
+        expect(GraphWeaver.client.transport).to be_a GraphWeaver::Retry
+        graphql_wire
+
+        expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username"))
+          .to eq "dpep"
+        expect(exchanges.size).to eq 1
+      end
+    end
+
     it "sends exactly one POST carrying query, variables and operationName", graphql: :wire do
       GraphWeaver.client.execute(query, variables: { "first" => 2 })
 
@@ -118,6 +133,18 @@ describe "graphql: :wire" do
       # no tag: whatever the previous example stubbed must be gone
       expect { GraphWeaver.client.execute("{ me { username } }") }
         .to raise_error(WebMock::NetConnectNotAllowedError)
+    end
+
+    # a suite that already uses WebMock owns its own stubs and its own
+    # net-connect policy — the tag adds one stub and takes that one back
+    it "leaves the suite's other stubs standing", graphql: :wire do
+      theirs = WebMock::API.stub_request(:get, "http://elsewhere.test/ping").to_return(body: "pong")
+
+      GraphWeaver.client.execute("{ me { username } }")
+
+      expect(Net::HTTP.get(URI("http://elsewhere.test/ping"))).to eq "pong"
+    ensure
+      WebMock::API.remove_request_stub(theirs)
     end
   end
 
