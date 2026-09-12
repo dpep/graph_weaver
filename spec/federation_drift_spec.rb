@@ -85,13 +85,28 @@ describe GraphWeaver::Federation::Drift do
   it "skips a subgraph that isn't in this process, and lists it" do
     result = drift(DriftGraph::Widgets)
 
-    expect(result.to_h["skipped"]).to eq("depots" => ["Depot"])
+    expect(result.to_h["skipped"]).to eq("depots" => ["Depot", "Query.depot", "Depot.id", "Depot.location"])
     expect(result.checked).to eq ["widgets"]
     expect(result.drift?).to be false
     # it checked something, so the clean verdict means something
     expect(result.vacuous?).to be false
     expect(result.report).to include "(checked 1 of 2 subgraphs)"
-    expect(result.report).to include "  depots (Depot)"
+    expect(result.report).to include "  depots (Depot, Query.depot, Depot.id, Depot.location)"
+  end
+
+  # An entity two subgraphs extend says nothing about which of them a schema
+  # is. Taking the shared type as evidence matched the absent subgraph to its
+  # neighbour and reported the fields only the absent one resolves as stale —
+  # a red CI gate, advising a recompose that would change nothing, on the
+  # supported setup docs/federation.md calls "not here".
+  it "calls a subgraph sharing its only type with a local one absent, not stale" do
+    result = drift(DriftGraph::Roster, source: DriftGraph::SHARED_ENTITY)
+
+    expect(result.to_h["stale"]).to be_empty
+    expect(result.drift?).to be false
+    expect(result.checked).to eq ["roster"]
+    expect(result.to_h["skipped"]).to eq("shifts" => ["Crew.nextShift"])
+    expect(result.report).to include "  shifts (Crew.nextShift)"
   end
 
   # a faked subgraph is absent by choice rather than by accident, and the

@@ -66,4 +66,35 @@ module DriftGraph
     type Query { depot(id: ID!): Depot }
     type Depot { id: ID! location: String! }
   SDL
+
+  # The commonest federation shape: two subgraphs extending one entity. Only
+  # the fields say which of them a schema is — the Crew type itself is
+  # declared by both, and so is Query.
+  SHARED_ENTITY = <<~SDL
+    schema @link(url: "https://specs.apollo.dev/link/v1.0")
+      @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+    { query: Query }
+    directive @join__field(graph: join__Graph) repeatable on FIELD_DEFINITION
+    directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+    directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+    scalar join__FieldSet
+    enum join__Graph {
+      ROSTER @join__graph(name: "roster", url: "http://roster")
+      SHIFTS @join__graph(name: "shifts", url: "http://shifts")
+    }
+    type Query @join__type(graph: ROSTER) @join__type(graph: SHIFTS) {
+      crew(id: ID!): Crew @join__field(graph: ROSTER)
+    }
+    type Crew @join__type(graph: ROSTER, key: "id") @join__type(graph: SHIFTS, key: "id") {
+      id: ID!
+      name: String! @join__field(graph: ROSTER)
+      nextShift: String! @join__field(graph: SHIFTS)
+    }
+  SDL
+
+  # serves "roster"; "shifts" runs in another process
+  schema :Roster, <<~SDL
+    type Query { crew(id: ID!): Crew }
+    type Crew { id: ID! name: String! }
+  SDL
 end

@@ -151,6 +151,17 @@
   router is built once for the suite, so a seed there would pin every example
   to one run. `GraphWeaver::Testing.config.seed` remains the override for a
   harness that isn't rspec.
+- **`rake graph_weaver:federation:diff` no longer calls an absent subgraph
+  stale.** A schema was recognized by the types its subgraph declares, and two
+  subgraphs extending one entity declare the same one — so a `prefs` running in
+  another process was matched to its neighbour `accounts`, every field only
+  `prefs` resolves was reported stale, and the gate failed red advising a
+  recompose that would change nothing. A schema now also has to define
+  something the supergraph attributes to that subgraph **alone**; one that
+  shares everything it declares is "not here", which
+  [docs/federation.md](docs/federation.md) already promised doesn't fail the
+  task. `#skipped` (and the `not checked` section) now names those coordinates
+  rather than the types.
 - **`rake graph_weaver:cassettes:check` sees a namespaced graph's modules.**
   It looked for top-level constants, so an app whose graphs set `namespace:`
   found "0 generated modules", refused for having checked nothing, and blamed

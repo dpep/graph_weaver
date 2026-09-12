@@ -188,8 +188,8 @@ stale — the supergraph carries these, no schema here defines them (recompose):
 not composed in — a schema here defines these, the supergraph doesn't carry them:
   Product.dimensions (Products::Schema)
 
-not checked — nothing here defines what the supergraph says these declare (running elsewhere, or the type is gone):
-  shipping (Shipment)
+not checked — nothing here defines what the supergraph says only these resolve (running elsewhere, or the subgraph is gone):
+  shipping (Shipment, Shipment.eta, Order.shipment)
 
 not checked — answered with fabricated data:
   reviews
@@ -203,8 +203,8 @@ carries plumbing (`_entities`, `_service`) no supergraph has and a field can
 legitimately sit in more than one subgraph (`@external` copies, `@shareable`).
 
 **A supergraph is routinely only partly local**, so the report names three
-states rather than two: checked, not here (running elsewhere — or the type is
-gone), and [faked](#the-local-router). A clean report that quietly checked one
+states rather than two: checked, not here (running elsewhere — or the subgraph
+is gone), and [faked](#the-local-router). A clean report that quietly checked one
 subgraph of three would be actively misleading, so the headline counts them and
 the sections name them. Only drift fails the task; absence is a supported
 setup. Checking **none** of them fails too — "checked 0 of 4" attached to exit 0
@@ -212,8 +212,12 @@ is a gate that passes whatever the subgraphs say. (Under Rails it won't come up:
 the `federation:*` tasks eager-load the app, because `config.rake_eager_load`
 defaults to false and detection only sees loaded classes.)
 
-Detection is what drift breaks — a schema is recognized by what it defines, and
-a subgraph whose *types* are gone stops being recognizable — so the same
+A schema is recognized by the types the supergraph says its subgraph declares,
+plus at least one coordinate attributed to that subgraph **alone**. What two
+subgraphs share can't tell them apart — every subgraph has a `Query`, and the
+entity `accounts` and `prefs` both extend is declared by both — so a subgraph
+whose own fields are nowhere in this process is "not here", not stale.
+Detection is therefore what drift breaks, so the same
 `subgraphs:` map [`Testing::Router`](#the-local-router) takes is accepted here,
 and a named schema skips detection:
 

@@ -29,7 +29,8 @@ module GraphWeaver
     #
     # What "defines" means: a coordinate is compared only against the
     # schemas that could *be* the subgraph the supergraph attributes it to —
-    # the ones defining every non-root type it declares. Exact field-set
+    # the ones defining every non-root type that subgraph declares **and**
+    # something the supergraph attributes to it alone. Exact field-set
     # equality would be too strict in both directions: a subgraph carries
     # federation plumbing (`_entities`, `_service`) the supergraph never
     # has, and a field can legitimately sit in more than one subgraph
@@ -46,8 +47,7 @@ module GraphWeaver
     # misleading on the graphs this is for.
     class Drift
       # Composition names the root types conventionally, and every subgraph
-      # declares one — so a root can't tell subgraphs apart, and a schema
-      # is recognized by the other types it defines.
+      # declares one — so a root can't tell subgraphs apart (see #identifying).
       ROOTS = %w[Query Mutation Subscription].freeze
       private_constant :ROOTS
 
@@ -59,8 +59,8 @@ module GraphWeaver
       # absent from the supergraph
       attr_reader :uncomposed
 
-      # { "inventory" => ["Warehouse"] } — subgraph => the types that would
-      # identify it, which nothing here defines
+      # { "inventory" => ["Warehouse", "Warehouse.bays"] } — subgraph => the
+      # coordinates that would identify it, which nothing here defines
       attr_reader :skipped
 
       # subgraphs answered with fabricated data, so there's no real schema
@@ -142,9 +142,12 @@ module GraphWeaver
       end
 
       # The schemas to compare this subgraph against, or nil when there are
-      # none — recording why. A named schema is taken as given; otherwise
-      # the schemas defining every type the supergraph says it declares are
-      # the ones that could be it.
+      # none — recording why. A named schema is taken as given; otherwise a
+      # schema could be this subgraph when it defines every non-root type the
+      # supergraph says it declares AND at least one coordinate the supergraph
+      # attributes to it alone: the types say it is the same shape, the
+      # exclusive coordinate says it is THIS subgraph and not the neighbour it
+      # shares an entity with.
       def comparable(name)
         if @given.key?(name)
           schema = @given[name]
@@ -156,8 +159,12 @@ module GraphWeaver
           return
         end
 
-        anchors = identifying_types(name)
-        fitting = anchors.empty? ? [] : @schemas.select { |s| anchors.all? { |t| s.get_type(t) } }
+        shape = identifying_types(name)
+        anchors = identifying(name)
+        fitting = @schemas.select do |schema|
+          shape.all? { |type| schema.get_type(type) } &&
+            anchors.any? { |coordinate| GraphWeaver::Internal::Schemas.defines?(schema, coordinate) }
+        end
         return fitting if fitting.any?
 
         @skipped[name] = anchors
@@ -168,9 +175,25 @@ module GraphWeaver
         @table.types.select { |type| @table.declared_in(type).include?(name) }
       end
 
-      # The types that recognize this subgraph's schema: the ones it
-      # declares, minus the roots every subgraph has.
+      # The types this subgraph's schema has to have: the ones it declares,
+      # minus the roots every subgraph has.
       def identifying_types(name) = declared_types(name) - ROOTS
+
+      # What tells this subgraph apart: the coordinates the supergraph
+      # attributes to it and to nobody else. The entity two subgraphs extend
+      # is declared by both, so it says nothing about which of them a schema
+      # is — taken as the whole of the evidence it matched an absent subgraph
+      # to its neighbour and called every field only the absent one resolves
+      # stale. A subgraph that shares everything it declares has no evidence
+      # at all, and is "not here" rather than guessed at.
+      def identifying(name)
+        types = declared_types(name).select { |type| @table.declared_in(type) == [name] } - ROOTS
+        types + @table.types.flat_map do |type|
+          @table.declared_fields(type).filter_map do |field|
+            "#{type}.#{field}" if @table.owners(type, field) == [name]
+          end
+        end
+      end
 
       # Fields the supergraph says this subgraph resolves, but none of its
       # candidate schemas still defines. Every declared field, not only the
@@ -245,9 +268,20 @@ module GraphWeaver
       def skipped_section
         return [] if @skipped.empty?
 
-        ["", "not checked — nothing here defines what the supergraph says these declare " \
-          "(running elsewhere, or the type is gone):",
-          *@skipped.sort.map { |name, types| "  #{name} (#{types.empty? ? "root types only" : types.join(", ")})" }]
+        ["", "not checked — no schema here matches what the supergraph says only these resolve " \
+          "(running elsewhere, or the subgraph is gone):",
+          *@skipped.sort.map { |name, what| "  #{name} (#{evidence(what)})" }]
+      end
+
+      # how many coordinates the report names before it says "and N more"
+      SAMPLE = 5
+      private_constant :SAMPLE
+
+      def evidence(coordinates)
+        return "the supergraph attributes nothing to it alone" if coordinates.empty?
+        return coordinates.join(", ") if coordinates.size <= SAMPLE
+
+        "#{coordinates.first(SAMPLE).join(", ")} and #{coordinates.size - SAMPLE} more"
       end
 
       def faked_section
