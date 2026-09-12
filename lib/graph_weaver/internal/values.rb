@@ -71,10 +71,13 @@ class GraphWeaver::Internal::Values
   # pin is resolved against the query, which is the fake's job. Left unsaid
   # they are the suite's, so a scalar only the app can write for is
   # fabricable from the cassette anonymizer too.
-  # schema: which server is being faked, so the scalar registrations consulted
-  # are the ones the graph that named that schema generated with.
-  def initialize(seed: nil, values: nil, pins: nil, schema: nil)
-    @registry = GraphWeaver::Internal::Util.registry_for(schema)
+  # schema: which server is being faked. registry: the registrations the
+  # values have to satisfy — a Money registered for one graph is not a Money
+  # for the next, and only a caller holding the graph can say which. Left
+  # unsaid they are read back off the schema, which is the answer for every
+  # app with one graph running a live class.
+  def initialize(seed: nil, values: nil, pins: nil, schema: nil, registry: nil)
+    @registry = registry || GraphWeaver::Internal::Util.registry_for(schema)
     @rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
     @pins = (pins || GraphWeaver::Testing.config.overrides).transform_keys(&:to_s)
     @style = resolve_style(values)

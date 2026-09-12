@@ -222,7 +222,10 @@ module GraphWeaver
         def graphql_fake(pins = {}, **options)
           claim_mode!(:fake)
           refuse_seed!(options)
-          options[:schema] ||= GraphWeaver::Testing.config.reference_schema!
+          # the same two defaults the tag builds with (Internal::TestClients)
+          graph = GraphWeaver::Internal::TestClients.app_graph
+          options[:schema] ||= GraphWeaver::Testing.config.reference_schema!(graph)
+          options[:registry] ||= graph&.registry
           GraphWeaver.client = GraphWeaver::Testing::FakeClient.new(pins, **options)
         end
 

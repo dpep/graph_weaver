@@ -53,6 +53,11 @@ require_relative "../parsing"
 # other way round: the reader is the snake_cased field name, not the alias,
 # and a field it doesn't answer is fabricated.
 #
+# registry: whose register_scalar/register_enum calls the fabricated values
+# have to satisfy — GraphWeaver::Graph#registry, since a Money registered
+# for one graph is not a Money for the next. Left unsaid it is read back off
+# schema:, which is the answer for every app with one graph.
+#
 # requests: every execute, in order ({ query:, variables:, operation_name: })
 # — "did we send the right variables", and "did we call it at all".
 #
@@ -113,7 +118,7 @@ class GraphWeaver::Testing::FakeClient
   # misspelled key arrived as a bare "unknown keyword" from inside the
   # fabricator, naming neither the accepted options nor the one you meant.
   OPTIONS = {
-    schema: nil, overrides: {}, seed: nil, values: nil, list_size: nil,
+    schema: nil, registry: nil, overrides: {}, seed: nil, values: nil, list_size: nil,
     null_chance: nil, errors: nil, fail_at: nil, corrupt: nil,
   }.freeze
 
@@ -148,8 +153,13 @@ class GraphWeaver::Testing::FakeClient
     @overrides = [config.overrides, options[:overrides], pins]
       .map { |hash| hash.transform_keys(&:to_s) }.reduce(:merge)
     GraphWeaver::Internal::Overrides.validate!(@schema, @overrides)
+    # A graph whose schema is a file can't be matched back off the schema
+    # object — SchemaLoader builds a fresh anonymous class each load — so a
+    # caller holding the graph passes its registry rather than letting the
+    # lookup fall through to the default one.
+    @registry = options[:registry] || GraphWeaver::Internal::Util.registry_for(@schema)
     @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values],
-      pins: @overrides, schema: @schema)
+      pins: @overrides, schema: @schema, registry: @registry)
     @list_size = options[:list_size] || config.list_size
     @null_chance = options[:null_chance] || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs
@@ -437,7 +447,7 @@ class GraphWeaver::Testing::FakeClient
     when "SCALAR"
       return value if wire?(value)
 
-      GraphWeaver::Internal::Util.registry_for(@schema).scalar(type.graphql_name, coordinate).serialize_value(value)
+      @registry.scalar(type.graphql_name, coordinate).serialize_value(value)
     when "ENUM" then value.is_a?(T::Enum) ? value.serialize : value
     else value # a composite: pinned_object reads it, one level down
     end

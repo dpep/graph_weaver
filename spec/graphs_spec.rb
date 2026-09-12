@@ -225,6 +225,51 @@ describe "GraphWeaver.graph" do
     GraphWeaver::Testing.reset!
   end
 
+  # A graph's registrations decide the Ruby shape codegen emitted a cast for,
+  # so a fake that fabricated with the DEFAULT registrations handed
+  # `BigDecimal(...)` something it can't read. The graph is known here, so
+  # the fake takes its registry rather than matching one back off the schema
+  # — which a graph named by a file can't be matched by.
+  it "fabricates a file-backed graph's scalar the way that graph casts it" do
+    GraphWeaver::Testing.reset!
+    write_query(:money, "statement", "query { invoice(id: 1) { id total } }\n")
+    GraphWeaver.graph :money, schema: billing_schema,
+      queries: File.join(@dir, "money/queries"), output: output(:money),
+      namespace: "Statements" do
+        register_scalar "Money", BigDecimal, requires: "bigdecimal"
+      end
+    GraphWeaver.generate!
+    GraphWeaver.load_generated!
+    # the app's single graph: what the rspec hook puts in the client slot
+    GraphWeaver.client = GraphWeaver::Internal::TestClients.client_for(:fake)
+
+    expect(Statements::StatementQuery.execute!.invoice.total).to be_a BigDecimal
+  ensure
+    GraphWeaver::Testing.reset!
+  end
+
+  # the same, one graph along: here the answer comes per module, off its
+  # baked GRAPH, rather than from the app having only one
+  it "fabricates each graph's scalars the way that graph casts them" do
+    GraphWeaver::Testing.reset!
+    write_query(:invoiced, "statement", "query { invoice(id: 1) { id total } }\n")
+    GraphWeaver.graph :pets, schema: Demo::Schema,
+      queries: File.join(@dir, "pets/queries"), output: output(:pets), namespace: "Pets"
+    GraphWeaver.graph :invoiced, schema: billing_schema,
+      queries: File.join(@dir, "invoiced/queries"), output: output(:invoiced),
+      namespace: "Invoiced" do
+        register_scalar "Money", BigDecimal, requires: "bigdecimal"
+      end
+    GraphWeaver.generate!
+    GraphWeaver.load_generated!
+    GraphWeaver::Internal::TestClients.install(:fake)
+
+    expect(Invoiced::StatementQuery.execute!.invoice.total).to be_a BigDecimal
+  ensure
+    GraphWeaver::Internal::TestClients.reset!
+    GraphWeaver::Testing.reset!
+  end
+
   # branding is read off the graph's own dump, so a graph that names a
   # supergraph keeps it — knowing whose code to look at is half the answer, and
   # it costs no network

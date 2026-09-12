@@ -60,7 +60,8 @@ module GraphWeaver
           config = GraphWeaver::Testing.config
           case mode
           when :fake
-            GraphWeaver::Testing::FakeClient.new(schema: config.reference_schema!(graph))
+            GraphWeaver::Testing::FakeClient.new(schema: config.reference_schema!(graph),
+              registry: graph&.registry)
           when :in_process
             GraphWeaver::InProcess.new(config.schema_class!(graph), context: config.context)
           when :router

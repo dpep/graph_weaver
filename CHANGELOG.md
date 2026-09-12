@@ -15,6 +15,14 @@
   (`GraphWeaver::Testing::RSpecIntegration.client_for` is gone: one
   implementation answers "what client does this mode use", per graph, and it
   is internal. Nothing documented pointed at it.)
+
+  A fake now fabricates with **that graph's** registrations too. A graph whose
+  `schema:` is a file loads a fresh schema object each time, so the fake
+  couldn't match the graph back off it and fell through to the top-level
+  registrations — `register_scalar "Money", BigDecimal` inside
+  `GraphWeaver.graph` emitted a `BigDecimal(...)` cast that then choked on the
+  string the fake invented. `FakeClient.new` takes `registry:` for the callers
+  that know the graph.
 - `GraphWeaver.graph` refuses a name that isn't a Symbol or a String; the
   name now reaches generated source.
 - **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
