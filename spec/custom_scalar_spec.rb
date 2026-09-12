@@ -680,7 +680,8 @@ describe "a class whose codec can't be inferred" do
       GraphWeaver.parse(schema: MoneyDemo::Schema, client: Demo::Schema, query:)
         .execute(name: "Widget", budget: 5)
     }.to raise_error(GraphWeaver::InputError,
-      "$budget of Store: undefined method 'upcase' for nil (got 5)")
+      # Ruby 3.4 spells the NoMethodError with a straight quote and no class
+      /\A\$budget of Store: undefined method [`']upcase' for nil(:NilClass)? \(got 5\)\z/)
   end
 end
 

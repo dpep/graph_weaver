@@ -43,8 +43,10 @@ describe "filtered messages" do
   it "hides a filtered key nested inside the value a message quotes" do
     module_ = parse("query Counted($count: Int) { search(term: \"x\", first: $count) { __typename } }")
 
+    # Hash#inspect spells differently across Rubies; the quoted hash is whatever this one writes
+    shown = Regexp.escape({ "token" => "[FILTERED]" }.inspect)
     expect { module_.execute(count: { "token" => "t0ps3cret" }) }
-      .to raise_error(GraphWeaver::InputError, /\$count of Counted: expected an Int, got \{"token" => "\[FILTERED\]"\}/)
+      .to raise_error(GraphWeaver::InputError, /\$count of Counted: expected an Int, got #{shown}/)
 
     expect(io.string).not_to include("t0ps3cret")
   end
