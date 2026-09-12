@@ -640,12 +640,13 @@ class GraphWeaver::Codegen
         out << "#{pad}  const :#{field.prop}, #{type}#{default}"
       end
       out << ""
-      out << "#{pad}  # (prop, wire, required, serializer, coercer) per field"
+      out << "#{pad}  # (prop, wire, required, serializer, coercer, coordinate) per field"
       out << "#{pad}  FIELDS = T.let(["
       node.fields.each do |field|
         serializer = field.node.serialize_identity? ? "nil" : "->(v) { #{field.node.serialize("v", 1)} }"
         coercer = field.node.hash_coerce_identity? ? "nil" : "->(v) { #{field.node.hash_coerce("v", 1)} }"
-        out << "#{pad}    GraphWeaver::InputStruct::Field.new(:#{field.prop}, #{field.wire.inspect}, #{field.required}, #{serializer}, #{coercer}),"
+        coordinate = "#{node.graphql_name}.#{field.wire}"
+        out << "#{pad}    GraphWeaver::InputStruct::Field.new(:#{field.prop}, #{field.wire.inspect}, #{field.required}, #{serializer}, #{coercer}, #{coordinate.inspect}),"
       end
       out << "#{pad}  ].freeze, T::Array[GraphWeaver::InputStruct::Field])"
       # InputStruct reads it with const_get, which privacy doesn't block

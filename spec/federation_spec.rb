@@ -472,6 +472,7 @@ describe "federation / _entities representations" do
     expect { reps.product(upc: "u-1", sku: "forty-two") }
       .to raise_error(GraphWeaver::InputError, /Product representation sku: .*forty-two/) { |error|
         expect(error.field).to eq "sku"
+        expect(error.coordinate).to eq "Product.sku"
         expect(error.struct).to eq "Product"
       }
   end
@@ -506,7 +507,9 @@ describe "federation / _entities representations" do
     # and both refusals name the type, the way a coercion failure does
     expect { reps.listing(id: "1", organization: {}) }
       .to raise_error(GraphWeaver::InputError) { |e|
-        expect(e.field).to eq "organization.id"
+        # the route to the missing key, not a dotted string to re-split
+        expect(e.path).to eq %w[organization id]
+        expect(e.field).to eq "id"
         expect(e.struct).to eq "Listing"
       }
   end

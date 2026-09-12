@@ -79,6 +79,12 @@ module GraphWeaver
         # wrote can spell a value any way, so for a filtered key none of it
         # survives, not the parts that would have been safe.
         def detail(key, detail) = filtered?(key) ? FILTERED : detail
+
+        # A value the library reports as DATA rather than inside a sentence —
+        # InputError#value. Scrubbed at every depth, so a filtered key nested
+        # inside an input object is covered too, and the same list decides it
+        # as decides the debug log's variables line.
+        def value(key, value) = Log.filter_variables({ key.to_s => value })[key.to_s]
       end
     end
   end

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require_relative "errors"
+require_relative "internal/refusal"
 
 module GraphWeaver
   # Called by generated code — not semver'd for direct use.
@@ -48,7 +49,9 @@ module GraphWeaver
       got = " (got #{shown})" unless e.message.include?(shown)
       raise InputError.new(
         "#{type_name} representation #{name}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}",
-        field: name, struct: type_name,
+        kind: Internal::Refusal.kind_of(e), path: [name], coordinate: "#{type_name}.#{name}",
+        value: Internal::Redact.value(name, value), details: Internal::Refusal.details_of(e),
+        struct: type_name,
       )
     end
 
@@ -75,14 +78,18 @@ module GraphWeaver
     private_class_method :assign
 
     # Name the type and what it's short of, per @key — with a single key
-    # there's one answer, so it also fills InputError#field.
+    # there's one answer, so it also fills InputError#path.
     def self.incomplete(type_name, values, key_sets)
       gaps = key_sets.map { |paths| missing(values, paths) }
 
       if key_sets.one?
+        # a nested @key reads "organization.id"; #path is that route
+        path = gaps.first.one? ? gaps.first.first.split(".") : []
         InputError.new(
           "#{type_name} representation is missing @key #{gaps.first.map(&:inspect).join(", ")}",
-          field: gaps.first.one? ? gaps.first.first : nil, struct: type_name,
+          kind: :missing, path:,
+          coordinate: ("#{type_name}.#{path.first}" if path.one?),
+          struct: type_name,
         )
       else
         alternatives = key_sets.zip(gaps).map do |paths, gap|
@@ -93,7 +100,7 @@ module GraphWeaver
         end
         InputError.new(
           "#{type_name} representation satisfies none of its @keys — supply #{alternatives.join(", or ")}",
-          struct: type_name,
+          kind: :missing, struct: type_name,
         )
       end
     end

@@ -26,8 +26,14 @@ module GraphWeaver
     sig { params(args: T.untyped).void }
     def initialize(*args)
       super
-      GraphWeaver::Internal::Log.log(:warn) { "#{self.class.name}: #{message}" }
+      GraphWeaver::Internal::Log.log(:warn) { "#{self.class.name}: #{message}" } if raised?
     end
+
+    # Every error here is raised where it is built — except an InputError read
+    # back off a response, which is a value. A warn line there would claim a
+    # raise that never happened.
+    sig { overridable.returns(T::Boolean) }
+    private def raised? = true
 
     sig { overridable.returns(T::Hash[String, T.untyped]) }
     def to_h
@@ -264,6 +270,31 @@ module GraphWeaver
       THROTTLE_CODES.include?(code)
     end
 
+    # Codes that say "this error is about the input you sent", and what each
+    # one means. `BAD_USER_INPUT` is the ecosystem's coarse bucket (Apollo's,
+    # and what docs/errors.md asks a server to stamp); the rest are
+    # graphql-ruby's own rule names, measured against 2.6.10. Nothing else is
+    # claimed: a `validates:` failure reaches the wire as a bare sentence
+    # with no extensions at all, indistinguishable from "the database is
+    # down", and attaching that to a form field is worse than missing it.
+    INPUT_CODES = T.let({
+      "BAD_USER_INPUT" => :refused,
+      "argumentLiteralsIncompatible" => :type_mismatch,
+      "variableMismatch" => :type_mismatch,
+      "missingRequiredInputObjectAttribute" => :missing,
+      "argumentNotAccepted" => :unknown,
+    }.freeze, T::Hash[String, Symbol])
+
+    # This error as input problems — [] when it isn't about the input at all.
+    # Plural because one variable-coercion error genuinely carries N of them,
+    # and dropping all but the first is the quiet loss this library refuses.
+    # See docs/errors.md ("What your server can send") for the three shapes
+    # read here, and docs/i18n.md for the vocabulary.
+    sig { returns(T::Array[InputError]) }
+    def input_errors
+      @input_errors ||= T.let(GraphWeaver::Internal::ServerInput.read(self), T.nilable(T::Array[InputError]))
+    end
+
     # The field the error points at, as a stable dotted path with list
     # indices stripped — ["people", 3, "email"] => "people.email". The
     # parseable key for grouping/reporting (the raw #path keeps indices).
@@ -349,6 +380,17 @@ module GraphWeaver
     sig { returns(T::Boolean) }
     def throttled?
       errors.any?(&:throttled?)
+    end
+
+    # Every error here that is about the input we sent, as InputError values
+    # — the same object a client-side refusal raises, so one renderer serves
+    # both halves. [] when the server rejected nothing about the input, or
+    # said nothing that identifies it as input (see GraphQLError::INPUT_CODES).
+    #
+    #      response.input_errors.each { |e| form.errors.add(e.field, e.message) }
+    sig { returns(T::Array[InputError]) }
+    def input_errors
+      errors.flat_map(&:input_errors)
     end
 
     # Errors grouped by the field they point at (index-stripped dotted
@@ -512,18 +554,59 @@ module GraphWeaver
     end
   end
 
-  # Raised when the variables passed to a query or mutation can't be built
-  # into the generated input structs — an unknown or typo'd input key, a
-  # missing required input field, an out-of-range enum, or a wrong-typed
-  # field. This is the "the caller's input was invalid" error: rescue it at
-  # an API boundary to return a 422. #field names the offending input field
-  # when known, #struct the input type being built; the underlying
-  # TypeError/KeyError/ArgumentError is preserved as #cause.
+  # The caller's input was invalid — an unknown or typo'd input key, a
+  # missing required input field, an out-of-range enum, a wrong-typed field.
+  # Raised before the request leaves, so rescue it at an API boundary to
+  # return a 422; it is ALSO the value a server's rejection becomes
+  # (GraphQLError#input_errors, Response#input_errors), because "which input
+  # was wrong, and how" is one question whichever side answered it.
+  #
+  # The machine side is #kind (one of KINDS), #path (rooted at the variable),
+  # #coordinate (the schema's name for the slot), #value and #details — see
+  # docs/i18n.md for translating them. #message is the developer's English
+  # line and is not API. The underlying TypeError/KeyError/ArgumentError is
+  # preserved as #cause.
   class InputError < Error
     extend T::Sig
 
+    # The closed vocabulary #kind draws from — one key an app can translate,
+    # rather than a sentence it has to parse. Additive only: a new kind
+    # arrives in a MINOR release and :refused is the honest home for
+    # everything that fits none of them. docs/i18n.md has what each means.
+    KINDS = T.let(
+      %i[type_mismatch unparseable not_a_member missing unknown out_of_range invalid_format refused].to_set.freeze,
+      T::Set[Symbol],
+    )
+
+    # The detail keys a kind may carry. Closed, so `I18n.t(..., **details)`
+    # never gets a key the app's locale file has no slot for — and so a
+    # server can't smuggle arbitrary data in under extensions.input.
+    DETAILS = T.let(%i[type members min max format suggestion].freeze, T::Array[Symbol])
+
+    sig { returns(Symbol) }
+    attr_reader :kind
+
+    # Rooted at the variable and down through input fields and list indices:
+    # ["where", "_and", 0, "_not", "species"]. Empty when nothing named a
+    # slot. #field is its last segment — the one a form highlights.
+    sig { returns(T::Array[T.untyped]) }
+    attr_reader :path
+
+    # The GraphQL schema coordinate for the slot — "PetFilter.species". nil
+    # where there isn't one: a variable ($count names no schema element), a
+    # key the input type doesn't define, or a server that didn't say.
     sig { returns(T.nilable(String)) }
-    attr_reader :field
+    attr_reader :coordinate
+
+    # The rejected value, through filter_parameters exactly as the message
+    # is. nil where it was never known (a missing field has no value).
+    sig { returns(T.untyped) }
+    attr_reader :value
+
+    # Kind-specific facts, never pre-formatted: members stays an Array,
+    # because joining it is a language decision. Keys are drawn from DETAILS.
+    sig { returns(T::Hash[Symbol, T.untyped]) }
+    attr_reader :details
 
     # The generated input struct class where generation produced one, and
     # the GraphQL type name where it didn't — a federation representation
@@ -532,18 +615,68 @@ module GraphWeaver
     sig { returns(T.untyped) }
     attr_reader :struct
 
-    sig { params(message: String, field: T.nilable(String), struct: T.untyped).void }
-    def initialize(message, field: nil, struct: nil)
-      @field = field
+    sig do
+      params(
+        message: String,
+        kind: Symbol,
+        path: T::Array[T.untyped],
+        coordinate: T.nilable(String),
+        value: T.untyped,
+        details: T::Hash[Symbol, T.untyped],
+        struct: T.untyped,
+        raised: T::Boolean,
+      ).void
+    end
+    def initialize(message, kind: :refused, path: [], coordinate: nil, value: nil,
+      details: {}, struct: nil, raised: true)
+      unless KINDS.include?(kind)
+        raise ArgumentError, "kind: #{kind.inspect} is not an input kind — one of #{KINDS.to_a.join(", ")}"
+      end
+
+      @kind = kind
+      @path = T.let(path.dup, T::Array[T.untyped])
+      @coordinate = coordinate
+      @value = value
+      @details = details
       @struct = struct
+      @raised = raised
       # the message often IS a sorbet prop error — drop its frame, as TypeError does
       super(message.sub(TypeError::SORBET_CALLER, ""))
     end
 
+    # The input field the value actually landed on — the last segment of
+    # #path, which is the coordinate a form can act on. nil when nothing
+    # named a slot.
+    sig { returns(T.nilable(String)) }
+    def field = path.last&.to_s
+
+    # The same refusal one level out: prepend the segment that led here.
+    # Every enclosing layer — a list index, an input field, the variable —
+    # adds its own on the way out, so the innermost refusal (which wrote the
+    # message) ends up holding the whole route. Mutates and returns self:
+    # the failure happened once, and a fresh error per layer would write a
+    # warn line per layer for it.
+    sig { params(segment: T.any(String, Integer)).returns(InputError) }
+    def within(segment)
+      @path.unshift(segment)
+      self
+    end
+
     sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
-      super.merge("field" => field, "struct" => struct&.to_s).compact
+      super.merge(
+        "kind" => kind.to_s,
+        "path" => path,
+        "coordinate" => coordinate,
+        "field" => field,
+        "value" => value,
+        "details" => details.transform_keys(&:to_s),
+        "struct" => struct&.to_s,
+      ).compact
     end
+
+    sig { override.returns(T::Boolean) }
+    private def raised? = @raised
   end
 
   # The setup doesn't add up — judged against your schema, not against the
@@ -609,3 +742,7 @@ module GraphWeaver
     end
   end
 end
+
+# reads a server rejection back into InputError values (GraphQLError#input_errors);
+# below the classes, since it needs both of them defined
+require_relative "internal/server_input"

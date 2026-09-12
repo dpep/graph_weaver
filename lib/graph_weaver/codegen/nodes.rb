@@ -158,8 +158,12 @@ class GraphWeaver::Codegen
       else
         "#{var}&.then { |v#{depth + 1}| #{@of.hash_coerce("v#{depth + 1}", depth + 2)} }"
       end
+      return "#{expr}.map { |#{var}| #{inner} }" if hash_coerce_identity?
 
-      "#{expr}.map { |#{var}| #{inner} }"
+      # the index is a path segment — `where._and.0._not.species` needs the 0
+      # to name one form field
+      idx = "i#{depth}"
+      "#{expr}.map.with_index { |#{var}, #{idx}| GraphWeaver::InputStruct.element(#{idx}) { #{inner} } }"
     end
 
     def hash_coerce_identity? = @of.hash_coerce_identity?
@@ -351,14 +355,17 @@ class GraphWeaver::Codegen
   class InputNode < Node
     Field = Struct.new(:prop, :wire, :node, :required)
 
-    attr_reader :class_name, :fields
+    # graphql_name as well as class_name: a schema coordinate is spelled the
+    # schema's way (pokemon_bool_exp.name), which camelize has already lost.
+    attr_reader :class_name, :graphql_name, :fields
     # @oneOf: exactly one field may be supplied. The schema can't say so — every
     # @oneOf field is nullable — so the generated struct carries the flag and
     # InputStruct#serialize enforces it.
     attr_accessor :one_of
 
-    def initialize(class_name)
+    def initialize(class_name, graphql_name = class_name)
       @class_name = class_name
+      @graphql_name = graphql_name
       @fields = []
       @one_of = false
     end

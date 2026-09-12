@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require_relative "errors"
+require_relative "internal/refusal"
 
 module GraphWeaver
   # Called by generated code — not semver'd for direct use.
@@ -57,7 +58,7 @@ module GraphWeaver
         # DateTime is a Date to Ruby and a timestamp to everyone else
         when DateTime, Time then cross(value, "Date", DATE_HINT)
         when Date then value
-        when String then Date.iso8601(value)
+        when String then parsing("Date") { Date.iso8601(value) }
         else time_like?(value) ? cross(value, "Date", DATE_HINT) : refuse(value, "Date")
         end
       end
@@ -67,7 +68,7 @@ module GraphWeaver
         when Time then value
         when DateTime then value.to_time # the same instant in another class
         when Date then cross(value, "Time", TIME_HINT)
-        when String then Time.parse(value)
+        when String then parsing("Time") { Time.parse(value) }
         else time_like?(value) ? value.to_time : refuse(value, "Time")
         end
       end
@@ -111,25 +112,43 @@ module GraphWeaver
 
       # Brands one variable's coercion failure with the variable and the
       # operation: a cast complains about the value alone ("invalid date"),
-      # which locates nothing in an app that runs a hundred queries.
+      # which locates nothing in an app that runs a hundred queries. The
+      # variable is also the root of #path, so a nested refusal comes out
+      # holding the whole route from the kwarg down to the field.
       def variable(name, operation, value)
         yield value
       rescue GraphWeaver::InputError => e
         raise GraphWeaver::InputError.new(
-          "#{at(name, operation)}: #{Internal::Redact.detail(name, e.message)}", field: name, struct: e.struct,
+          "#{at(name, operation)}: #{Internal::Redact.detail(name, e.message)}",
+          kind: e.kind, path: [name, *e.path], coordinate: e.coordinate,
+          # #value is the value AT #path: this layer owns it only when nothing
+          # inner named a field (so a missing one stays valueless, as it is)
+          value: e.path.empty? ? Internal::Redact.value(name, value) : e.value,
+          details: e.details, struct: e.struct,
         )
       rescue StandardError => e
         # a cast complains about the value without quoting it ("invalid date")
         shown = value.inspect
         got = " (got #{shown})" unless e.message.include?(shown)
         raise GraphWeaver::InputError.new(
-          "#{at(name, operation)}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}", field: name,
+          "#{at(name, operation)}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}",
+          kind: Internal::Refusal.kind_of(e), path: [name],
+          value: Internal::Redact.value(name, value), details: Internal::Refusal.details_of(e),
         )
       end
 
       private
 
       def at(name, operation) = operation ? "$#{name} of #{operation}" : "$#{name}"
+
+      # A stdlib parser's own complaint, kept word for word ("invalid date")
+      # and labelled with the scalar the schema named — which the parser,
+      # handed only a String, has no way to know.
+      def parsing(scalar)
+        yield
+      rescue ::ArgumentError, ::TypeError => e
+        raise Internal::Refusal.brand(e, :unparseable, type: scalar)
+      end
 
       # Kernel#Float("1e400") is Infinity rather than a raise, and so is
       # (10**400).to_f — while JSON has no spelling for a non-finite number
@@ -139,18 +158,27 @@ module GraphWeaver
       def finite(value)
         return value if value.finite?
 
-        raise ArgumentError, "#{expected("Float")}, got #{value.inspect} — not a finite number"
+        # a number, but not one GraphQL's Float admits — no conversion applies
+        raise mismatch(ArgumentError, "#{expected("Float")}, got #{value.inspect} — not a finite number", "Float")
       end
 
       def whole(value)
         # Integer(2.5) is 2 — a silent loss where refusing costs nothing
         return value.to_i if value.finite? && (value % 1).zero?
 
-        raise ArgumentError, "#{expected("Int")}, got #{value.inspect} — not a whole number"
+        raise mismatch(ArgumentError, "#{expected("Int")}, got #{value.inspect} — not a whole number", "Int")
       end
 
       def unparseable(value, scalar)
-        raise ArgumentError, "#{expected(scalar)}, got #{value.inspect}"
+        raise Internal::Refusal.brand(
+          ArgumentError.new("#{expected(scalar)}, got #{value.inspect}"), :unparseable, type: scalar
+        )
+      end
+
+      # the refusal a caller sees is the plain Ruby error it always was —
+      # the kind rides along for the layer that brands it (see Refusal)
+      def mismatch(klass, message, scalar)
+        Internal::Refusal.brand(klass.new(message), :type_mismatch, type: scalar)
       end
 
       # ActiveSupport::TimeWithZone — what Time.zone.now returns — is not a
@@ -163,12 +191,12 @@ module GraphWeaver
       end
 
       def cross(value, scalar, hint)
-        raise ::TypeError, "#{expected(scalar)}, got a #{value.class} — #{hint}"
+        raise mismatch(::TypeError, "#{expected(scalar)}, got a #{value.class} — #{hint}", scalar)
       end
 
       # ::TypeError — inside GraphWeaver, a bare TypeError is ours
       def refuse(value, scalar, hint = nil)
-        raise ::TypeError, "#{expected(scalar)}, got #{value.inspect}#{" — #{hint}" if hint}"
+        raise mismatch(::TypeError, "#{expected(scalar)}, got #{value.inspect}#{" — #{hint}" if hint}", scalar)
       end
 
       def expected(scalar) = "expected #{%w[Int ID].include?(scalar) ? "an" : "a"} #{scalar}"

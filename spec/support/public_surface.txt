@@ -107,6 +107,7 @@ GraphWeaver::ErrorFiltering#entity_id
 GraphWeaver::ErrorFiltering#errors
 GraphWeaver::ErrorFiltering#errors_at
 GraphWeaver::ErrorFiltering#errors_by_field
+GraphWeaver::ErrorFiltering#input_errors
 GraphWeaver::ErrorFiltering#report
 GraphWeaver::ErrorFiltering#schema_stale?
 GraphWeaver::ErrorFiltering#throttled?
@@ -145,6 +146,7 @@ GraphWeaver::GraphQLError (Class)
 GraphWeaver::GraphQLError#code
 GraphWeaver::GraphQLError#extensions
 GraphWeaver::GraphQLError#field
+GraphWeaver::GraphQLError#input_errors
 GraphWeaver::GraphQLError#locations
 GraphWeaver::GraphQLError#message
 GraphWeaver::GraphQLError#path
@@ -153,6 +155,7 @@ GraphWeaver::GraphQLError#to_h
 GraphWeaver::GraphQLError#to_s
 GraphWeaver::GraphQLError#validation?
 GraphWeaver::GraphQLError.from_h
+GraphWeaver::GraphQLError::INPUT_CODES = Hash
 GraphWeaver::GraphQLError::THROTTLE_CODES = Array
 GraphWeaver::GraphQLError::VALIDATION_CODES = Set
 GraphWeaver::GraphQLError::VALIDATION_MESSAGE = Regexp
@@ -174,14 +177,23 @@ GraphWeaver::Inflect (Module)
 GraphWeaver::Inflect.camelize
 GraphWeaver::Inflect.underscore
 GraphWeaver::InputError (Class)
+GraphWeaver::InputError#coordinate
+GraphWeaver::InputError#details
 GraphWeaver::InputError#field
+GraphWeaver::InputError#kind
+GraphWeaver::InputError#path
 GraphWeaver::InputError#struct
 GraphWeaver::InputError#to_h
+GraphWeaver::InputError#value
+GraphWeaver::InputError#within
+GraphWeaver::InputError::DETAILS = Array
+GraphWeaver::InputError::KINDS = Set
 GraphWeaver::InputStruct (Module)
 GraphWeaver::InputStruct#serialize
 GraphWeaver::InputStruct#supplied
 GraphWeaver::InputStruct#supplied=
 GraphWeaver::InputStruct#to_h
+GraphWeaver::InputStruct.element
 GraphWeaver::InputStruct.enum
 GraphWeaver::InputStruct.field
 GraphWeaver::InputStruct.included
@@ -190,6 +202,7 @@ GraphWeaver::InputStruct::ClassMethods (Module)
 GraphWeaver::InputStruct::ClassMethods#coerce
 GraphWeaver::InputStruct::Field (Class)
 GraphWeaver::InputStruct::Field#coercer
+GraphWeaver::InputStruct::Field#coordinate
 GraphWeaver::InputStruct::Field#prop
 GraphWeaver::InputStruct::Field#required
 GraphWeaver::InputStruct::Field#serializer

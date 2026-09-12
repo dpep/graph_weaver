@@ -13,12 +13,12 @@ module GraphQLTypes
     const :nickname, T.nilable(String), default: nil
     const :species, Species
 
-    # (prop, wire, required, serializer, coercer) per field
+    # (prop, wire, required, serializer, coercer, coordinate) per field
     FIELDS = T.let([
-      GraphWeaver::InputStruct::Field.new(:birthday, "birthday", false, ->(v) { v.strftime("%F") }, ->(v) { GraphWeaver::Coerce.date(v) }),
-      GraphWeaver::InputStruct::Field.new(:name, "name", true, nil, ->(v) { GraphWeaver::Coerce.string(v) }),
-      GraphWeaver::InputStruct::Field.new(:nickname, "nickname", false, nil, ->(v) { GraphWeaver::Coerce.string(v) }),
-      GraphWeaver::InputStruct::Field.new(:species, "species", true, ->(v) { v.serialize }, ->(v) { GraphWeaver::InputStruct.enum(Species, v) }),
+      GraphWeaver::InputStruct::Field.new(:birthday, "birthday", false, ->(v) { v.strftime("%F") }, ->(v) { GraphWeaver::Coerce.date(v) }, "AdoptionInput.birthday"),
+      GraphWeaver::InputStruct::Field.new(:name, "name", true, nil, ->(v) { GraphWeaver::Coerce.string(v) }, "AdoptionInput.name"),
+      GraphWeaver::InputStruct::Field.new(:nickname, "nickname", false, nil, ->(v) { GraphWeaver::Coerce.string(v) }, "AdoptionInput.nickname"),
+      GraphWeaver::InputStruct::Field.new(:species, "species", true, ->(v) { v.serialize }, ->(v) { GraphWeaver::InputStruct.enum(Species, v) }, "AdoptionInput.species"),
     ].freeze, T::Array[GraphWeaver::InputStruct::Field])
     private_constant :FIELDS
   end

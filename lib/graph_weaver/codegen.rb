@@ -1171,7 +1171,7 @@ class GraphWeaver::Codegen
   def input_node(core)
     return @variable_inputs[core.graphql_name] if @variable_inputs.key?(core.graphql_name)
 
-    node = @variable_inputs[core.graphql_name] = InputNode.new(camelize(core.graphql_name))
+    node = @variable_inputs[core.graphql_name] = InputNode.new(camelize(core.graphql_name), core.graphql_name)
     node.one_of = core.respond_to?(:one_of?) && core.one_of?
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|

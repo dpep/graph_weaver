@@ -20,8 +20,10 @@ module GraphWeaver
     include Kernel # for sorbet: hosts are T::Structs
 
     # serializer/coercer are code-as-data from the generated file; nil
-    # means identity (the wire value passes through untouched)
-    Field = Data.define(:prop, :wire, :required, :serializer, :coercer)
+    # means identity (the wire value passes through untouched). coordinate
+    # is the schema's name for the slot ("PetFilter.species"), so a refusal
+    # can say where it happened without reflecting at runtime.
+    Field = Data.define(:prop, :wire, :required, :serializer, :coercer, :coordinate)
 
     # An enum reaching the library as input — an execute kwarg or an input
     # field — as the member or its wire value. Generated code calls these
@@ -34,6 +36,14 @@ module GraphWeaver
       type.try_deserialize(value) || invalid_enum!(type, value, type.values.map(&:serialize))
     end
 
+    # A list element's index, prepended when something inside it refused —
+    # `where._and.0._not.species` needs the 0 to name one form field.
+    def self.element(index)
+      yield
+    rescue GraphWeaver::InputError => e
+      raise e.within(index)
+    end
+
     # the same, for an enum mapped onto an app-owned T::Enum (register_enum),
     # where the wire table rather than the type knows the accepted values
     def self.mapped_enum(type, table, value)
@@ -44,28 +54,43 @@ module GraphWeaver
 
     # Names the input field a coercion refused — a scalar's coercer, an
     # enum's, or a nested input's — since the complaint underneath is about
-    # the value alone. A nested error that already named a field keeps it:
-    # the innermost input is the one that actually held the bad value.
-    def self.field(struct, prop)
+    # the value alone. A nested error that already named a field keeps its
+    # sentence, and only grows a path segment: the innermost input is the one
+    # that actually held the bad value.
+    def self.field(struct, field, raw)
+      prop = field.prop
       yield
     rescue GraphWeaver::InputError => e
-      raise if e.field && !GraphWeaver::Internal::Redact.filtered?(prop)
+      redact = GraphWeaver::Internal::Redact
+      raise e.within(prop.to_s) if e.field && !redact.filtered?(prop)
 
       raise GraphWeaver::InputError.new(
-        "#{prop}: #{GraphWeaver::Internal::Redact.detail(prop, e.message)}",
-        field: e.field || prop.to_s, struct: e.struct || struct,
+        "#{prop}: #{redact.detail(prop, e.message)}",
+        kind: e.kind, path: [prop.to_s, *e.path], coordinate: e.coordinate || field.coordinate,
+        # #value is the value AT #path: this layer owns it only when nothing
+        # inner named a field (so a missing one stays valueless, as it is)
+        value: redact.value(prop, e.path.empty? ? raw : e.value),
+        details: e.details, struct: e.struct || struct,
       )
     rescue StandardError => e
+      redact = GraphWeaver::Internal::Redact
       raise GraphWeaver::InputError.new(
-        "#{prop}: #{GraphWeaver::Internal::Redact.detail(prop, e.message)}", field: prop.to_s, struct:,
+        "#{prop}: #{redact.detail(prop, e.message)}",
+        kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [prop.to_s],
+        coordinate: field.coordinate, value: redact.value(prop, raw),
+        details: GraphWeaver::Internal::Refusal.details_of(e), struct:,
       )
     end
 
     # Raised bare, like Hints.drifted!: the enclosing .field or Coerce.variable
     # knows the key, and so is the only layer that can decide whether this
-    # value may be named.
+    # value may be named. The verdict rides along, since nothing outside here
+    # can tell an out-of-range enum from any other KeyError.
     def self.invalid_enum!(type, value, values)
-      raise KeyError, "#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}"
+      raise GraphWeaver::Internal::Refusal.brand(
+        KeyError.new("#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}"),
+        :not_a_member, members: values.sort,
+      )
     end
     private_class_method :invalid_enum!
 
@@ -87,7 +112,14 @@ module GraphWeaver
         value = public_send(field.prop)
         next if value.nil? && !field.required && !given&.include?(field.prop)
 
-        out[field.wire] = field.serializer && !value.nil? ? field.serializer.call(value) : value
+        out[field.wire] =
+          begin
+            field.serializer && !value.nil? ? field.serializer.call(value) : value
+          rescue GraphWeaver::InputError => e
+            # a nested input's own refusal (@oneOf, a custom serialize:) —
+            # every layer prepends the segment that led to it
+            raise e.within(field.prop.to_s)
+          end
       end
 
       # @oneOf declares "exactly one of these, and not null", but every field
@@ -119,7 +151,10 @@ module GraphWeaver
         # list was expected) is bad input — surface a branded 422, not a raw
         # NoMethodError from validate_keys!'s `.keys`
         unless value.is_a?(Hash)
-          raise GraphWeaver::InputError.new("expected a Hash or #{self}, got #{value.class}", struct: self)
+          raise GraphWeaver::InputError.new(
+            "expected a Hash or #{self}, got #{value.class}",
+            kind: :type_mismatch, details: { type: to_s }, struct: self,
+          )
         end
 
         # a typo'd key must not silently drop off the wire
@@ -133,17 +168,20 @@ module GraphWeaver
 
           # a coercer is arbitrary Ruby — Coerce.integer, Date.iso8601, a
           # nested .coerce — and its complaint is about the value alone
-          [field.prop, GraphWeaver::InputStruct.field(self, field.prop) { field.coercer.call(raw) }]
+          [field.prop, GraphWeaver::InputStruct.field(self, field, raw) { field.coercer.call(raw) }]
         end
 
         # FIELDS knows which are required, so say what is missing — sorbet's
         # own complaint describes the symptom ("Can't set .name to nil") and
         # names only the first one it reaches
-        missing = fields.select { |field| field.required && supplied[field.prop].nil? }.map(&:prop)
+        missing = fields.select { |field| field.required && supplied[field.prop].nil? }
         unless missing.empty?
+          # the message lists every one; #path names the first, because a
+          # path that points at two fields points at neither
           raise GraphWeaver::InputError.new(
-            "missing required key(s) for #{self}: #{missing.join(", ")}",
-            field: missing.join(", "), struct: self,
+            "missing required key(s) for #{self}: #{missing.map(&:prop).join(", ")}",
+            kind: :missing, path: [missing.first.prop.to_s],
+            coordinate: missing.first.coordinate, struct: self,
           )
         end
 
@@ -155,7 +193,11 @@ module GraphWeaver
         # enum — surface one branded, structured error for a 422. (`::` so the
         # rescue catches Ruby's TypeError, not GraphWeaver::TypeError.)
         raise mistyped(supplied) ||
-          GraphWeaver::InputError.new("invalid input for #{self}: #{e.message}", struct: self)
+          GraphWeaver::InputError.new(
+            "invalid input for #{self}: #{e.message}",
+            kind: GraphWeaver::Internal::Refusal.kind_of(e),
+            details: GraphWeaver::Internal::Refusal.details_of(e), struct: self,
+          )
       end
 
       private
@@ -176,10 +218,13 @@ module GraphWeaver
           # one was reported by name before we got here
           next if T::Utils.coerce(info[:type_object]).valid?(value)
 
+          type = T::Utils.coerce(info[:type]).to_s
           return GraphWeaver::InputError.new(
-            "#{prop}: expected #{T::Utils.coerce(info[:type])}, " \
-              "got #{GraphWeaver::Internal::Redact.detail(prop, value.inspect)}",
-            field: prop.to_s, struct: self,
+            "#{prop}: expected #{type}, got #{GraphWeaver::Internal::Redact.detail(prop, value.inspect)}",
+            kind: :type_mismatch, path: [prop.to_s],
+            coordinate: T.unsafe(self).const_get(:FIELDS).find { |f| f.prop == prop }&.coordinate,
+            value: GraphWeaver::Internal::Redact.value(prop, value),
+            details: { type: }, struct: self,
           )
         end
         nil

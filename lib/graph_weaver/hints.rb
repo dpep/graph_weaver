@@ -27,19 +27,23 @@ module GraphWeaver
       unknown = hash.keys.map(&:to_s) - known
       return if unknown.empty?
 
-      hints = unknown.map do |key|
+      suggestions = unknown.to_h do |key|
         prop = GraphWeaver::Inflect.underscore(key)
-        suggestion = if known.include?(prop)
-          prop # a wire-cased key — the exact snake_case prop exists
-        else
-          GraphWeaver::Internal::Util.did_you_mean(known, prop)
-        end
-        suggestion ? "#{key} (did you mean '#{suggestion}'?)" : key
+        # a wire-cased key — the exact snake_case prop exists
+        [key, known.include?(prop) ? prop : GraphWeaver::Internal::Util.did_you_mean(known, prop)]
       end
+      hints = suggestions.map { |key, s| s ? "#{key} (did you mean '#{s}'?)" : key }
+
+      # the message lists every unknown key; #path names the first, because a
+      # path that points at two fields points at neither. No coordinate: the
+      # input type defines no such field, so the schema has no name for it.
+      first = unknown.first
+      raw = hash.key?(first) ? hash[first] : hash[first.to_sym]
       raise GraphWeaver::InputError.new(
         "unknown key(s) for #{struct}: #{hints.join(", ")}",
-        field: unknown.join(", "),
-        struct: struct,
+        kind: :unknown, path: [first],
+        value: GraphWeaver::Internal::Redact.value(first, raw),
+        details: { suggestion: suggestions[first] }.compact, struct: struct,
       )
     end
 

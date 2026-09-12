@@ -136,7 +136,7 @@ describe "built-in scalar coercion" do
       name: "PetsQuery",
     )
 
-    expect(source).to include('Field.new(:metadata, "metadata", false, nil, nil)')
+    expect(source).to include('Field.new(:metadata, "metadata", false, nil, nil, "PetFilter.metadata")')
   end
 
   # A scalar registered as a Ruby type with no codec and no entry in Coerce's
