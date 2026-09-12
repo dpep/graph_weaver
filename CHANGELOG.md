@@ -13,6 +13,14 @@
   `GraphWeaver.client.execute` made a live request from a `:fake` example. The
   slot now holds a client that refuses, naming the mode, the graphs, and the
   helper whose return value is the client to call.
+- **Two test-time memos now notice the file underneath them changing.**
+  `GraphWeaver::Testing.config.schema` keys its located dump on the resolved
+  path, so `GraphWeaver.schema_path=` and `root=` are no longer invisible to
+  `:fake` (only `Testing.reset!` used to clear it, which made the fabricated
+  shapes order-dependent across spec files). `Internal::Util.composed?` keys on
+  the file's path, mtime and size, so a supergraph recomposed in place is
+  re-read rather than answered from the previous composition. Both still load
+  once while the file stands still.
 <!-- /lane: harness -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

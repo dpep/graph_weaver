@@ -142,14 +142,17 @@ module GraphWeaver
         # app-wide fallbacks, and the federation rake tasks through both.
         #
         # Kept per source for the life of the process — parsing a supergraph
-        # is milliseconds and :wire asks per example. Safe to keep because the
-        # answer is a property of the file's content, and nothing here rewrites
-        # a supergraph mid-process.
+        # is milliseconds and :wire asks per example — and keyed on what the
+        # file IS, since the answer is a property of its content. A supergraph
+        # recomposed at a stable path (a `before` hook, chained rake tasks)
+        # used to be answered from the previous composition, which routed a
+        # graph into the wrong plan or refused it as being in none.
         def composed?(source)
           @composed ||= {}
-          return @composed[source] if @composed.key?(source)
+          key = composed_key(source)
+          return @composed[key] if @composed.key?(key)
 
-          @composed[source] = begin
+          @composed[key] = begin
             SchemaLoader.routing_table(source)
             true
           rescue GraphWeaver::Error
@@ -191,6 +194,17 @@ module GraphWeaver
         end
 
         private
+
+        # What makes a composed? answer stale. Both callers pass a path that
+        # exists, so the file's identity is its stat — size as well as mtime,
+        # because a coarse mtime can miss two writes in one tick. Anything
+        # that isn't a path (SDL, a class) is its own key.
+        def composed_key(source)
+          stat = File.stat(source.to_s)
+          [source.to_s, stat.mtime, stat.size]
+        rescue SystemCallError
+          source
+        end
 
         # "Mutation" for a mutation document, "Query" for everything else.
         def operation_suffix(source)

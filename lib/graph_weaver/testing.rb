@@ -74,6 +74,7 @@ module GraphWeaver
         @list_size = 1..3
         @schema = nil
         @located = nil # the committed dump, once located
+        @located_path = nil # and the path it was located at
         # not under spec/fixtures: `fixtures :all` globs that path for
         # `{**,*}/*.yml` and would try to load cassettes as ActiveRecord
         # fixtures, a subdirectory included
@@ -101,7 +102,18 @@ module GraphWeaver
         # the dump memoizes separately: explicit_schema has to stay honest
         # about whether anyone set one, since :in_process won't run a dump's
         # resolver-less types as if they were the live class
-        @schema || (@located ||= GraphWeaver::SchemaLoader.locate)
+        return @schema if @schema
+
+        # keyed on the path it came from, so schema_path= and root= aren't
+        # invisible — a memo that outlived them faked the previous schema's
+        # shapes with nothing said. Worth keeping: loading a real
+        # introspection dump is ~100ms and every fake asks.
+        path = GraphWeaver::SchemaLoader.locate_path
+        return unless path
+
+        @located = GraphWeaver::SchemaLoader.load(path) unless @located_path == path
+        @located_path = path
+        @located
       end
 
       # What's been set, without falling back to the dump — so validating

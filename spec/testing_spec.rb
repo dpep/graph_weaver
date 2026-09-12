@@ -568,6 +568,38 @@ describe GraphWeaver::Testing do
     end
   end
 
+  # The dump #schema falls back to is memoized — loading GitHub's
+  # introspection is ~175ms and every fake asks — so the memo has to notice
+  # when the dump moves, which no reset but Testing.reset! used to do.
+  describe "the committed dump #schema falls back to" do
+    around do |example|
+      Dir.mktmpdir do |dir|
+        @alpha = File.join(dir, "alpha.graphql")
+        @beta = File.join(dir, "beta.graphql")
+        File.write(@alpha, "type Query { alpha: String }")
+        File.write(@beta, "type Query { beta: String }")
+        example.run
+      end
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+
+    it "follows GraphWeaver.schema_path" do
+      GraphWeaver.schema_path = @alpha
+      expect(described_class.config.schema.query.fields.keys).to eq %w[alpha]
+
+      GraphWeaver.schema_path = @beta
+      expect(described_class.config.schema.query.fields.keys).to eq %w[beta]
+    end
+
+    it "loads it once while the path stands still" do
+      GraphWeaver.schema_path = @alpha
+      expect(GraphWeaver::SchemaLoader).to receive(:load).once.and_call_original
+
+      3.times { described_class.config.schema }
+    end
+  end
+
   describe "#router=" do
     let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
 
@@ -617,6 +649,22 @@ describe GraphWeaver::Testing do
         expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
 
         3.times { described_class.config.supergraph?(graph(:api)) }
+      end
+    end
+
+    # and the other half of that memo: keyed on what the file IS, so a
+    # supergraph recomposed at a stable path — a before hook, chained rake
+    # tasks — isn't answered from the previous composition for the life of
+    # the process
+    it "notices a source recomposed in place" do
+      Dir.mktmpdir do |dir|
+        source = File.join(dir, "supergraph.graphql")
+        File.write(source, "type Query { a: Int }\n")
+        GraphWeaver.graph(:api) { schema source }
+        expect(described_class.config.supergraph?(graph(:api))).to be false
+
+        File.write(source, File.read(supergraph))
+        expect(described_class.config.supergraph?(graph(:api))).to be true
       end
     end
 
