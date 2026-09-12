@@ -181,8 +181,13 @@ takes a `Client` or any bare transport/fake):
 1. per call: `execute(client: some_client, ...)` — a kwarg like the
    variables, and a name no GraphQL variable is allowed to take
 2. per module: `MyQuery.client = something`
-3. baked constant: `Codegen.generate(..., client: MyApi::CLIENT)`
-4. the app default: `GraphWeaver.client=`
+3. a test mode's stand-in: under `graphql: :fake` / `:in_process` /
+   `:router`, built from the graph this module was generated from
+4. baked constant: `Codegen.generate(..., client: MyApi::CLIENT)`
+5. the app default: `GraphWeaver.client=`
+
+The mode replaces what codegen baked in, not what your example said — 1 and 2
+still win.
 
 Nothing set anywhere raises, naming the two you'd usually reach for:
 `no client configured — set GraphWeaver.client= or pass a client`.

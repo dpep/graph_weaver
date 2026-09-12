@@ -68,8 +68,8 @@ require_relative "testing"
 # The router is built once for the suite (parsing a supergraph per example
 # would be real time) and installed for each.
 #
-# note: modules generated with a baked-in client: constant don't consult
-# GraphWeaver.client — generate without client: to make them fakeable.
+# A module generated with a baked-in client: is covered too — the mode
+# stands in for that constant (Internal::TestClients).
 module GraphWeaver
   module Testing
     module RSpecIntegration
@@ -109,9 +109,12 @@ module GraphWeaver
             # :live builds none — the app's own client is what it runs against
             GraphWeaver.client = client
           end
+          GraphWeaver::Internal::TestClients.install(@__graph_weaver_mode)
         end
 
         rspec_config.after(:each) do
+          # first, so a refused tag still tears the mode down
+          GraphWeaver::Internal::TestClients.reset!
           next unless defined?(@__graph_weaver_prior_client)
 
           if defined?(@__graph_weaver_stub) && @__graph_weaver_stub
@@ -310,6 +313,9 @@ module GraphWeaver
           end
 
           @__graph_weaver_mode = mode
+          # the hook installed the default before this helper spoke; a
+          # module bound to its own client resolves through what is claimed
+          GraphWeaver::Internal::TestClients.install(mode)
         end
 
         # rspec's own --seed already drives the fake (config.seed takes it

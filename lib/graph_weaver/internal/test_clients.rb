@@ -36,10 +36,11 @@ module GraphWeaver
         # The stand-in for `mod`, or nil when there is nothing to stand in for.
         def for(mod)
           return unless @mode
-          # :wire is the one mode that takes no client slot — it serves the
-          # resolvers at the endpoint each client already posts to, and the
-          # transport you ship running unchanged is the whole point
-          return if @mode == :wire
+          # neither takes the client slot: :live is the app's own clients,
+          # untouched, and :wire serves the resolvers at the endpoint each
+          # client already posts to — the transport you ship, running
+          # unchanged, is the whole point
+          return if @mode == :live || @mode == :wire
           # One graph, or a suite that named one schema, has a single answer
           # and the rspec hook has already put it in the app slot. Reading it
           # back rather than building a second one is what keeps

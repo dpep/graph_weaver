@@ -1,4 +1,19 @@
 ## Unreleased
+- **A `graphql:` tag now reaches a module generated with `client:`.** The
+  baked `DEFAULT_CLIENT` sits above `GraphWeaver.client`, which is the slot a
+  tag swapped, so `it "…", graphql: :fake` ran a bound module against its real
+  endpoint. The mode now stands in for that constant too — a per-call
+  `client:` and `MyQuery.client =` still win, and `:wire` still leaves every
+  client where it is. **If a spec relied on a bound module ignoring the tag,
+  it now runs against the fake.**
+- With more than one graph, each module's stand-in is built from its own
+  schema: `graphql: :fake` for a billing module fabricates billing's shapes
+  instead of refusing to pick a schema for the suite. Modules carry a private
+  `GRAPH` naming the graph they were generated from, so **regenerate after
+  upgrading** if you declare graphs — a multi-graph app whose modules predate
+  this says so and refuses rather than guessing.
+- `GraphWeaver.graph` refuses a name that isn't a Symbol or a String; the
+  name now reaches generated source.
 - **Breaking: `graphql: false` is now `graphql: :live`.** The opt-out is the
   app's own client, untouched — which is a mode like the other four, so it is
   spelled like one. Rename the tag; `false` is refused, and the refusal names
