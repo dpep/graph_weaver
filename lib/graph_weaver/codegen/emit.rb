@@ -381,6 +381,8 @@ class GraphWeaver::Codegen
       end
 
       node.fields.each do |field|
+        note = renamed_note(field.prop, field.key)
+        out << "#{pad}  #{note}" if note
         out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}"
       end
 
@@ -614,6 +616,15 @@ class GraphWeaver::Codegen
       "GraphWeaver::Hints.field(self, #{field.key.inspect}) { #{cast} }"
     end
 
+    # Why a prop is spelled unlike its wire name, for the one case a reader
+    # can't infer: a reserved name took a trailing underscore. camelCase →
+    # snake_case is the rule the whole file follows, and the wire key is
+    # already spelled out beside it (from_h's `data[...]`, a FIELDS row), so
+    # noting every prop would be noise.
+    def renamed_note(prop, wire)
+      "# wire: #{wire} — reserved as a prop name" if prop == "#{underscore(wire)}_"
+    end
+
     # A module-level T::Struct per input type: typed consts plus a FIELDS
     # table the GraphWeaver::InputStruct runtime drives — serialize/to_h/
     # coerce live once in the gem, not unrolled per struct (bool_exp
@@ -638,6 +649,8 @@ class GraphWeaver::Codegen
         type = field.node.prop_type
         type = "T.nilable(#{type})" if !field.required && field.node.non_null? && type != "T.untyped"
         default = field.required ? "" : ", default: nil"
+        note = renamed_note(field.prop, field.wire)
+        out << "#{pad}  #{note}" if note
         out << "#{pad}  const :#{field.prop}, #{type}#{default}"
       end
       out << ""

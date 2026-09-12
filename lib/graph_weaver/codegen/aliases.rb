@@ -163,10 +163,12 @@ class GraphWeaver::Codegen
       type = obj.graphql_type && @schema.get_type(obj.graphql_type)
       return unless type.respond_to?(:fields)
 
-      known = type.fields.keys.map { |field| GraphWeaver::Inflect.underscore(field) }
+      # PROP_NAME, not underscore: a path hops through PROPS, so a reserved
+      # field is spelled with its trailing underscore here too
+      known = type.fields.keys.map { |field| PROP_NAME.call(field) }
       return if seg == "__typename" || known.include?(seg)
 
-      prop = GraphWeaver::Inflect.underscore(seg)
+      prop = PROP_NAME.call(seg)
       hint = if prop != seg && known.include?(prop)
         # paths are the Ruby prop chain, not the GraphQL one — the classic miss
         " — GraphQL fields generate snake_case props; use '#{prop}'"

@@ -30,8 +30,8 @@ raises. Three commands find everything except the two silent ones:
 ```sh
 grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
 rake graph_weaver:generate   # every module now names the graph it came from,
-                             # plus the reserved-key, client: and
-                             # cast:/serialize: refusals
+                             # plus the underscored reserved props, and the
+                             # client: and cast:/serialize: refusals
 bundle exec rspec            # the renamed tag, the deleted nil, the seed: refusal
 ```
 
@@ -108,6 +108,19 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   `InputError` rather than Ruby's *"no implicit conversion of Time into
   String"*, and a `DateTime` or `Time.zone.now` for a *timestamp* converts
   losslessly where it used to raise.
+- **A field whose name a struct already answers to now generates as `name_`.**
+  `class` becomes the prop `class_`, `hash` becomes `hash_`, and so on for
+  `display`, `to_json`, `each` and (on an input) `supplied`. Nothing that used
+  to work stops working: a key you aliased in the query to get past the old
+  *"alias it in the query"* refusal still generates from that alias — **drop
+  the alias and regenerate** if you want the field's own name back. Only the
+  Ruby name moves; the wire keeps the schema's spelling in both directions, so
+  `result.class` is still Ruby's `class` and `result.class_` is the field. The
+  prop is the field's one Ruby name, so `.coerce({ class_: … })`, `#to_h` and
+  an `InputError`'s `#path` all use it (`#coordinate` still names
+  `Tricky.class`). Input types had no way past the old refusal at all, so a
+  schema with a `class` column — a Hasura `bool_exp` has one input field per
+  column — generates for the first time.
 - **A `client` that isn't a constant is refused at generation.** Its value is
   spelled into every module the graph generates, so `client` given an endpoint
   url emitted a file that doesn't parse, from a run that reported success.

@@ -381,6 +381,22 @@ class GraphWeaver::Codegen
     }).freeze
   private_constant :RUBY_KEYWORDS, :GENERATED_METHODS, :RESERVED_KWARGS, :RESERVED_PROPS
 
+  # The Ruby name for a GraphQL field or result key: snake_case, plus a
+  # trailing underscore when that would shadow a method the struct answers
+  # (`class` -> `class_`, `hash` -> `hash_`). A schema's field name is not the
+  # user's to rename, and `class`, `hash`, `display` and `supplied` are all
+  # columns somebody has — so renaming beats refusing. Only the Ruby side
+  # moves: the wire name, and everything read from or written to the wire,
+  # is untouched.
+  #
+  # A lambda rather than a method so the Aliases mixin shares this one copy;
+  # a second spelling of the rule is how the two sides drift apart.
+  PROP_NAME = ->(graphql_name) {
+    prop = GraphWeaver::Inflect.underscore(graphql_name)
+    RESERVED_PROPS.include?(prop) ? "#{prop}_" : prop
+  }
+  private_constant :PROP_NAME
+
   def generate
     begin
       errors = @schema.validate(@query)
@@ -791,8 +807,8 @@ class GraphWeaver::Codegen
     gather_conditional(type, selections).each do |key, occurrences|
       field_nodes = occurrences.map(&:first)
       field_name = field_nodes.first.name
-      prop = underscore(key)
-      check_output_prop!(type, key, prop, field_name, props)
+      prop = PROP_NAME.call(key)
+      check_output_prop!(type, key, prop, props)
 
       child = if field_name == "__typename"
         NonNull.new(scalar_node("String"))
@@ -946,22 +962,12 @@ class GraphWeaver::Codegen
     node
   end
 
-  # Both ways a result key can fail to become a prop — a name RESERVED_PROPS
-  # holds, or a second key that underscores onto an earlier one. Either emits a
-  # struct that misbehaves (usually an ArgumentError at require time), so refuse
-  # here; an alias in the query fixes both. `props` accumulates prop => key.
-  def check_output_prop!(type, key, prop, field_name, props)
-    # Keywords are fine: `const :next` and `next: data["next"]` are legal, and
-    # the one place a prop is read bare (an alias delegator) qualifies it.
-    # `pageInfo { next }` and `filter { in }` are ordinary API shapes.
-    if RESERVED_PROPS.include?(prop)
-      # the key may already be an alias (`class: a`), in which case there is no
-      # Type.class to name and the fix aliases the FIELD, not the key
-      raise GraphWeaver::Error,
-        "result key #{key.inspect} on #{type.graphql_name} would become prop '#{prop}', a name " \
-        "generated structs reserve — alias it in the query (`#{prop}Value: #{field_name}`)"
-    end
-
+  # The one way a result key can still fail to become a prop: a second key that
+  # underscores onto an earlier one. That emits a struct that misbehaves (an
+  # ArgumentError at require time), so refuse here; an alias in the query fixes
+  # it. A reserved name doesn't get here — prop_name renames it. `props`
+  # accumulates prop => key.
+  def check_output_prop!(type, key, prop, props)
     if (earlier = props[prop])
       raise GraphWeaver::Error,
         "result keys #{earlier.inspect} and #{key.inspect} on #{type.graphql_name} both map to the " \
@@ -1223,17 +1229,11 @@ class GraphWeaver::Codegen
     node.one_of = core.respond_to?(:one_of?) && core.one_of?
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
-      prop = underscore(argument.graphql_name)
       # Keywords are fine here: nothing reads an input prop bare (serialize goes
       # through public_send), and `const :in` is legal — which matters, since a
       # schema's field name is not the user's to rename. `Tricky.in` filters are
       # standard Hasura/Gatsby shape.
-      if RESERVED_PROPS.include?(prop)
-        raise GraphWeaver::Error,
-          "input field #{core.graphql_name}.#{argument.graphql_name} would become prop '#{prop}', " \
-          "a name generated structs reserve"
-      end
-
+      prop = PROP_NAME.call(argument.graphql_name)
       child = type_ref(argument.type) { variable_core(argument.type.unwrap) }
       required = child.non_null? && !argument.default_value?
       node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)

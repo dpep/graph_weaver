@@ -129,16 +129,87 @@ describe GraphWeaver::Codegen do
       expect(mod::Tricky.coerce({ in: %w[a b], end: "z" }).serialize).to eq({ "in" => %w[a b], "end" => "z" })
     end
 
-    it "refuses input fields whose prop name generated structs reserve" do
-      # `class` is both a keyword and Object#class — T::Props refuses to redefine
-      # it; `supplied` is InputStruct's own accessor, reserved because the mixin
-      # defines it
-      %w[serialize class supplied].each do |field|
-        expect {
-          GraphWeaver.parse(schema: schema_with_input("#{field}: String"),
-            query: "mutation($input: Tricky!) { save(input: $input) }", name: "T#{field}")
-        }.to raise_error(GraphWeaver::Error, /Tricky\.#{field}.*a name generated structs reserve/)
+    # A schema's field name is not the user's to rename, and there is no alias
+    # on the input side to escape with — so a reserved name takes a trailing
+    # underscore as its PROP and keeps its own spelling on the wire. `class` is
+    # both a keyword and Object#class (T::Props refuses to redefine it);
+    # `supplied` is InputStruct's own accessor; `display` is Object#display.
+    it "underscores input fields whose prop name generated structs reserve" do
+      fields = %w[serialize class supplied display hash]
+      mod = GraphWeaver.parse(
+        schema: schema_with_input(fields.map { "#{_1}: String" }.join(" ")),
+        query: "mutation Save($input: Tricky!) { save(input: $input) }",
+        client: Demo::Schema, # never called; serialize is pure
+      )
+
+      struct = mod::Tricky.coerce(fields.to_h { ["#{_1}_".to_sym, _1] })
+      expect(struct.class_).to eq "class"
+      expect(struct.serialize).to eq fields.to_h { [_1, _1] } # the wire keeps the schema's names
+    end
+
+    it "notes the rename in the generated source, where it can't be inferred" do
+      src = GraphWeaver::Codegen.generate(schema: schema_with_input("class: String"),
+        query: "mutation Save($input: Tricky!) { save(input: $input) }", name: "NotedInput")
+
+      expect(src).to include("# wire: class — reserved as a prop name\n")
+      expect(src).to include("const :class_,")
+    end
+
+    # The whole point of the rename: a Hasura bool_exp is one input field per
+    # column, so the reserved list meets real column names — and there is no
+    # alias on the input side to escape with.
+    it "carries a renamed column through a recursive bool_exp" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { rows(where: RowBoolExp): Boolean }
+        input StringComparison { _eq: String }
+        input RowBoolExp {
+          _and: [RowBoolExp!]
+          class: StringComparison
+          pp: StringComparison
+          display: StringComparison
+        }
+      GRAPHQL
+      mod = GraphWeaver.parse(schema:, query: "query R($where: RowBoolExp) { rows(where: $where) }",
+        client: Demo::Schema, name: "BoolExp")
+
+      wire = mod::RowBoolExp.coerce(
+        { _and: [{ class_: { _eq: "mammal" }, pp: { _eq: "x" }, display_: { _eq: "y" } }] },
+      ).serialize
+
+      expect(wire).to eq(
+        "_and" => [{ "class" => { "_eq" => "mammal" }, "pp" => { "_eq" => "x" },
+                     "display" => { "_eq" => "y" } }],
+      )
+    end
+
+    # One Ruby name per field: .new and .coerce take the prop, and the wire
+    # name reaching coerce is a key the struct doesn't have. The spellchecker
+    # already lands on the prop, so the miss teaches the rule.
+    it "points a caller who used the wire name at the prop" do
+      mod = GraphWeaver.parse(schema: schema_with_input("class: String"),
+        query: "mutation Save($input: Tricky!) { save(input: $input) }",
+        client: Demo::Schema, name: "WireKeyed")
+
+      expect { mod::Tricky.coerce({ class: "x" }) }.to raise_error(
+        GraphWeaver::InputError, /unknown key\(s\) for .*: class \(did you mean 'class_'\?\)/
+      )
+    end
+
+    # #path points into the hash the caller handed us, which is prop-keyed;
+    # #coordinate is the schema's name for the slot, which is not.
+    it "locates a refusal by the prop, and names the schema coordinate" do
+      mod = GraphWeaver.parse(schema: schema_with_input("class: Int"),
+        query: "mutation Save($input: Tricky!) { save(input: $input) }",
+        client: Demo::Schema, name: "RenamedPath")
+
+      error = begin
+        mod::Tricky.coerce({ class_: "nope" })
+      rescue GraphWeaver::InputError => e
+        e
       end
+
+      expect(error.path).to eq ["class_"]
+      expect(error.coordinate).to eq "Tricky.class"
     end
 
     def schema_with_page(fields)
@@ -158,38 +229,49 @@ describe GraphWeaver::Codegen do
       expect([page.next, page.end, page.in]).to eq %w[n e i]
     end
 
-    it "refuses result keys whose prop name generated structs reserve" do
-      expect {
-        GraphWeaver.parse(schema: schema_with_page("serialize: String"),
-          query: "query P { page { serialize } }", name: "CollidingProp")
-      }.to raise_error(GraphWeaver::Error,
-        "result key \"serialize\" on Page would become prop 'serialize', a name generated " \
-        "structs reserve — alias it in the query (`serializeValue: serialize`)")
+    it "underscores result keys whose prop name generated structs reserve" do
+      mod = GraphWeaver.parse(schema: schema_with_page("serialize: String class: String hash: String"),
+        query: "query P { page { serialize class hash } }", name: "UnderscoredProp")
+      page = mod.from_response!(
+        "data" => { "page" => { "serialize" => "s", "class" => "c", "hash" => "h" } },
+      ).page
+
+      expect([page.serialize_, page.class_, page.hash_]).to eq %w[s c h]
+      # the shadowed methods still answer for themselves
+      expect(page.class).to eq mod::Result::Page
+      expect(page.hash).to eq page.dup.hash
     end
 
-    # the colliding key can itself be an alias, and then there is no Page.class
-    # to name — and `classValue: class` is a query nobody can write
-    it "names the field, not the alias, in the fix it suggests" do
-      expect {
-        GraphWeaver.parse(schema: schema_with_page("ok: String"),
-          query: "query P { page { serialize: ok } }", name: "AliasedCollidingProp")
-      }.to raise_error(GraphWeaver::Error,
-        "result key \"serialize\" on Page would become prop 'serialize', a name generated " \
-        "structs reserve — alias it in the query (`serializeValue: ok`)")
+    # the renamed key can itself be an alias, and what the wire carries is the
+    # alias — `class: ok` sends "class" and the struct answers `class_`
+    it "renames an aliased key the same way" do
+      mod = GraphWeaver.parse(schema: schema_with_page("ok: String"),
+        query: "query P { page { class: ok } }", name: "AliasedReservedProp")
+
+      expect(mod.from_response!("data" => { "page" => { "class" => "c" } }).page.class_).to eq "c"
     end
 
-    # The refusal set used to be read off the live T::Struct, which made it a
+    it "notes the rename in the generated source, where it can't be inferred" do
+      src = GraphWeaver::Codegen.generate(schema: schema_with_page("class: String"),
+        query: "query P { page { class } }", name: "NotedResult")
+
+      expect(src).to include("# wire: class — reserved as a prop name\n")
+      expect(src).to include("const :class_,")
+    end
+
+    # The reserved set used to be read off the live T::Struct, which made it a
     # function of require order: ActiveSupport defines Object#as_json, so the
     # same schema and query generated different source depending on what else
     # was in the Gemfile — and when the prop slipped through it shadowed the
     # real #as_json, so `render json: result` serialised the field.
-    it "refuses the names Ruby and Rails call on any object" do
-      %w[as_json to_param to_json deconstruct to_a each try].each do |field|
-        expect {
-          GraphWeaver.parse(schema: schema_with_page("#{field}: String"),
-            query: "query P { page { #{field} } }", name: "Duck#{field.delete("_")}")
-        }.to raise_error(GraphWeaver::Error, /would become prop '#{field}'/)
-      end
+    it "underscores the names Ruby and Rails call on any object" do
+      fields = %w[as_json to_param to_json deconstruct to_a each try]
+      mod = GraphWeaver.parse(schema: schema_with_page(fields.map { "#{_1}: String" }.join(" ")),
+        query: "query P { page { #{fields.join(" ")} } }", name: "DuckProps")
+      page = mod.from_response!("data" => { "page" => fields.to_h { [_1, _1] } }).page
+
+      expect(fields.map { page.public_send("#{_1}_") }).to eq fields
+      expect(page.to_h.keys).to eq fields.map { "#{_1}_".to_sym } # the Ruby view uses the prop
     end
 
     # Kernel's private methods are NOT reserved: a struct doesn't answer them,
@@ -1651,12 +1733,12 @@ describe GraphWeaver::Codegen do
         .to raise_error(GraphWeaver::Error, /both map to the prop 'name'/)
     end
 
-    it "rejects a field whose prop is a method every struct already answers" do
-      # T::Props refuses to redefine #class, so the file would raise at require
-      expect { generate("class") }.to raise_error(GraphWeaver::Error, /alias it in the query/)
+    it "underscores a field whose prop is a method every struct already answers" do
+      # T::Props refuses to redefine #class, so the prop moves out of its way
+      expect(generate("class")).to include("const :class_, String")
     end
 
-    it "accepts the aliased spelling the error suggests" do
+    it "leaves an aliased spelling alone" do
       expect(generate("classValue: class")).to include("const :class_value, String")
     end
   end

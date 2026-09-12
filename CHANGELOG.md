@@ -61,6 +61,28 @@
   text, which makes it a lint and not a proof: the task's own footer names what
   it is blind to
   ([getting started](docs/getting_started.md#the-selections-nothing-reads)).
+<!-- lane: codegen -->
+- **A field named after a method every struct answers now generates, with a
+  trailing underscore.** `class` becomes the prop `class_`, `hash` becomes
+  `hash_`, and so on for `display`, `to_json`, `each`, and `supplied` on an
+  input — in results and input types alike. Generation used to refuse both:
+  on the result side it told you to alias the key in the query, and on the
+  input side it told you nothing you could act on, because a schema's field
+  name is not yours to rename. `class`, `hash` and `display` are columns
+  somebody has, and a Hasura `bool_exp` has one input field per column, so
+  that refusal turned whole schemas away. One rule, both directions: a prop
+  may not shadow a method its struct answers, so the prop — and only the prop
+  — moves out of the way. The wire is untouched in both directions, so the
+  query you wrote, the request that goes out and the response that comes back
+  all keep the schema's spelling; `result.class` is still Ruby's `class`, and
+  `result.class_` is the field. The prop is the field's one Ruby name:
+  `.new`, `.coerce`, `#to_h`, pattern matching and an `InputError`'s `#path`
+  all use `class_`, while `#coordinate` still names the schema's
+  `Tricky.class`. A key you aliased in the query to get past the old refusal
+  still generates from the alias — drop it and regenerate if you want the
+  field's own name back. Generated source now notes the rename on the line
+  above the prop (`# wire: class — reserved as a prop name`), which is the
+  one prop-vs-wire difference a reader can't infer. **Regenerate.**
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

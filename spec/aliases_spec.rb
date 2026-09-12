@@ -261,6 +261,28 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
       expect(src).to include("def cursor = self.next", "def tag = self.next&.tag")
     end
 
+    # a path is the PROP chain, so a reserved field is spelled with the
+    # trailing underscore generation gave it
+    it "hops through a field whose prop was underscored" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { widget: Widget }
+        type Widget { meta: Meta }
+        type Meta { class: String! }
+      GRAPHQL
+      GraphWeaver.extend_type("Widget", alias: { kind: "meta.class_" })
+      src = GraphWeaver::Codegen.generate(schema:, query: "query W { widget { meta { class } } }", name: "W")
+
+      expect(src).to include("def kind = meta&.class_")
+    end
+
+    it "tells an unselected underscored field from one the schema lacks" do
+      schema = GraphQL::Schema.from_definition("type Query { widget: Widget }\ntype Widget { class: String! id: ID! }")
+      GraphWeaver.extend_type("Widget", alias: { kind: "class_" })
+
+      expect { GraphWeaver::Codegen.generate(schema:, query: "query W { widget { id } }", name: "W") }
+        .to raise_error(GraphWeaver::Error, /'class_' is not a selected field/)
+    end
+
     it "reads a schema field named `first` as a field, not a list selector" do
       expect(gen2({ t: "first.id" }, "query W { widget { first { id } } }")).to include("def t = first&.id")
     end

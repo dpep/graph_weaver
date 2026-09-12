@@ -422,6 +422,16 @@ mode) the struct raises a NoMethodError naming the prop that does exist —
 `use 'name_with_owner'` for the exact wire name, `did you mean ...?` for
 a near-miss typo in either casing.
 
+A name that would shadow a method every struct answers — `class`, `hash`,
+`display`, `to_json`, and `supplied` on an input — takes a trailing underscore
+instead: `class` → `class_`, in results and input types alike. The generated
+source says so on the line above the prop. Only the Ruby name moves: the wire
+keeps the schema's spelling in both directions, so the query, the request and
+the response are untouched, and `result.class` is still Ruby's `class`. The
+prop is the one Ruby name for the field, so `.new`, `.coerce`, `#to_h`,
+pattern matching and an `InputError`'s `#path` all use `class_` (an input
+error's `#coordinate` still names the schema's `Tricky.class`).
+
 ### Abstract types
 
 An abstract field emits **one struct per type condition the selection names**,
