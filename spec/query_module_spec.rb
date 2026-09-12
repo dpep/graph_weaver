@@ -63,6 +63,12 @@ describe GraphWeaver::QueryModule do
       expect { query_module.send(:dispatch, {}, client: Object.new) }
         .to raise_error(GraphWeaver::Error, /client must respond to #execute/)
     end
+
+    # plumbing, like the constants it reads: generated code is the only
+    # caller, and a generated module offers execute/from_response, not this
+    it "stays private, so it isn't a method every generated module offers" do
+      expect(query_module).not_to respond_to(:dispatch)
+    end
   end
 
   # The graph is a label on the request a dispatch makes, and only on that
