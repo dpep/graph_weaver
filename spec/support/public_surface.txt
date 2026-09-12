@@ -5,6 +5,7 @@ GraphWeaver.check_queries
 GraphWeaver.client
 GraphWeaver.client!
 GraphWeaver.client=
+GraphWeaver.configure
 GraphWeaver.extend_t_sig=
 GraphWeaver.extend_t_sig?
 GraphWeaver.extend_type

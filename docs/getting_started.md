@@ -61,6 +61,15 @@ What it wrote:
   GraphWeaver.register_scalar("Money", Money)   # a scalar the registry can't know
   ```
 
+  Settings also take the block form the file's neighbours use — `config` is
+  `GraphWeaver` itself, so the two spellings are one call:
+
+  ```ruby
+  GraphWeaver.configure do |config|
+    config.client = GraphWeaver.new("https://api.example.com/graphql", auth: ENV["GRAPHWEAVER_AUTH"])
+  end
+  ```
+
   A registration that names one of your own constants — a `T::Enum` for
   `register_enum`, a mixin for `extend_type` — goes in a `to_prepare` block,
   the same place the in-process client goes and for the same reason:
@@ -471,8 +480,7 @@ If your app globally injects `T::Sig` (`class Module; include T::Sig`), the
 per-struct `extend T::Sig` in generated files is redundant — rubocop's
 `Sorbet/RedundantExtendTSig` flags it. GraphWeaver auto-detects that at
 generation time and skips the `extend`; override with
-`GraphWeaver.extend_t_sig = true`/`false`. (Generated code is machine-generated
-and marked "do not edit," so excluding `generated/**` from rubocop is also fine.)
+`GraphWeaver.extend_t_sig = true`/`false`.
 
 ## Not Rails?
 

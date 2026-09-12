@@ -44,6 +44,21 @@ module GraphWeaver
       Client.new(source, **options, &middleware)
     end
 
+    # Every setting below, in initializer style — the shape an app already
+    # knows from Sidekiq, Devise and GraphWeaver::Testing:
+    #
+    #      GraphWeaver.configure do |config|
+    #        config.client = GraphWeaver.new(url, auth: token)
+    #        config.queries_paths = "app/graphql/operations"
+    #      end
+    #
+    # `config` is GraphWeaver itself, so this is the same call as the flat
+    # `GraphWeaver.client = ...`; both spellings stay valid.
+    def configure
+      yield self
+      self
+    end
+
     # The app's default client — how generated modules find their server:
     #
     #      GraphWeaver.client = GraphWeaver.new(url, auth: token)

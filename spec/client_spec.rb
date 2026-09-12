@@ -293,6 +293,14 @@ describe GraphWeaver::Client do
       expect(mod.execute!(client: Demo::Schema).person&.name).to eq "Daniel"
     end
 
+    # GraphWeaver::Testing.configure exists, so an initializer reaches for
+    # this spelling first; it used to be a NoMethodError
+    it "is also reachable through GraphWeaver.configure" do
+      GraphWeaver.configure { |config| config.client = GraphWeaver.new(url) }
+
+      expect(mod.execute!.person&.name).to eq "Daniel"
+    end
+
     # a graphql: tag does nothing unless graph_weaver/rspec is required, and
     # the failure lands here — where the advice was for the wrong file
     it "names the require a spec's graphql: tag needs" do
