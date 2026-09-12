@@ -3,6 +3,8 @@
 
 require "sorbet-runtime"
 
+require_relative "internal/test_clients"
+
 module GraphWeaver
   # Called by generated code — not semver'd for direct use.
   #
@@ -14,7 +16,8 @@ module GraphWeaver
   # those are the point.
   #
   # Resolution order, per the docs: per call → per module (`MyQuery.client =`)
-  # → the module's baked DEFAULT_CLIENT → `GraphWeaver.client`.
+  # → a test mode's stand-in (Internal::TestClients) → the module's baked
+  # DEFAULT_CLIENT → `GraphWeaver.client`.
   module QueryModule
     extend T::Sig
 
@@ -48,9 +51,16 @@ module GraphWeaver
     # Codegen's `client:` constant, emitted as a DEFAULT_CLIENT lambda so the
     # constant it names is resolved on first use rather than at load — a
     # generated file may load before the initializer that builds the client.
+    #
+    # A test mode stands in for it: what codegen baked in is exactly what a
+    # `graphql:` tag means to replace, so a bound module is covered by the
+    # tag like every other one.
     sig { returns(T.untyped) }
     def default_client
       mod = T.unsafe(self)
+      stand_in = GraphWeaver::Internal::TestClients.for(mod)
+      return stand_in if stand_in
+
       mod.const_defined?(:DEFAULT_CLIENT, false) ? mod.const_get(:DEFAULT_CLIENT).call : GraphWeaver.client!
     end
   end
