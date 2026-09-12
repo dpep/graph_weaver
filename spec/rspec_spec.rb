@@ -562,6 +562,15 @@ describe "graph_weaver/rspec" do
         .to raise_error(GraphWeaver::Error, /graphql_in_process\(MySchema\).*graphql: :router/m)
     end
 
+    # config.context is the baseline the example's clients are built with, and
+    # they are built before any group hook runs — so one set from inside an
+    # example silently never arrived at a resolver. Every example has a mode,
+    # so this refuses in all of them; an around hook is outside, and allowed.
+    it "refuses config.context set inside an example, naming graphql_context" do
+      expect { config.context = { current_user: "alice" } }
+        .to raise_error(GraphWeaver::Error, /graphql_context.*Testing\.configure/m)
+    end
+
     it "refuses a router context that the per-example reset would overwrite" do
       expect { config.router = { supergraph: RouterGraph::SUPERGRAPH, context: { current_user_id: "2" } } }
         .to raise_error(ArgumentError, /config\.context/)

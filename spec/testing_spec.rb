@@ -474,23 +474,31 @@ describe GraphWeaver::Testing do
 
     # parsing a supergraph per example is real time; a context set by one
     # example leaking into the next is a real bug
-    it "builds the router once, and resets its context every example" do
-      GraphWeaver::Testing.configure do |config|
-        config.router = { supergraph: }
-        config.context = { current_user_id: "2" }
-        config.default_mode = :router
+    #
+    # config.context is suite setup, so it is set from an around hook — which
+    # is outside the example, where setting it is allowed
+    context "with a configured router" do
+      around do |example|
+        GraphWeaver::Testing.configure do |config|
+          config.router = { supergraph: }
+          config.context = { current_user_id: "2" }
+          config.default_mode = :router
+        end
+        example.run
       end
 
-      run([:before, :each])
-      router = GraphWeaver.client
-      expect(router.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
-      router.context = { current_user_id: "1" }
-      run([:after, :each])
+      it "builds the router once, and resets its context every example" do
+        run([:before, :each])
+        router = GraphWeaver.client
+        expect(router.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
+        router.context = { current_user_id: "1" }
+        run([:after, :each])
 
-      run([:before, :each])
-      expect(GraphWeaver.client).to be router
-      expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
-      run([:after, :each])
+        run([:before, :each])
+        expect(GraphWeaver.client).to be router
+        expect(GraphWeaver.client.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
+        run([:after, :each])
+      end
     end
 
     # the refusal names the modes, and is the one thing that says what to

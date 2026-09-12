@@ -61,8 +61,8 @@ module GraphWeaver
     CLIENT_MODES = %i[live fake in_process router wire].freeze
 
     class Config
-      attr_accessor :overrides, :seed, :list_size, :cassette_dir, :context,
-        :record, :anonymize
+      attr_accessor :overrides, :seed, :list_size, :cassette_dir, :record, :anonymize
+      attr_reader :context
       # #schema is written plainly and read with a fallback (below), the way
       # #router and #default_mode are read plainly and written with a check
       attr_writer :schema
@@ -108,6 +108,23 @@ module GraphWeaver
       # overrides at configure time doesn't force a schema load on a suite
       # that never asks for one.
       def explicit_schema = @schema
+
+      # The baseline every example starts from — suite setup, not something an
+      # example changes out from under itself: an example's clients are built
+      # before any group hook runs (a :wire example's, before its endpoints
+      # are stubbed), so a `before { config.context = … }` used to be read too
+      # late and silently never reach a resolver.
+      def context=(values)
+        if GraphWeaver::Internal::TestClients.installed?
+          raise GraphWeaver::Error, "config.context is the baseline every example starts from, " \
+            "read when that example's clients are built — so setting it from inside an example " \
+            "would never reach a resolver. Say it for this example with " \
+            "graphql_context(current_user: …), or for the suite in GraphWeaver::Testing.configure " \
+            "(an around hook works too — it wraps the setup a tag does)."
+        end
+
+        @context = values
+      end
 
       def default_mode=(mode)
         unless CLIENT_MODES.include?(mode)
