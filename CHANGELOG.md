@@ -151,6 +151,13 @@
   router is built once for the suite, so a seed there would pin every example
   to one run. `GraphWeaver::Testing.config.seed` remains the override for a
   harness that isn't rspec.
+- **The unregistered-scalar report prints where the task that found it
+  prints.** `rake graph_weaver:generate` and `:verify` said one of their two
+  registry advisories on the terminal and the other only on the logger — which
+  in Rails is `log/development.log`, so nobody running the task saw it. Both
+  now go to the task's own output, once for the run.
+  `GraphWeaver.untyped_scalars` is the list, beside
+  `GraphWeaver.unmatched_registrations`.
 - **`rake graph_weaver:federation:diff` no longer calls an absent subgraph
   stale.** A schema was recognized by the types its subgraph declares, and two
   subgraphs extending one entity declare the same one — so a `prefs` running in

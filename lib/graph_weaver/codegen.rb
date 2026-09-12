@@ -172,6 +172,11 @@ class GraphWeaver::Codegen
   # must contain.
   def used_union_names = @used_unions.dup
 
+  # The custom scalars this walk found no registration for (see
+  # report_untyped_scalars) — the generate! workflow unions these across
+  # queries so the build says them once, for GraphWeaver.untyped_scalars.
+  def untyped_scalars = @untyped_scalars.uniq.sort
+
   # The shared types artifact: every type a schema shares across query modules,
   # emitted once as a manifest (types.rb) plus one file per type under types/,
   # so a schema migration diffs only the types it touched. Returns
@@ -1220,15 +1225,14 @@ class GraphWeaver::Codegen
   # An unregistered custom scalar passes through as T.untyped — legitimate
   # (nobody needs a codec for every scalar), but it's the one hole in an
   # otherwise exact result type, so name the holes rather than leave them
-  # silent. Informational: not a warning, never an error.
+  # silent. Informational: not a warning, never an error. The logger is the
+  # runtime channel, so a console `parse` says it too; the build channel prints
+  # the same list once per run (see GraphWeaver.untyped_scalars).
   def report_untyped_scalars
-    names = @untyped_scalars.uniq.sort
+    names = untyped_scalars
     return if names.empty?
 
-    GraphWeaver::Internal::Log.log(:info) do
-      "#{names.size} unregistered custom scalar#{"s" unless names.one?} → T.untyped: " \
-        "#{names.join(", ")} (register with GraphWeaver.register_scalar)"
-    end
+    GraphWeaver::Internal::Log.log(:info) { GraphWeaver::Internal::Util.untyped_scalars_report(names) }
   end
 
   # rebuild the NON_NULL/LIST wrappers around the core node

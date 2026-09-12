@@ -67,6 +67,14 @@ module GraphWeaver
         # just the module name — see generated_names
         def module_name(path, source) = generated_names(path, source).first
 
+        # The one sentence about scalars nothing registered — said on the
+        # logger per parse and once per run by the build, and worth saying
+        # identically in both.
+        def untyped_scalars_report(names)
+          "#{names.size} unregistered custom scalar#{"s" unless names.one?} → T.untyped: " \
+            "#{names.join(", ")} (register with GraphWeaver.register_scalar)"
+        end
+
         # A path setting, as a real path: relative to GraphWeaver.root, which
         # is the app root and not wherever the process was started. Every
         # filesystem access on a configured path goes through here; the

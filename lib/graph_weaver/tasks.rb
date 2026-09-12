@@ -38,11 +38,16 @@ module GraphWeaver
             "SUPERGRAPH=supergraph.graphql")
       end
 
-      # Registrations the run couldn't match, once each. The logger is the
-      # runtime channel and is silent by default; this task's own output is the
-      # build channel, and the build is where someone regenerating is looking.
-      def self.report_unmatched
+      # What the run found worth saying about the registry, once each: the
+      # registrations it couldn't match, and the scalars nothing registered.
+      # The logger is the runtime channel and is silent by default (in Rails it
+      # writes to a file); this task's own output is the build channel, and the
+      # build is where someone regenerating is looking — so both advisories go
+      # there rather than one each way.
+      def self.report_registry
         GraphWeaver.unmatched_registrations.each { |message| puts message }
+        untyped = GraphWeaver.untyped_scalars
+        puts GraphWeaver::Internal::Util.untyped_scalars_report(untyped) if untyped.any?
       end
 
       # Neither task that needs the committed dump can take one itself, so both
@@ -95,7 +100,7 @@ namespace :graph_weaver do
       puts "pruned #{GraphWeaver::Internal::Util.relative(path)}"
     end
     puts "no queries in #{GraphWeaver.graphs.flat_map(&:queries).uniq.join(", ")}" if written.empty?
-    GraphWeaver::Internal::Tasks.report_unmatched
+    GraphWeaver::Internal::Tasks.report_registry
   rescue GraphWeaver::Error => e
     # a typo'd query is a user error — the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
@@ -118,7 +123,7 @@ namespace :graph_weaver do
   task verify: :environment do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
-    GraphWeaver::Internal::Tasks.report_unmatched
+    GraphWeaver::Internal::Tasks.report_registry
   rescue GraphWeaver::Error => e
     abort e.message
   end

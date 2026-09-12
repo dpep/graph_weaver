@@ -176,6 +176,21 @@ describe "graph_weaver rake tasks" do
       expect(result.out).to include "matches no scalar in", "or a registration for another schema"
     end
 
+    # The task's other advisory went to the logger alone, so one run said half
+    # of what it found on the terminal and half into log/development.log. One
+    # task, one destination — and once for the run, not once per query file.
+    it "names the unregistered custom scalars once, where the unmatched ones print" do
+      write_schema
+      2.times { |i| write_query("m#{i}.graphql", "query M#{i} { findPets { metadata } }") }
+
+      result = invoke("generate")
+
+      expect(result.status).to eq 0
+      expect(result.out.scan(/unregistered custom scalar/).size).to eq 1
+      expect(result.out).to include "1 unregistered custom scalar → T.untyped: Metadata " \
+        "(register with GraphWeaver.register_scalar)"
+    end
+
     # a typo'd query is a user error: the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
     it "names the file and position for a bad query, and exits non-zero" do

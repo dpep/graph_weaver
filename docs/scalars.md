@@ -278,8 +278,9 @@ sets at once instead of resetting between them.
 
 A scalar you never register is not an error — it generates as `T.untyped` and
 the wire value passes through untouched. It is, though, the one hole in an
-otherwise exact result type, so generation names the holes at `info` (see
-[logging](logging.md)):
+otherwise exact result type, so generation names the holes. `rake
+graph_weaver:generate` and `:verify` print them once for the run, and a
+`GraphWeaver.parse` says the same thing at `info` (see [logging](logging.md)):
 
 ```
 3 unregistered custom scalars → T.untyped: CountryCode, FuzzyDateInt, Json (register with GraphWeaver.register_scalar)
