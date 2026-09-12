@@ -164,12 +164,12 @@ shapes:
 
 | the server's rejection | what arrives |
 |---|---|
-| the variable didn't coerce — wrong type, not an enum member, a required field null, a key the input type doesn't define, a custom scalar's `GraphQL::CoercionError` | one error, **no `path`**, and `extensions` = `{"value" => «the whole variable», "problems" => [{"path" => ["level2","count"], "explanation" => "Could not coerce value \"nope\" to Int"}]}` — but **no `code`** |
-| a `validates:` rule failed — range, format, inclusion, length | `"data" => null`, `path` = the **response** path (`["adopt"]`: the mutation field, not the input field), and **no `extensions` key at all** |
+| the variable didn't coerce — wrong type, not an enum member, a required field null, a key the input type doesn't define, a custom scalar's `GraphQL::CoercionError` | a **request** error: no `data` key at all, one error with no `path`, and `extensions` = `{"value" => «the whole variable», "problems" => [{"path" => ["level2","count"], "explanation" => "Could not coerce value \"nope\" to Int"}]}` — but **no `code`** |
+| a `validates:` rule failed — range, format, inclusion, length | an **execution** error: `response.data` is present with the field nulled (so `success?` is false on a response that still carries data), `path` is the **response** path (`["adopt"]` — the field, not the input field), and there is **no `extensions` key at all** |
 
 So `#code` is nil either way, `errors_by_field` groups the second under the
 mutation field, and the field that was actually wrong is readable only out of
-`problems[].path` or the message text. (Verified against graphql-ruby 2.6.10.)
+`problems[].path` or the message text. (Measured against graphql-ruby 2.6.10.)
 
 Nothing here is portable: the GraphQL spec reserves `extensions` for
 implementors and defines no codes at all, Apollo Server stamps
