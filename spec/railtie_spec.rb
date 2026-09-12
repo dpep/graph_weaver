@@ -39,6 +39,10 @@ describe "GraphWeaver::Railtie" do
   Rails.const_set(:Railtie, railtie_base)
   load File.expand_path("../lib/graph_weaver/railtie.rb", __dir__)
 
+  # what the ignore initializer hid, and so what the next example would
+  # measure "declared too late" against — process-global, like the watcher
+  after { GraphWeaver::Railtie.ignored_dirs = nil }
+
   # calling the captured block does `require "graph_weaver/tasks"` — already
   # required (once, above) by the time this runs, so it's a no-op here and
   # the registration this proves happened is the one already in RakeHarness.application
@@ -137,6 +141,59 @@ describe "GraphWeaver::Railtie" do
     RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
 
     expect(ignored).to include "/app/app/graphql/odd_output"
+  ensure
+    GraphWeaver.reset_graphs!
+  end
+
+  # Zeitwerk can only be told to skip a directory BEFORE it is set up, and a
+  # graph declared from to_prepare — what the docs say to do when its block
+  # names an autoloaded constant — arrives after that. The generated files then
+  # load as ordinary autoloads and raise on the constant they don't define, in a
+  # Zeitwerk error that blames a dropped extend_type. Name the real cause.
+  it "refuses an output Zeitwerk already owns, declared too late to hide" do
+    loader = Object.new
+    loader.define_singleton_method(:ignore) { |_path| }
+    loader.define_singleton_method(:dirs) { ["/app/app/graphql", "/app/app/generated_graphql"] }
+    stub_const("Rails", Module.new)
+    Rails.define_singleton_method(:autoloaders) { [loader] }
+    Rails.define_singleton_method(:root) { Pathname.new("/app") }
+
+    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+
+    GraphWeaver.graph :late do
+      schema Demo::Schema
+      output "app/generated_graphql/billing"
+    end
+
+    expect { register_generated_load.each(&:call) }.to raise_error(
+      GraphWeaver::Error,
+      a_string_including(
+        ":late", "app/generated_graphql/billing", "config/initializers",
+        "GraphWeaver.generated_paths"
+      ),
+    )
+  ensure
+    GraphWeaver.reset_graphs!
+  end
+
+  # the same late declaration is fine wherever Zeitwerk isn't looking — either
+  # the ignore list already covers it, or it lives outside every autoload root
+  it "lets a late output through when Zeitwerk was never going to load it" do
+    loader = Object.new
+    loader.define_singleton_method(:ignore) { |_path| }
+    loader.define_singleton_method(:dirs) { ["/app/app/graphql"] }
+    stub_const("Rails", Module.new)
+    Rails.define_singleton_method(:autoloaders) { [loader] }
+    Rails.define_singleton_method(:root) { Pathname.new("/app") }
+
+    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+
+    GraphWeaver.graph :late do
+      schema Demo::Schema
+      output "graphql_generated" # not under an autoload root
+    end
+
+    expect { register_generated_load.each(&:call) }.not_to raise_error
   ensure
     GraphWeaver.reset_graphs!
   end
@@ -449,6 +506,34 @@ describe "GraphWeaver::Railtie" do
       )
     ensure
       GraphWeaver.logger = nil
+    end
+
+    # a graph declared from to_prepare is declared after every initializer, so
+    # a watcher built in one watches the wrong directories and an edit to that
+    # graph's .graphql silently never regenerates. app.reloaders is read per
+    # request, so joining it this late still counts.
+    it "watches a graph declared from a to_prepare block" do
+      dir, host = @dir, app
+      prepared = []
+      host.config.define_singleton_method(:to_prepare) { |&block| prepared << block }
+
+      RAILTIE_INITIALIZERS["graph_weaver.watch"].call(host)
+      expect(GraphWeaver::Railtie.watcher).to be_nil
+
+      GraphWeaver.graph :late do
+        schema Demo::Schema
+        queries File.join(dir, "late")
+        output File.join(dir, "late_generated")
+      end
+      prepared.each(&:call)
+
+      expect(GraphWeaver::Railtie.watcher.dirs.keys).to include File.join(@dir, "late")
+      # and once only — a dev reload re-runs to_prepare, and a second watcher
+      # would be a second reloader polling the same files
+      prepared.each(&:call)
+      expect(host.reloaders).to eq [GraphWeaver::Railtie.watcher]
+    ensure
+      GraphWeaver.reset_graphs!
     end
 
     it "watches in development only, unless the app says otherwise" do
