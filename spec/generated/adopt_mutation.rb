@@ -78,7 +78,7 @@ module AdoptMutation
   sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(input:, client: nil)
     variables = {
-      "input" => GraphWeaver::Coerce.variable("input", OPERATION_NAME, input) { |v| AdoptionInput.coerce(v) }.serialize,
+      "input" => GraphWeaver::Coerce.variable("input", OPERATION_NAME, input) { |v| AdoptionInput.coerce(v).serialize },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))

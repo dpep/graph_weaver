@@ -90,6 +90,10 @@
   prop-collision message already did; a module named `T` is refused rather
   than emitting code that shadows Sorbet's `T` in its own body; and a
   `client:` that isn't a constant says what one looks like.
+- **A variable's whole trip onto the wire is branded.** Serialization ran
+  *outside* the coercion's rescue, so anything it raised arrived as a bare
+  `NoMethodError` naming neither the variable nor the operation — now it reads
+  `$budget of Store: …`, the way a coercion failure already did.
 <!-- /lane: codegen -->
 - **A request header can be a callable.** On `Transport::HTTP` a `headers:`
   value answering `#call` is resolved per request rather than captured when the

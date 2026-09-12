@@ -583,16 +583,16 @@ class GraphWeaver::Codegen
 
     # A kwarg's trip onto the wire: normalize whatever arrived into the type
     # the sig promises — the sig itself is `.checked(:never)`, so this is the
-    # check — then serialize. Coercion is wrapped so a refusal names the
-    # variable and the operation; the value alone locates nothing.
+    # check — then serialize. The whole trip runs inside Coerce.variable, so a
+    # refusal from either half names the variable and the operation; the value
+    # alone locates nothing. (A serializer raising used to escape bare: a cast
+    # that answers nil hands `nil.upcase` to whatever called execute.)
     def variable_serialize(var)
-      value = if var.node.coerce?
-        "GraphWeaver::Coerce.variable(#{var.wire.inspect}, OPERATION_NAME, #{var.kwarg}) " \
-          "{ |v| #{var.node.coerce("v")} }"
-      else
-        var.kwarg
-      end
-      var.node.serialize_identity? ? value : var.node.serialize(value, 1)
+      return var.kwarg if !var.node.coerce? && var.node.serialize_identity?
+
+      value = var.node.coerce? ? var.node.coerce("v") : "v"
+      value = var.node.serialize(value, 1) unless var.node.serialize_identity?
+      "GraphWeaver::Coerce.variable(#{var.wire.inspect}, OPERATION_NAME, #{var.kwarg}) { |v| #{value} }"
     end
 
     def field_cast(field)

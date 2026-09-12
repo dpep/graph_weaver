@@ -148,8 +148,10 @@ describe "custom scalar deserialization" do
 
     expect(source).to include("const :price, MoneyDemo::Money")
     expect(source).to include('MoneyDemo::Money.parse(data.fetch("price"))')
-    # inferred serialize emits the inverse for the Money variable
-    expect(source).to include("}.to_s,")
+    # inferred serialize emits the inverse for the Money variable — inside
+    # Coerce.variable, so a refusal from it names the variable too
+    expect(source).to include("OPERATION_NAME, budget) { |v| (v.is_a?(MoneyDemo::Money) ? " \
+      "v : MoneyDemo::Money.parse(v)).to_s }")
   end
 
   it "emits requires: atop the generated source, before the module" do
@@ -663,6 +665,22 @@ describe "a class whose codec can't be inferred" do
       .execute(name: "Widget", budget: Money.from_amount(BigDecimal("12.50"), "USD"))
 
     expect(capture.variables["budget"]).to eq "12.50"
+  end
+
+  # the serializer used to run outside Coerce.variable's rescue, so whatever it
+  # raised arrived bare, naming neither the variable nor the operation
+  it "names the variable and the operation when the serializer raises" do
+    # a badly-written codec: the cast answers nil for what it doesn't
+    # recognise, and the serializer can't take one
+    GraphWeaver.register_scalar("Money", String,
+      cast: ->(v) { "(#{v}.is_a?(String) ? #{v} : nil)" },
+      serialize: ->(v) { "#{v}.upcase" })
+
+    expect {
+      GraphWeaver.parse(schema: MoneyDemo::Schema, client: Demo::Schema, query:)
+        .execute(name: "Widget", budget: 5)
+    }.to raise_error(GraphWeaver::InputError,
+      "$budget of Store: undefined method 'upcase' for nil (got 5)")
   end
 end
 

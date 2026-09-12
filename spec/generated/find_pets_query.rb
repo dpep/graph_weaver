@@ -76,7 +76,7 @@ module FindPetsQuery
   sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(where: (where_omitted = true; nil), client: nil)
     variables = {}
-    variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v) }.serialize) unless where_omitted
+    variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v).serialize }) unless where_omitted
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
   end
@@ -84,7 +84,7 @@ module FindPetsQuery
   sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(Result).checked(:never) }
   def self.execute!(where: (where_omitted = true; nil), client: nil)
     variables = {}
-    variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v) }.serialize) unless where_omitted
+    variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v).serialize }) unless where_omitted
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME)).data!
   end

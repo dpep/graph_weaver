@@ -76,7 +76,7 @@ module AddPetMutation
   def self.execute(name:, species:, client: nil)
     variables = {
       "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v) },
-      "species" => GraphWeaver::Coerce.variable("species", OPERATION_NAME, species) { |v| GraphWeaver::InputStruct.enum(Species, v) }.serialize,
+      "species" => GraphWeaver::Coerce.variable("species", OPERATION_NAME, species) { |v| GraphWeaver::InputStruct.enum(Species, v).serialize },
     }
 
     from_response(client_for(client).execute(QUERY, variables:, operation_name: OPERATION_NAME))
