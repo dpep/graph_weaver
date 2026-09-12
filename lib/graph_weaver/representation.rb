@@ -45,7 +45,7 @@ module GraphWeaver
 
       yield value
     rescue StandardError => e
-      shown = value.inspect
+      shown = Internal::Redact.shown(value)
       got = " (got #{shown})" unless e.message.include?(shown)
       raise InputError.new(
         "#{type_name} representation #{name}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}",

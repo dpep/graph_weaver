@@ -97,7 +97,9 @@ $count of Compute: expected an Int, got "lots"
 
 The value is usually the whole diagnosis, so it is quoted — unless the key it
 arrived under is one your `filter_parameters` covers, in which case the message
-reads `$password of Login: [FILTERED]`. Error messages reach the log at `warn`,
+reads `$password of Login: [FILTERED]`. A filtered key *inside* the value is
+covered too, at any depth: `got {"user" => "d", "token" => "[FILTERED]"}`, the
+same scrubbing `#value` gets. Error messages reach the log at `warn`,
 above the level that gates the variables line, so they are scrubbed by the same
 list ([logging](logging.md#filtered-variables)).
 

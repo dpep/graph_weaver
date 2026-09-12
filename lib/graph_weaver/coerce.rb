@@ -128,8 +128,8 @@ module GraphWeaver
         )
       rescue StandardError => e
         # a cast complains about the value without quoting it ("invalid date")
-        shown = value.inspect
-        got = " (got #{shown})" unless e.message.include?(shown)
+        quoted = shown(value)
+        got = " (got #{quoted})" unless e.message.include?(quoted)
         raise GraphWeaver::InputError.new(
           "#{at(name, operation)}: #{Internal::Redact.detail(name, "#{e.message}#{got}")}",
           kind: Internal::Refusal.kind_of(e), path: [name],
@@ -159,19 +159,19 @@ module GraphWeaver
         return value if value.finite?
 
         # a number, but not one GraphQL's Float admits — no conversion applies
-        raise mismatch(ArgumentError, "#{expected("Float")}, got #{value.inspect} — not a finite number", "Float")
+        raise mismatch(ArgumentError, "#{expected("Float")}, got #{shown(value)} — not a finite number", "Float")
       end
 
       def whole(value)
         # Integer(2.5) is 2 — a silent loss where refusing costs nothing
         return value.to_i if value.finite? && (value % 1).zero?
 
-        raise mismatch(ArgumentError, "#{expected("Int")}, got #{value.inspect} — not a whole number", "Int")
+        raise mismatch(ArgumentError, "#{expected("Int")}, got #{shown(value)} — not a whole number", "Int")
       end
 
       def unparseable(value, scalar)
         raise Internal::Refusal.brand(
-          ArgumentError.new("#{expected(scalar)}, got #{value.inspect}"), :unparseable, type: scalar
+          ArgumentError.new("#{expected(scalar)}, got #{shown(value)}"), :unparseable, type: scalar
         )
       end
 
@@ -195,8 +195,12 @@ module GraphWeaver
       end
 
       def refuse(value, scalar, hint = nil)
-        raise mismatch(::TypeError, "#{expected(scalar)}, got #{value.inspect}#{" — #{hint}" if hint}", scalar)
+        raise mismatch(::TypeError, "#{expected(scalar)}, got #{shown(value)}#{" — #{hint}" if hint}", scalar)
       end
+
+      # the value a refusal quotes: scrubbed at every depth, so a filtered key
+      # inside an input object never reaches a sentence (see Redact)
+      def shown(value) = Internal::Redact.shown(value)
 
       def expected(scalar) = "expected #{%w[Int ID].include?(scalar) ? "an" : "a"} #{scalar}"
     end

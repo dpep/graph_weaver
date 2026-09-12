@@ -87,8 +87,9 @@ module GraphWeaver
     # value may be named. The verdict rides along, since nothing outside here
     # can tell an out-of-range enum from any other KeyError.
     def self.invalid_enum!(type, value, values)
+      shown = GraphWeaver::Internal::Redact.shown(value)
       raise GraphWeaver::Internal::Refusal.brand(
-        KeyError.new("#{value.inspect} is not a valid #{type} — expected one of: #{values.sort.join(", ")}"),
+        KeyError.new("#{shown} is not a valid #{type} — expected one of: #{values.sort.join(", ")}"),
         :not_a_member, members: values.sort,
       )
     end
@@ -219,7 +220,7 @@ module GraphWeaver
 
           type = T::Utils.coerce(info[:type]).to_s
           return GraphWeaver::InputError.new(
-            "#{prop}: expected #{type}, got #{GraphWeaver::Internal::Redact.detail(prop, value.inspect)}",
+            "#{prop}: expected #{type}, got #{GraphWeaver::Internal::Redact.shown(value, prop)}",
             kind: :type_mismatch, path: [prop.to_s],
             coordinate: T.unsafe(self).const_get(:FIELDS).find { |f| f.prop == prop }&.coordinate,
             value: GraphWeaver::Internal::Redact.value(prop, value),

@@ -12,6 +12,14 @@
   failure, and a constant alias would carry the confusion forward forever.
   Rename at every rescue site and in any `to_h["error"]` string an app matches
   on; `GraphWeaver::Error` still catches both, as it always did.
+- **`filter_parameters` scrubs a message's value at every depth, as it already
+  did `#value`.** The message side only ever asked whether the *variable's own*
+  name was filtered, so `execute(credentials: { token: "…" })` refused with the
+  secret quoted in the sentence — and in the `warn` line `Error#initialize`
+  writes — while `InputError#value` sitting beside it read `[FILTERED]`. The
+  value a message quotes now goes through the same scrub as `#value`, so a
+  filtered key one level in reads `got {"token" => "[FILTERED]"}`. Messages
+  change only where a filter matches; nothing else moved.
 - **`Transport::HTTP`'s connection pool is fork-safe.** A socket idle at `fork`
   time was inherited by every child, and a round trip carries nothing saying
   which process opened it — so forked workers interleaved requests on one fd and

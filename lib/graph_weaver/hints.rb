@@ -77,7 +77,7 @@ module GraphWeaver
     end
 
     def self.drifted!(type, value, values)
-      raise KeyError, "#{value.inspect} is not a #{type} — expected one of: " \
+      raise KeyError, "#{GraphWeaver::Internal::Redact.shown(value)} is not a #{type} — expected one of: " \
         "#{values.sort.join(", ")}; a value the server added since you generated " \
         "needs a regenerate, or register_enum fallback: to absorb them"
     end

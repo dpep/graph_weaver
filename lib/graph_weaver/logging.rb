@@ -85,6 +85,12 @@ module GraphWeaver
         # inside an input object is covered too, and the same list decides it
         # as decides the debug log's variables line.
         def value(key, value) = Log.filter_variables({ key.to_s => value })[key.to_s]
+
+        # A value the library spells INTO a sentence. `detail` can only ask
+        # about the key the value arrived under, so it reads a filtered key one
+        # level in as safe; this scrubs at every depth, like #value. The key is
+        # optional because a coercer refusing a value hasn't been told one.
+        def shown(raw, key = nil) = filtered?(key) ? FILTERED : value(key, raw).inspect
       end
     end
   end

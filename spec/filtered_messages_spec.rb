@@ -37,6 +37,18 @@ describe "filtered messages" do
     expect(io.string).to include('"lots"')
   end
 
+  # the key a value arrives under is all a sentence-level filter can ask about,
+  # so a filtered key one level inside the value used to be invisible to it —
+  # the message quoted the raw hash while #value beside it read [FILTERED]
+  it "hides a filtered key nested inside the value a message quotes" do
+    module_ = parse("query Counted($count: Int) { search(term: \"x\", first: $count) { __typename } }")
+
+    expect { module_.execute(count: { "token" => "t0ps3cret" }) }
+      .to raise_error(GraphWeaver::InputError, /\$count of Counted: expected an Int, got \{"token" => "\[FILTERED\]"\}/)
+
+    expect(io.string).not_to include("t0ps3cret")
+  end
+
   describe "input object fields" do
     it "hides a nested field's value under a filtered key" do
       schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
