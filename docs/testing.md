@@ -435,7 +435,7 @@ the same thing for the other two.
 each [declared graph](getting_started.md#more-than-one-schema) bakes into its
 modules with `client:`, or `GraphWeaver.client` for a graph that bakes none —
 so an app whose graphs all bake one needs no app default at all. Each gets
-that graph's own resolvers behind it, so a billing module posts to billing's
+that graph's own schema behind it, so a billing module posts to billing's
 url and is answered by billing's schema. A graph whose baked client posts
 nowhere is refused by name, rather than its requests quietly leaving the
 suite.
