@@ -3,8 +3,9 @@
 How to run a spec that executes a GraphQL query without a server — against
 fabricated data, against your own resolvers, across a federated graph, or
 through your own transport with any of those behind it.
-Setup is one require and one tag; the rest of this page is what you reach for
-when an example is *about* the data, the resolvers, or the transport.
+Setup is one require and one tag (`:wire` alone adds two test gems); the rest of
+this page is what you reach for when an example is *about* the data, the
+resolvers, or the transport.
 
 One line in your spec helper:
 
@@ -39,6 +40,12 @@ The tag installs a stand-in per graph, and every generated module of that
 graph runs against it with no per-test setup — including one generated *with*
 a baked `client:`, since that constant is exactly what the tag means to
 replace. `rspec --tag graphql:router` runs one mode's examples.
+
+**A bad variable never gets as far as a mode.** `execute` coerces the variables
+before it asks any client for anything, so a
+[client-side `InputError`](errors.md#what-an-inputerror-says-without-reading-english)
+raises the same way under every tag and under none. "Which mode do I need for
+this" has no answer there — pick `:fake`, the cheapest.
 
 **Every example has exactly one mode.** An untagged one takes
 `config.default_mode`, which is `:live` — your own client, exactly as it is —
@@ -247,6 +254,21 @@ keyword, and the leading pins win where both name a key. A fake refuses an
 option it doesn't take, lists the ones it does, and guesses at what you meant —
 at every door: `FakeClient.new`, `graphql_fake`, `Router.new(fake:)` and
 `graphql_router(fake:)`.
+
+**A pin answers every call the same way**, which is how a paging loop fed by a
+fake runs forever — page two is as full as page one.
+`GraphWeaver::Testing::Sequence` chains clients and repeats the last, so an
+empty pin on the second one is what ends the loop:
+
+```ruby
+page  = GraphWeaver::Testing::FakeClient.new(schema:, overrides: { "pokemon_v2_pokemon" => [{ "name" => "pikachu" }] })
+empty = GraphWeaver::Testing::FakeClient.new(schema:, overrides: { "pokemon_v2_pokemon" => [] })
+
+GraphWeaver.client = GraphWeaver::Testing::Sequence.new(page, empty)
+```
+
+It is the same chain a retry test uses — [simulating
+failures](#simulating-failures) has that one.
 
 ### The example that's *about* the data
 
@@ -552,6 +574,14 @@ it "surfaces a timeout", graphql: :wire do
   expect { PlaceOrderMutation.execute!(input:) }.to raise_error(GraphWeaver::TransportError)
 end
 ```
+
+`to_timeout` raises what a timeout raises, instantly — it tests what your app
+*does* with one. It does not test that a `read_timeout:` of yours is short
+enough, and neither does sleeping inside `to_return { |req| … }`: webmock stands
+in for the socket, so there is nothing to time out and the call simply takes
+that long and succeeds. A timeout *value* can only be proven against a
+genuinely slow server — the [`Endpoint`](#over-the-wire--graphql-wire) above on
+a real port, or a `TCPServer` that dawdles before it replies.
 
 That is a **served** failure: your transport reads the status and the headers
 off a real response, and your `retries:` budget really spends itself against it

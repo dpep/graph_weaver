@@ -159,6 +159,12 @@ or an API response needs is beside it, as data:
 So a form reads `e.field` and either `e.message` or — better — its own sentence
 built from `e.kind` and `e.details`.
 
+**When the leaf isn't a field.** A Hasura-shaped filter puts a comparison
+operator at the bottom, so `where: { height: { _gte: "abc" } }` refuses with
+`#path` `["where", "height", "_gte"]` and `#field` `"_gte"` — right by the rule,
+and useless to a form. Key the form on `#path` there: the column is the segment
+before the operator.
+
 #### Which spelling a path is in
 
 **`#path`, `#field` and `#coordinate` are the schema's spelling**

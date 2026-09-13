@@ -63,9 +63,10 @@ since `expected an Int, got "lots"` is the whole diagnosis.
 
 A logger tells a human what happened; an APM needs to time it and count
 it. `GraphWeaver.instrumenter` is one callable wrapping every request —
-over the wire *and* in-process, one seam for both paths. It's a no-op
-until you set one, and in Rails the railtie sets the
-`ActiveSupport::Notifications` adapter for you:
+over the wire *and* in-process, one seam for both paths. It's a no-op until you
+set one — and **in Rails you set nothing**: the railtie installs the adapter
+below and attaches `GraphWeaver::LogSubscriber` on top of it, so the snippet is
+what the framework already did. Everywhere else, it is the line to write:
 
 ```ruby
 GraphWeaver.instrumenter = lambda do |event, payload, &block|

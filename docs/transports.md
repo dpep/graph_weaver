@@ -52,6 +52,10 @@ contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
   `retry_codes:`, ...)
 - `open_timeout:` / `read_timeout:` — seconds, defaulting to 10 and 30 on
   either transport
+- `pool_size:` — how many sockets the bundled HTTP transport keeps open,
+  defaulting to `RAILS_MAX_THREADS` (else 5). Refused with
+  `transport: :faraday`, whose adapter owns its own connections — a ceiling
+  here would be a number nothing reads
 - `cache:` / `ttl:` — schema introspection caching (see
   [real world](real_world.md)); url clients only — a schema source never
   introspects, so passing them raises
@@ -194,6 +198,16 @@ Rails sizes its own connection pool from, because it is the same question:
 how many requests this process can have in flight at once. Lower it for a
 server that counts connections.
 
+**The pool is fork-safe**, which is what a Puma or Unicorn worker under
+`preload_app!` needs. A socket warmed before the fork — an initializer that
+introspects the schema is enough — is otherwise inherited by every worker, and
+nothing in a round trip says which process opened it, so two workers
+interleaving on one fd hand each other's answers back. A child notices the pid
+changed and starts over: the inherited sockets are **abandoned rather than
+closed** (closing would take down the fd the parent is still using) and
+reconnect on first use, and the permits are rebuilt, since any held at fork time
+went with the threads that held them. There is no `after_fork` hook to write.
+
 Under a fiber scheduler (`async`, Falcon) everything here works unchanged —
 `SizedQueue`, `Mutex`, `net/http` and `Kernel#sleep` are all scheduler-aware,
 so requests multiplex on one thread at thread-equivalent throughput. But
@@ -250,6 +264,12 @@ won't fix it. `retry_codes:` re-inspects response envelopes so
 GraphQL-level throttling can retry too (off by default — pass the codes
 your API uses). Exhausting the retries re-raises the last error (or
 returns the last code-matched response).
+
+**Nothing else retries**, which is the half a script author needs: a
+`QueryError` (the server answered, and complained) and an `InputError` (the
+variables never left the process) are permanent by construction — the identical
+request gets the identical answer. Only a failure that carries no verdict is
+worth repeating.
 
 `retries:` counts the attempts *after* the first, so
 `GraphWeaver.new(url, retries: 3)` makes up to four and `retries: 0` never

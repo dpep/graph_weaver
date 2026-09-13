@@ -143,6 +143,35 @@
   runnable CI script it never had — one per topology, plus the GitHub Actions
   job — and its in-process section stops calling `schema:diff`/`:refresh`
   inapplicable. [cassettes](docs/cassettes.md) states the recording rule above.
+- **Docs.** [federation](docs/federation.md#producing-a-supergraph) gains the
+  step it never had — how to *produce* a supergraph: `federation_sdl` from the
+  `apollo-federation` gem (named in prose for the first time), where other
+  teams' subgraph SDL comes from, and `rover supergraph compose` with its config
+  and its `--elv2-license` flag. [upgrading](docs/upgrading.md) opens each
+  version section with a table of which changes apply to you, separates the grep
+  hits that self-heal on regenerate from the ones to rename by hand, ends on
+  `graph_weaver:verify`, and leads with the new info log line per call as the
+  production change it is.
+  [generated modules](docs/generated_modules.md#an-input-object-generates-its-whole-closure)
+  states the rule the docs implied and never said — results are generated per
+  selection set, input types by transitive closure, which is why one Hasura
+  `$where` emits a thousand files — and documents the escape hatch that only
+  ever appeared in an error message: write the filter as a query literal with a
+  variable per leaf. The reasoning is [DECISIONS.md](DECISIONS.md). Also:
+  browsing a live schema from a console
+  ([real world](docs/real_world.md#browsing-the-schema)), the four settings
+  rake-free generation needs to agree on, `Testing::Sequence` for ending a
+  paging loop ([testing](docs/testing.md#pins)), what `retries:` does and
+  doesn't cover ([transports](docs/transports.md#retries)), and keying a
+  translation on the exception class where there is no `kind`
+  ([i18n](docs/i18n.md#transport-and-server-failures)).
+  [transports](docs/transports.md#retries) also lists `pool_size:` among the
+  client's options and says, for the first time, that the pool is fork-safe —
+  a socket warmed before a Puma `preload_app!` fork is abandoned and reopened
+  per worker, never shared. And [testing](docs/testing.md#making-the-served-endpoint-fail)
+  says what `to_timeout` does and doesn't prove: webmock stands in for the
+  socket, so neither it nor a `sleep` in `to_return` can exercise a
+  `read_timeout:` of yours.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

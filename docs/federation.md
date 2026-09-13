@@ -67,6 +67,53 @@ something else (`register_scalar("Species")` where `Species` is an enum), and a
 coordinate whose field it declares as a composite. Neither is redeemable by any
 schema in the graph.
 
+## Producing a supergraph
+
+GraphWeaver consumes a supergraph; composing one is Apollo's job. Composition
+takes one SDL file per subgraph, so the question is where each file comes from.
+
+**Yours.** [`apollo-federation`](https://github.com/Gusto/apollo-federation-ruby)
+is the gem that makes a graphql-ruby schema a subgraph — `@key`,
+`resolve_reference`, the directives — and it adds `federation_sdl` to the schema
+class, which prints exactly what a composer wants:
+
+```ruby
+File.write("supergraph/accounts.graphql", Accounts::Schema.federation_sdl)
+```
+
+**Everyone else's.** From the team that runs it: a file they publish, `rover
+subgraph fetch` against their endpoint, or your schema registry.
+
+**Composed.** [`rover supergraph compose`](https://www.apollographql.com/docs/rover/commands/supergraphs)
+reads a config naming each subgraph's routing url and SDL file, and prints the
+supergraph to stdout:
+
+```yaml
+# supergraph-config.yaml
+federation_version: =2.14.4   # rover wants an exact one
+subgraphs:
+  accounts:
+    routing_url: https://accounts.internal/graphql
+    schema: { file: ./accounts.graphql }
+```
+
+```sh
+rover supergraph compose --config supergraph-config.yaml \
+  --elv2-license accept > supergraph.graphql
+```
+
+`--elv2-license accept` accepts the Elastic license on the composition binary
+rover downloads; without it rover asks, and a CI job has nobody to answer.
+Commit the result — from here it is an ordinary schema dump, and
+[`federation:diff`](#has-the-supergraph-been-recomposed) is what catches it
+going stale.
+
+Already on a node toolchain? `@apollo/composition` composes in-process with no
+rover install. The suite does it that way, and its two files are the whole loop
+end to end — schema classes, `federation_sdl`, composed supergraph:
+[`recompose.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/support/federation/recompose.rb)
+driving [`compose.mjs`](https://github.com/dpep/graph_weaver/blob/main/spec/support/federation/compose.mjs).
+
 ## Generating against a supergraph
 
 A supergraph SDL works as-is. On load, GraphWeaver strips the composition
@@ -167,7 +214,7 @@ A committed supergraph is a snapshot of a composition. Change a subgraph and
 skip the recompose and it quietly describes a graph that no longer exists —
 the failure that bites a federated app mid-migration, and the one the other
 checks don't ask about. `graph_weaver:verify` asks whether the generated Ruby
-is fresh, `schema:diff` whether the *server* has drifted from your dump,
+is fresh, `schema:diff` whether whatever your dump came from has drifted,
 `queries:check` whether drift broke a query. This asks whether the supergraph
 still describes your subgraphs:
 
@@ -280,7 +327,9 @@ serves this same router at the endpoint your client posts to and leaves your
 client in place: real serialization, the same plan over the same resolvers,
 `from_h` over the server's own bytes, and a `context:` proc reading the headers
 that arrived. It refuses exactly what the router refuses — a hop, not a
-capability.
+capability. The hop is served through webmock, so that tag needs
+`require "webmock/rspec"` in the spec helper —
+[testing](testing.md#over-the-wire--graphql-wire) has the rest.
 
 **[`examples/federation.rb`](https://github.com/dpep/graph_weaver/blob/main/examples/federation.rb)** is the whole shape
 in one runnable file, and the only example that needs no network: three real

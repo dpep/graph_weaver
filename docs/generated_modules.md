@@ -89,6 +89,21 @@ explicit, factory_bot-style:
 GraphWeaver.load_generated!   # require every file under generated_paths
 ```
 
+**Outside Rails, four things have to agree**, and nothing wires them together
+for you — a script that generates its own modules sets all four:
+
+1. `queries_paths` — where `generate!` reads `.graphql` files.
+2. `generated_paths` — where it writes, and where `load_generated!` reads.
+   Point them at the same directory or generation is invisible.
+3. the call above, before the first `execute` — nothing else requires the
+   files.
+4. `GraphWeaver.client =` — a module generated without a baked
+   [`client:`](#clients) has none of its own.
+
+Miss (3) and the script gets a `NameError` for its own module; miss (4) and it
+gets `PersonQuery: client must respond to #execute(query, variables:), got
+NilClass` from a module that otherwise looks fine.
+
 Every directory setting is a list — `queries_paths`, `generated_paths`,
 `fragments_paths` — and every entry is read (entries may be globs; the
 generated default includes `app/graphql/*/generated`, so per-schema layouts
@@ -381,6 +396,40 @@ a shared type keeps one identity across modules. A query module aliases only its
 diffs exactly the types it touched, and types the schema drops are pruned on
 regeneration (`verify` flags strays). Dynamic `parse` stays self-contained.
 
+### An input object generates its whole closure
+
+A result type is generated per selection set, because a selection set *is* the
+question. An input object has no selection set, so the only static answer to
+"what can `$where` hold" is every input type it can transitively reach — and
+codegen emits a file for each. On a hand-written schema that closure is usually
+the one type and nothing else. On a generated one (Hasura, Gatsby), where every
+`_bool_exp` references every other, one `$where` reaches a thousand of them.
+
+The escape is to stop making the filter a variable. Write it as a literal in the
+query with a variable per leaf, and codegen has ordinary scalars to generate
+instead of the closure — on the query that emitted ~1,200 files, exactly one:
+
+```graphql
+query($name: String!, $minHeight: Int!) {
+  pokemon(where: { name: { _ilike: $name }, height: { _gte: $minHeight } }) {
+    name
+  }
+}
+```
+
+`srb tc` gets *more* out of that, not less. `name: String`, `min_height:
+Integer` are types it checks at every call site, where the variable form is
+`T.any(PokemonBoolExp, T::Hash[T.untyped, T.untyped])` — and a hash built from
+`params`, which is how a filter is really assembled, takes the untyped branch.
+Refusals land on the leaf too, so `path` is the form field rather than the
+comparison operator under it.
+
+Two shapes can't be inlined, and codegen says which when a prop collision in an
+input type forces the question. A key chosen at runtime — the sort column in
+`order_by: { <column>: asc }` — has no spelling, because GraphQL has no dynamic
+object keys. And a literal list can't stand in for a length only the runtime
+knows.
+
 ## Enums: one GraphQL enum, one Ruby type
 
 Every schema enum a query touches — as a variable, in a result, or both —
@@ -528,9 +577,12 @@ pet.name           # => "Shelby" — the wire value stays honest
 
 The methods live on the struct, so they see its wire fields at runtime and
 fakes/cassettes get the behavior automatically; registrations are additive
-(repeated ones stack). Editing the *mixin* in development needs a restart,
-unlike a `.graphql` edit: a reload hands the constant a new module object, and
-the `include` that took the old one doesn't run again.
+(repeated ones stack). The mixin is one of your own constants, so in Rails the
+registration goes in a `to_prepare` block like `register_enum` does, and for the
+same reason — [getting started](getting_started.md#2-run-the-generator) has the
+rule and the boot order behind it. Editing the *mixin* in development needs a
+restart, unlike a `.graphql` edit: a reload hands the constant a new module
+object, and the `include` that took the old one doesn't run again.
 For quick decoration, build the mixin inline — the block
 is `module_eval`'d into a fresh module auto-named under
 `GraphWeaver::TypeHelpers`:

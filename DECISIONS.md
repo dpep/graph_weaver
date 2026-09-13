@@ -290,6 +290,41 @@ coercion, which is stricter and better-messaged than the sorbet `TypeError` it
 replaces. The return isn't checked, but the `Response`/`Result` it builds are
 `T::Struct`s whose props are still validated one by one.
 
+## An input type generates its whole closure
+
+**Considered:** cutting the input walk short — a depth cutoff, roots-only with a
+plain Hash below, or a per-graph `inputs: :shallow` — after one Hasura-shaped
+query emitted ~1,200 files and 2.2 MB of source from two variables. A selection
+set is the question for outputs; an input object has none, so its closure is the
+only static answer, and on a schema where every `_bool_exp` references every
+other that answer is the schema.
+
+**Rejected because** the measurements say the closure costs an annoyance and
+buys the only checking that fires on that schema. Cost, on a minimal Sorbet
+config over the generated tree: `srb tc` +0.15 s, `require` +0.30 s, +49 MB RSS.
+Against that: a `$where` assembled from `params` — which is how a filter is
+really built — takes the untyped branch of
+`T.any(BoolExp, T::Hash[T.untyped, T.untyped])`, so `srb tc` checks nothing
+there and the per-type `FIELDS` tables catch everything, spellchecked and with a
+full path. Roots-only is the only variant that really shrinks the tree, and it
+shrinks it by deleting those tables — the nested refusal a per-field form error
+rests on. A depth cutoff has to pick N, and "how deep is my filter" is not a
+question a user can answer; the real filter that prompted this sat at depth 2,
+exactly on the boundary. A per-graph knob answers a per-schema question with
+config.
+
+Scale is a property of the schema, not of the rule. On GitHub (402 input types)
+the median closure per root is **1** and the worst root emits 43 files; Hasura's
+mean closure is 116. One rule, three orders of magnitude apart — which is the
+rule working, not failing.
+
+**The escape hatch is the query, not a setting.** Writing the filter as a
+literal with a variable per leaf generates one file instead of the closure, and
+hands `srb tc` concrete leaf types where the variable handed it an untyped hash
+— [the docs say so](docs/generated_modules.md#an-input-object-generates-its-whole-closure),
+including where it stops: a sort column chosen at runtime can't be inlined,
+because GraphQL has no dynamic object keys.
+
 ## `:in_process` names its schema per example, not per suite
 
 **Considered, and both built and reverted in one session:** first splitting

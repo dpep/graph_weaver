@@ -156,9 +156,10 @@ See [federation](docs/federation.md).
 
 The lifecycle is rake tasks, not a CI pipeline you assemble yourself:
 `schema:refresh` re-introspects the committed dump, `schema:diff` names what
-changed when the server has drifted, `queries:check` names the queries that
-drift broke and where, `unused` names the selections your app stopped reading,
-and `verify` fails when the checked-in Ruby is stale.
+changed when whatever that dump came from — an endpoint, your own schema class —
+has moved past it, `queries:check` names the queries that drift broke and where,
+`unused` names the selections your app stopped reading, and `verify` fails when
+the checked-in Ruby is stale.
 Generation is deterministic — same schema and queries, byte-identical files — so
 regenerating never shows a diff you didn't earn. See
 [getting started](docs/getting_started.md#5-verify-in-ci).
@@ -169,7 +170,7 @@ upgrade, and `verify` is what tells you when you've skipped it.
 
 #### Also in the box
 
-- **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
+- **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults. Results are generated per selection set; an input object has no selection set, so [its whole closure is](docs/generated_modules.md#an-input-object-generates-its-whole-closure)
 - **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), `@skip`/`@include` nullability
 - **Any transport**: in-process execution, a zero-dependency HTTP client, or Faraday with your own middleware — plus a composable `Retry` with backoff and jitter
 - **Structured errors**: a typed envelope that keeps partial data and extensions, an error hierarchy split by failure site, field-level reports with entity ids, and stale-schema detection

@@ -1,5 +1,10 @@
 # Upgrading
 
+[Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then
+read the one section that is yours: from [0.6.1](#upgrading-from-061), from
+[0.5.1](#upgrading-from-051), or [to 0.5.0](#upgrading-to-050) from anything
+older.
+
 ## Regenerate on every upgrade
 
 **Any release can change what codegen emits.** Patch releases included — most of
@@ -21,22 +26,51 @@ differently and nothing else — worth reading rather than rubber-stamping.
 
 ## Upgrading from 0.6.1
 
-Mostly mechanical — two error constants, one rspec tag and one notification
-event to rename — but `InputError#field` changed meaning without raising, the
-instrumentation payload's `:status` changed meaning without raising,
-`respond_to?` on a result struct stopped answering true for props you don't
-have, a Rails app starts logging a line per call, several things that used to
-run now refuse, and a `DateTime` that used to reach a `Date` variable now
-raises. Three commands find everything except the silent ones:
+Mostly mechanical. Every change in the release is one row below; read the left
+column and skip what isn't yours. A typical app ticks two or three.
+
+| applies if you… | what changed |
+|---|---|
+| run a Rails app that configures no logger or instrumenter | **you start logging one info line per GraphQL call** — a production log-volume change, [first bullet below](#behavior-that-changed-under-you) |
+| tag specs `graphql: false`, or set `config.default_mode = nil` | both refused — [renames](#renames) |
+| `rescue GraphWeaver::TypeError` or `GraphWeaver::ValidationError` | both constants are gone, with no alias — [renames](#renames) |
+| subscribe to `"graph_weaver.execute"` | the event is `"execute.graph_weaver"` — [renames](#renames) |
+| index a hash by an `InputError`'s `#field` | it names the input field now, not the variable — **nothing raises** |
+| read `payload[:status]` in an instrumentation subscriber | it is a Symbol; the HTTP status moved to `:http_status` — **nothing raises** |
+| call `respond_to?` on a result struct | it stopped answering true for props that don't exist — **nothing raises** |
+| generate a module with a baked `client:` | a `graphql:` tag now reaches it |
+| set `config.context` from a `before` hook | refused — it is suite setup |
+| pass a `DateTime` where the schema says `Date` | refused — pass `.to_date` |
+| register a scalar with your own `cast:`/`serialize:` | the same guard as the built-ins, and a proc that returns a value is refused |
+| have a field named `class`, `hash`, `display`, `to_json`, `each` or `supplied` | the prop takes a trailing underscore |
+| adopt `GraphWeaver.graph` | every queries directory then needs one |
+| write `config.graph_weaver.<anything but watch>` | refused at boot |
+| pass `seed:` to `graphql_router(fake: …)` | refused |
+| require `graph_weaver/rspec` from `spec/support/` | check the glob is uncommented — rspec-rails ships it commented out |
+| adopt `graphql: :wire` | it needs `require "webmock/rspec"`, not just the gem |
+
+Then four commands, in order:
 
 ```sh
+# 1. the two renames your own code holds
 grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
 grep -rn "graph_weaver.execute" app lib config spec   # the old event name
-rake graph_weaver:generate   # every module now names the graph it came from,
-                             # plus the underscored reserved props, and the
-                             # client: and cast:/serialize: refusals
-bundle exec rspec            # the renamed tag, the deleted nil, the seed: refusal
+
+# 2. regenerate — also the graph name in every module, the underscored
+#    reserved props, and the client: and cast:/serialize: refusals
+rake graph_weaver:generate
+
+# 3. the renamed tag, the deleted nil, the seed: refusal
+bundle exec rspec
+
+# 4. the gate: red while any checked-in file is still what 0.6.1 wrote
+rake graph_weaver:verify
 ```
+
+**Two kinds of file answer that first grep, and only one needs your hands.**
+Hits under your generated directory (`app/graphql/generated/` by default) are the
+old names in machine-written code — step 2 rewrites them. Hits anywhere else are
+yours: `CastError` and `QueryValidationError`, renamed by hand.
 
 ### Renames
 
@@ -50,42 +84,9 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
 
 ### Behavior that changed under you
 
-- **`InputError#field` names the input field, not the variable.** It is now
-  `#path`'s last *named* segment — the slot that actually held the bad value,
-  which is the one a form highlights — where it used to be re-branded on the way
-  out
-  with the *variable* name. Nothing raises; the value just differs once a
-  refusal happens inside an input object. **Read `error.path.first` wherever
-  you wanted the variable**, and `#field` wherever you wanted the field. On a
-  refusal that never got past the variable the two are the same, which is why
-  this can pass unnoticed until the first nested input fails. An index is a
-  position rather than a field, so it never becomes one: `execute(ids: [1, 2,
-  "x"])` reports `#path` `["ids", 2]` and `#field` `"ids"`.
-- **The instrumentation payload's `:status` is a Symbol, and the HTTP status
-  moved to `:http_status`.** `:status` is now `:ok`, `:errors` (the response
-  came back carrying GraphQL errors) or `:failed` (it raised) — a 200 carrying
-  errors is not a success, and only a symbol says that on both sides of the
-  seam. Nothing raises: a subscriber comparing it to an Integer just stops
-  matching. **A subscriber that branched on `payload[:status] == 200`, or on a
-  4xx/5xx, reads `:http_status` now** — which is nil in-process, where
-  `:status` used to be a fabricated 200 so one subscriber could read both
-  sides. The whole payload is a documented contract now; see
-  [logging](logging.md#the-payload).
-- **`respond_to?` on a result struct no longer answers true for a name that
-  doesn't exist.** It used to say true for any near miss, which broke the
-  standard duck-typing guard — `obj.pet if obj.respond_to?(:pet)` raised the
-  very `NoMethodError` the hint exists to explain. **A branch that read the old
-  answer now takes the other path**, and `struct.method(:nmae)` raises Ruby's
-  bare `NameError` rather than a hinted one; `struct.nmae` still hints.
-- **A `graphql:` tag reaches a module generated with `client:`.** The baked
-  client used to sit above the slot a tag swaps, so a bound module ran against
-  its real endpoint under `graphql: :fake`. **If a spec relied on that**, it now
-  runs against the fake — pass `client:` on the call, set `MyQuery.client =`, or
-  tag the example `graphql: :live`.
-- **`config.context` is suite setup.** Setting it once an example is running
-  refuses, naming `graphql_context`. From a `before` hook it was read too late
-  and silently never reached a resolver, so the refusal replaces a line that
-  wasn't working; `configure` and an `around` hook are unchanged.
+The first one reaches every Rails app that never configured logging, and it is
+the only one here that shows up in production rather than in your code.
+
 - **A Rails app logs one line per GraphQL call, and emits one notification.**
   The railtie now sets `GraphWeaver.instrumenter` to the
   `ActiveSupport::Notifications` adapter and attaches
@@ -101,6 +102,45 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   a graph's `client "Billing::Schema"`) goes through the same wrapper
   `GraphWeaver.new(MyApp::Schema)` always used, so it produces events and log
   lines where it produced none. See [logging](logging.md).
+- **`InputError#field` names the input field, not the variable.** It is now
+  `#path`'s last *named* segment — the slot that actually held the bad value,
+  which is the one a form highlights — where it used to be re-branded on the
+  way out with the *variable* name. Nothing raises; the value just differs once
+  a refusal happens inside an input object. **Read `error.path.first` wherever
+  you wanted the variable**, and `#field` wherever you wanted the field. On a
+  refusal that never got past the variable the two are the same, which is why
+  this can pass unnoticed until the first nested input fails. An index is a
+  position rather than a field, so it never becomes one: `execute(ids: [1, 2,
+  "x"])` reports `#path` `["ids", 2]` and `#field` `"ids"`. **Self-check:**
+  `grep -rn "\.field" app lib` — every hit that indexes or compares an
+  `InputError`'s `#field` is a place to decide which of the two you meant.
+- **The instrumentation payload's `:status` is a Symbol, and the HTTP status
+  moved to `:http_status`.** `:status` is now `:ok`, `:errors` (the response
+  came back carrying GraphQL errors) or `:failed` (it raised) — a 200 carrying
+  errors is not a success, and only a symbol says that on both sides of the
+  seam. Nothing raises: a subscriber comparing it to an Integer just stops
+  matching. **A subscriber that branched on `payload[:status] == 200`, or on a
+  4xx/5xx, reads `:http_status` now** — which is nil in-process, where
+  `:status` used to be a fabricated 200 so one subscriber could read both
+  sides. The whole payload is a documented contract now; see
+  [logging](logging.md#the-payload). **Self-check:** nothing subscribing to
+  `execute.graph_weaver` means nothing to change — this reaches subscribers
+  only.
+- **`respond_to?` on a result struct no longer answers true for a name that
+  doesn't exist.** It used to say true for any near miss, which broke the
+  standard duck-typing guard — `obj.pet if obj.respond_to?(:pet)` raised the
+  very `NoMethodError` the hint exists to explain. **A branch that read the old
+  answer now takes the other path**, and `struct.method(:nmae)` raises Ruby's
+  bare `NameError` rather than a hinted one; `struct.nmae` still hints.
+- **A `graphql:` tag reaches a module generated with `client:`.** The baked
+  client used to sit above the slot a tag swaps, so a bound module ran against
+  its real endpoint under `graphql: :fake`. **If a spec relied on that**, it now
+  runs against the fake — pass `client:` on the call, set `MyQuery.client =`, or
+  tag the example `graphql: :live`.
+- **`config.context` is suite setup.** Setting it once an example is running
+  refuses, naming `graphql_context`. From a `before` hook it was read too late
+  and silently never reached a resolver, so the refusal replaces a line that
+  wasn't working; `configure` and an `around` hook are unchanged.
 - **Regenerate**, as ever — generated modules carry a private `GRAPH` naming the
   graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
   app whose modules predate it refuses rather than guessing which schema a

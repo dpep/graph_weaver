@@ -75,8 +75,9 @@ What it wrote:
   itself, so the two spellings are one call.
 
   A registration that names one of your own constants — a `T::Enum` for
-  `register_enum`, a mixin for `extend_type` — goes in a `to_prepare` block,
-  the same place the in-process client goes and for the same reason:
+  `register_enum`, a mixin for [`extend_type`](generated_modules.md#type-helpers)
+  — goes in a `to_prepare` block, the same place the in-process client goes and
+  for the same reason:
   autoloading is set up after `config/initializers` run. Generation depends on
   `:environment`, which runs `to_prepare` too, so the registration is in place
   before it emits.
