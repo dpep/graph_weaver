@@ -269,6 +269,24 @@ is a gate that passes whatever the subgraphs say. (Under Rails it won't come up:
 the `federation:*` tasks eager-load the app, because `config.rake_eager_load`
 defaults to false and detection only sees loaded classes.)
 
+The mirror of all that is a subgraph **retired** from the composition whose Ruby
+class is still loaded. Every check here walks the supergraph's subgraph list, so
+that one sat on the only side nothing looked at, and the report read "matches
+the schemas here (checked 3 of 3 subgraphs)". It is now named, on stderr:
+
+```
+not placed — no subgraph of any supergraph read here is:
+  Reviews::Schema
+```
+
+A **warning, not drift**, deliberately: a process that loads a subgraph of a
+supergraph this run never reads is the same picture, and nothing on either side
+tells the two apart. A schema is a subgraph here if it serves `Query._service`,
+which is how a gateway reads one to compose it. `Drift#unplaced` is the list for
+one supergraph; the task asks every graph in the run, so a multi-graph app's
+second supergraph places its own schemas rather than having them reported
+against the first.
+
 A schema is recognized by the types the supergraph says its subgraph declares,
 plus at least one coordinate attributed to that subgraph **alone**. What two
 subgraphs share can't tell them apart — every subgraph has a `Query`, and the
@@ -288,7 +306,8 @@ GraphWeaver::Federation::Drift.new(
 ```
 
 `#to_h` is the JSON-ready `{"stale" => …, "uncomposed" => …, "skipped" => …,
-"faked" => …}`, and `#drift?` is what the task exits on.
+"faked" => …}`, and `#drift?` is what the task exits on. `#unplaced` sits
+outside both, being the warning above rather than drift.
 
 ## The local router
 

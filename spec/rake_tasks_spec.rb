@@ -516,7 +516,11 @@ describe "graph_weaver rake tasks" do
   describe "graph_weaver:federation:diff" do
     # a green "matches" on exit 0 having compared nothing is worse than a
     # failure, so the passing case is worth pinning as hard as the failing one
-    it "exits zero when the supergraph matches the subgraphs here" do
+    it "exits zero, saying nothing, when the supergraph matches the subgraphs here" do
+      # this process also holds three other graphs' subgraphs, which the
+      # unplaced warning below is about; here it is one graph's own
+      allow(GraphWeaver::Internal::Schemas).to receive(:loaded).and_return(RouterGraph::SUBGRAPHS.values)
+
       expect(invoke("federation:diff", SUPERGRAPH: RouterGraph::SUPERGRAPH))
         .to have_attributes(status: 0, err: "")
     end
@@ -552,6 +556,24 @@ describe "graph_weaver rake tasks" do
       expect(result.out).not_to include "graph :catalog"
     ensure
       GraphWeaver.reset_graphs!
+    end
+
+    # The mirror of `stale`, and the half the task couldn't see: it walks the
+    # supergraph's subgraph list, so retiring a subgraph from the composition
+    # while its Ruby class stays loaded read as "matches the schemas here
+    # (checked 3 of 3 subgraphs)", exit 0.
+    it "names a loaded federated schema no supergraph in the run places" do
+      allow(GraphWeaver::Internal::Schemas).to receive(:loaded)
+        .and_return(RouterGraph::SUBGRAPHS.values + [Chain::A::Schema])
+
+      result = invoke("federation:diff", SUPERGRAPH: RouterGraph::SUPERGRAPH)
+
+      expect(result.status).to eq 0
+      expect(result.err).to include "not placed", "Chain::A::Schema",
+        "The subgraphs read here: accounts, products, reviews."
+      # a warning, because a subgraph of a supergraph nobody here reads is
+      # this same picture — which Chain::A::Schema in fact is
+      expect(result.err).to include "a warning and not drift"
     end
   end
 

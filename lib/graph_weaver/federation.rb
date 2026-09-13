@@ -70,6 +70,18 @@ module GraphWeaver
       # every subgraph that was actually compared
       attr_reader :checked
 
+      # every subgraph this supergraph names, compared or not
+      def subgraphs = @table.subgraphs
+
+      # The federated schemas in this process that no subgraph of this
+      # supergraph is. `stale` looks from the supergraph's side — every task
+      # here walks its subgraph list — and this looks from the code's, which
+      # is the only side a subgraph dropped from the composition is still on.
+      # Not `drift?`: a process that loads a subgraph of a supergraph nobody
+      # here reads looks exactly the same, and nothing on either side tells
+      # them apart.
+      def unplaced = @schemas.select { |schema| subgraph?(schema) } - @compared
+
       # supergraph: the composed SDL (a path or the content); defaults to
       # the conventional dump. subgraphs: the same map {Testing::Router}
       # takes — a named schema skips detection, `:fake` (like anything else
@@ -89,6 +101,7 @@ module GraphWeaver
         @skipped = {}
         @faked = []
         @checked = []
+        @compared = []
         compare
       end
 
@@ -136,10 +149,16 @@ module GraphWeaver
           next unless (fitting = comparable(name))
 
           @checked << name
+          @compared |= fitting
           record_stale(name, fitting)
           record_uncomposed(name, fitting)
         end
       end
+
+      # A federation subgraph serves Query._service — that is how a gateway
+      # reads one to compose it, so every implementation carries it and an
+      # app's own API schema doesn't.
+      def subgraph?(schema) = !!schema.query&.fields&.key?("_service")
 
       # The schemas to compare this subgraph against, or nil when there are
       # none — recording why. A named schema is taken as given; otherwise a

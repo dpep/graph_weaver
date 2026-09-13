@@ -15,6 +15,18 @@
   `@join__field` lives wherever its type does. Selecting the implementer's copy
   directly is refused `no_owner` ("the supergraph places `Bundle.reviews` in no
   subgraph") instead of being fetched from a subgraph that would not answer it.
+- **`federation:diff` names a subgraph you retired from the composition but left
+  loaded.** Every check there walks the supergraph's subgraph list, so a Ruby
+  schema the composition no longer places sat on the only side nothing looked at
+  — recompose without `reviews`, leave `Reviews::Schema` defining everything it
+  always did, and the report said "matches the schemas here (checked 3 of 3
+  subgraphs)", exit 0. It is now named on stderr ("not placed — no subgraph of
+  any supergraph read here is:"), as a **warning rather than drift**: a process
+  that loads a subgraph of a supergraph this run never reads is the same
+  picture, and nothing tells the two apart. `Drift#unplaced` is the list for one
+  supergraph and `Drift#subgraphs` is the names it does have; the task asks
+  every graph in the run, so a multi-graph app's second supergraph places its
+  own.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's

@@ -53,6 +53,35 @@ describe GraphWeaver::Federation::Drift do
     expect(result.report).to include "matches the schemas here (checked 2 of 2 subgraphs)"
   end
 
+  # `stale` asks the supergraph's side of this; every check here walks its
+  # subgraph list, so a schema the composition no longer places was on the
+  # only side nothing looked at.
+  it "names a federated schema here that is no subgraph of this supergraph" do
+    result = described_class.new(
+      supergraph: RouterGraph::SUPERGRAPH,
+      schemas: RouterGraph::SUBGRAPHS.values + [Chain::A::Schema],
+    )
+
+    expect(result.unplaced).to eq [Chain::A::Schema]
+    expect(result.subgraphs).to eq %w[accounts products reviews]
+    # not drift — Chain::A::Schema is in fact another supergraph's subgraph,
+    # which is exactly what a retired one also looks like
+    expect(result.drift?).to be false
+  end
+
+  # every subgraph serves Query._service, and that is the whole test: an
+  # app's own API schema is not a subgraph that went missing
+  it "counts only schemas that serve _service" do
+    plain = Class.new(GraphQL::Schema) do
+      query(Class.new(GraphQL::Schema::Object) do
+        graphql_name "Query"
+        field :hi, String
+      end)
+    end
+
+    expect(drift(DriftGraph::Widgets, DriftGraph::Depots, plain).unplaced).to be_empty
+  end
+
   # the supergraph still promises a field the subgraph dropped
   it "reports a field the supergraph carries that no local schema defines" do
     result = drift(DriftGraph::WidgetsStale, DriftGraph::Depots)

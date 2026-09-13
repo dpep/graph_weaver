@@ -45,6 +45,27 @@ module GraphWeaver
         found.empty? ? abort(no_supergraph(task)) : found
       end
 
+      # The other half of :diff — every task here walks the supergraph's
+      # subgraph list, so a subgraph dropped from the composition whose Ruby
+      # class is still loaded was invisible to all of them. Asked once over
+      # the whole run: a multi-graph app's other supergraph places its own
+      # schemas, so only one no supergraph here has a subgraph for is named.
+      #
+      # A warning, not a failure. A process that loads a subgraph of a
+      # supergraph this run never reads is the same picture — the gem's own
+      # suite is one — and failing on it would break a setup that is fine.
+      def self.warn_unplaced(drifts)
+        unplaced = drifts.map(&:unplaced).reduce(:&).to_a
+        return if unplaced.empty?
+
+        names = drifts.flat_map(&:subgraphs).uniq.sort
+        warn "", "not placed — no subgraph of any supergraph read here is:",
+          *unplaced.map { |schema| "  #{schema.name}" },
+          "A subgraph retired from a composition leaves exactly this behind, and so does a " \
+            "process that loads a subgraph of a supergraph nobody here reads — which is why " \
+            "this is a warning and not drift. The subgraphs read here: #{names.join(", ")}."
+      end
+
       # The spellings a CI config turns a flag off with. STRICT=0 used to be
       # "set, therefore on" — the one answer nobody means by it.
       OFF = %w[0 false no off].freeze
@@ -407,6 +428,7 @@ namespace :graph_weaver do
           "config.rake_eager_load), or, if they all run elsewhere, drop this task from CI: there " \
           "is nothing here for it to gate."
       end
+      GraphWeaver::Internal::Tasks.warn_unplaced(checked.map(&:last))
     rescue GraphWeaver::Error => e
       abort e.message
     end

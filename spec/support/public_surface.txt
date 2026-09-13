@@ -129,9 +129,11 @@ GraphWeaver::Federation::Drift#inspect
 GraphWeaver::Federation::Drift#report
 GraphWeaver::Federation::Drift#skipped
 GraphWeaver::Federation::Drift#stale
+GraphWeaver::Federation::Drift#subgraphs
 GraphWeaver::Federation::Drift#to_h
 GraphWeaver::Federation::Drift#to_s
 GraphWeaver::Federation::Drift#uncomposed
+GraphWeaver::Federation::Drift#unplaced
 GraphWeaver::Federation::Drift#vacuous?
 GraphWeaver::Federation::Drift::STALE = String
 GraphWeaver::Federation::Drift::UNCOMPOSED = String
