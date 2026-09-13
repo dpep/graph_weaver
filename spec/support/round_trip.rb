@@ -631,15 +631,16 @@ module RoundTrip
         # "let the server use the default" and is legitimately left off the wire
         type = argument.type
         type = type.of_type if draft.defaults[argument.graphql_name] && type.kind.name == "NON_NULL"
-        corruptible(draft.kwargs[prop], type).map { |path, pool| [argument.graphql_name, prop, path, pool] }
+        corruptible(draft.kwargs[prop], type).map { |path, wire, pool| [argument.graphql_name, prop, path, wire, pool] }
       end
       return Trip.new(query: draft.query, failures: [], barren: "no corruptible leaf") if targets.empty?
 
-      root, prop, path, pool = targets.sample(random: rng)
+      root, prop, path, wire, pool = targets.sample(random: rng)
       spoiled, kind = pool.sample(random: rng)
       kwargs = draft.kwargs.merge(prop => poke_input(draft.kwargs[prop], path, spoiled))
-      expected = [root, *path.map { |step| step.is_a?(Integer) ? step : step.to_s }]
-      hostile_input_trip(draft, kwargs, expected, spoiled, kind)
+      # the kwargs hash is prop-keyed (that is what poke walks); #path is the
+      # schema's spelling, so the two routes are carried side by side
+      hostile_input_trip(draft, kwargs, [root, *wire], spoiled, kind)
     end
 
     # Walk the deserialized object beside the response that produced it: every
@@ -744,27 +745,29 @@ module RoundTrip
     # knowable verdict, as [path within the kwarg, pool]. Walks the value
     # beside the type the schema declared for it, so a list index is a path
     # segment exactly as InputError#path spells it.
-    def corruptible(value, type, path = [], out = [], non_null: false, in_object: false)
+    def corruptible(value, type, path = [], wire = [], out = [], non_null: false, in_object: false)
       case type.kind.name
-      when "NON_NULL" then corruptible(value, type.of_type, path, out, non_null: true, in_object:)
+      when "NON_NULL" then corruptible(value, type.of_type, path, wire, out, non_null: true, in_object:)
       when "LIST"
-        value.each_with_index { |el, i| corruptible(el, type.of_type, path + [i], out) } if value.is_a?(Array)
-      when "INPUT_OBJECT" then corruptible_fields(value, type, path, out)
+        if value.is_a?(Array)
+          value.each_with_index { |el, i| corruptible(el, type.of_type, path + [i], wire + [i], out) }
+        end
+      when "INPUT_OBJECT" then corruptible_fields(value, type, path, wire, out)
       else
         pool = corruptions(type, non_null:, in_object:)
-        out << [path, pool] if pool && !value.nil?
+        out << [path, wire, pool] if pool && !value.nil?
       end
       out
     end
 
-    def corruptible_fields(value, type, path, out)
+    def corruptible_fields(value, type, path, wire, out)
       return unless value.is_a?(Hash)
 
       type.arguments.each_value do |argument|
         key = GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym
         next unless value.key?(key)
 
-        corruptible(value[key], argument.type, path + [key], out, in_object: true)
+        corruptible(value[key], argument.type, path + [key], wire + [argument.graphql_name], out, in_object: true)
       end
     end
 

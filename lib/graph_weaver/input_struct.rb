@@ -74,11 +74,11 @@ module GraphWeaver
       yield
     rescue GraphWeaver::InputError => e
       redact = GraphWeaver::Internal::Redact
-      raise e.within(prop.to_s) if e.field && !redact.filtered?(prop)
+      raise e.within(field.wire, prop:) if e.field && !redact.filtered?(prop)
 
       raise GraphWeaver::InputError.new(
         "#{prop}: #{redact.detail(prop, e.message)}",
-        kind: e.kind, path: [prop.to_s, *e.path], coordinate: e.coordinate || field.coordinate,
+        kind: e.kind, path: [field.wire, *e.path], coordinate: e.coordinate || field.coordinate,
         # #value is the value AT #path: this layer owns it only when nothing
         # inner named a field (so a missing one stays valueless, as it is)
         value: redact.value(prop, e.path.empty? ? raw : e.value),
@@ -88,7 +88,7 @@ module GraphWeaver
       redact = GraphWeaver::Internal::Redact
       raise GraphWeaver::InputError.new(
         "#{prop}: #{redact.detail(prop, e.message)}",
-        kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [prop.to_s],
+        kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [field.wire],
         coordinate: field.coordinate, value: redact.value(prop, raw),
         details: GraphWeaver::Internal::Refusal.details_of(e), struct:,
       )
@@ -133,7 +133,7 @@ module GraphWeaver
             # every layer prepends the segment that led to it. Kernel.raise,
             # since this module is mixed into the struct and a prop named
             # `raise` would shadow a bare one with a zero-arity reader.
-            Kernel.raise e.within(field.prop.to_s)
+            Kernel.raise e.within(field.wire, prop: field.prop)
           end
       end
 
@@ -157,7 +157,7 @@ module GraphWeaver
         field = self.class.const_get(:FIELDS).find { |candidate| candidate.wire == name }
         Kernel.raise GraphWeaver::InputError.new(
           "#{self.class} is @oneOf and #{name} was null — supply a value for it, or a different field",
-          kind: :missing, path: [field.prop.to_s], coordinate: field.coordinate, struct: self.class,
+          kind: :missing, path: [field.wire], coordinate: field.coordinate, struct: self.class,
         )
       end
 
@@ -213,7 +213,7 @@ module GraphWeaver
           # path that points at two fields points at neither
           raise GraphWeaver::InputError.new(
             "missing required key(s) for #{self}: #{missing.map(&:prop).join(", ")}",
-            kind: :missing, path: [missing.first.prop.to_s],
+            kind: :missing, path: [missing.first.wire],
             coordinate: missing.first.coordinate, struct: self,
           )
         end

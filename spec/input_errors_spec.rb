@@ -294,6 +294,65 @@ describe "input errors" do
     end
   end
 
+  # One rule, both directions. A server can spell an input field only the way
+  # its schema does, so that is the spelling BOTH halves use — the prop is what
+  # you type in Ruby, and it is the message (the developer's line) that names
+  # it. Before this, a form doing errors[e.field] silently missed every
+  # server-detected error, because the two halves disagreed.
+  describe "the spelling of #path and #field" do
+    let(:mod) do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        input InvoiceInput { issuedOn: String!, externalId: Int }
+        type Query { invoice(input: InvoiceInput!): String }
+        schema { query: Query }
+      GRAPHQL
+      GraphWeaver.parse(schema:, client: Demo::Schema, name: "BillQuery",
+        query: "query Bill($input: InvoiceInput!) { invoice(input: $input) }")
+    end
+
+    it "is the schema's, for a refusal raised here" do
+      error = refusal { mod.execute(input: { issued_on: "2024-01-15", external_id: "lots" }) }
+
+      expect(error.path).to eq %w[input externalId]
+      expect(error.field).to eq "externalId"
+      expect(error.coordinate).to eq "InvoiceInput.externalId"
+      # the message is the developer's line, so it names the prop they typed
+      expect(error.message).to include "external_id:"
+    end
+
+    it "is the schema's for a missing field too, not the prop it generates" do
+      error = refusal { mod.execute(input: { external_id: 1 }) }
+
+      expect(error.kind).to eq :missing
+      expect(error.path).to eq %w[input issuedOn]
+    end
+
+    it "matches what the server sends back for the same field" do
+      raised = refusal { mod.execute(input: { issued_on: "2024-01-15", external_id: "lots" }) }
+      sent = GraphWeaver::GraphQLError.from_h(
+        "message" => "Variable $input of type InvoiceInput! was provided invalid value",
+        "extensions" => {
+          "value" => { "externalId" => "lots" },
+          "problems" => [{ "path" => ["externalId"], "explanation" => 'Could not coerce value "lots" to Int' }],
+        },
+      ).input_errors.first
+
+      expect(sent.field).to eq raised.field
+      expect(sent.path).to eq raised.path
+    end
+
+    # a typo names no field, so there is no schema spelling to give — the key
+    # comes back exactly as it was written, and the suggestion is the prop to
+    # type instead
+    it "echoes an unknown key as spelled, and suggests the prop" do
+      error = refusal { mod.execute(input: { issued_on: "x", externalId: 1 }) }
+
+      expect(error.kind).to eq :unknown
+      expect(error.path).to eq %w[input externalId]
+      expect(error.details[:suggestion]).to eq "external_id"
+    end
+  end
+
   describe "server-side: a rejection becomes the same value" do
     def errors_for(hash) = GraphWeaver::GraphQLError.from_h(hash).input_errors
     def error_for(hash) = errors_for(hash).first

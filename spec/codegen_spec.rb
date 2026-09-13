@@ -206,9 +206,10 @@ describe GraphWeaver::Codegen do
       )
     end
 
-    # #path points into the hash the caller handed us, which is prop-keyed;
-    # #coordinate is the schema's name for the slot, which is not.
-    it "locates a refusal by the prop, and names the schema coordinate" do
+    # #path and #coordinate are both the schema's spelling — a server can
+    # produce no other, so one rule covers both halves. The prop is what you
+    # type in Ruby, and it is the message that names it.
+    it "locates a refusal by the wire name, and names the schema coordinate" do
       mod = GraphWeaver.parse(schema: schema_with_input("class: Int"),
         query: "mutation Save($input: Tricky!) { save(input: $input) }",
         client: Demo::Schema, name: "RenamedPath")
@@ -219,8 +220,10 @@ describe GraphWeaver::Codegen do
         e
       end
 
-      expect(error.path).to eq ["class_"]
+      expect(error.path).to eq ["class"]
+      expect(error.field).to eq "class"
       expect(error.coordinate).to eq "Tricky.class"
+      expect(error.message).to include "class_:"
     end
 
     def schema_with_page(fields)

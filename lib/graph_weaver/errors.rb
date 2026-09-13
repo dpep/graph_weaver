@@ -610,8 +610,10 @@ module GraphWeaver
     attr_reader :kind
 
     # Rooted at the variable and down through input fields and list indices:
-    # ["where", "_and", 0, "_not", "species"]. Empty when nothing named a
-    # slot. #field is its last segment — the one a form highlights.
+    # ["where", "_and", 0, "_not", "species"]. Every named segment is the
+    # SCHEMA's spelling, whichever side refused — a server can produce no
+    # other, so one rule covers both halves. Empty when nothing named a slot.
+    # #field is its last named segment — the one a form highlights.
     sig { returns(T::Array[T.untyped]) }
     attr_reader :path
 
@@ -698,12 +700,16 @@ module GraphWeaver
     # message) ends up holding the whole route. Mutates and returns self:
     # the failure happened once, and a fresh error per layer would write a
     # warn line per layer for it.
-    sig { params(segment: T.any(String, Integer)).returns(InputError) }
-    def within(segment)
+    #
+    # `prop:` is the same field in Ruby spelling, where it differs: the
+    # segment is the schema's name, but filter_parameters is a list the app
+    # writes in Ruby, so `api_key` must still match what `apiKey` holds.
+    sig { params(segment: T.any(String, Integer), prop: T.any(String, Integer, Symbol)).returns(InputError) }
+    def within(segment, prop: segment)
       @path.unshift(segment)
       # a list element has no key of its own — the list's key is the first it
       # meets, and it decides whether the value may be shown
-      @value = GraphWeaver::Internal::Redact.value(segment, @value) if segment.is_a?(String)
+      @value = GraphWeaver::Internal::Redact.value(prop, @value) if segment.is_a?(String)
       self
     end
 

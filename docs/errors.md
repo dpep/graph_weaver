@@ -144,7 +144,7 @@ or an API response needs is beside it, as data:
 | | |
 |---|---|
 | `#kind` | one of eight Symbols — `GraphWeaver::InputError::KINDS`. The key an app translates; [i18n](i18n.md) has the table of what each means |
-| `#path` | the route from the variable down, Strings and list indices: `["where", "_and", 0, "_not", "species"]` |
+| `#path` | the route from the variable down, Strings and list indices: `["where", "_and", 0, "_not", "species"]`. Every named segment is the **schema's** spelling — see [which spelling](#which-spelling-a-path-is-in) |
 | `#coordinate` | the [schema coordinate](https://github.com/graphql/graphql-spec/pull/794) for the slot — `"PetFilter.species"`. `nil` when there isn't one |
 | `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables), and always JSON-representable (a non-finite Float travels as `"NaN"`/`"Infinity"`). `nil` when it was never known — a missing field has none, and an unknown key owns no slot to hold one |
 | `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }` |
@@ -154,15 +154,39 @@ or an API response needs is beside it, as data:
 So a form reads `e.field` and either `e.message` or — better — its own sentence
 built from `e.kind` and `e.details`.
 
+#### Which spelling a path is in
+
+**`#path`, `#field` and `#coordinate` are the schema's spelling**
+(`issuedOn`, `externalId`) — one rule, whichever side refused. A server can
+produce no other, and the client knows both, so this is the only spelling both
+halves can agree on: a form keyed on `e.field` finds the same slot for a
+refusal raised before the request left and for one the server sent back.
+
+The **prop** (`issued_on`) is what you type in Ruby — `.new`, `.coerce`, the
+kwargs of `execute` — and it is `#message`, the developer's line, that names
+it: `"external_id: expected an Int, got \"lots\""`. Two names for one field,
+each where it helps.
+
+In a Rails form the field names are the props, so underscore on the way in:
+
+```ruby
+form.errors.add(e.field.underscore, render_input_error(e))
+```
+
+The one segment that is neither is an **unknown key** — a typo names no field,
+so the schema has no spelling for it. It comes back exactly as you wrote it,
+and `details[:suggestion]` is the prop to type instead.
+
 **`#path` is rooted at the variable**, so its first segment is the kwarg you
 passed and its last is the field that actually held the value:
 
 | you called | `#path` | `#coordinate` |
 |---|---|---|
 | `execute(input: {name: "Rex", species: "LIZARD"})` | `["input", "species"]` | `"AdoptionInput.species"` |
+| `execute(input: {issued_on: "x", external_id: "lots"})` — a camelCase field | `["input", "externalId"]` — the schema's spelling | `"InvoiceInput.externalId"` |
 | `execute(where: {_and: [{_not: {species: "LIZARD"}}]})` | `["where", "_and", 0, "_not", "species"]` | `"PetFilter.species"` |
 | `execute(ids: [1, 2, "x"])` — a list of leaves | `["ids", 2]` | `nil` — a list element is a position, not a slot |
-| `AdoptionInput.coerce(name: "Rex", speceis: "DOG")` — no variable to name | `["speceis"]` | `nil` — the type defines no such field |
+| `AdoptionInput.coerce(name: "Rex", speceis: "DOG")` — no variable to name | `["speceis"]` — a typo names no field, so it is echoed as written | `nil` — the type defines no such field |
 | `execute(count: "lots")` — a top-level scalar | `["count"]` | `nil` — a variable names no schema element |
 
 `#coordinate` is `nil` wherever the schema has no name for the slot: a
@@ -251,7 +275,7 @@ the server *did* send, not to parse its prose:
 response = AdoptMutation.execute(input: params[:pet])
 
 if response.input_errors.any?
-  response.input_errors.each { |e| form.errors.add(e.field, e.message) }
+  response.input_errors.each { |e| form.errors.add(e.field.underscore, e.message) }
 elsif response.errors.any?
   # nothing claimed to be about the input: show what was said, and log the
   # rest — #extensions is where a server you're onboarding states its own
