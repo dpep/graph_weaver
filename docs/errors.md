@@ -47,7 +47,7 @@ subclass says where it failed:
 |-------|------|
 | `TransportError` | no response came back — DNS, connection refused, TLS, timeout, a socket that died mid-body — `#url`, `#cause` |
 | `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?`, `#url` |
-| `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
+| `QueryError` | a body with top-level GraphQL errors, whatever its status — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
 | `CastError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#kind`, `#path`, `#coordinate`, `#value`, `#details`, `#field`, `#struct` |
 | `QueryValidationError` | build time: the query didn't validate against the schema |
@@ -75,15 +75,21 @@ end
 ```
 
 `#throttled?` deliberately spells the same on both: an API may say "slow
-down" with a 429 or with a `THROTTLED` error in a 200 body, and a caller
+down" with a 429 or with a `THROTTLED` error in a body, and a caller
 shouldn't have to know which. It recognizes the codes the big graphs
 actually send (`GraphWeaver::GraphQLError::THROTTLE_CODES` — Shopify's
-`THROTTLED`, GitHub's `RATE_LIMITED`, and friends); pass that constant to
-`Retry`'s `retry_codes:` instead of hand-writing the strings.
+`THROTTLED`, GitHub's `RATE_LIMITED`, Apollo Router's
+`REQUEST_RATE_LIMITED`); pass that constant to `Retry`'s `retry_codes:`
+instead of hand-writing the strings.
 
-Or skip the hand-rolling: [`Retry`](transports.md#retries) wraps any client and
-already defaults to exactly the policy above — transport failures always,
-`ServerError` on 5xx plus 408/429, and GraphQL error codes you name.
+**Which arm catches a failure is the server's choice, not a rule you can
+rely on.** An origin server answers 429 with no body and you get a
+`ServerError`; Apollo Router answers the same rate limit with `503` *and* a
+GraphQL errors body, so the same failure arrives as a `QueryError` — and
+its 500s, 401s and 403s come the same way. So don't put the retry decision
+in the `ServerError` arm: hand it to [`Retry`](transports.md#retries), which
+asks the same question of both, and keep these arms for what you do with a
+failure you aren't retrying.
 
 **A status with an obvious next step says it.** A 3xx appends "redirects are
 not followed" and the `Location` to repoint the client at — replaying a POST,

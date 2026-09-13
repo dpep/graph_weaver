@@ -52,17 +52,21 @@ class GraphWeaver::Retry
   # server asking you to come back later rather than to fix anything
   RETRIABLE_CLIENT_STATUSES = [408, 429].freeze
 
+  # The status half of the policy, asked of a raised ServerError's status
+  # and of the status a response arrived on — one answer, so the two can't
+  # drift apart.
+  RETRIABLE_STATUS = ->(status) { status >= 500 || RETRIABLE_CLIENT_STATUSES.include?(status) }
+
   # retry 5xx (and 408/429), not the rest of 4xx; everything else listed
   # in retry_on: retries
   DEFAULT_RETRY_IF = lambda do |error|
-    !error.is_a?(GraphWeaver::ServerError) ||
-      error.status >= 500 || RETRIABLE_CLIENT_STATUSES.include?(error.status)
+    !error.is_a?(GraphWeaver::ServerError) || RETRIABLE_STATUS.call(error.status)
   end
 
   # said once, where the decision is made and where it is explained
   MUTATION_HINT = "not retrying a mutation — a request that failed without an answer " \
     "may still have been applied; pass retry_mutations: true if yours are idempotent"
-  private_constant :DEFAULT_RETRY_IF, :MUTATION_HINT
+  private_constant :RETRIABLE_STATUS, :DEFAULT_RETRY_IF, :MUTATION_HINT
 
   def initialize(client, retries: 2, retry_on: [GraphWeaver::TransportError, GraphWeaver::ServerError],
     backoff: :exponential, base_delay: 0.5, max_delay: 30, jitter: true, retry_if: DEFAULT_RETRY_IF,
@@ -139,6 +143,19 @@ class GraphWeaver::Retry
   end
 
   def retryable_response?(response)
+    retryable_status?(response) || retryable_code?(response)
+  end
+
+  # The status a response arrived on, where it came back with one — the
+  # bundled transports say; a schema class, a fake and a hand-rolled client
+  # answer a plain Hash, and a response with no status is never retried on
+  # one.
+  def retryable_status?(response)
+    status = response.http_status if response.respond_to?(:http_status)
+    !status.nil? && RETRIABLE_STATUS.call(status)
+  end
+
+  def retryable_code?(response)
     return false if @retry_codes.empty?
 
     codes = (response.to_h["errors"] || []).filter_map { |error| error.dig("extensions", "code") }

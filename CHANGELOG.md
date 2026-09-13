@@ -1,5 +1,18 @@
 ###  Unreleased
 
+- **A retry policy that was inert behind a gateway now fires.** `Retry` read
+  only the failures that *raised*, and Apollo Router answers everything it
+  decides itself with a GraphQL errors body — rate limiting is `503` plus
+  `REQUEST_RATE_LIMITED`, its own faults are `500` plus a code — so the body
+  won over the status and `retries: 3` made one attempt. One rule now: a
+  response retries when its status is one a `ServerError` retries on (5xx,
+  408, 429), or when its error codes are named in `retry_codes:`. A `200` is
+  never retried on status, so a router's partial `GATEWAY_TIMEOUT` still needs
+  `retry_codes:` to opt in, and a mutation still gets one attempt unless
+  `retry_mutations: true`. **If you wrapped a gateway in `Retry` and relied on
+  it not actually retrying, set `retries: 0`.** `REQUEST_RATE_LIMITED` joins
+  `GraphQLError::THROTTLE_CODES`, so `#throttled?` answers it too.
+
 - **The local router refuses a `@fromContext` argument on any path.** The
   refusal used to live only in the crossing-aware half of the planner, so a
   query one subgraph answered whole skipped it — and the resolver was called

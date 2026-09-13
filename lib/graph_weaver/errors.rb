@@ -278,10 +278,14 @@ module GraphWeaver
 
     # The codes servers use to say "you're going too fast". No standard
     # exists, so this is the union of what the big graphs actually send:
-    # Shopify THROTTLED, GitHub RATE_LIMITED, Apollo/Hasura the rest.
+    # Shopify THROTTLED, GitHub RATE_LIMITED, Apollo Router
+    # REQUEST_RATE_LIMITED (measured against v2.17.0), Hasura the rest.
     # Pass it to Retry (retry_codes:) rather than hand-writing strings.
     THROTTLE_CODES = T.let(
-      %w[THROTTLED RATE_LIMITED RATE_LIMIT_EXCEEDED TOO_MANY_REQUESTS REQUEST_LIMIT_EXCEEDED].freeze,
+      %w[
+        THROTTLED RATE_LIMITED RATE_LIMIT_EXCEEDED TOO_MANY_REQUESTS
+        REQUEST_LIMIT_EXCEEDED REQUEST_RATE_LIMITED
+      ].freeze,
       T::Array[String],
     )
 

@@ -269,18 +269,29 @@ GraphWeaver.new(
 `GraphWeaver::Retry.new(inner_transport, ...)` takes the same options and
 wraps any client/transport directly — the client just passes them along.
 
-Defaults: transport failures always retry; `ServerError` on 5xx plus
-**408 and 429** — the rest of 4xx is a bug in the request, retrying
-won't fix it. `retry_codes:` re-inspects response envelopes so
-GraphQL-level throttling can retry too (off by default — pass the codes
-your API uses). Exhausting the retries re-raises the last error (or
-returns the last code-matched response).
+Defaults: transport failures always retry; a response retries when its
+status is 5xx or **408 or 429** — the rest of 4xx is a bug in the request,
+retrying won't fix it. That's one rule for both shapes a failure arrives
+in: raised as a `ServerError`, or returned in the envelope because the
+server sent GraphQL errors alongside the status. Apollo Router does the
+latter for everything it decides itself — rate limiting is `503` with a
+`REQUEST_RATE_LIMITED` body — so a policy that read only the raised half
+made exactly one attempt behind a router. `retry_codes:` adds the other
+signal: error codes, at any status (off by default — pass the codes your
+API uses, or `GraphWeaver::GraphQLError::THROTTLE_CODES`). Exhausting the
+retries re-raises the last error (or returns the last response).
 
-**Nothing else retries**, which is the half a script author needs: a
-`QueryError` (the server answered, and complained) and an `InputError` (the
-variables never left the process) are permanent by construction — the identical
-request gets the identical answer. Only a failure that carries no verdict is
-worth repeating.
+A `200` is never retried on its status, whatever it carries. A router that
+gives up on a slow subgraph answers `200` with partial data and a
+`GATEWAY_TIMEOUT` error: the caller already has an answer, and whether a
+partial one is worth repeating is a judgment only the caller can make —
+`retry_codes: ["GATEWAY_TIMEOUT"]` is how they say yes.
+
+**Nothing else retries**, which is the half a script author needs: a `200`
+the server stands behind, and an `InputError` (the variables never left the
+process), are permanent by construction — the identical request gets the
+identical answer. Only a failure the server itself marked transient, by
+status or by code, is worth repeating.
 
 `retries:` counts the attempts *after* the first, so
 `GraphWeaver.new(url, retries: 3)` makes up to four and `retries: 0` never

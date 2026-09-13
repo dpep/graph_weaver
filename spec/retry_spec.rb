@@ -283,6 +283,87 @@ describe GraphWeaver::Retry do
     end
   end
 
+  # Behind an Apollo Router every answer is a GraphQL errors body, retryable
+  # or not: rate limiting is 503 + REQUEST_RATE_LIMITED, a router fault is
+  # 500 + its own code, a rejected credential is 401 + UNAUTHENTICATED. A
+  # rule that let the body win over the status retried none of them, so a
+  # configured retry policy made exactly one attempt. Shapes measured
+  # against a real router (v2.17.0), replayed here on a real socket.
+  context "a status that arrived with a GraphQL errors body" do
+    include_context "raw http server"
+
+    def rate_limited(status)
+      http_response(status, '{"errors":[{"message":"Your request has been rate limited",' \
+        '"extensions":{"code":"REQUEST_RATE_LIMITED"}}]}')
+    end
+
+    def attempts_against(body, **options)
+      url = serving { |socket| socket.write(body) }
+      executor = described_class.new(GraphWeaver::Transport::HTTP.new(url), sleeper:, **options)
+      before = raw_requests.size
+      [PersonQuery.execute(client: executor, id: "1"), raw_requests.size - before]
+    end
+
+    it "retries the router's 503, and hands back the last answer it got" do
+      response, attempts = attempts_against(rate_limited(503), retries: 2)
+
+      expect(attempts).to eq 3
+      expect(response).to have_graphql_error(code: "REQUEST_RATE_LIMITED")
+    end
+
+    it "retries a router's own 500" do
+      body = http_response(500, '{"errors":[{"message":"service unavailable",' \
+        '"extensions":{"code":"SERVICE_UNAVAILABLE"}}]}')
+      _response, attempts = attempts_against(body, retries: 1)
+
+      expect(attempts).to eq 2
+    end
+
+    # the other half of the rule: a 4xx that isn't 408/429 is a bug in the
+    # request, and a body full of errors doesn't make it worth repeating
+    it "leaves a 401 alone" do
+      body = http_response(401, '{"errors":[{"message":"Unauthenticated",' \
+        '"extensions":{"code":"UNAUTHENTICATED"}}]}')
+      response, attempts = attempts_against(body, retries: 3)
+
+      expect(attempts).to eq 1
+      expect(response).to have_graphql_error(code: "UNAUTHENTICATED")
+    end
+
+    # A router that gives up on a slow subgraph answers 200 with partial
+    # data and GATEWAY_TIMEOUT. The caller already has an answer — repeating
+    # the query is a judgment only the caller can make, so it takes
+    # retry_codes: to opt in.
+    it "leaves a 200 that carried a timeout alone" do
+      body = http_response(200, '{"data":{"person":null},"errors":[{"message":"timed out",' \
+        '"extensions":{"code":"GATEWAY_TIMEOUT"}}]}')
+      _response, attempts = attempts_against(body, retries: 3)
+
+      expect(attempts).to eq 1
+
+      _response, opted_in = attempts_against(body, retries: 1, retry_codes: ["GATEWAY_TIMEOUT"])
+      expect(opted_in).to eq 2
+    end
+
+    # retry_mutations: governs the attempt budget before any of this is asked
+    it "still gives a mutation one attempt" do
+      url = serving { |socket| socket.write(rate_limited(503)) }
+      executor = described_class.new(GraphWeaver::Transport::HTTP.new(url), retries: 3, sleeper:)
+
+      AdoptMutation.execute(client: executor, input: { name: "Rex", species: "DOG" })
+      expect(raw_requests.size).to eq 1
+    end
+
+    # THROTTLE_CODES is what a caller passes to retry_codes: and what
+    # #throttled? reads, and the router's own code was in neither
+    it "answers throttled? for the code the router sends" do
+      response, = attempts_against(rate_limited(503), retries: 0)
+
+      expect(response.errors.first.throttled?).to be true
+      expect(GraphWeaver::GraphQLError::THROTTLE_CODES).to include "REQUEST_RATE_LIMITED"
+    end
+  end
+
   # A retry policy nobody can read is a retry policy nobody trusts, so
   # docs/transports.md spells the default out — which puts the same two
   # statuses and the same backoff names in a second file.

@@ -118,7 +118,9 @@ class GraphWeaver::Transport
       # only a body carrying actual GraphQL errors flows through — a 4xx with
       # `"errors": null` (or []) isn't a structured error response, so the
       # status stays the signal
-      return parsed if parsed.is_a?(Hash) && parsed["errors"].is_a?(Array) && parsed["errors"].any?
+      if parsed.is_a?(Hash) && parsed["errors"].is_a?(Array) && parsed["errors"].any?
+        return Envelope.new(parsed, status)
+      end
 
       raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {}, url: safe_url)
     end
@@ -131,8 +133,23 @@ class GraphWeaver::Transport
       raise GraphWeaver::ServerError.new(status:, body: quoted, headers: headers || {}, url: safe_url)
     end
 
-    parsed
+    Envelope.new(parsed, status)
   end
+
+  # The parsed envelope, plus the HTTP status it came back on — a Hash to
+  # everything that reads a GraphQL response, and to the one caller that
+  # needs more. Retry asks: a router answers rate limiting with a 503 AND
+  # an errors body, so the body alone can't say whether to come back.
+  class Envelope < Hash
+    attr_reader :http_status
+
+    def initialize(parsed, http_status)
+      super()
+      @http_status = http_status
+      update(parsed)
+    end
+  end
+  private_constant :Envelope
 
   # A leading UTF-8 BOM, which RFC 8259 §8.1 lets a parser ignore and Ruby's
   # doesn't. .NET/IIS-fronted endpoints emit one, and the three bytes that
