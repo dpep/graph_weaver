@@ -189,8 +189,11 @@ module GraphWeaver
               next unless SINKS.match?(line)
 
               candidates.each do |name, base|
-                via = locals[name].find { |local| line.match?(/\b#{Regexp.escape(local)}\b/) }
-                next unless line.include?(base) || via
+                # the line naming the module is the better evidence; the local
+                # is what it falls back to
+                via = locals[name].find { |local| line.match?(/\b#{Regexp.escape(local)}\b/) } \
+                  unless line.include?(base)
+                next unless via || line.include?(base)
 
                 whole[name] ||= Excuse.new(Util.relative(path), number, line.strip, via)
               end
