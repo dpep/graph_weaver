@@ -354,6 +354,27 @@ describe "graphql: :wire" do
     end
   end
 
+  # what a faked subgraph fabricates was suite-wide under :wire, since the tag
+  # took no helper — a helper here says it per example, like every other mode
+  describe "a faked subgraph behind the wire" do
+    around do |example|
+      GraphWeaver::Testing.config.router = {
+        supergraph: RouterGraph::PARTIAL_SUPERGRAPH,
+        subgraphs: { "shipping" => :fake },
+      }
+      app_client!("http://graph.test/graphql")
+      example.run
+    end
+
+    it "pins what that subgraph fabricates, for this example", graphql: :wire do
+      graphql_router(fake: { "Shipment.carrier" => "UPS" })
+
+      carrier = GraphWeaver.client.execute("{ shipments { carrier } }")
+      expect(carrier.dig("data", "shipments", 0, "carrier")).to eq "UPS"
+      expect(exchanges.size).to eq 1 # and through the transport, not past it
+    end
+  end
+
   # An app that is a pure client of someone else's API has a dump and no
   # resolvers anywhere — the shape :wire used to refuse, asking for a
   # GraphQL::Schema class the app has no reason to own.
