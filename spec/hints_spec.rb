@@ -10,6 +10,14 @@ describe GraphWeaver::Hints do
     expect { person.nmae }.to raise_error(NoMethodError, /did you mean 'name'\?/)
   end
 
+  # a name that resembles nothing is not this module's business: inventing
+  # "did you mean ''?" for it is worse than Ruby's own answer
+  it "leaves a name that resembles no prop to Ruby's own NoMethodError" do
+    expect { person.utterly_unrelated }.to raise_error(NoMethodError) { |error|
+      expect(error.message).not_to include "did you mean"
+    }
+  end
+
   # respond_to? is a question about the object's shape, and the hint is an
   # answer about a call that was actually made. Saying true here broke the
   # standard guard — `obj.pet if obj.respond_to?(:pet)` raised on the near
