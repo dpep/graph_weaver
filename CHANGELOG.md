@@ -1,5 +1,12 @@
 ###  Unreleased
 
+<!-- lane: hints -->
+- **A shape-drift message no longer blames a null the schema allows.** When one
+  field arrived out of shape and a nullable sibling was legitimately `null`, the
+  `CastError` named the null one — the guard meant to skip it read the prop's
+  type with its nilable-ness stripped, so it never fired. Found by mutation
+  testing: nine mutants sat on a line that could not run.
+
 <!-- lane: structs -->
 - **A result now has real JSON, and it round-trips.** `result.to_json` was
   Ruby's `Object#to_json` — the `#inspect` string, quoted

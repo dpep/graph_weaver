@@ -71,5 +71,18 @@ describe GraphWeaver::Hints do
       expect { PersonQuery::Result.from_h("person" => []) }
         .to raise_error(GraphWeaver::CastError, /person: expected an object, but the server sent a list/)
     end
+
+    # the message takes the first key out of shape — a null the schema allows
+    # is not one, so a sibling's drift must not be pinned on it
+    it "does not blame a legitimately null sibling for the key that drifted" do
+      schema = GraphQL::Schema.from_definition(<<~SDL)
+        type Pet { name: String }
+        type Query { a: Pet, b: Pet }
+      SDL
+      mod = GraphWeaver.parse(schema:, query: "query M { a { name } b { name } }")
+
+      expect { mod.from_response!("data" => { "a" => nil, "b" => "oops" }) }
+        .to raise_error(GraphWeaver::CastError, /b: expected an object, but the server sent a string/)
+    end
   end
 end

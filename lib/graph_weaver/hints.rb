@@ -120,7 +120,9 @@ module GraphWeaver
       props = struct.props
       data.filter_map do |key, value|
         prop = props[GraphWeaver::Codegen.prop_name(key.to_s).to_sym]
-        prop && shape_drift(T::Utils.coerce(prop[:type]), value, key.to_s)
+        # :type_object keeps the nilable-ness :type strips — a null where the
+        # schema allows one is not drift, and must not be blamed for a sibling's
+        prop && shape_drift(T::Utils.coerce(prop[:type_object]), value, key.to_s)
       end.first
     end
     private_class_method :drifted_shape
