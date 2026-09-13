@@ -42,13 +42,29 @@ describe GraphWeaver::Transport::HTTP do
     expect(body["query"]).to start_with "query PersonQuery($id: ID!)"
   end
 
+  # A gateway keys client attribution — per-client SLOs, "who still calls this
+  # deprecated field", per-client rate limits — on these two, and an Apollo
+  # Router's own span showed client.name: "" for every request this gem sent.
+  it "names itself to the graph" do
+    PersonQuery.execute(client: executor, id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["apollographql-client-name"]).to eq ["graph_weaver"]
+    expect(headers["apollographql-client-version"]).to eq [GraphWeaver::VERSION]
+  end
+
   it "lets the caller override the defaults" do
-    custom = described_class.new(url, headers: { "Accept" => "application/json", "User-Agent" => "myapp/1" })
+    custom = described_class.new(url, headers: {
+      "Accept" => "application/json", "User-Agent" => "myapp/1",
+      "apollographql-client-name" => "checkout", "apollographql-client-version" => "2024.11.3",
+    })
     PersonQuery.execute(client: custom, id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["accept"]).to eq ["application/json"]
     expect(headers["user-agent"]).to eq ["myapp/1"]
+    expect(headers["apollographql-client-name"]).to eq ["checkout"]
+    expect(headers["apollographql-client-version"]).to eq ["2024.11.3"]
   end
 
   # a token that expires mid-process has to be asked for per request, not

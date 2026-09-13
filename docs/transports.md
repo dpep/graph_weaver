@@ -156,6 +156,23 @@ ones it leaves unset are filled in — and Faraday's stock
 `User-Agent: Faraday v…`, which it fills in for every connection whether
 you asked or not, counts as unset.
 
+**Who the graph thinks is calling.** Both transports also send
+`apollographql-client-name` and `apollographql-client-version`, which is
+what an Apollo Router or GraphOS keys client attribution on — per-client
+SLOs and rate limits, and "who still asks for this deprecated field". The
+name is your Rails application's (`Storefront`), or `graph_weaver` outside
+Rails, since Apollo means the consuming *application*; the version is the
+gem's, because graph_weaver can't know what your app calls its releases.
+Both are plain headers, so `headers:` overrides them — which is how one app
+names its several clients apart:
+
+```ruby
+GraphWeaver::Transport::HTTP.new(url, headers: {
+  "apollographql-client-name" => "storefront-checkout",
+  "apollographql-client-version" => ENV.fetch("GIT_SHA"),
+})
+```
+
 **A header that expires.** On `Transport::HTTP` a header *value* may be
 anything answering `#call`, resolved per request rather than captured when the
 transport was built — the same way a graph's [`schema`](federation.md) takes a

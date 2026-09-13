@@ -129,6 +129,28 @@ describe "a transport reading the wire" do
     end
   end
 
+  # A gateway attributes traffic to whatever the apollographql-client-* headers
+  # say, and Apollo's "client" is the consuming application — so a Rails app
+  # answers with its own name rather than with the gem's.
+  describe "client identity" do
+    def names_itself(transport)
+      url = answering(http_response(200, good_body))
+      transport.new(url).execute(query)
+      raw_requests.last.first[/^apollographql-client-name: (.*)\r$/i, 1]
+    end
+
+    it "sends the gem's name outside Rails" do
+      transports.each { |transport| expect(names_itself(transport)).to eq "graph_weaver" }
+    end
+
+    it "sends the app's name inside Rails" do
+      application = stub_const("Storefront::Application", Class.new).new
+      stub_const("Rails", Module.new { define_singleton_method(:application) { application } })
+
+      transports.each { |transport| expect(names_itself(transport)).to eq "Storefront" }
+    end
+  end
+
   describe "proxies" do
     # URI#find_proxy never proxies a loopback address, so the origin has to be
     # a name that isn't 127.0.0.1 — and one that never resolves, so a request

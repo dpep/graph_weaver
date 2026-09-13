@@ -486,6 +486,7 @@ GraphWeaver::Transport#inspect
 GraphWeaver::Transport#safe_url
 GraphWeaver::Transport#to_s
 GraphWeaver::Transport#url
+GraphWeaver::Transport.default_headers
 GraphWeaver::Transport::DEFAULT_HEADERS = Hash
 GraphWeaver::Transport::DEFAULT_OPEN_TIMEOUT = Integer
 GraphWeaver::Transport::DEFAULT_READ_TIMEOUT = Integer

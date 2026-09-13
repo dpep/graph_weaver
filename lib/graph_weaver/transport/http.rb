@@ -107,7 +107,7 @@ module GraphWeaver
       # `-> { Current.tenant&.id }` was a bare NoMethodError in any app whose
       # ids are Integers.
       def request_headers
-        DEFAULT_HEADERS.merge(@headers).filter_map do |name, value|
+        Transport.default_headers.merge(@headers).filter_map do |name, value|
           value = value.call if value.respond_to?(:call)
           [name, value.to_s] unless value.nil?
         end.to_h

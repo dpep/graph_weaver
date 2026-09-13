@@ -12,6 +12,14 @@
   `retry_mutations: true`. **If you wrapped a gateway in `Retry` and relied on
   it not actually retrying, set `retries: 0`.** `REQUEST_RATE_LIMITED` joins
   `GraphQLError::THROTTLE_CODES`, so `#throttled?` answers it too.
+- **Both transports now name themselves to the graph.** Every request carries
+  `apollographql-client-name` and `apollographql-client-version`, which is what
+  an Apollo Router or GraphOS keys client attribution on — a real router's span
+  showed `client.name: ""` for everything this gem sent. The name is your Rails
+  application's, or `graph_weaver` outside Rails; the version is the gem's.
+  Override either in `headers:` — which is how one app names its several
+  clients apart. `Transport.default_headers` is the whole set;
+  `DEFAULT_HEADERS` stays the fixed half of it.
 
 - **The local router refuses a `@fromContext` argument on any path.** The
   refusal used to live only in the crossing-aware half of the planner, so a

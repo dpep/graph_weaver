@@ -30,8 +30,8 @@ class GraphWeaver::Transport
   # it never loads faraday. Without the gem the LoadError names it.
   autoload :Faraday, "graph_weaver/transport/faraday"
 
-  # What every request sends unless the caller says otherwise.
-  # graphql-over-http requires a conforming client to accept
+  # The fixed half of what every request sends — see .default_headers for
+  # all of it. graphql-over-http requires a conforming client to accept
   # application/graphql-response+json; the q=0.9 fallback keeps servers
   # that only speak the legacy media type working. The User-Agent is what
   # lets a server operator attribute the traffic.
@@ -40,6 +40,37 @@ class GraphWeaver::Transport
     "Accept" => "application/graphql-response+json, application/json;q=0.9",
     "User-Agent" => "graph_weaver/#{GraphWeaver::VERSION}",
   }.freeze
+
+  # What every request sends unless the caller says otherwise. Apollo Router
+  # and GraphOS key client attribution on the two apollographql-client-*
+  # headers — per-client SLOs, per-client rate limits, "who still asks for
+  # this deprecated field" — and a client that sends neither is attributed
+  # to the empty string along with everyone else. They are plain headers, so
+  # headers: overrides them: that is how one app names its several clients
+  # apart, which a default can't do for it.
+  def self.default_headers
+    DEFAULT_HEADERS.merge(
+      "apollographql-client-name" => client_name,
+      "apollographql-client-version" => GraphWeaver::VERSION,
+    )
+  end
+
+  # Apollo's client name is the consuming *application*, so a Rails app
+  # answers with its own name — asked per request, because Rails.application
+  # doesn't exist yet while the Gemfile is being required. The version stays
+  # the gem's: graph_weaver can't know what your app calls its releases.
+  def self.client_name
+    # const_get rather than the constant itself: an app that typechecks this
+    # gem without Rails in its sorbet payload can't resolve a bare ::Rails
+    rails = Object.const_get(:Rails) if defined?(::Rails)
+    app = rails.application if rails.respond_to?(:application)
+    return "graph_weaver" unless app
+
+    # Rails names the application class after the app: Storefront::Application
+    namespace = app.class.name.to_s.split("::")[0..-2].join("::")
+    namespace.empty? ? "graph_weaver" : namespace
+  end
+  private_class_method :client_name
 
   # Timeouts, in seconds, shared by the bundled transports — a missing
   # timeout is an outage, and net/http's own 60s/60s is far too patient

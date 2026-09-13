@@ -46,13 +46,25 @@ describe GraphWeaver::Transport::Faraday do
     expect(headers["user-agent"]).to eq ["graph_weaver/#{GraphWeaver::VERSION}"]
   end
 
+  it "names itself to the graph, here as much as on Transport::HTTP" do
+    PersonQuery.execute(client: described_class.new(url), id: "1")
+
+    headers = @requests.last[:headers]
+    expect(headers["apollographql-client-name"]).to eq ["graph_weaver"]
+    expect(headers["apollographql-client-version"]).to eq [GraphWeaver::VERSION]
+  end
+
   it "lets the caller override the defaults" do
-    executor = described_class.new(url, headers: { "Accept" => "application/json", "User-Agent" => "myapp/1" })
+    executor = described_class.new(url, headers: {
+      "Accept" => "application/json", "User-Agent" => "myapp/1",
+      "apollographql-client-name" => "checkout",
+    })
     PersonQuery.execute(client: executor, id: "1")
 
     headers = @requests.last[:headers]
     expect(headers["accept"]).to eq ["application/json"]
     expect(headers["user-agent"]).to eq ["myapp/1"]
+    expect(headers["apollographql-client-name"]).to eq ["checkout"]
   end
 
   it "fills in the defaults a prebuilt connection left blank" do
