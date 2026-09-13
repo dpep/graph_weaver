@@ -631,13 +631,7 @@ class GraphWeaver::Codegen
         raise GraphWeaver::Error, "#{entity.graphql_name} @key names #{name.inspect}, which the type doesn't declare"
       end
 
-      kwarg = underscore(name)
-      if RUBY_KEYWORDS.include?(kwarg)
-        raise GraphWeaver::Error,
-          "#{entity.graphql_name} @key field #{name.inspect} would become the kwarg '#{kwarg}:', " \
-          "which generated code can't declare (a Ruby keyword)"
-      end
-
+      kwarg = key_kwarg(name)
       core = field.type.unwrap
       if core.kind.name == "SCALAR"
         node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
@@ -653,6 +647,17 @@ class GraphWeaver::Codegen
 
       RepresentationNode::Param.new(kwarg, name, type, value, required)
     end
+  end
+
+  # A @key field's kwarg. The prop rule, plus the one thing a kwarg can't be
+  # that a prop can: a Ruby keyword, since a kwarg is declared and passed
+  # bare. Renaming rather than refusing, because a subgraph's @key field is
+  # even less the user's to rename than a schema's field name — there is no
+  # escape to point them at. The SAME underscore the entity struct's prop
+  # took, or reading `slot.hash_` and writing it back is an ArgumentError.
+  def key_kwarg(name)
+    kwarg = GraphWeaver::Codegen.prop_name(name)
+    RUBY_KEYWORDS.include?(kwarg) ? "#{kwarg}_" : kwarg
   end
 
   # The kwarg's trip onto the wire — the same normalize-then-serialize an

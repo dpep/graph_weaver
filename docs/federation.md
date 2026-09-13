@@ -633,6 +633,12 @@ field:
 Product representation sku: expected an Int, got "forty-two"
 ```
 
+A `@key` field whose name a generated method can't take as a kwarg — `class`,
+`hash`, or a Ruby keyword — takes a trailing underscore, the same one its prop
+took: `@key(fields: "class")` builds `Representations.room(class_: "suite")`
+and still sends `"class"` on the wire. A subgraph's `@key` field is not yours
+to rename, so weaver renames its own side rather than refusing.
+
 Only the declared key fields reach the wire — an extra key in a nested hash is
 dropped. Builders are emitted **only for the entities a query's `_entities`
 selection reaches** (codegen is query-driven, so a subgraph with fifty entities

@@ -586,6 +586,23 @@ describe "federation / _entities representations" do
     end
   end
 
+  # A subgraph's @key field is even less the user's to rename than a schema's
+  # field name — there is no escape to point them at — so a key kwarg takes
+  # the same trailing underscore a prop does, and for the same reason. It has
+  # to be the SAME underscore: the entity struct holds `hash_`, and a builder
+  # asking for `hash:` makes reading one and writing it back an ArgumentError.
+  it "underscores a @key field whose kwarg generated code can't declare" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      type Query { room: Room }
+      type Room @key(fields: "class") @key(fields: "hash") { class: String! hash: String! }
+    GRAPHQL
+    mod, source = build(schema, ENTITY_QUERY % "Room { __typename }", "ReservedKeyEntities")
+
+    expect(source).to include("def self.room(class_: nil, hash_: nil)")
+    expect(mod::Representations.room(class_: "suite"))
+      .to eq({ "__typename" => "Room", "class" => "suite" })
+  end
+
   # `resolvable: false` declares a key this subgraph does NOT answer for, so
   # nothing can be resolved by it — a builder offering it would be a lie
   it "ignores a key the subgraph declares unresolvable" do
