@@ -485,6 +485,46 @@ describe "federation / _entities representations" do
       .to eq({ "__typename" => "Listing", "id" => "1", "organization" => { "id" => "org-1" } })
   end
 
+  # `@key(fields: "id lineItems { sku }")` over a list composes fine, and the
+  # representation it needs is a LIST of objects. Typed as one open Hash, the
+  # correct shape was refused and a single hash was accepted — which reached
+  # the subgraph describing an entity that doesn't exist.
+  describe "a @key whose selection is a list" do
+    let(:orders) do
+      GraphWeaver::SchemaLoader.load(<<~SDL)
+        extend schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key"])
+        type Query { order(id: ID!): Order }
+        type LineItem { sku: String! }
+        type Order @key(fields: "id lineItems { sku }") {
+          id: ID!
+          lineItems: [LineItem!]!
+          total: Int!
+        }
+      SDL
+    end
+
+    let(:built) { build(orders, ENTITY_QUERY % "Order { id total }", "OrderEntities") }
+
+    it "types the kwarg as a list, and marks the hop in the key set" do
+      expect(built.last).to include("line_items: T::Array[T::Hash[T.untyped, T.untyped]]")
+      expect(built.last).to include('[["id", "lineItems[].sku"]]')
+    end
+
+    it "keeps the list a list on the wire" do
+      expect(built.first::Representations.order(id: "o1", line_items: [{ sku: "a" }, { "sku" => "b" }]))
+        .to eq({ "__typename" => "Order", "id" => "o1",
+                 "lineItems" => [{ "sku" => "a" }, { "sku" => "b" }] })
+    end
+
+    it "refuses one object where the schema declares a list, and says so" do
+      expect { built.first::Representations.order(id: "o1", line_items: { sku: "a" }) }
+        .to raise_error(GraphWeaver::InputError,
+          'Order representation is missing @key "lineItems[].sku"') { |e|
+          expect(e.path).to eq %w[lineItems sku]
+        }
+    end
+  end
+
   it "lets either of two alternative keys resolve an entity" do
     expect(reps.variant(id: "v-1")).to eq({ "__typename" => "Variant", "id" => "v-1" })
     expect(reps.variant(serial: "s-1")).to eq({ "__typename" => "Variant", "serial" => "s-1" })

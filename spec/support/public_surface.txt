@@ -244,6 +244,7 @@ GraphWeaver::QueryValidationError.split
 GraphWeaver::Representation (Module)
 GraphWeaver::Representation.build
 GraphWeaver::Representation.field
+GraphWeaver::Representation::LIST_HOP = String
 GraphWeaver::Response (Class)
 GraphWeaver::Response#data
 GraphWeaver::Response#data!

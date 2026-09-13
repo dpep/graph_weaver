@@ -615,17 +615,50 @@ class GraphWeaver::Codegen
   # "id organization { id }" — flattened to the dotted leaf paths the wire
   # hash needs. The same reading the routing table does of the same syntax,
   # so a supergraph and a subgraph SDL can't disagree about one key.
+  #
+  # Each hop the schema declares as a list is marked: "id lineItems { sku }"
+  # over a `[LineItem!]!` becomes "lineItems[].sku". The runtime builds the
+  # wire representation from these paths and nothing else, so list-ness has
+  # to travel in them — otherwise a list arrives as one object and the
+  # subgraph is asked about an entity that doesn't exist.
   def key_paths(entity, fields)
-    GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(fields)
+    GraphWeaver::SchemaLoader::RoutingTable.parse_field_set(fields).map do |path|
+      mark_lists(entity.graphql_name, path)
+    end
   rescue GraphQL::ParseError => e
     raise GraphWeaver::Error, "#{entity.graphql_name} @key(fields: #{fields.inspect}) isn't a selection set: #{e.message}"
   end
 
+  # A hop the schema doesn't declare is left as written — key_params names
+  # the first of those, and a deeper one is the runtime's to complain about.
+  def mark_lists(type_name, path)
+    path.split(".").map do |segment|
+      field = @schema.get_field(type_name, segment) or next segment
+
+      type_name = field.type.unwrap.graphql_name
+      field.type.list? ? "#{segment}#{GraphWeaver::Representation::LIST_HOP}" : segment
+    end.join(".")
+  end
+
+  # The leaf a nested @key passes through as: an open hash the runtime
+  # narrows to the declared sub-paths, rather than the sig. Identity
+  # everywhere, so `key_node` can wrap it in the same List a scalar leaf gets.
+  class OpaqueHash < Node
+    def bare_type = "T::Hash[T.untyped, T.untyped]"
+    def identity? = true
+    def serialize_identity? = true
+    def hash_coerce_identity? = true
+  end
+  private_constant :OpaqueHash
+
   # The kwargs a builder takes: every key set's top-level field, once. Typed
   # from the schema — a leaf key field gets its registered scalar's Ruby
-  # type, a nested one an open Hash whose shape the runtime checks.
+  # type, a nested one an open Hash whose shape the runtime checks, and a key
+  # field the schema declares as a list takes a list of whichever it is.
   def key_params(entity, key_sets, required:)
-    key_sets.flatten.map { |path| path.split(".").first }.uniq.map do |name|
+    key_sets.flatten.map { |path|
+      path.split(".").first.delete_suffix(GraphWeaver::Representation::LIST_HOP)
+    }.uniq.map do |name|
       field = @schema.get_field(entity.graphql_name, name)
       unless field
         raise GraphWeaver::Error, "#{entity.graphql_name} @key names #{name.inspect}, which the type doesn't declare"
@@ -633,20 +666,31 @@ class GraphWeaver::Codegen
 
       kwarg = key_kwarg(name)
       core = field.type.unwrap
-      if core.kind.name == "SCALAR"
-        node = scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
-        type = required ? node.bare_type : node.prop_type
-        value = representation_value(entity, name, kwarg, node)
+      leaf = if core.kind.name == "SCALAR"
+        scalar_node(core.graphql_name, "#{entity.graphql_name}.#{name}")
       else
-        # a nested key set — or an enum/composite one — passes through as an
-        # open hash, narrowed to the declared sub-paths by the runtime
-        type = "T::Hash[T.untyped, T.untyped]"
-        type = "T.nilable(#{type})" unless required
-        value = kwarg
+        # a nested key set, or an enum one
+        OpaqueHash.new
       end
+      # the outermost non-null is `required`'s call rather than the SDL's: an
+      # entity with two @keys makes every kwarg optional however it declares
+      # the fields
+      node = key_node(field.type.non_null? ? field.type.of_type : field.type, leaf)
+      type = required ? node.bare_type : node.prop_type
 
-      RepresentationNode::Param.new(kwarg, name, type, value, required)
+      RepresentationNode::Param.new(kwarg, name, type,
+        representation_value(entity, name, kwarg, node), required)
     end
+  end
+
+  # A @key field's list wrappers, rebuilt around its leaf node — `@key(fields:
+  # "id lineItems { sku }")` over a `[LineItem!]!` takes a list of hashes, and
+  # `Representation` walks it to reach the leaf of every element.
+  def key_node(type, leaf)
+    return NonNull.new(key_node(type.of_type, leaf)) if type.non_null?
+    return List.new(key_node(type.of_type, leaf)) if type.list?
+
+    leaf
   end
 
   # A @key field's kwarg. The prop rule, plus the one thing a kwarg can't be

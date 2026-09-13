@@ -749,7 +749,13 @@ Key field sets are selection sets, so they're parsed as such:
 | `"id"` | `Representations.user(id: "1")` |
 | `"upc sku"` (compound) | `Representations.product(upc: "u", sku: 42)` |
 | `"id organization { id }"` (nested) | `Representations.listing(id: "1", organization: { id: "o" })` |
+| `"id lineItems { sku }"` over a `[LineItem!]!` | `Representations.order(id: "1", line_items: [{ sku: "a" }, { sku: "b" }])` |
 | `"id"` **and** `"serial"` (alternatives) | `Representations.variant(id: "1")` *or* `(serial: "s")` |
+
+A key field the schema declares as a **list** takes a list, and stays one on
+the wire — a single object there would describe an entity that doesn't exist,
+so it's refused rather than sent. The error spells the list hop `lineItems[]`,
+which is also how the generated key set records it.
 
 A type with one `@key` types its fields as **required kwargs**, so an
 incomplete representation is an `srb tc` error rather than a round trip. What a

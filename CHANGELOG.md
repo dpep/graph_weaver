@@ -11,6 +11,13 @@
   traffic by the label; the router used to pick one and answer from it every
   time, silently and forever. New refusal category `:progressive_override`.
   Drop the label and composition drops the losing copy, which plans normally.
+- **Regenerate if an entity's `@key` selects through a list.** `@key(fields:
+  "id lineItems { sku }")` over a `[LineItem!]!` typed its kwarg as one Hash:
+  the correct list was refused and a single hash was accepted and sent, which
+  described an entity that doesn't exist. The kwarg is now
+  `T::Array[T::Hash[...]]`, the list stays a list on the wire, and the
+  generated key set spells the hop `"lineItems[]"`. No other `@key` shape
+  changes.
 
 ###  v0.7.0  (2026-09-13)
 
