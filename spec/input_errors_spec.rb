@@ -461,6 +461,86 @@ describe "input errors" do
       expect(error.path).to eq ["a"] # the facts it did state still stand
     end
 
+    # #path is an INPUT path; a GraphQL error's own path names a selection.
+    # Standing one in for the other gives #field a plausible-looking field
+    # name ("createOrder") for a slot the input hasn't got.
+    describe "a path the server states but can't spell" do
+      it "is empty rather than the response path, when the convention's path isn't an Array" do
+        error = error_for(
+          "message" => "min must be at least 1",
+          "path" => ["createOrder"],
+          "extensions" => { "input" => { "kind" => "out_of_range", "path" => "input.min", "min" => 1 } },
+        )
+
+        expect(error.path).to eq []
+        expect(error.field).to be_nil
+        expect(error.kind).to eq :out_of_range # the facts it did state still stand
+        expect(error.details).to eq({ min: 1 })
+      end
+
+      it "is empty for a segment that names neither a field nor an index" do
+        error = error_for(
+          "message" => "nope",
+          "path" => ["createOrder"],
+          "extensions" => { "input" => { "kind" => "missing", "path" => ["input", { "field" => "min" }] } },
+        )
+
+        expect(error.path).to eq []
+        expect(error.field).to be_nil
+      end
+
+      it "is empty when the convention states no path at all" do
+        error = error_for(
+          "message" => "nope",
+          "path" => ["createOrder"],
+          "extensions" => { "input" => { "kind" => "invalid_format", "pattern" => "\\A[A-Z]+\\z" } },
+        )
+
+        expect(error.path).to eq []
+        expect(error.field).to be_nil
+      end
+
+      # the same rule where a code, not the convention, named the kind
+      it "is empty for a coded rejection that names no argument" do
+        error = error_for(
+          "message" => "count is not accepted",
+          "path" => ["createOrder"],
+          "extensions" => { "code" => "argumentNotAccepted", "name" => "Thing", "typeName" => "InputObject" },
+        )
+
+        expect(error.path).to eq []
+        expect(error.field).to be_nil
+      end
+
+      # a problem's own path IS an input path (the variable plus the
+      # problem's), so it stands in where the nested convention can't spell one
+      it "falls back to the problem's own input path inside a coercion error" do
+        error = error_for(
+          "message" => "Variable $input of type OrderInput! was provided invalid value",
+          "path" => ["createOrder"],
+          "extensions" => {
+            "problems" => [
+              { "path" => ["coupon"], "explanation" => "nope",
+                "extensions" => { "input" => { "kind" => "invalid_format", "path" => "input.coupon" } } },
+            ],
+          },
+        )
+
+        expect(error.path).to eq %w[input coupon]
+        expect(error.field).to eq "coupon"
+      end
+
+      # Hasura states its path as a dotted string it either spells fully or
+      # not at all — there was never a response-path floor under it
+      it "claims nothing from Hasura when the argument path can't be read" do
+        expect(errors_for(
+          "message" => "nope",
+          "path" => ["createOrder"],
+          "extensions" => { "code" => "validation-failed", "path" => "$.selectionSet.createOrder" },
+        )).to eq []
+      end
+    end
+
     # ---- graphql-ruby's variable-coercion shape (measured, 2.6.10)
     it "reads a variable-coercion failure, one InputError per problem" do
       error = error_for(
@@ -758,7 +838,10 @@ describe "input errors" do
 
       expect(error.kind).to eq :refused
       expect(error.message).to eq "qty must be greater than 0"
-      expect(error.path).to eq ["validatedInput"] # the response path — the honest floor
+      # ["validatedInput"] is the RESPONSE path — a selection, not an input
+      # slot — so nothing here named a field
+      expect(error.path).to eq []
+      expect(error.field).to be_nil
       expect(error.coordinate).to be_nil
     end
 
@@ -770,6 +853,64 @@ describe "input errors" do
       expect(io.string).to eq ""
     ensure
       GraphWeaver.logger = nil
+    end
+  end
+
+  # An InputError is built for whatever a caller sent and whatever a server
+  # echoed back, both of which can be megabytes — and every raised one writes
+  # a warn line.
+  describe "the size a value is allowed to reach" do
+    let(:io) { StringIO.new }
+    let(:limit) { GraphWeaver::InputError::VALUE_LIMIT }
+    let(:huge) { "x" * 1_000_000 }
+
+    # generous: the cap is per String, and the sentence around it is short
+    def bounded?(text) = text.bytesize < GraphWeaver::InputError::VALUE_LIMIT * 4
+
+    around do |example|
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+      example.run
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    let(:counted) do
+      GraphWeaver.parse(schema: GraphQL::Schema.from_definition(<<~GRAPHQL), query: <<~QUERY)
+        input Bag { note: String count: Int }
+        type Query { thing(count: Int, bag: Bag): String }
+      GRAPHQL
+        query Counted($count: Int, $bag: Bag) { thing(count: $count, bag: $bag) }
+      QUERY
+    end
+
+    it "bounds #value, #to_h, #message and the warn line for a megabyte a caller sent" do
+      error = refusal { counted.execute(client: nil, count: huge) }
+
+      expect(error.value.bytesize).to be <= limit + 32
+      expect(error.value).to end_with "…(#{1_000_000 - limit} more bytes)"
+      expect(bounded?(JSON.generate(error.to_h))).to be true
+      expect(bounded?(error.message)).to be true
+      expect(bounded?(io.string)).to be true
+    end
+
+    it "bounds a string nested inside a composite value, and the composite the message inspects" do
+      error = refusal { counted.execute(client: nil, count: { "note" => huge }) }
+
+      expect(error.kind).to eq :type_mismatch
+      expect(error.value["note"]).to end_with "…(#{1_000_000 - limit} more bytes)"
+      expect(bounded?(JSON.generate(error.to_h))).to be true
+      expect(bounded?(error.message)).to be true
+      expect(bounded?(io.string)).to be true
+    end
+
+    it "bounds the sentence a server wrote, and the value it stated" do
+      error = GraphWeaver::GraphQLError.from_h(
+        "message" => huge,
+        "extensions" => { "input" => { "kind" => "out_of_range", "path" => ["count"], "value" => huge } },
+      ).input_errors.first
+
+      expect(bounded?(error.message)).to be true
+      expect(bounded?(JSON.generate(error.to_h))).to be true
     end
   end
 

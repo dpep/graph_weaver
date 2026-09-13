@@ -606,6 +606,15 @@ module GraphWeaver
     # I18n::ReservedInterpolationKey on that very splat) — held by a spec.
     DETAILS = T.let(%i[type members min max pattern suggestion].freeze, T::Array[Symbol])
 
+    # The most of any one value this error will hold or spell — per String, at
+    # every depth, and per sentence a server wrote. Past it the rest is
+    # dropped for "…(N more bytes)". An InputError is built for whatever a
+    # caller sent and whatever a server echoed back, either of which can be
+    # megabytes, and every raised one writes a warn line as well as landing in
+    # #to_h. A kilobyte is far more than a diagnosis needs and far less than a
+    # log line can't take.
+    VALUE_LIMIT = 1024
+
     sig { returns(Symbol) }
     attr_reader :kind
 
@@ -681,6 +690,7 @@ module GraphWeaver
     private def json_safe(value)
       case value
       when Float then value.finite? ? value : value.to_s
+      when String then GraphWeaver::Internal::Redact.cap(value)
       when Array then value.map { |element| json_safe(element) }
       when Hash then value.transform_values { |element| json_safe(element) }
       else value

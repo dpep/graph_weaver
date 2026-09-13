@@ -14,6 +14,10 @@ module GraphWeaver
     # table entry becomes `:refused` carrying the server's own sentence,
     # because a wrong `kind` is worse than no kind: the app will have
     # translated it into a confident sentence.
+    #
+    # One rule for #path throughout: it is the INPUT path the server stated,
+    # or empty. A GraphQL error's own path names a selection rather than an
+    # input slot, so it is never stood in for one.
     module ServerInput
       # graphql-ruby names the variable only in the error's message; the
       # problems underneath are relative to it (measured against 2.6.10).
@@ -68,7 +72,7 @@ module GraphWeaver
         def read(error)
           extensions = error.extensions
           stated = extensions["input"]
-          return [convention(error.message, stated, error.path || [], nil)] if stated.is_a?(Hash)
+          return [convention(error.message, stated, [], nil)] if stated.is_a?(Hash)
           return problems(error, extensions) if extensions["problems"].is_a?(Array)
 
           kind = GraphWeaver::GraphQLError::INPUT_CODES[error.code.to_s]
@@ -89,11 +93,21 @@ module GraphWeaver
           build(
             message,
             kind:,
-            path: stated["path"].is_a?(Array) ? stated["path"] : path,
+            path: input_path(stated["path"]) || path,
             coordinate: (coordinate if coordinate.is_a?(String)),
             value: stated.key?("value") ? stated["value"] : value,
             details: details_of(stated),
           )
+        end
+
+        # A path a server stated for the INPUT, or nil: field names and list
+        # indices, nothing else. There is no floor under it — a GraphQL error's
+        # own path names a selection ("createOrder"), and standing that in gives
+        # #field a plausible-looking name for a slot the input hasn't got.
+        def input_path(stated)
+          return unless stated.is_a?(Array)
+
+          stated if stated.all? { |segment| segment.is_a?(String) || segment.is_a?(Integer) }
         end
 
         # the details a server stated that a kind can actually mean, both key
@@ -185,8 +199,8 @@ module GraphWeaver
         end
 
         # A recognized validation code. `argumentName` is the input coordinate;
-        # the error's own `path` is a QUERY path ("query", "rangeThing", …), so
-        # it is only the floor for a code that names no argument.
+        # a code that names none names no slot, and the error's own path is a
+        # QUERY path ("query", "rangeThing", …) rather than an input one.
         def coded(error, kind)
           extensions = error.extensions
           argument = extensions["argumentName"]
@@ -199,7 +213,7 @@ module GraphWeaver
           build(
             error.message,
             kind:,
-            path: argument.is_a?(String) ? [argument] : (error.path || []),
+            path: argument.is_a?(String) ? [argument] : [],
             coordinate: ("#{type}.#{argument}" if type.is_a?(String) && argument.is_a?(String)),
             value: extensions["value"],
           )
@@ -211,11 +225,12 @@ module GraphWeaver
         # The message goes through the same filter the client side puts its own
         # messages through: a server quotes the value it rejected as a matter of
         # course ('Could not coerce value "hunter2" to Int'), so redacting only
-        # #value would leave half the promise kept.
+        # #value would leave half the promise kept. It is capped for the same
+        # reason — the sentence is the server's, and so is its length.
         def build(message, kind:, path:, value: nil, coordinate: nil, details: {})
           redact = GraphWeaver::Internal::Redact
           GraphWeaver::InputError.new(
-            redact.detail(path.last, message), kind:, path:, coordinate:, details:, raised: false,
+            redact.cap(redact.detail(path.last, message)), kind:, path:, coordinate:, details:, raised: false,
             value: redact.value(path.last, value),
           )
         end

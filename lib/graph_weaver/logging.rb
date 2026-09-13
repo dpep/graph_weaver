@@ -92,7 +92,19 @@ module GraphWeaver
         # about the key the value arrived under, so it reads a filtered key one
         # level in as safe; this scrubs at every depth, like #value. The key is
         # optional because a coercer refusing a value hasn't been told one.
-        def shown(raw, key = nil) = filtered?(key) ? FILTERED : value(key, raw).inspect
+        def shown(raw, key = nil) = filtered?(key) ? FILTERED : cap(value(key, raw).inspect)
+
+        # Text the library didn't author — a value a caller sent, a sentence a
+        # server wrote — cut to what an error may carry. The number lives on
+        # InputError, which is the class that documents it and the one every
+        # capped string reaches.
+        def cap(text)
+          limit = GraphWeaver::InputError::VALUE_LIMIT
+          return text if text.bytesize <= limit
+
+          # byteslice can land mid-character; scrub drops the partial tail
+          "#{text.byteslice(0, limit).scrub("")}…(#{text.bytesize - limit} more bytes)"
+        end
       end
     end
   end

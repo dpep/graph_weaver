@@ -197,6 +197,7 @@ GraphWeaver::InputError#value
 GraphWeaver::InputError#within
 GraphWeaver::InputError::DETAILS = Array
 GraphWeaver::InputError::KINDS = Set
+GraphWeaver::InputError::VALUE_LIMIT = Integer
 GraphWeaver::InputStruct (Module)
 GraphWeaver::InputStruct#serialize
 GraphWeaver::InputStruct#supplied
