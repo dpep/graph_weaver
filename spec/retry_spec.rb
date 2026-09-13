@@ -292,8 +292,17 @@ describe GraphWeaver::Retry do
   context "a status that arrived with a GraphQL errors body" do
     include_context "raw http server"
 
+    # The raw server closes after one request, and a retry that reuses the
+    # pooled socket races that close (Ruby 3.3's net/http raises EOFError
+    # where 3.4 reconnects) — say so in the response, as a real server would,
+    # so every attempt opens its own connection. This context is about
+    # statuses; the keep-alive race has its own spec in transport_wire_spec.
+    def answer(status, body)
+      http_response(status, body, "Connection" => "close")
+    end
+
     def rate_limited(status)
-      http_response(status, '{"errors":[{"message":"Your request has been rate limited",' \
+      answer(status, '{"errors":[{"message":"Your request has been rate limited",' \
         '"extensions":{"code":"REQUEST_RATE_LIMITED"}}]}')
     end
 
@@ -312,7 +321,7 @@ describe GraphWeaver::Retry do
     end
 
     it "retries a router's own 500" do
-      body = http_response(500, '{"errors":[{"message":"service unavailable",' \
+      body = answer(500, '{"errors":[{"message":"service unavailable",' \
         '"extensions":{"code":"SERVICE_UNAVAILABLE"}}]}')
       _response, attempts = attempts_against(body, retries: 1)
 
@@ -322,7 +331,7 @@ describe GraphWeaver::Retry do
     # the other half of the rule: a 4xx that isn't 408/429 is a bug in the
     # request, and a body full of errors doesn't make it worth repeating
     it "leaves a 401 alone" do
-      body = http_response(401, '{"errors":[{"message":"Unauthenticated",' \
+      body = answer(401, '{"errors":[{"message":"Unauthenticated",' \
         '"extensions":{"code":"UNAUTHENTICATED"}}]}')
       response, attempts = attempts_against(body, retries: 3)
 
@@ -335,7 +344,7 @@ describe GraphWeaver::Retry do
     # the query is a judgment only the caller can make, so it takes
     # retry_codes: to opt in.
     it "leaves a 200 that carried a timeout alone" do
-      body = http_response(200, '{"data":{"person":null},"errors":[{"message":"timed out",' \
+      body = answer(200, '{"data":{"person":null},"errors":[{"message":"timed out",' \
         '"extensions":{"code":"GATEWAY_TIMEOUT"}}]}')
       _response, attempts = attempts_against(body, retries: 3)
 
