@@ -1,5 +1,12 @@
 ###  Unreleased
 
+<!-- lane: pool -->
+- **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's
+  connection pool from the url client, where before only `Transport::HTTP.new`
+  took it and an app had to set `RAILS_MAX_THREADS` to reach it. With
+  `transport: :faraday` it is refused rather than dropped — Faraday's adapter
+  owns its connections.
+
 <!-- lane: wire2 -->
 - **`graphql: :wire` says which of the three it served.** The tag picks the
   most faithful backend a graph has, and the pick was invisible from inside the
