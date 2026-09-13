@@ -225,10 +225,14 @@ module GraphWeaver
       # Live schema classes this process has loaded that nothing pointed
       # :wire at. Named ones only — a dump loads as an anonymous subclass,
       # and graphql-ruby's own NullSchema is not the app's. A class some
-      # graph already runs is named, just not by this graph.
+      # graph already runs is named, just not by this graph. Sorted, because
+      # Class#subclasses is in no order and a log line should be the same
+      # line twice.
       def self.unnamed_schemas(graph)
         claimed = GraphWeaver.graphs.filter_map(&:live_schema)
-        loaded_schemas.reject { |schema| claimed.include?(schema) || schema.equal?(graph&.live_schema) }
+        loaded_schemas
+          .reject { |schema| claimed.include?(schema) || schema.equal?(graph&.live_schema) }
+          .sort_by(&:name)
       end
 
       # Class#subclasses is direct descendants only, so an app with its own
