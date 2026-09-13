@@ -279,8 +279,30 @@ describe GraphWeaver::Testing do
         it "tells an unknown option from an unknown pin" do
           expect { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, overides: {}) }
             .to raise_error(ArgumentError, /a fake doesn't take overides:.*did you mean overrides:/)
+          # a keyword that is neither is ambiguous by construction, so the
+          # refusal guesses across both dictionaries and names both
           expect { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, Persn: "Ada") }
+            .to raise_error(ArgumentError,
+              /a fake doesn't take Persn:.*did you mean the pin.*pins keyed by anything in your schema/m)
+          # written as the leading hash it can only be a pin, and gets the
+          # pin's own refusal
+          expect { GraphWeaver::Testing::FakeClient.new({ "Persn" => "Ada" }, schema: Demo::Schema) }
             .to raise_error(GraphWeaver::Error, /override key "Persn" matches no type or field.*did you mean 'Person'/)
+        end
+
+        # the rule used to be casing — a lowercase key was an option — so
+        # Hasura's `pokemon_v2_pokemon` came back as "a fake doesn't take
+        # pokemon_v2_pokemon:" with the pin silently gone
+        it "pins a lowercase type name" do
+          schema = GraphWeaver::SchemaLoader.load(<<~SDL)
+            type pokemon_v2_pokemon { name: String! }
+            type Query { pokemon: pokemon_v2_pokemon }
+          SDL
+          fake = GraphWeaver::Testing::FakeClient.new(schema:,
+            "pokemon_v2_pokemon" => { "name" => "pikachu" })
+
+          expect(fake.execute("{ pokemon { name } }").dig("data", "pokemon"))
+            .to eq({ "name" => "pikachu" })
         end
 
         it "refuses a proc it couldn't call" do

@@ -35,8 +35,10 @@ require_relative "../parsing"
 #      FakeClient.new({ "Money" => "12.00", "Person" => build(:person),
 #                       "email" => -> { "test@example.com" } }, schema:)
 #
-# Options are lowercase words, so a key with a dot or a leading capital is
-# a pin wherever it is written — `overrides:` is the same hash by keyword,
+# Pins and options are the same keywords, told apart by a lookup: a key
+# this fake takes is an option, a key your schema knows is a pin, and a key
+# that is neither is refused naming both. So a lowercase type pins as
+# readily as a capitalized one. `overrides:` is the same hash by keyword,
 # and the leading one wins where both name a key.
 #
 # A pin covers a whole subtree as readily as a leaf, and **merges** rather
@@ -127,14 +129,6 @@ class GraphWeaver::Testing::FakeClient
     null_chance: nil, errors: nil, fail_at: nil, corrupt: nil,
   }.freeze
 
-  # One rule tells a pin from an option: options are lowercase words, and
-  # anything with a dot or a leading capital names something in the schema.
-  # Ruby 3 hands every braceless pair to **options — String keys included —
-  # so `FakeClient.new("Order.total" => "9", seed: 1)` arrives whole and is
-  # split here, as is a quoted symbol (`"Order.total":`) or a hash forwarded
-  # by a router's fake:.
-  PIN_KEY = /\A[A-Z]|\./
-
   # JSON's own types are already on the wire: at a leaf they skip the
   # registry's serializer, and at a composite position (a Hash aside, which
   # is response keys) they pin the field as written — nil is null, the rest
@@ -145,14 +139,16 @@ class GraphWeaver::Testing::FakeClient
   # `hash` or a `count`, and a Struct answers both with plausible nonsense
   # where fabricating is right.
   RUBY_OWN = [BasicObject, Kernel, Object, Comparable, Enumerable, Struct, Data].freeze
-  private_constant :OPTIONS, :PIN_KEY, :WIRE, :RUBY_OWN
+  private_constant :OPTIONS, :WIRE, :RUBY_OWN
 
   def initialize(pins = {}, **options)
-    pins, options = check_options!(pins, options)
     config = GraphWeaver::Testing.config
+    # resolved before the split, because the split asks the schema which keys
+    # are pins
     @schema = options[:schema] || config.schema || raise(GraphWeaver::Error,
       "no schema to fake against — set GraphWeaver::Testing.config.schema, pass schema:, " \
       "or commit a schema dump at #{GraphWeaver.schema_path}")
+    pins, options = check_options!(pins, options)
     # last wins, narrowest last: the suite's, then overrides:, then the pins
     # this fake was handed outright
     @overrides = [config.overrides, options[:overrides], pins]
@@ -244,21 +240,39 @@ class GraphWeaver::Testing::FakeClient
 
   private
 
-  # A misspelled option pins nothing and leaves the example green — the same
-  # silent pass a typo'd override key is refused for.
+  # One rule tells a pin from an option, and it is a lookup rather than a
+  # guess at spelling: a key this fake takes is an option, a key the schema
+  # knows is a pin, and a key that is neither is a typo — refused naming both
+  # dictionaries, since only the author knows which they were reaching for. A
+  # misspelled option would otherwise pin nothing and leave the example green.
+  #
+  # Ruby 3 hands every braceless pair to **options — String keys included —
+  # so `FakeClient.new("Order.total" => "9", seed: 1)` arrives whole and is
+  # split here, as is a quoted symbol (`"Order.total":`) or a hash forwarded
+  # by a router's fake:. A leading positional hash is only ever pins, which
+  # is the spelling for a schema whose own vocabulary collides with an
+  # option name.
   def check_options!(pins, options)
-    options, keyed_pins = options.partition { |key, _| !PIN_KEY.match?(key.to_s) }.map(&:to_h)
-    # what was written as a leading hash wins: it is the one form that can
-    # only ever be a pin
-    pins = keyed_pins.merge(pins.to_h)
+    options, keyed_pins = options.partition { |key, _| OPTIONS.key?(key) }.map(&:to_h)
+    unknown = keyed_pins.keys.reject { |key| GraphWeaver::Internal::Overrides.schema_reference?(@schema, key) }
+    refuse_key!(unknown.first) if unknown.any?
 
-    unknown = options.keys - OPTIONS.keys
-    return [pins, OPTIONS.merge(options)] if unknown.empty?
+    [keyed_pins.merge(pins.to_h), OPTIONS.merge(options)]
+  end
 
-    suggestion = GraphWeaver::Internal::Util.did_you_mean(OPTIONS.keys.map(&:to_s), unknown.first.to_s)
-    hint = suggestion ? " — did you mean #{suggestion}:?" : "."
-    raise ArgumentError, "a fake doesn't take #{unknown.first}:#{hint} It takes " \
-      "#{OPTIONS.keys.map { |name| "#{name}:" }.join(", ")}"
+  def refuse_key!(key)
+    dictionary = OPTIONS.keys.map(&:to_s) + GraphWeaver::Internal::Overrides.pin_names(@schema)
+    suggestion = GraphWeaver::Internal::Util.did_you_mean(dictionary, key.to_s)
+    hint = if suggestion.nil?
+      "."
+    elsif OPTIONS.key?(suggestion.to_sym)
+      " — did you mean #{suggestion}:?"
+    else
+      " — did you mean the pin #{suggestion.inspect}?"
+    end
+    raise ArgumentError, "a fake doesn't take #{key}:#{hint} It takes " \
+      "#{OPTIONS.keys.map { |name| "#{name}:" }.join(", ")}, and pins keyed by anything in your " \
+      "schema — a type, a \"Type.field\" coordinate, or a field name"
   end
 
   def rng = @values.rng

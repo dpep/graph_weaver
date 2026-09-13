@@ -22,6 +22,27 @@ module GraphWeaver
           end
         end
 
+        # Whether `key` reads as a reference into the schema rather than a
+        # plain word — what tells a pin from an option at a fake's door, where
+        # both arrive as the same keywords. A "Type.field" coordinate can only
+        # be a pin; a bare word is one when the schema knows it. Whether the
+        # reference RESOLVES is validate!'s question, so a coordinate naming
+        # no type is still a pin and gets that refusal rather than "unknown
+        # option".
+        #
+        # Casing can't decide it: Hasura's types are lowercase, and
+        # `pokemon_v2_pokemon` read as a misspelled option.
+        def schema_reference?(schema, key)
+          key = key.to_s
+          return true if key.include?(".") || key.start_with?("__")
+
+          !schema.get_type(key).nil? || field_names(schema).include?(key)
+        end
+
+        # Every name a pin may be keyed by — the dictionary a refusal guesses
+        # from when a key is neither a pin nor an option.
+        def pin_names(schema) = schema.types.keys + field_names(schema)
+
         # A pin that's a proc is handed the seeded Random when it takes one
         # and called bare when it doesn't, so a varying pin still reproduces
         # under `rspec --seed`.
