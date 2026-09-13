@@ -13,6 +13,25 @@ module RoundTrip
 
   Failure = Struct.new(:kind, :path, :detail, keyword_init: true)
 
+  # Without registrations a custom scalar is T.untyped pass-through, which
+  # casts nothing — give the common spellings a real codec so a sweep over an
+  # arbitrary schema exercises the cast path. Name the class and stop: a
+  # hand-written serialize: here is a second spelling of a rule the library
+  # already owns, and the two drift.
+  def self.register_scalars!(schema)
+    schema.types.each_value do |type|
+      next unless type.kind.name == "SCALAR"
+      next if GraphWeaver::Codegen::BUILTIN_SCALARS.include?(type.graphql_name)
+
+      case type.graphql_name
+      when /DateTime|Timestamp\z|\ATime\z/ then GraphWeaver.register_scalar(type.graphql_name, Time)
+      when /\ADate/ then GraphWeaver.register_scalar(type.graphql_name, Date)
+      when /URI|URL|HTML|Base64/ then GraphWeaver.register_scalar(type.graphql_name, String)
+      when /BigInt|Long/ then GraphWeaver.register_scalar(type.graphql_name, Integer)
+      end
+    end
+  end
+
   # Builds one legal response for a query. Every choice it makes — a null where
   # nullability permits, a list length, which member of an abstract type is
   # live, whether a @skip/@include block ran — comes off the rng, so a seed
@@ -175,7 +194,7 @@ module RoundTrip
     # being discovered by a user. Unregistered scalars are T.untyped
     # pass-through, so anything goes — send a hash, the shape they usually are.
     def scalar_value(name)
-      pool = LEGAL[name] || LEGAL[GraphWeaver::Codegen.scalar(name).type]
+      pool = Responder.pool_for(LEGAL, name)
       return { "unregistered" => name } unless pool
 
       value = pool.sample(random: @rng)
@@ -184,8 +203,18 @@ module RoundTrip
 
     # Wrong-shaped values for a scalar: a spec-compliant server never sends
     # these, and generated code has to say so rather than pass them along.
-    def self.illegal(name)
-      ILLEGAL[name] || ILLEGAL[GraphWeaver::Codegen.scalar(name).type]
+    def self.illegal(name) = pool_for(ILLEGAL, name)
+
+    # Which row of a table a scalar reads: the RUBY type its registration casts
+    # to, which a BUILT-IN's own name may refine (ID and BigInt are a String
+    # and an Integer the table says more about). A custom scalar's name is
+    # never asked — `scalar Time`, which GitLab and universe both declare, is
+    # T.untyped pass-through until someone registers it, and reading it off the
+    # Time row blames generated code for accepting what it has no contract to
+    # refuse.
+    def self.pool_for(table, name)
+      builtin = table[name] if GraphWeaver::Codegen::BUILTIN_SCALARS.include?(name)
+      builtin || table[GraphWeaver::Codegen.scalar(name).type]
     end
 
     # Every JSON spelling a spec-compliant server may emit, by GraphQL scalar

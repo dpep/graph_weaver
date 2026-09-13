@@ -165,6 +165,61 @@ describe "round trip" do
     end
   end
 
+  # The scalar names public schemas actually declare, and that neither fixture
+  # nor cached dump had: GitLab and universe both declare `scalar Time`, Linear
+  # a `DateTimeOrDuration` beside the conventional `DateTime`. Both oracles
+  # tripped on them in the corpus sweep, in opposite directions.
+  describe "custom scalars a public schema declares" do
+    CORPUS_SCALARS = GraphQL::Schema.from_definition(<<~GRAPHQL)
+      scalar Time
+      scalar DateTimeOrDuration
+      input Between { gt: DateTimeOrDuration, lt: DateTimeOrDuration }
+      type Event { at: Time! }
+      type Query { event(at: DateTimeOrDuration, between: Between): Event }
+    GRAPHQL
+
+    after { GraphWeaver::Codegen.reset_registrations! }
+
+    it "leaves one nobody has registered alone, whatever it is named" do
+      trip = RoundTrip.check_hostile(schema: CORPUS_SCALARS, query: "{ event { at } }",
+        name: "UnregisteredTime", rng: Random.new(1))
+
+      # unregistered means T.untyped pass-through, so there is nothing the
+      # generated code could refuse — spoiling it blames codegen for a contract
+      # the user declined to give it
+      expect(trip.barren).to eq("no spoilable leaf")
+      expect(trip.failures).to be_empty
+    end
+
+    # GitLab spells its dates ISO8601Date/ISO8601DateTime — built-in names the
+    # tables above have no row of their own for, so they are only reachable
+    # through the Ruby type they cast to
+    it "sends a legal value for a built-in spelled by its long name" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        scalar ISO8601Date
+        scalar ISO8601DateTime
+        type Query { on: ISO8601Date at: ISO8601DateTime }
+      GRAPHQL
+      failures = (0...20).flat_map do |i|
+        trip = RoundTrip.check(schema:, query: "{ on at }", name: "Long#{i}", rng: Random.new(i))
+        trip.failures.map { |failure| report(failure, trip, i) }
+      end
+
+      expect(failures).to be_empty, -> { failures.join("\n\n") }
+    end
+
+    it "keeps sub-second precision through a registered one" do
+      RoundTrip.register_scalars!(CORPUS_SCALARS)
+      failures = (0...40).flat_map do |i|
+        trip = RoundTrip.check_input(schema: CORPUS_SCALARS, field: CORPUS_SCALARS.query.fields["event"],
+          name: "TimeInput#{i}", rng: Random.new(i))
+        trip.failures.map { |failure| report(failure, trip, i) }
+      end
+
+      expect(failures).to be_empty, -> { failures.join("\n\n") }
+    end
+  end
+
   # every root field that takes an argument, paired with whether it's a mutation
   def argument_fields(schema)
     [[schema.query, false], [schema.mutation, true]].reject { |root, _| root.nil? }

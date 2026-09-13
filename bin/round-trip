@@ -44,22 +44,6 @@ def load_schema(path)
   [File.basename(path), GraphQL::Schema.from_introspection(raw)]
 end
 
-# Without registrations a custom scalar is T.untyped pass-through, which casts
-# nothing — give the common shapes a real codec so the cast path is exercised.
-def register_scalars!(schema)
-  schema.types.each_value do |type|
-    next unless type.kind.name == "SCALAR"
-    next if GraphWeaver::Codegen::BUILTIN_SCALARS.include?(type.graphql_name)
-
-    case type.graphql_name
-    when /DateTime|Timestamp\z/ then GraphWeaver.register_scalar(type.graphql_name, Time, serialize: :iso8601, requires: "time")
-    when /\ADate/ then GraphWeaver.register_scalar(type.graphql_name, Date, cast: :iso8601, serialize: :iso8601, requires: "date")
-    when /URI|URL|HTML|Base64/ then GraphWeaver.register_scalar(type.graphql_name, String)
-    when /BigInt|Long/ then GraphWeaver.register_scalar(type.graphql_name, Integer)
-    end
-  end
-end
-
 schemas =
   if ARGV.empty?
     require_relative "../spec/support/schema"
@@ -77,7 +61,7 @@ buckets = Hash.new { |hash, key| hash[key] = [] }
 
 schemas.each do |label, schema|
   GraphWeaver::Codegen.reset_registrations!
-  register_scalars!(schema)
+  RoundTrip.register_scalars!(schema)
 
   trips = refused = barren = skipped = 0
   queries =

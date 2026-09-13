@@ -81,6 +81,22 @@
   returning one is floored at no wait. Either used to reach `Kernel#sleep`,
   which raises `ArgumentError` — so one mistyped option reported as a bug
   somewhere else, and the failure being retried was lost behind it.
+<!-- lane: corpus -->
+- **The round-trip harness reads a scalar off the registry, not off its name.**
+  Sweeping 23 public schemas turned up two schemas (GitLab's, universe's)
+  declaring `scalar Time` and one (Linear's) declaring `DateTimeOrDuration`,
+  and both oracles mis-read them. `Time` is a row in the harness's own
+  legal/illegal tables, keyed there by the *Ruby* type a registration casts to
+  — so an unregistered custom scalar of that name was spoiled as if it had a
+  codec, and generated code was failed for accepting what `T.untyped`
+  pass-through must accept. The lookup now asks the Ruby type, with a built-in's
+  own name allowed to refine it. Separately, `bin/round-trip`'s stand-in
+  registrations spelled out `serialize: :iso8601` for a timestamp, which is
+  `Time#iso8601` and drops the sub-second the harness's wire expectation keeps;
+  they name the class and stop, as docs/scalars.md has always said to. No
+  library behavior changed — both were the harness lying about real schemas —
+  and the registrations moved to `RoundTrip.register_scalars!` so the suite can
+  hold them to it.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's
