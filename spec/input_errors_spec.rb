@@ -501,6 +501,132 @@ describe "input errors" do
       expect(error_for("message" => "boom", "extensions" => { "code" => "INTERNAL_SERVER_ERROR" })).to be_nil
     end
 
+    # ---- Hasura: no input code, the argument named in extensions.path
+    #
+    # Every hash below is verbatim from https://beta.pokeapi.co/graphql/v1beta
+    # (Hasura v2), one curl per row.
+    describe "Hasura, which states the argument in extensions.path" do
+      # limit: -5
+      it "names the argument a value was rejected for" do
+        error = error_for(
+          "message" => "expected a non-negative 32-bit integer for type 'Int', but found a number",
+          "extensions" => { "path" => "$.selectionSet.pokemon_v2_pokemon.args.limit",
+                            "code" => "validation-failed" },
+        )
+
+        # :out_of_range would be a guess: the same sentence arrives for
+        # limit: "lots", where the value is the wrong type, not out of range
+        expect(error.kind).to eq :refused
+        expect(error.path).to eq ["limit"]
+        expect(error.field).to eq "limit"
+        expect(error.message).to eq "expected a non-negative 32-bit integer for type 'Int', but found a number"
+      end
+
+      # limit: 3.5 — a different code for the same slot
+      it "reads parse-failed the same way" do
+        error = error_for(
+          "message" => "The value 3.5 lies outside the bounds or is not an integer. " \
+            "Maybe it is a float, or is there integer overflow?",
+          "extensions" => { "path" => "$.selectionSet.pokemon_v2_pokemon.args.limit",
+                            "code" => "parse-failed" },
+        )
+
+        expect(error.kind).to eq :refused
+        expect(error.path).to eq ["limit"]
+      end
+
+      # order_by: [{ name: "sideways" }]
+      it "reads the enum explanation, members and all, through a list index" do
+        error = error_for(
+          "message" => "expected one of the values ['asc', 'asc_nulls_first', 'asc_nulls_last', " \
+            "'desc', 'desc_nulls_first', 'desc_nulls_last'] for type 'order_by', but found 'sideways'",
+          "extensions" => { "path" => "$.selectionSet.pokemon_v2_pokemon.args.order_by[0].name",
+                            "code" => "validation-failed" },
+        )
+
+        expect(error.kind).to eq :not_a_member
+        expect(error.path).to eq ["order_by", 0, "name"]
+        expect(error.details[:members])
+          .to eq %w[asc asc_nulls_first asc_nulls_last desc desc_nulls_first desc_nulls_last]
+      end
+
+      # where: { nope: { _eq: 1 } }
+      it "reads a key the input type doesn't define, with the coordinate it names" do
+        error = error_for(
+          "message" => "field 'nope' not found in type: 'pokemon_v2_pokemon_bool_exp'",
+          "extensions" => { "path" => "$.selectionSet.pokemon_v2_pokemon.args.where.nope",
+                            "code" => "validation-failed" },
+        )
+
+        expect(error.kind).to eq :unknown
+        expect(error.path).to eq %w[where nope]
+        expect(error.coordinate).to eq "pokemon_v2_pokemon_bool_exp.nope"
+      end
+
+      # where: { name: { _eq: null } }
+      it "reads a null where the schema wants a value" do
+        error = error_for(
+          "message" => "unexpected null value for type 'String'",
+          "extensions" => { "path" => "$.selectionSet.pokemon_v2_pokemon.args.where.name._eq",
+                            "code" => "validation-failed" },
+        )
+
+        expect(error.kind).to eq :missing
+        expect(error.path).to eq %w[where name _eq]
+      end
+
+      # a nested field's argument, which repeats selectionSet
+      it "follows the argument down a nested selection" do
+        error = error_for(
+          "message" => "expected a non-negative 32-bit integer for type 'Int', but found a number",
+          "extensions" => {
+            "path" => "$.selectionSet.pokemon_v2_pokemon.selectionSet.pokemon_v2_pokemonmoves.args.limit",
+            "code" => "validation-failed",
+          },
+        )
+
+        expect(error.path).to eq ["limit"]
+      end
+
+      # validation-failed is Hasura's code for the query too, and a query that
+      # doesn't parse is not the user's input — it's the .graphql file
+      it "claims nothing when the path names no argument" do
+        expect(error_for(
+          "message" => "not a valid graphql query",
+          "extensions" => { "path" => "$.query", "code" => "validation-failed" },
+        )).to be_nil
+
+        # `pokemon_v2_pokemon(bogus: 3)` — the field, no .args. segment at all
+        expect(error_for(
+          "message" => "'pokemon_v2_pokemon' has no argument named 'bogus'",
+          "extensions" => { "path" => "$.selectionSet.pokemon_v2_pokemon", "code" => "validation-failed" },
+        )).to be_nil
+
+        # the database refusing a value it was handed, reported at the root
+        expect(error_for(
+          "message" => 'invalid input syntax for type integer: "lots"',
+          "extensions" => { "path" => "$", "code" => "data-exception" },
+        )).to be_nil
+      end
+
+      it "refuses a path it can't read rather than pointing a form at a guess" do
+        expect(error_for(
+          "message" => "nope",
+          "extensions" => { "path" => "$.selectionSet.thing.args.what is this", "code" => "validation-failed" },
+        )).to be_nil
+      end
+
+      # an argument really can be named `args`, and the first one wins
+      it "splits on the first args segment, not the last" do
+        error = error_for(
+          "message" => "nope",
+          "extensions" => { "path" => "$.selectionSet.thing.args.where.args", "code" => "validation-failed" },
+        )
+
+        expect(error.path).to eq %w[where args]
+      end
+    end
+
     it "takes a bare BAD_USER_INPUT as :refused with the server's own sentence" do
       error = error_for(
         "message" => "qty must be greater than 0",

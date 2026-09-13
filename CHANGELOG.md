@@ -66,6 +66,29 @@
   refused this; the three real schemas swept (GitHub, PokeAPI, countries —
   12,684 input fields) contain no such pair.
 
+<!-- lane: junior2 -->
+- **`#input_errors` reads a Hasura rejection.** Hasura marks an input error
+  with neither of the codes this knew, so against a Hasura API (PokeAPI,
+  Nhost, anything on the engine) `response.input_errors` was always `[]` and
+  an app was back to reading `response.errors` by hand. It now recognizes the
+  argument Hasura names in `extensions.path`
+  (`"$.selectionSet.<field>.args.<name>"`, list indices and nested input keys
+  included) under `validation-failed` and `parse-failed`, so `limit: -5` comes
+  back as an `InputError` on `path: ["limit"]` — the field a form highlights.
+  The **path is the test, not the code**: `validation-failed` is also what
+  Hasura sends for a query that doesn't parse, and attaching your own
+  `.graphql` file to a form field would be worse than saying nothing. Three of
+  its sentences earn a `kind` (`:not_a_member` with the enum's members,
+  `:unknown` with the input coordinate, `:missing` for a null it won't take);
+  everything else is `:refused` with Hasura's own sentence, because one
+  sentence covers both `limit: -5` and `limit: "lots"` and `:out_of_range`
+  would be a guess. ([errors](docs/errors.md#when-the-server-rejects-the-input))
+- **docs/errors.md leads with what isn't portable.** "Nothing here is
+  portable" was a paragraph three sections into the server half, under a
+  confident pitch for `#input_errors` — so the section now opens with the
+  servers read by name (graphql-ruby, Apollo, Hasura), what marks an error as
+  input on each, and a worked fallback for a server that marks nothing.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

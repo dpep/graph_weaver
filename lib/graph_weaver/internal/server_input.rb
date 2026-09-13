@@ -7,13 +7,13 @@ module GraphWeaver
     # the same value object the client-side refusal is, so an app renders one
     # form the same way whichever side said no.
     #
-    # Three shapes, most specific first: the `extensions.input` convention
-    # (docs/errors.md), graphql-ruby's variable-coercion `problems` array, and
-    # a recognized `extensions.code`. Everything else is nobody's input error
-    # and stays out — and an explanation with no table entry becomes
-    # `:refused` carrying the server's own sentence, because a wrong `kind` is
-    # worse than no kind: the app will have translated it into a confident
-    # sentence.
+    # Four shapes, most specific first: the `extensions.input` convention
+    # (docs/errors.md), graphql-ruby's variable-coercion `problems` array, a
+    # recognized `extensions.code`, and Hasura's argument path. Everything
+    # else is nobody's input error and stays out — and an explanation with no
+    # table entry becomes `:refused` carrying the server's own sentence,
+    # because a wrong `kind` is worse than no kind: the app will have
+    # translated it into a confident sentence.
     module ServerInput
       # graphql-ruby names the variable only in the error's message; the
       # problems underneath are relative to it (measured against 2.6.10).
@@ -26,6 +26,30 @@ module GraphWeaver
       NOT_NULL = /\AExpected value to not be null\z/
       NOT_DEFINED = /\AField is not defined on (\S+)\z/
 
+      # Hasura states no input code — it stamps one code on a whole class of
+      # rejections and says what the error is about in `extensions.path`, a
+      # dotted string rather than an array. So the path is the test, not the
+      # code: only one that reaches a field's arguments is about the input.
+      # "$", "$.query" and "$.selectionSet.<field>" are the query itself — a
+      # .graphql file that doesn't parse, or names an argument the schema
+      # hasn't got, is nothing a form can highlight.
+      HASURA_CODES = %w[validation-failed parse-failed].freeze
+      # lazily, so an argument of its own named `args` doesn't win the split
+      HASURA_ARGUMENT = /\A\$\.selectionSet\..+?\.args\.(.+)\z/
+      HASURA_SEGMENT = /\A([_A-Za-z]\w*)((?:\[\d+\])*)\z/
+
+      # The explanations Hasura writes that name a kind on their own (measured
+      # against Hasura v2, one curl per entry — spec/input_errors_spec.rb
+      # holds the verbatim JSON). Its scalar family, "expected <description>
+      # for type 'T', but found <json type>", is deliberately absent: one
+      # sentence covers both `limit: -5` (out of range) and `limit: "lots"`
+      # (wrong type), and telling them apart means parsing the English
+      # description rather than reading a table.
+      HASURA_NOT_A_MEMBER = /\Aexpected one of the values \[(.*)\] for type '[^']*', but found /
+      HASURA_NOT_DEFINED = /\Afield '([^']*)' not found in type: '([^']*)'\z/
+      HASURA_NULL = /\Aunexpected null value for type '[^']*'\z/
+      QUOTED = /'([^']*)'/
+
       # InputError::DETAILS closes the key set; this closes the types, because
       # a right key with the wrong type under it is the same smuggling. An app
       # is entitled to errors.rb's promise that members stays an Array —
@@ -36,7 +60,9 @@ module GraphWeaver
         "max" => Numeric, "format" => String, "suggestion" => String,
       }.freeze
 
-      private_constant :VARIABLE, :COERCE, :NOT_A_MEMBER, :NOT_NULL, :NOT_DEFINED
+      private_constant :VARIABLE, :COERCE, :NOT_A_MEMBER, :NOT_NULL, :NOT_DEFINED,
+        :HASURA_CODES, :HASURA_ARGUMENT, :HASURA_SEGMENT, :QUOTED,
+        :HASURA_NOT_A_MEMBER, :HASURA_NOT_DEFINED, :HASURA_NULL
 
       class << self
         def read(error)
@@ -46,7 +72,9 @@ module GraphWeaver
           return problems(error, extensions) if extensions["problems"].is_a?(Array)
 
           kind = GraphWeaver::GraphQLError::INPUT_CODES[error.code.to_s]
-          kind ? [coded(error, kind)] : []
+          return [coded(error, kind)] if kind
+
+          hasura(error, extensions)
         end
 
         private
@@ -118,6 +146,41 @@ module GraphWeaver
               coordinate: ("#{type}.#{field}" if field.is_a?(String)))
           else
             build(message, kind: :refused, path:, value:)
+          end
+        end
+
+        # Hasura: the argument is in extensions.path or this is not about the
+        # input. No value either — Hasura never echoes back what it rejected.
+        def hasura(error, extensions)
+          return [] unless HASURA_CODES.include?(error.code.to_s)
+
+          stated = extensions["path"]
+          match = stated.is_a?(String) ? stated.match(HASURA_ARGUMENT) : nil
+          path = hasura_path(match[1]) if match
+          path ? [hasura_explained(error.message, path)] : []
+        end
+
+        # "order_by[0].name" => ["order_by", 0, "name"]. nil rather than a
+        # partial read: a path this can't spell points a form at a field the
+        # server never named.
+        def hasura_path(stated)
+          stated.split(".").flat_map do |segment|
+            match = segment.match(HASURA_SEGMENT) or return nil
+            [match[1], *match[2].scan(/\d+/).map(&:to_i)]
+          end
+        end
+
+        def hasura_explained(message, path)
+          case message
+          when HASURA_NOT_A_MEMBER
+            build(message, kind: :not_a_member, path:, details: { members: $1.scan(QUOTED).flatten })
+          when HASURA_NOT_DEFINED
+            build(message, kind: :unknown, path:, coordinate: "#{$2}.#{$1}")
+          when HASURA_NULL
+            # :missing is "wasn't supplied, or was null" (docs/i18n.md)
+            build(message, kind: :missing, path:)
+          else
+            build(message, kind: :refused, path:)
           end
         end
 

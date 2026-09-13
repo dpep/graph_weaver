@@ -183,6 +183,18 @@ the envelope, `run!` the result-or-raise.
 
 ### When the *server* rejects the input
 
+**Nothing here is portable.** The GraphQL spec reserves `extensions` for
+implementors and defines no codes at all, so "this error is about the input you
+sent" is a convention each server invents — or doesn't. graph_weaver reads the
+three it knows by name, and claims nothing from the rest:
+
+| server | what marks an error as being about the input | what you get |
+|---|---|---|
+| **graphql-ruby** | the variable-coercion `problems` array, or one of four rule names in `extensions.code` (`GraphWeaver::GraphQLError::INPUT_CODES`) | the field, and a `kind` read off a closed table of its explanations |
+| **Apollo** | `extensions.code` = `BAD_USER_INPUT` (Apollo Router's `VALIDATION_INVALID_TYPE_VARIABLE` is not read; graphql-js sends no `extensions` at all) | `:refused` with the server's sentence, and the field only where `argumentName` is stated |
+| **Hasura** | `extensions.path` naming an argument — `"$.selectionSet.<field>.args.<name>"` — under `validation-failed` or `parse-failed` | the field; `:not_a_member`, `:unknown` or `:missing` for the three sentences it always writes, `:refused` otherwise |
+| **anything else** | nothing | `#input_errors` is `[]` — see [the fallback](#when-your-server-marks-nothing) |
+
 `InputError` is the client-side half — graph_weaver refuses before the request
 leaves. When the *server* is the one that says no, the rejection arrives as
 ordinary `GraphQLError`s, and `#input_errors` reads the ones that are about
@@ -220,16 +232,34 @@ field is worse than missing it — so it stays an ordinary error in
 `response.errors` and `#input_errors` says nothing it can't know. One line on
 the server fixes it, and the next section is that line.
 
-Nothing here is portable: the GraphQL spec reserves `extensions` for
-implementors and defines no codes at all, Apollo Server stamps
-`BAD_USER_INPUT` on a coercion failure while Apollo Router sends
-`VALIDATION_INVALID_TYPE_VARIABLE`, and graphql-js emits no `extensions` on a
-validation error. So the codes read as "this is about the input" are a short
-named list — `GraphWeaver::GraphQLError::INPUT_CODES`: Apollo's
-`BAD_USER_INPUT`, plus the four graphql-ruby rule names that can only mean an
-argument (`argumentLiteralsIncompatible`, `variableMismatch`,
-`missingRequiredInputObjectAttribute`, `argumentNotAccepted`). Anything else is
-left alone rather than guessed at.
+**Hasura is read off the path, not a code.** `validation-failed` is the code it
+sends for a query that doesn't parse *and* for a value it won't take, so the
+code alone would attach your own `.graphql` file to a form field. The argument
+in `extensions.path` is what settles it, and only three of its sentences earn a
+`kind`: `limit: -5` comes back `:refused` on `path: ["limit"]`, because the
+sentence Hasura writes for it ("expected a non-negative 32-bit integer for type
+'Int', but found a number") is the same one it writes for `limit: "lots"` —
+a wrong type, not a value out of range. The field is worth having; the guess
+isn't.
+
+#### When your server marks nothing
+
+Then `#input_errors` is `[]` and says so — which is the signal to render what
+the server *did* send, not to parse its prose:
+
+```ruby
+response = AdoptMutation.execute(input: params[:pet])
+
+if response.input_errors.any?
+  response.input_errors.each { |e| form.errors.add(e.field, e.message) }
+elsif response.errors.any?
+  # nothing claimed to be about the input: show what was said, and log the
+  # rest — #extensions is where a server you're onboarding states its own
+  # convention, and the next section is how to make it one this reads
+  flash[:alert] = response.errors.map(&:message).join(", ")
+  Rails.logger.warn(response.report)
+end
+```
 
 ### What your server can send
 
