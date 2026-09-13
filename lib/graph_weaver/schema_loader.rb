@@ -1007,6 +1007,7 @@ module GraphWeaver::SchemaLoader
       @keys = {}         # "User" => { "accounts" => [["id"]] }
       @fields = {}       # "User" => { "reviews" => Field }
       @field_names = {}  # "User" => Set["id", "username"]
+      @signatures = {}   # "User" => { "reviews" => "[Review!]!" }
       @abstract = {}     # "FeedItem" => ["Announcement", "Review"]
       @possible = {}     # "FeedItem" => { "reviews" => ["Announcement", "Review"] }
       @unsupported = []
@@ -1054,6 +1055,11 @@ module GraphWeaver::SchemaLoader
     # answers which of them it routes explicitly, this answers what is
     # there.
     def declared_fields(type_name) = @field_names[type_name]&.to_a || []
+
+    # The type the supergraph gives Type.field, printed the way SDL prints it
+    # ("String!", "[Review!]!") — so it compares directly against a loaded
+    # schema's `to_type_signature`. nil for a coordinate it doesn't carry.
+    def signature(type_name, field_name) = @signatures.dig(type_name, field_name)
 
     # Whether the supergraph carries this coordinate at all — a type, or a
     # field on it. `owners`/`fields` answer who resolves what the supergraph
@@ -1233,6 +1239,7 @@ module GraphWeaver::SchemaLoader
       return unless defn.respond_to?(:fields) && defn.fields
 
       @field_names[defn.name] = defn.fields.map(&:name).to_set
+      @signatures[defn.name] = defn.fields.to_h { |field| [field.name, field.type.to_query_string] }
       @fields[defn.name] = defn.fields.filter_map do |field|
         note_unknown(field, "#{defn.name}.#{field.name}")
         applied = field.directives.select { |d| d.name == "join__field" }

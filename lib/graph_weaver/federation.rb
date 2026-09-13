@@ -20,10 +20,13 @@ module GraphWeaver
     # where {SchemaLoader.diff} needs the server and answers a different
     # question (has the *server* drifted from my dump).
     #
-    # Both directions, because they mean opposite things:
+    # Three kinds, because they mean different things:
     #
     # - **stale** — the supergraph carries `Product.weight` and no schema
     #   here defines it any more. Recompose.
+    # - **shape** — both carry `Product.weight`, with different types
+    #   (`Int!` composed, `Float` here). Recompose — but nothing was added or
+    #   dropped, so every coordinate matches and only the signatures tell.
     # - **not composed in** — a schema here defines `Product.dimensions` and
     #   the supergraph doesn't carry it. Publish the subgraph.
     #
@@ -54,6 +57,14 @@ module GraphWeaver
       # { "Product.weight" => ["products"] } — the supergraph says these
       # subgraphs resolve it, and no schema of theirs here defines it
       attr_reader :stale
+
+      # { "Product.weight" => { "subgraphs" => ["products"], "supergraph" =>
+      # "Int!", "here" => ["Float"] } } — both carry the field, with
+      # different types. Its own kind because the fix is the same recompose
+      # and the cause is not: nothing was added or dropped, so the
+      # coordinates match and only the signatures say the composition is
+      # describing a graph nobody serves.
+      attr_reader :shape
 
       # { "Product.dimensions" => ["Products::Schema"] } — defined here,
       # absent from the supergraph
@@ -97,6 +108,7 @@ module GraphWeaver
         @given = @table.named_subgraphs(subgraphs)
         @schemas = schemas || GraphWeaver::Internal::Schemas.loaded
         @stale = {}
+        @shape = {}
         @uncomposed = {}
         @skipped = {}
         @faked = []
@@ -106,7 +118,7 @@ module GraphWeaver
       end
 
       # whether the supergraph and the code here disagree — what CI gates on
-      def drift? = @stale.any? || @uncomposed.any?
+      def drift? = @stale.any? || @shape.any? || @uncomposed.any?
 
       # Nothing was compared, so "no drift" is vacuous: the gate would pass
       # whatever the subgraphs said. Categorically different from "checked 3
@@ -120,6 +132,7 @@ module GraphWeaver
       def to_h
         {
           "stale" => @stale,
+          "shape" => @shape,
           "uncomposed" => @uncomposed,
           "skipped" => @skipped,
           "faked" => @faked,
@@ -129,19 +142,20 @@ module GraphWeaver
       def report
         return "#{@source} names no subgraphs" if @table.subgraphs.empty?
 
-        [headline, *section(STALE, @stale), *section(UNCOMPOSED, @uncomposed),
+        [headline, *section(STALE, @stale), *shape_section, *section(UNCOMPOSED, @uncomposed),
           *skipped_section, *faked_section].join("\n")
       end
       alias to_s report
 
       def inspect
-        "#<#{self.class.name} #{@stale.size} stale, #{@uncomposed.size} uncomposed, " \
-          "#{@checked.size}/#{@table.subgraphs.size} checked>"
+        "#<#{self.class.name} #{@stale.size} stale, #{@shape.size} shape, " \
+          "#{@uncomposed.size} uncomposed, #{@checked.size}/#{@table.subgraphs.size} checked>"
       end
 
       private
 
       STALE = "stale — the supergraph carries these, no schema here defines them (recompose):"
+      SHAPE = "shape — both carry these, with different types (recompose):"
       UNCOMPOSED = "not composed in — a schema here defines these, the supergraph doesn't carry them:"
 
       def compare
@@ -214,19 +228,32 @@ module GraphWeaver
         end
       end
 
-      # Fields the supergraph says this subgraph resolves, but none of its
-      # candidate schemas still defines. Every declared field, not only the
-      # explicitly routed ones — a field with no @join__field lives wherever
-      # its type does, and dropping one is exactly the drift this looks for.
+      # Fields the supergraph says this subgraph resolves that its candidate
+      # schemas no longer define (stale), or define with another type
+      # (shape). Every declared field, not only the explicitly routed ones —
+      # a field with no @join__field lives wherever its type does, and
+      # dropping one is exactly the drift this looks for.
+      #
+      # A field can legitimately sit in more than one candidate (@shareable,
+      # an @external copy), so one agreeing schema settles it: the subgraph
+      # this supergraph describes is here somewhere.
       def record_stale(name, fitting)
         declared_types(name).each do |type_name|
           @table.declared_fields(type_name).each do |field_name|
             next unless @table.owners(type_name, field_name).include?(name)
 
             coordinate = "#{type_name}.#{field_name}"
-            next if fitting.any? { |schema| GraphWeaver::Internal::Schemas.defines?(schema, coordinate) }
+            here = fitting.filter_map { |schema| GraphWeaver::Internal::Schemas.signature(schema, coordinate) }
+            if here.empty?
+              (@stale[coordinate] ||= []) << name
+              next
+            end
 
-            (@stale[coordinate] ||= []) << name
+            composed = @table.signature(type_name, field_name)
+            next if composed.nil? || here.include?(composed)
+
+            entry = (@shape[coordinate] ||= { "subgraphs" => [], "supergraph" => composed, "here" => here.uniq })
+            entry["subgraphs"] << name
           end
         end
       end
@@ -263,6 +290,7 @@ module GraphWeaver
       def headline
         counts = [
           ("#{@stale.size} stale" if @stale.any?),
+          ("#{@shape.size} shape" if @shape.any?),
           ("#{@uncomposed.size} not composed in" if @uncomposed.any?),
         ].compact
         # "matches the schemas here" over nothing compared is the one verdict
@@ -274,6 +302,18 @@ module GraphWeaver
           end
         "#{@source}: #{verdict} " \
           "(checked #{@checked.size} of #{@table.subgraphs.size} subgraphs)"
+      end
+
+      # both signatures, because neither alone says which way to move: the
+      # supergraph's is what callers are generating against, the local one is
+      # what would actually answer
+      def shape_section
+        return [] if @shape.empty?
+
+        ["", SHAPE, *@shape.sort.map do |coordinate, entry|
+          "  #{coordinate} (#{entry["subgraphs"].join(", ")}): #{entry["supergraph"]} in the " \
+            "supergraph, #{entry["here"].join(", ")} here"
+        end]
       end
 
       def section(title, entries)

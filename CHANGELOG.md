@@ -1,6 +1,15 @@
 ###  Unreleased
 
 <!-- lane: fedF -->
+- **`federation:diff` sees a field's type, not just its name.** The check was
+  coordinate presence — `Warehouse.code` going from `String!` to `ID!` under an
+  untouched supergraph reported "matches the schemas here", and CI passed on a
+  composition describing a graph nobody serves. Both types are now compared and
+  a disagreement is its own drift kind, **shape**, beside stale and not
+  composed in, with both signatures in the message: `Warehouse.code
+  (inventory): String! in the supergraph, ID! here`. `Drift#to_h` grows a
+  `"shape"` key and `#drift?` counts it, so a suite asserting on either sees
+  the new kind.
 - **Two graphs can run in two modes in one example.** `graphql_router(graph:
   :store)` followed by `graphql_fake(graph: :countries)` collapsed to whichever
   was named last: a helper reinstalled the example's one mode, which cleared

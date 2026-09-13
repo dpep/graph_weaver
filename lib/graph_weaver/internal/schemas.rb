@@ -27,19 +27,33 @@ module GraphWeaver
         end
 
         # Does this schema carry the coordinate — "Type", or "Type.field"?
-        def defines?(schema, coordinate)
-          type_name, field_name = coordinate.split(".", 2)
-          type = schema.get_type(type_name) or return false
-          return true unless field_name
+        def defines?(schema, coordinate) = !member(schema, coordinate).nil?
 
-          return type.fields.key?(field_name) if type.respond_to?(:fields)
-          # an input object's members are arguments, not fields
-          return type.arguments.key?(field_name) if type.respond_to?(:arguments)
-
-          false
+        # The type this schema gives "Type.field", printed the way SDL prints
+        # it — so it compares directly against a supergraph's own spelling.
+        # Presence is the cheaper question and answers a different one: a
+        # field that is still *there* can have been retyped underneath the
+        # composition, which reads as a match until the types are compared.
+        def signature(schema, coordinate)
+          member = member(schema, coordinate)
+          member.type.to_type_signature if member.respond_to?(:type)
         end
 
         private
+
+        # The field (or, on an input object, the argument — its members are
+        # arguments, not fields) at "Type.field", or the type itself for a
+        # bare coordinate.
+        def member(schema, coordinate)
+          type_name, field_name = coordinate.split(".", 2)
+          type = schema.get_type(type_name) or return
+          return type unless field_name
+
+          return type.fields[field_name] if type.respond_to?(:fields)
+          return type.arguments[field_name] if type.respond_to?(:arguments)
+
+          nil
+        end
 
         def descendants(klass)
           klass.subclasses.flat_map { |subclass| [subclass] + descendants(subclass) }

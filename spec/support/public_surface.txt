@@ -127,6 +127,7 @@ GraphWeaver::Federation::Drift#drift?
 GraphWeaver::Federation::Drift#faked
 GraphWeaver::Federation::Drift#inspect
 GraphWeaver::Federation::Drift#report
+GraphWeaver::Federation::Drift#shape
 GraphWeaver::Federation::Drift#skipped
 GraphWeaver::Federation::Drift#stale
 GraphWeaver::Federation::Drift#subgraphs
@@ -135,6 +136,7 @@ GraphWeaver::Federation::Drift#to_s
 GraphWeaver::Federation::Drift#uncomposed
 GraphWeaver::Federation::Drift#unplaced
 GraphWeaver::Federation::Drift#vacuous?
+GraphWeaver::Federation::Drift::SHAPE = String
 GraphWeaver::Federation::Drift::STALE = String
 GraphWeaver::Federation::Drift::UNCOMPOSED = String
 GraphWeaver::Graph (Class)
@@ -309,6 +311,7 @@ GraphWeaver::SchemaLoader::RoutingTable#named_subgraphs
 GraphWeaver::SchemaLoader::RoutingTable#owners
 GraphWeaver::SchemaLoader::RoutingTable#possible_types
 GraphWeaver::SchemaLoader::RoutingTable#responsible
+GraphWeaver::SchemaLoader::RoutingTable#signature
 GraphWeaver::SchemaLoader::RoutingTable#subgraphs
 GraphWeaver::SchemaLoader::RoutingTable#to_s
 GraphWeaver::SchemaLoader::RoutingTable#types

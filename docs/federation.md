@@ -242,10 +242,13 @@ It reads the routing table and the subgraph schemas loaded in this process —
 drift so CI can gate on it:
 
 ```
-supergraph.graphql: 1 stale, 1 not composed in (checked 1 of 3 subgraphs)
+supergraph.graphql: 1 stale, 1 shape, 1 not composed in (checked 1 of 3 subgraphs)
 
 stale — the supergraph carries these, no schema here defines them (recompose):
   Product.weight (products)
+
+shape — both carry these, with different types (recompose):
+  Warehouse.code (inventory): String! in the supergraph, ID! here
 
 not composed in — a schema here defines these, the supergraph doesn't carry them:
   Product.dimensions (Products::Schema)
@@ -257,12 +260,28 @@ not checked — answered with fabricated data:
   reviews
 ```
 
-Both directions, because they mean opposite things: **stale** is "recompose",
-**not composed in** is "publish the subgraph". The stale side names the
-subgraph the supergraph blames — whose code to look at, whose team to talk to.
-"Defines" is deliberately looser than field-set equality, since a subgraph
-carries plumbing (`_entities`, `_service`) no supergraph has and a field can
-legitimately sit in more than one subgraph (`@external` copies, `@shareable`).
+Three kinds, because they mean different things: **stale** is "recompose",
+**shape** is "recompose" for a field neither side dropped, and **not composed
+in** is "publish the subgraph". Stale and shape name the subgraph the
+supergraph blames — whose code to look at, whose team to talk to. Field-set
+comparison is deliberately looser than equality, since a subgraph carries
+plumbing (`_entities`, `_service`) no supergraph has and a field can
+legitimately sit in more than one subgraph (`@external` copies, `@shareable`) —
+so one candidate schema agreeing settles it.
+
+**What is compared is a coordinate's presence and its type, and nothing else.**
+`Warehouse.code` going from `String!` to `ID!` under a committed composition is
+the shape row above; the `@key` it is part of, a field's arguments, its
+directives, and everything a type says about itself beyond its fields are not
+read, and a change to any of them still reports clean. The one asymmetry worth
+knowing is an `@override` migration: a supergraph
+published *ahead* of the code is caught (the old side's field is `stale`), but
+code ahead of the supergraph — the new side declaring the field with
+`@override` before the recompose — is not, because both sides carry the field
+and its type, and only the `@override` marker, which lives in
+apollo-federation's own bookkeeping rather than in the schema this reads, says
+ownership is moving. Recompose and the report catches up; until then it is the
+one drift this check can't see.
 
 **A supergraph is routinely only partly local**, so the report names three
 states rather than two: checked, not here (running elsewhere — or the subgraph
@@ -310,8 +329,10 @@ GraphWeaver::Federation::Drift.new(
 ).report
 ```
 
-`#to_h` is the JSON-ready `{"stale" => …, "uncomposed" => …, "skipped" => …,
-"faked" => …}`, and `#drift?` is what the task exits on. `#unplaced` sits
+`#to_h` is the JSON-ready `{"stale" => …, "shape" => …, "uncomposed" => …,
+"skipped" => …, "faked" => …}` — a `shape` entry is `{"subgraphs" => […],
+"supergraph" => "String!", "here" => ["ID!"]}` — and `#drift?` is what the task
+exits on. `#unplaced` sits
 outside both, being the warning above rather than drift.
 
 ## The local router

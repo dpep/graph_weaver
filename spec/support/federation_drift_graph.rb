@@ -56,6 +56,13 @@ module DriftGraph
     type Widget { name: String! weight: Int! }
   SDL
 
+  # every coordinate the supergraph names is still here — with two of them
+  # retyped, which a presence check can't see
+  schema :WidgetsRetyped, <<~SDL
+    type Query { widget(sku: String!): Widget }
+    type Widget { sku: ID! name: String! weight: Float }
+  SDL
+
   # a field that hasn't been composed in yet
   schema :WidgetsAhead, <<~SDL
     type Query { widget(sku: String!): Widget }

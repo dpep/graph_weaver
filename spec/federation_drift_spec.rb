@@ -42,7 +42,7 @@ describe GraphWeaver::Federation::Drift do
     described_class.new(supergraph: source, subgraphs:, schemas:)
   end
 
-  CLEAN = { "stale" => {}, "uncomposed" => {}, "skipped" => {}, "faked" => [] }.freeze
+  CLEAN = { "stale" => {}, "shape" => {}, "uncomposed" => {}, "skipped" => {}, "faked" => [] }.freeze
 
   it "reports clean when every local schema matches the supergraph" do
     result = drift(DriftGraph::Widgets, DriftGraph::Depots)
@@ -97,6 +97,21 @@ describe GraphWeaver::Federation::Drift do
     result = drift(DriftGraph::WidgetsUnkeyed, DriftGraph::Depots)
 
     expect(result.to_h["stale"]).to eq("Widget.sku" => ["widgets"])
+  end
+
+  # Every coordinate is still there, so a presence check called this a match
+  # and CI passed on a supergraph that describes a graph nobody serves.
+  it "reports a field both carry with a different type" do
+    result = drift(DriftGraph::WidgetsRetyped, DriftGraph::Depots)
+
+    expect(result.to_h["shape"]).to eq(
+      "Widget.sku" => { "subgraphs" => ["widgets"], "supergraph" => "String!", "here" => ["ID!"] },
+      "Widget.weight" => { "subgraphs" => ["widgets"], "supergraph" => "Int!", "here" => ["Float"] },
+    )
+    expect(result.to_h["stale"]).to be_empty
+    expect(result.drift?).to be true
+    expect(result.report).to include "2 shape"
+    expect(result.report).to include "  Widget.weight (widgets): Int! in the supergraph, Float here"
   end
 
   # the subgraph moved first; the supergraph doesn't know the field exists
