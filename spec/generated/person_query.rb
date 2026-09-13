@@ -51,6 +51,13 @@ module PersonQuery
         rescue StandardError => e
           raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
+
+        sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+        def as_json(*_options)
+          {
+            "name" => name,
+          }
+        end
       end
 
       const :id, String
@@ -71,6 +78,16 @@ module PersonQuery
       rescue StandardError => e
         raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
+
+      sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+      def as_json(*_options)
+        {
+          "id" => id,
+          "name" => name,
+          "birthday" => birthday&.then { |v1| v1.strftime("%F") },
+          "pets" => pets.map { |v1| v1.as_json },
+        }
+      end
     end
 
     const :person, T.nilable(Person)
@@ -84,6 +101,13 @@ module PersonQuery
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
       raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+    end
+
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      {
+        "person" => person&.then { |v1| v1.as_json },
+      }
     end
   end
 

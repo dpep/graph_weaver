@@ -51,6 +51,29 @@ module GraphWeaver
       deconstruct_keys(nil).transform_values { |value| unwrap_value(value) }
     end
 
+    # JSON is the wire's shape, not Ruby's: `to_json` is the generated
+    # `as_json` encoded, so it carries the response keys and each leaf back
+    # through its scalar registration's `serialize:`, and
+    # `.from_h(JSON.parse(result.to_json))` gives an equal struct. That is
+    # the opposite of #to_h, deliberately — a Symbol-keyed Ruby hash can't be
+    # mistaken for a response, and a JSON string can, so the string is the
+    # one that has to be true. (A registration with no `serialize:` has no
+    # wire form; its value passes through, exactly as it does on the way in.)
+    #
+    # Defined here rather than left to Ruby: Object#to_json writes the
+    # #inspect string, quoted, and ActiveSupport's Object#as_json writes the
+    # ivars — a result's snake_cased props, `class_` and all.
+    sig { params(options: T.untyped).returns(String) }
+    def to_json(options = nil) = as_json.to_json(options)
+
+    # Only reached by a struct generated before as_json existed — the
+    # generated override otherwise wins, being defined on the struct itself.
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      raise GraphWeaver::Error,
+        "#{self.class} was generated before #as_json — regenerate (rake graph_weaver:generate)"
+    end
+
     private
 
     # Follows a value into nested result structs and lists (which nest, for

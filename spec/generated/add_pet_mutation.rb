@@ -49,6 +49,15 @@ module AddPetMutation
       rescue StandardError => e
         raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
+
+      sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+      def as_json(*_options)
+        {
+          "id" => id,
+          "name" => name,
+          "species" => species.serialize,
+        }
+      end
     end
 
     const :add_pet, AddPet
@@ -62,6 +71,13 @@ module AddPetMutation
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
       raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+    end
+
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      {
+        "addPet" => add_pet.as_json,
+      }
     end
   end
 

@@ -54,6 +54,15 @@ module NamedQuery
         rescue StandardError => e
           raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
+
+        sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+        def as_json(*_options)
+          {
+            "__typename" => __typename,
+            "name" => name,
+            "species" => species.serialize,
+          }
+        end
       end
 
       class Other < T::Struct
@@ -74,6 +83,14 @@ module NamedQuery
           raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
           raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+        end
+
+        sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+        def as_json(*_options)
+          {
+            "__typename" => __typename,
+            "name" => name,
+          }
         end
       end
 
@@ -101,6 +118,13 @@ module NamedQuery
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
       raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+    end
+
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      {
+        "named" => named&.then { |v1| v1.as_json },
+      }
     end
   end
 

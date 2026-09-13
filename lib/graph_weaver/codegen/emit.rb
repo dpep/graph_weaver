@@ -401,6 +401,19 @@ class GraphWeaver::Codegen
         "message: GraphWeaver::Hints.cast_message(self, data, e))"
       out << "#{pad}  end"
 
+      # the mirror of from_h: the response keys, each leaf back through its
+      # scalar's serialize:, so from_h reads what as_json wrote. Rails calls
+      # it for `render json:`, and ResultStruct#to_json goes through it.
+      out << ""
+      out << "#{pad}  sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }"
+      out << "#{pad}  def as_json(*_options)"
+      out << "#{pad}    {"
+      node.fields.each do |field|
+        out << "#{pad}      #{field.key.inspect} => #{field_json(field)},"
+      end
+      out << "#{pad}    }"
+      out << "#{pad}  end"
+
       # alias delegators (extend_type alias:) — typed accessors that project a
       # selected field onto the struct, next to the honest wire data
       node.aliases.each do |a|
@@ -610,6 +623,21 @@ class GraphWeaver::Codegen
       # a leaf's cast raises about the value alone ("invalid date"); nothing
       # else in the trace says which of the struct's four dates it was
       "GraphWeaver::Hints.field(self, #{field.key.inspect}) { #{cast} }"
+    end
+
+    # One prop written back the way the server spelled it. The inverse of
+    # field_cast, minus its branding: rendering a value the library already
+    # cast can't fail on the value, only on a registration whose serialize:
+    # raises — which is the app's own code and says so.
+    def field_json(field)
+      node = field.node
+      # a prop is only ever read off a receiver, which is what lets `next` and
+      # `end` be props at all (see RUBY_KEYWORDS) — so here the receiver is us
+      prop = RUBY_KEYWORDS.include?(field.prop) ? "self.#{field.prop}" : field.prop
+      return prop if node.serialize_identity?
+      return node.serialize(prop, 1) if node.non_null?
+
+      "#{prop}&.then { |v1| #{node.serialize("v1", 2)} }"
     end
 
     # Why a prop is spelled unlike its wire name, for the one case a reader

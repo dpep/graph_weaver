@@ -42,6 +42,18 @@ module MoneyDemo
     def hash = [Money, @amount].hash
   end
 
+  # A registration that builds a Ruby object and never says how to write one
+  # back: no .parse/.load to infer a serializer from, and cast: named by hand.
+  class Receipt
+    attr_reader :text
+
+    def self.build(text) = new(text)
+    def initialize(text) = @text = text
+    def ==(other) = other.is_a?(Receipt) && other.text == text
+    alias_method :eql?, :==
+    def hash = [Receipt, @text].hash
+  end
+
   # A codec that fails the way real ones do — JSON::ParserError,
   # URI::InvalidURIError, Money::ParseError — not TypeError/ArgumentError.
   module Strict
@@ -190,6 +202,31 @@ describe "custom scalar deserialization" do
     wire = { "data" => { "product" => { "name" => "Widget", "price" => "12.50" } } }
 
     expect(mod.from_response!(wire)).to eq mod.from_response!(wire)
+  end
+
+  # A rich scalar's OWN #to_json is its business and need not be the wire form:
+  # BigDecimal writes "0.125e2", which is not what any server means by 12.50.
+  # The registration is what says how the wire spells it, so as_json goes
+  # through that and the result reads back.
+  it "renders a registered scalar through its serialize:, not the object's own #to_json" do
+    GraphWeaver.register_scalar("Money", BigDecimal)
+    mod = GraphWeaver.parse(schema: MoneyDemo::Schema, query:, name: "StoreQuery")
+    result = mod.from_response!("data" => { "product" => { "name" => "Widget", "price" => "12.50" } })
+
+    expect(result.product.price.to_json).to eq %("0.125e2") # what Ruby would have written
+    expect(result.as_json).to eq("product" => { "name" => "Widget", "price" => "12.5" })
+    expect(mod::Result.from_h(JSON.parse(result.to_json))).to eq result
+  end
+
+  # The one thing as_json can't do: a registration that builds a Ruby object
+  # and never says how to write it back has no wire form to write. Identity,
+  # exactly as on the way in — and the same reason an input can't send one.
+  it "passes a value through when its registration named no serialize:" do
+    GraphWeaver.register_scalar("Money", MoneyDemo::Receipt, cast: :build)
+    mod = GraphWeaver.parse(schema: MoneyDemo::Schema, query:, name: "StoreQuery")
+    result = mod.from_response!("data" => { "product" => { "name" => "Widget", "price" => "12.50" } })
+
+    expect(result.as_json["product"]["price"]).to eq MoneyDemo::Receipt.build("12.50")
   end
 
   it "infers a .load/.dump codec when the class defines .load" do

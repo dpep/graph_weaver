@@ -65,6 +65,15 @@ module SearchQuery
         rescue StandardError => e
           raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
+
+        sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+        def as_json(*_options)
+          {
+            "__typename" => __typename,
+            "name" => name,
+            "birthday" => birthday&.then { |v1| v1.strftime("%F") },
+          }
+        end
       end
 
       class Pet < T::Struct
@@ -88,6 +97,15 @@ module SearchQuery
         rescue StandardError => e
           raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
         end
+
+        sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+        def as_json(*_options)
+          {
+            "__typename" => __typename,
+            "name" => name,
+            "species" => species.serialize,
+          }
+        end
       end
 
       class Other < T::Struct
@@ -108,6 +126,14 @@ module SearchQuery
           raise # already branded by a nested struct or leaf — keep the innermost context
         rescue StandardError => e
           raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+        end
+
+        sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+        def as_json(*_options)
+          {
+            "__typename" => __typename,
+            "name" => name,
+          }
         end
       end
 
@@ -136,6 +162,13 @@ module SearchQuery
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
       raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+    end
+
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      {
+        "search" => search.map { |v1| v1.as_json },
+      }
     end
   end
 

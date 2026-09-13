@@ -1,5 +1,33 @@
 ###  Unreleased
 
+<!-- lane: structs -->
+- **A result now has real JSON, and it round-trips.** `result.to_json` was
+  Ruby's `Object#to_json` — the `#inspect` string, quoted
+  (`"\"#<PersonQuery::Result:0x000...>\""`) — with no exception and no
+  warning, so the first production log line or cache write that reached for it
+  silently stored nothing. Under Rails it was worse in a quieter way:
+  ActiveSupport's `Object#as_json` reflects over the ivars, so `render json:
+  result` shipped the *Ruby* prop names, trailing underscores included
+  (`{"when_":"2024-01-15"}` for a field the schema calls `when`). The rule now
+  is one sentence: **a result's JSON is the wire shape** — the response keys,
+  and each leaf back through its scalar registration's `serialize:` — so
+  `Result.from_h(JSON.parse(result.to_json)) == result`. `#as_json` is
+  generated beside `from_h` as its mirror, and `#to_json` goes through it, so
+  `render json:` and a plain `.to_json` agree. `#to_h` is unchanged and still
+  the Ruby view (Symbol prop names, `T::Enum` members, codec-built objects):
+  a Symbol-keyed hash can't be mistaken for a server's response, and a JSON
+  string can, so the JSON is the one that has to be true. A scalar registered
+  with a `cast:` and no `serialize:` has no wire spelling, so its value passes
+  through as it is — the same reason an input can't send one. **Regenerate**:
+  `as_json` is emitted code, and a struct generated before it raises
+  `GraphWeaver::Error` telling you so.
+- **A `register_enum` fallback member no longer raises out of `to_json`.**
+  Several wire values collapse into the fallback, so the to-wire table holds
+  none of them — and the fallback is exactly the member a drifted response
+  casts to. Serializing one now falls back to the member's own
+  `#serialize`, which casts back to the fallback, so the result reads back.
+  Without a `fallback:` the table is total and a miss still raises.
+
 <!-- lane: fedF -->
 - **Declaring a second graph says how to declare the first.** Naming any graph
   replaces the implicit one the top-level settings describe, so an existing

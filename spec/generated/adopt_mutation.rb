@@ -52,6 +52,15 @@ module AdoptMutation
       rescue StandardError => e
         raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
+
+      sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+      def as_json(*_options)
+        {
+          "id" => id,
+          "name" => name,
+          "species" => species.serialize,
+        }
+      end
     end
 
     const :adopt, Adopt
@@ -65,6 +74,13 @@ module AdoptMutation
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
       raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+    end
+
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      {
+        "adopt" => adopt.as_json,
+      }
     end
   end
 

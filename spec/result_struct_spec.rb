@@ -1,6 +1,17 @@
 # typed: false
 require_relative "generated/find_pets_query"
 require_relative "generated/person_query"
+require_relative "generated/search_query"
+
+# an app enum whose fallback member matches no wire value, so it is in no
+# wire table — see the mapped-enum example below
+class ResultStructKind < T::Enum
+  enums do
+    Dog = new("DOG")
+    Cat = new("CAT")
+    Unknown = new("UNKNOWN")
+  end
+end
 
 describe GraphWeaver::ResultStruct do
   def person(name: "Daniel", birthday: "1984-05-06", pets: [{ "name" => "Nibbler" }])
@@ -85,6 +96,107 @@ describe GraphWeaver::ResultStruct do
       result = person
 
       expect(result.to_h[:person][:name]).to equal result.person.name
+    end
+  end
+
+  describe "#as_json" do
+    it "is the wire shape: response keys, and each leaf back the way it arrived" do
+      expect(person(birthday: nil).as_json).to eq(
+        "person" => { "id" => "1", "name" => "Daniel", "birthday" => nil,
+                      "pets" => [{ "name" => "Nibbler" }] },
+      )
+      expect(pets.as_json).to eq(
+        "findPets" => [{ "name" => "Nibbler", "species" => "CAT", "metadata" => nil }],
+      )
+    end
+
+    it "reads back through .from_h as an equal struct" do
+      [person, person(birthday: nil), pets, pets(species: "DOG")].each do |result|
+        expect(result.class.from_h(JSON.parse(result.to_json))).to eq result
+      end
+    end
+
+    # a union dispatches on __typename, so the tag has to survive the trip
+    it "round-trips an abstract field through its __typename" do
+      result = SearchQuery::Result.from_h(
+        "search" => [
+          { "__typename" => "Person", "name" => "Daniel", "birthday" => "1984-05-06" },
+          { "__typename" => "Pet", "name" => "Nibbler", "species" => "CAT" },
+          { "__typename" => "Robot", "name" => nil },
+        ],
+      )
+
+      expect(SearchQuery::Result.from_h(JSON.parse(result.to_json))).to eq result
+    end
+
+    # `render json: result` goes through as_json, so the response key is what
+    # reaches the browser — not the prop, whose trailing underscore is a Ruby
+    # artifact the schema never said
+    it "names a reserved key by its wire name, not the renamed prop" do
+      mod = GraphWeaver.parse(schema: reserved_schema, query: "{ thing { class hash } }", name: "ThingQuery")
+      result = mod::Result.from_h("thing" => { "class" => "A", "hash" => "B" })
+
+      expect(result.as_json).to eq("thing" => { "class" => "A", "hash" => "B" })
+      expect(mod::Result.from_h(JSON.parse(result.to_json))).to eq result
+    end
+
+    it "is what #to_json encodes" do
+      expect(JSON.parse(person.to_json)).to eq person.as_json
+    end
+
+    # The fallback member is in no wire table — several wire values collapse
+    # into it, so `invert` keeps none — and it is exactly what a drifted
+    # response casts to. Its own #serialize casts back to the fallback, so the
+    # result still reads back; a bare fetch raised KeyError out of #to_json.
+    it "renders a mapped enum's fallback member rather than raising" do
+      GraphWeaver.register_enum("Species", ResultStructKind, fallback: ResultStructKind::Unknown)
+      mod = GraphWeaver.parse(schema: Demo::Schema, query: "{ findPets { species } }", name: "KindQuery")
+      result = mod::Result.from_h("findPets" => [{ "species" => "FERRET" }])
+
+      expect(result.find_pets.map(&:species)).to eq [ResultStructKind::Unknown]
+      expect(result.as_json).to eq("findPets" => [{ "species" => "UNKNOWN" }])
+      expect(mod::Result.from_h(JSON.parse(result.to_json))).to eq result
+    ensure
+      GraphWeaver::Codegen.reset_enums!
+    end
+
+    # The rule IS a round trip, so the honest check is the property, over
+    # responses the schema permits rather than the handful written above.
+    # bin/round-trip runs the same shape unbounded, on real schemas.
+    it "round-trips every response the fuzzer builds" do
+      seed = 20260907
+      failures = []
+
+      40.times do |i|
+        rng = Random.new(seed + i)
+        query = RoundTrip::Fuzzer.new(Demo::Schema, rng).query
+        next unless query && Demo::Schema.validate(query).empty?
+
+        trip = RoundTrip.check(schema: Demo::Schema, query:, name: "AsJson#{i}", rng:)
+        next unless trip.checked? && trip.result
+
+        back = trip.result.class.from_h(JSON.parse(trip.result.to_json))
+        failures << "seed #{seed + i}: #{trip.query}" unless back == trip.result
+      end
+
+      expect(failures).to be_empty, -> { failures.join("\n") }
+    end
+  end
+
+  # a schema whose field names are reserved Ruby prop names
+  def reserved_schema
+    Class.new(GraphQL::Schema) do
+      thing = Class.new(GraphQL::Schema::Object) do
+        graphql_name "Thing"
+        field :class, String, null: false, resolver_method: :klass
+        field :hash, String, null: false, resolver_method: :hsh
+        define_method(:klass) { "A" }
+        define_method(:hsh) { "B" }
+      end
+      query(Class.new(GraphQL::Schema::Object) do
+        graphql_name "Query"
+        field :thing, thing, null: false
+      end)
     end
   end
 

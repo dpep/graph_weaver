@@ -188,7 +188,8 @@ end
   pair — same envelope, but from a response hash you already have (below).
 - A `Result` is an **ordinary Ruby object**: value `==` (with `eql?` and
   `hash`, so a result works as a hash key), `deconstruct_keys` for pattern
-  matching, and `#to_h`. All three go the whole way down a nested result.
+  matching, `#to_h`, and `#to_json`/`#as_json`. All of them go the whole way
+  down a nested result.
   Immutable as far as its props go, like `Struct` or `Data` — and no further:
   the `String` or `Hash` a leaf holds is the one the response carried, so
   `result.name << "!"` changes the result, and its `hash` with it.
@@ -197,8 +198,8 @@ end
   singleton that sorbet compares by identity, and Psych allocates an object
   before filling it in, so YAML has no way to hand back the canonical one:
   after a round trip `pet.species == Species::Dog` is false and the result no
-  longer equals itself. `Marshal` restores it intact — as does keeping the raw
-  response hash and calling `from_response!` again.
+  longer equals itself. `Marshal` restores it intact — as does JSON, since
+  `#to_json` writes the wire shape and `from_h` reads it back (below).
 
   ```ruby
   PersonQuery.from_response!(raw) == PersonQuery.from_response!(raw)  # true — value, not identity
@@ -216,12 +217,25 @@ end
 
   `#to_h` is the **Ruby** shape, not the wire's: snake_case prop names as
   Symbols, nils kept, enums as their `T::Enum` members, and a registered
-  scalar as whatever object its codec built. So it is a view, not something
-  to send back to a server, and `JSON.generate` is one keystroke from trying:
-  it writes a `BigDecimal` as `"0.125e2"` and a `Time` as
-  `"2024-01-15 10:20:30 UTC"`, neither of which is what the schema means.
-  Keep the raw hash for that
-  ([below](#deserializing-a-response-from-another-client)).
+  scalar as whatever object its codec built. It is a view, for Ruby to read.
+
+  `#to_json` — and `#as_json`, which `render json:` goes through — is the
+  **wire** shape instead: the response keys, and every leaf back through its
+  scalar registration's `serialize:`. So a result's JSON is the inverse of
+  `from_h`:
+
+  ```ruby
+  PersonQuery::Result.from_h(JSON.parse(result.to_json)) == result  # true
+  ```
+
+  which is what a cache entry, a log line or a JSON API response wants. That
+  split is deliberate: a Symbol-keyed Ruby hash can't be mistaken for a
+  server's response, and a JSON string can — so the JSON is the one that has
+  to be true. (An **input** struct's `to_h` is already the wire hash it
+  sends, so there its JSON and its `to_h` agree.) One gap: a
+  `register_scalar` with a `cast:` and no `serialize:` has no wire spelling,
+  so its value goes to the encoder as it is — the same reason an input can't
+  send one.
 - `OPERATION_NAME` rides along on every request as the spec's
   `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
   limits and slow-query reports on the operation instead of lumping every
@@ -482,10 +496,11 @@ keeps the schema's spelling in both directions, so the query, the request and
 the response are untouched, and `result.class` is still Ruby's `class`. The
 prop is the one Ruby name for the field, so `.new`, `.coerce`, a result's
 `#to_h` and pattern matching, and an `InputError`'s `#path` all use `class_`
-(an input error's `#coordinate` still names the schema's `Tricky.class`). An
-**input** struct's `#to_h` is the exception, and deliberately: it is the wire
-hash you would send — `{"class" => …}` — since that is the only thing a
-caller wants a built input as. Input structs don't pattern-match at all.
+(an input error's `#coordinate` still names the schema's `Tricky.class`). The
+wire views are where the schema's spelling comes back: an **input** struct's
+`#to_h` is the hash you would send — `{"class" => …}` — and a result's
+`#as_json`/`#to_json` write `"class"` too, so `render json: result` never
+leaks a trailing underscore. Input structs don't pattern-match at all.
 
 ### Abstract types
 

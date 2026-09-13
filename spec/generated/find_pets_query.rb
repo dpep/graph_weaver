@@ -50,6 +50,15 @@ module FindPetsQuery
       rescue StandardError => e
         raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
       end
+
+      sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+      def as_json(*_options)
+        {
+          "name" => name,
+          "species" => species.serialize,
+          "metadata" => metadata,
+        }
+      end
     end
 
     const :find_pets, T::Array[FindPets]
@@ -63,6 +72,13 @@ module FindPetsQuery
       raise # already branded by a nested struct or leaf — keep the innermost context
     rescue StandardError => e
       raise GraphWeaver::CastError.new(struct: self, message: GraphWeaver::Hints.cast_message(self, data, e))
+    end
+
+    sig { params(_options: T.untyped).returns(T::Hash[String, T.untyped]) }
+    def as_json(*_options)
+      {
+        "findPets" => find_pets.map { |v1| v1.as_json },
+      }
     end
   end
 

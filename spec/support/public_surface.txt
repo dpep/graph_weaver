@@ -255,10 +255,12 @@ GraphWeaver::Response#to_h
 GraphWeaver::Response::Data = T::Types::TypeMember
 GraphWeaver::ResultStruct (Module)
 GraphWeaver::ResultStruct#==
+GraphWeaver::ResultStruct#as_json
 GraphWeaver::ResultStruct#deconstruct_keys
 GraphWeaver::ResultStruct#eql?
 GraphWeaver::ResultStruct#hash
 GraphWeaver::ResultStruct#to_h
+GraphWeaver::ResultStruct#to_json
 GraphWeaver::Retry (Class)
 GraphWeaver::Retry#execute
 GraphWeaver::Retry#url

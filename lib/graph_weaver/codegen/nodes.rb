@@ -194,6 +194,11 @@ class GraphWeaver::Codegen
       "#{class_name}.from_h(#{expr})"
     end
 
+    # a composite renders itself — #as_json is the mirror of .from_h
+    def serialize(expr, _depth)
+      "#{expr}.as_json"
+    end
+
     def nested = self
   end
 
@@ -257,8 +262,16 @@ class GraphWeaver::Codegen
       end
     end
 
+    # The fallback member is in no wire table — several wire values collapse
+    # into it, so `invert` keeps none — and it is exactly the member a drifted
+    # response casts to. Its own #serialize is the only spelling left, and it
+    # casts back to the fallback, so a result still round-trips through
+    # #as_json. Without a fallback the table is total and a miss is a real
+    # mistake, so it still raises.
     def serialize(expr, _depth)
-      "#{const_prefix}_TO_WIRE.fetch(#{expr})"
+      return "#{const_prefix}_TO_WIRE.fetch(#{expr})" unless @fallback
+
+      "#{const_prefix}_TO_WIRE.fetch(#{expr}) { |member| member.serialize }"
     end
 
     def leaf? = true
@@ -302,6 +315,8 @@ class GraphWeaver::Codegen
       end
     end
 
+    def serialize(expr, depth) = @of.serialize(expr, depth)
+    def serialize_identity? = @of.serialize_identity?
     def nested = @of
   end
 
@@ -328,6 +343,10 @@ class GraphWeaver::Codegen
       "#{class_name}.from_h(#{expr})"
     end
 
+    def serialize(expr, _depth)
+      "#{expr}.as_json"
+    end
+
     def nested = self
   end
 
@@ -348,6 +367,10 @@ class GraphWeaver::Codegen
 
     def cast(expr, _depth)
       "#{class_name}.from_h(#{expr})"
+    end
+
+    def serialize(expr, _depth)
+      "#{expr}.as_json"
     end
   end
 
