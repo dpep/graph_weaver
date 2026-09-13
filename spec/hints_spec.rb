@@ -22,4 +22,30 @@ describe GraphWeaver::Hints do
     guarded = person.nmae if person.respond_to?(:nmae)
     expect(guarded).to be_nil
   end
+
+  # A server that changed a field's shape is the drift this library exists to
+  # catch, and sorbet checks the child's `data` parameter in the CALLER's
+  # frame — so the parent brands the error, and nothing in the message says
+  # which key. `pets` as an object is worse still: Hash#map has already turned
+  # it into pairs, so sorbet reports a list of strings the server never sent.
+  describe "a response whose shape drifted" do
+    def cast(pets)
+      PersonQuery::Result.from_h("person" => { "id" => "1", "name" => "Daniel", "pets" => pets })
+    end
+
+    it "names the key and what the server actually sent, for an object where a list belongs" do
+      expect { cast({ "id" => "p1" }) }
+        .to raise_error(GraphWeaver::CastError, /pets: expected a list, but the server sent an object/)
+    end
+
+    it "names the element for a null inside a list of objects" do
+      expect { cast([nil]) }
+        .to raise_error(GraphWeaver::CastError, /pets\.0: expected an object, but the server sent null/)
+    end
+
+    it "names the element for a scalar inside a list of objects" do
+      expect { cast(["p1"]) }
+        .to raise_error(GraphWeaver::CastError, /pets\.0: expected an object, but the server sent a string/)
+    end
+  end
 end

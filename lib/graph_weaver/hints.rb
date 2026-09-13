@@ -28,7 +28,7 @@ module GraphWeaver
       return if unknown.empty?
 
       suggestions = unknown.to_h do |key|
-        prop = GraphWeaver::Inflect.underscore(key)
+        prop = GraphWeaver::Codegen.prop_name(key)
         # a wire-cased key — the exact snake_case prop exists
         [key, known.include?(prop) ? prop : GraphWeaver::Internal::Util.did_you_mean(known, prop)]
       end
@@ -90,6 +90,12 @@ module GraphWeaver
     # its raw integer primary key is the case that keeps happening — so
     # say that GraphQL requires the quotes, and how to take it anyway.
     def self.cast_message(struct, data, error)
+      # Shape drift first, because sorbet's account of it is wrong: see
+      # drifted_shape. Otherwise sorbet's message is the better one — it names
+      # the prop and the value.
+      drift = drifted_shape(struct, data)
+      return drift if drift
+
       message = error.message.sub(GraphWeaver::CastError::SORBET_CALLER, "")
       keys = unquoted_keys(struct, data)
       return message if keys.empty?
@@ -98,6 +104,65 @@ module GraphWeaver
         "String as JSON strings, so that is the server being out of spec. To take it anyway, " \
         'register the scalar loosely: GraphWeaver.register_scalar("ID", "T.untyped")'
     end
+
+    # A response value whose SHAPE its prop can never hold — an object where a
+    # list belongs, a scalar inside a list of objects. sorbet catches these in
+    # the CALLER's frame, since it is the child's `data` parameter that fails:
+    # the parent brands the error, so the struct named is the parent and the
+    # key is named nowhere. Worse, a parent mapping over an object has already
+    # let Hash#map turn it into [key, value] pairs, so sorbet reports a list of
+    # strings the server never sent.
+    #
+    # Returns the located message, or nil when nothing is out of shape.
+    def self.drifted_shape(struct, data)
+      return unless data.is_a?(Hash) && struct.respond_to?(:props)
+
+      props = struct.props
+      data.filter_map do |key, value|
+        prop = props[GraphWeaver::Codegen.prop_name(key.to_s).to_sym]
+        prop && shape_drift(T::Utils.coerce(prop[:type]), value, key.to_s)
+      end.first
+    end
+    private_class_method :drifted_shape
+
+    # Only the two shapes a server can get wrong are modelled: a nested struct
+    # arrives as an object, a list of them as a list. A scalar prop says
+    # nothing here — one that casts already names itself through Hints.field,
+    # and T.untyped holds anything.
+    def self.shape_drift(type, value, path)
+      return if value.nil? && type.valid?(nil)
+
+      core = type.is_a?(T::Types::Union) ? type.types.find { |t| !t.valid?(nil) } : type
+      want =
+        if core.is_a?(T::Types::TypedArray) then :list
+        elsif core.is_a?(T::Types::Simple) && core.raw_type < T::Struct then :object
+        end
+      return if want.nil?
+
+      unless want == :list ? value.is_a?(Array) : value.is_a?(Hash)
+        return "#{path}: expected #{want == :list ? "a list" : "an object"}, " \
+          "but the server sent #{wire_kind(value)}"
+      end
+      return unless want == :list
+
+      value.each_with_index.filter_map { |element, i| shape_drift(core.type, element, "#{path}.#{i}") }.first
+    end
+    private_class_method :shape_drift
+
+    # What arrived, named as JSON names it. sorbet reports the Ruby type of
+    # whatever the cast had half-built by then, which is a different thing.
+    def self.wire_kind(value)
+      case value
+      when nil then "null"
+      when Hash then "an object"
+      when Array then "a list"
+      when String then "a string"
+      when Numeric then "a number"
+      when true, false then "a boolean"
+      else "a #{value.class}"
+      end
+    end
+    private_class_method :wire_kind
 
     # Response keys whose prop would take a String but whose value is
     # another JSON scalar. Narrow on purpose: a prop that casts (a Date, an
@@ -110,7 +175,7 @@ module GraphWeaver
       data.filter_map do |key, value|
         next unless value.is_a?(Numeric) || value == true || value == false
 
-        prop = props[GraphWeaver::Inflect.underscore(key.to_s).to_sym]
+        prop = props[GraphWeaver::Codegen.prop_name(key.to_s).to_sym]
         next unless prop
 
         # :type is a raw Class for a bare-class prop, a T::Types::Base otherwise
@@ -140,7 +205,7 @@ module GraphWeaver
     private
 
     def prop_hint(name)
-      prop = GraphWeaver::Inflect.underscore(name)
+      prop = GraphWeaver::Codegen.prop_name(name)
       # method_defined? rather than respond_to?, which a host's own
       # respond_to_missing? could answer for a method it doesn't define
       if prop != name && T.unsafe(self.class).method_defined?(prop)
