@@ -370,6 +370,12 @@ module GraphWeaver
       # install itself at GraphWeaver.client, which each module's per-graph
       # stand-in outranks, and a correct pin was silently dropped.
       #
+      # **The tag sets the mode for every graph no helper named**, so one
+      # example runs two graphs in two modes — `graphql: :router` plus
+      # `graphql_fake(graph: :countries)` routes the federated graph and fakes
+      # the plain one. A helper reinstalled the example's one mode and cleared
+      # the table, so whichever graph was named last decided both.
+      #
       # `graph:` takes the graph's name, the same handle `rake
       # graph_weaver:graphs` prints and codegen bakes into a module. A schema
       # object still names a graph too — `graphql_in_process(Reviews::Schema)`
@@ -406,10 +412,10 @@ module GraphWeaver
         # Installed for that graph and restored after the example, like a
         # tagged one — so the tag is optional here, not required.
         def graphql_fake(pins = {}, graph: nil, **options)
-          claim_mode!(:fake)
           refuse_seed!(options)
           graphs = targets!("graphql_fake", options[:schema],
             "A fake fabricates that graph's shapes, with its scalar registrations.", graph:)
+          claim_mode!(:fake, graphs)
           # the same two defaults the tag builds with (Internal::TestClients)
           options[:schema] ||= GraphWeaver::Testing.config.reference_schema!(graphs.first)
           options[:registry] ||= graphs.first&.registry
@@ -433,10 +439,10 @@ module GraphWeaver
         # Returns the client, and is restored after the example like a tagged
         # one — so the tag is optional here.
         def graphql_in_process(schema = nil, graph: nil, **options)
-          claim_mode!(:in_process)
           graphs = targets!("graphql_in_process", schema,
             "That graph's own schema class runs, and its resolvers stand in for its modules.",
             graph:)
+          claim_mode!(:in_process, graphs)
           schema ||= GraphWeaver::Testing.config.schema_class!(graphs.first)
           options[:context] ||= GraphWeaver::Internal::TestClients.context
           stand_in!(GraphWeaver::InProcess.new(schema, **options), graphs)
@@ -458,11 +464,11 @@ module GraphWeaver
         # supergraph the `fake:` is for; the tag alone already routes each
         # module through its own.
         def graphql_router(fake: nil, graph: nil)
-          claim_mode!(:router)
           refuse_seed!(fake) if fake
           graphs = targets!("graphql_router", nil,
             "The tag alone already routes each module through its own graph's supergraph; name a " \
             "graph only to say whose the fake: is for.", graph:)
+          claim_mode!(:router, graphs)
           # :router explicitly: under a :wire tag the table would otherwise
           # hand back whatever :wire picked for this graph
           router = GraphWeaver::Internal::TestClients.standin(graphs.first, :router)
@@ -470,35 +476,38 @@ module GraphWeaver
           stand_in!(router, graphs)
         end
 
-        # A tag and a helper are two spellings of one choice, so they can
-        # agree (`graphql: :fake` plus `graphql_fake(overrides:)` is the
-        # documented way to pass options) but must not contradict: one of the
-        # two is then a mistake, and silently letting the later one win hides
-        # which. :wire is the exception because it is not the same question —
-        # it says a stand-in is served rather than substituted, and the helper
-        # says which stand-in.
-        private def claim_mode!(mode)
+        # A tag and a helper are two spellings of one choice WHEN the helper
+        # speaks for the whole example — which, in an app with one graph, it
+        # always does. They can then agree (`graphql: :fake` plus
+        # `graphql_fake(overrides:)` is the documented way to pass options)
+        # but must not contradict: one of the two is a mistake, and silently
+        # letting the later one win hides which.
+        #
+        # `graphs` is what this helper stands in for, so a helper naming one
+        # graph of several isn't contradicting anything — the tag is still
+        # the example's mode for every graph it leaves alone.
+        #
+        # :wire is the exception because it is not the same question — it says
+        # a stand-in is served rather than substituted, and the helper says
+        # which stand-in.
+        private def claim_mode!(mode, graphs)
           # :wire says WHERE a stand-in runs — served at the endpoint the
           # client posts to — not which one it is, so a helper under it names
           # what goes behind the wire and the example stays :wire
           return if wire?
+          return unless graphs.size == GraphWeaver.graphs.size
 
           # only an explicit tag can contradict a helper. config.default_mode
           # is a fallback for examples that said nothing, so a helper is the
           # example finally saying something — not a disagreement.
           tagged = defined?(@__graph_weaver_tag) ? @__graph_weaver_tag : nil
-          if tagged && tagged != mode
-            # Kernel.raise: this module is mixed into every example group, so
-            # it doesn't include Kernel for sorbet to find
-            Kernel.raise GraphWeaver::Error, "this example is tagged #{TAG}: #{tagged.inspect} but calls " \
-              "graphql_#{mode} — drop one. A tag and a helper are two spellings of one choice, so " \
-              "keep the helper when you need to pass it something."
-          end
+          return unless tagged && tagged != mode
 
-          @__graph_weaver_mode = mode
-          # the hook installed the default before this helper spoke; a
-          # module bound to its own client resolves through what is claimed
-          GraphWeaver::Internal::TestClients.install(mode)
+          # Kernel.raise: this module is mixed into every example group, so
+          # it doesn't include Kernel for sorbet to find
+          Kernel.raise GraphWeaver::Error, "this example is tagged #{TAG}: #{tagged.inspect} but calls " \
+            "graphql_#{mode} — drop one. A tag and a helper are two spellings of one choice, so " \
+            "keep the helper when you need to pass it something."
         end
 
         # The graphs this helper's client stands in for — see the rule above.

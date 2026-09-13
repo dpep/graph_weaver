@@ -45,17 +45,14 @@ module GraphWeaver
       end
 
       class << self
-        # Install `mode` for one example — nil installs nothing.
+        # Install `mode` for one example — the example's mode, which is what
+        # a graph no helper named runs against.
         #
-        # Installing the mode already installed keeps the table, so a second
-        # helper ADDS a stand-in for its graph rather than clearing the
-        # first's — and a graphql_context set before a helper survives it. A
-        # contradicting mode is refused by claim_mode! before it gets here;
-        # the hook that installs the example's mode runs after reset!, with
-        # nothing to keep.
+        # Only the rspec hook installs, once per example after reset!. A
+        # helper doesn't: what a helper says is ONE graph's stand-in, written
+        # to the table by override!, so no helper can reset another graph's —
+        # which is how two graphs run in two modes in one example.
         def install(mode)
-          return if installed? && @mode == mode
-
           @mode = mode
           @clients = {}
           @context = nil
@@ -98,12 +95,17 @@ module GraphWeaver
         # The stand-in for `mod`, or nil when there is nothing to stand in for.
         def for(mod)
           return unless @mode
-          # neither takes the client slot: :live is the app's own clients,
-          # untouched, and :wire serves the resolvers at the endpoint each
-          # client already posts to — the transport you ship, running
-          # unchanged, is the whole point
-          return if @mode == :live || @mode == :wire
+          # :wire takes no client slot: it serves the resolvers at the
+          # endpoint each client already posts to — the transport you ship,
+          # running unchanged, is the whole point
+          return if @mode == :wire
+          # :live is the app's own clients, untouched — so with nothing
+          # standing in there is nothing to look up
+          return if @mode == :live && !built?
 
+          # a helper's entry wins whatever the example's mode is, and :live
+          # builds nothing of its own, so an untagged example's other graphs
+          # still resolve their own clients
           standin(graph_for!(mod))
         end
 

@@ -1,5 +1,20 @@
 ###  Unreleased
 
+<!-- lane: fedF -->
+- **Two graphs can run in two modes in one example.** `graphql_router(graph:
+  :store)` followed by `graphql_fake(graph: :countries)` collapsed to whichever
+  was named last: a helper reinstalled the example's one mode, which cleared
+  the per-graph stand-in table, so the first helper's graph was silently
+  re-derived under the second's mode — the plain graph raised `:router` plans
+  across a supergraph, or the federated one answered with fabricated data. The
+  rule is now one sentence: **a helper sets the stand-in for the graph it
+  names; the tag sets the mode for every graph no helper named.** So `graphql:
+  :router` plus `graphql_fake(graph: :countries)` reads as what it means, and
+  is no longer refused as contradicting the tag — a helper naming one graph of
+  several isn't speaking for the example. A helper that *does* speak for the
+  whole example (one graph, or no `graph:`/schema to narrow it) still can't
+  contradict its tag.
+
 <!-- lane: provenance -->
 - **A schema dump no longer records the credential that introspected it.**
   The provenance stamp (`schema:refresh` and `cache:`) wrote the transport's

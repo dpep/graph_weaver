@@ -176,6 +176,24 @@ its graph and its schema in one word — `graphql_in_process(Reviews::Schema)`
 — but only for a graph that runs that class in-process; a graph whose schema
 is a dump has no such object, and `graph:` is the handle every graph has.
 
+**The rule: a helper sets the stand-in for the graph it names; the tag sets
+the mode for every graph no helper named.** So one example can run two graphs
+in two modes — the federated one through its router, the plain one faked —
+and neither helper disturbs the other's graph:
+
+```ruby
+it "renders the dashboard", graphql: :router do
+  graphql_fake(graph: :countries, "Country.name" => "Canada")
+  # :storefront routes through its supergraph (the tag); :countries is faked
+end
+```
+
+A helper naming one graph of several isn't contradicting the tag, so it isn't
+refused. A helper that speaks for the whole example still is: with one graph,
+or with no `graph:`/schema to narrow it, `graphql: :fake` plus
+`graphql_in_process` is two answers to one question, and the later one winning
+silently would hide which was the mistake.
+
 Anything whose honest answer differs per example belongs on the fake instead
 — `graphql_fake(null_chance: 1.0)` for the example that's about an empty
 state, `graphql_fake(values: :literal)` for the one that reads better without

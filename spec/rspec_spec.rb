@@ -581,6 +581,59 @@ describe "graph_weaver/rspec" do
     end
   end
 
+  # Two graphs in two modes in one example. The mode used to be one flag for
+  # the whole example, and the second helper reinstalled it and cleared the
+  # table — so whichever graph was named LAST decided both, silently.
+  describe "two graphs in two modes" do
+    around do |example|
+      require_relative "support/federation_router_graph"
+      GraphWeaver.graph(:storefront) { schema RouterGraph::SUPERGRAPH }
+      GraphWeaver.graph(:drafts) { schema DraftsDemo::Schema }
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    let(:supergraph) { GraphWeaver::Internal::Util.schema_for(RouterGraph::SUPERGRAPH) }
+    let(:dashboard) { module_for(:storefront, supergraph, "query { me { username } }", "MixedDashboard") }
+    let(:drafts) { module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "MixedDrafts") }
+
+    it "routes the graph graphql_router names and fakes the one graphql_fake does" do
+      graphql_router(graph: :storefront)
+      graphql_fake({ "Draft.owner" => "ada" }, graph: :drafts)
+
+      expect(dashboard.execute!.me.username).to eq "dpep"
+      expect(drafts.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+    end
+
+    # the other order used to raise :router's "graph :drafts is in no
+    # supergraph" for the graph the fake had already spoken for
+    it "does the same when the fake is named first" do
+      graphql_fake({ "Draft.owner" => "ada" }, graph: :drafts)
+      graphql_router(graph: :storefront)
+
+      expect(drafts.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+      expect(dashboard.execute!.me.username).to eq "dpep"
+    end
+
+    # the tag is the example's default, so the graph no helper named follows
+    # it — and a helper naming one graph of several isn't contradicting it
+    it "lets the tag cover the graph no helper named", graphql: :router do
+      graphql_fake({ "Draft.owner" => "ada" }, graph: :drafts)
+
+      expect(drafts.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
+      expect(dashboard.execute!.me.username).to eq "dpep"
+    end
+
+    # untagged, that default is :live — a graph nothing named keeps its own
+    # client rather than being fabricated at by the last helper's mode
+    it "leaves a graph no helper named on the example's own mode" do
+      graphql_fake({ "Draft.owner" => "ada" }, graph: :drafts)
+
+      expect(GraphWeaver::Internal::TestClients.for(dashboard)).to be_nil
+    end
+  end
+
   # The router is built once for the suite, so per-example fake data has to
   # reach it without rebuilding it — the tag alone leaves nowhere to put it.
   describe "graphql_router(fake:)" do
