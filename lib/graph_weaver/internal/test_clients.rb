@@ -71,6 +71,10 @@ module GraphWeaver
         # apart from an example changing it out from under itself.
         def installed? = !@mode.nil?
 
+        # Whether this example's stand-ins are already built — which is what
+        # makes a config setting they were built FROM too late to change.
+        def built? = !(@clients.nil? || @clients.empty?)
+
         # The GraphQL context every stand-in runs with: this example's, else
         # the suite baseline. graphql_context writes it, and the stand-ins
         # already built take it in place — a :wire example's are built before

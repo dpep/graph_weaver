@@ -164,7 +164,7 @@ module GraphWeaver
         wire_targets.map do |url, graph|
           # built here, so a graph with nothing to serve refuses before the
           # example runs rather than from inside its first request
-          GraphWeaver::Internal::TestClients.standin(graph)
+          disclose!(GraphWeaver::Internal::TestClients.standin(graph), url, graph)
           stub = WebMock::API.stub_request(:post, url)
           # and read again per request: a graphql_* helper in the example body
           # runs after this hook, and a pin that never reached the served
@@ -179,6 +179,64 @@ module GraphWeaver
             GraphWeaver::Testing::Endpoint.new(client).call(env)
           end)
           stub
+        end
+      end
+
+      # Say what went behind this endpoint. :wire is the one tag that picks
+      # from three candidates, and the pick is invisible from the example —
+      # an app that owns resolvers can be served a fake and pass against
+      # fabricated data. So it narrates, on the logger a Rails app already
+      # has (the railtie wires Rails.logger).
+      #
+      #      graph_weaver: :wire serving Shop::Schema (in-process) at http://…
+      #
+      # At warn, with the advice, when a fake stood in while this process
+      # HAS a schema class and nothing named it — a warning rather than a
+      # refusal because a loaded class isn't proof the app meant it here (a
+      # federated suite loads every subgraph's), and because serve! runs
+      # before the example body, so `graphql_fake` has no way to say "on
+      # purpose" in time to be heard.
+      def self.disclose!(client, url, graph)
+        unnamed = unnamed_schemas(graph) if client.is_a?(GraphWeaver::Testing::FakeClient)
+        if unnamed&.any?
+          GraphWeaver::Internal::Log.log(:warn) do
+            ":wire serving #{served(client)} at #{url} — #{unnamed.join(", ")} " \
+              "#{unnamed.one? ? "is" : "are"} loaded and nothing named #{unnamed.one? ? "it" : "one"}, " \
+              "so your resolvers did not run. To serve them, name it: " \
+              "GraphWeaver::Testing.config.schema = #{unnamed.first}"
+          end
+        else
+          GraphWeaver::Internal::Log.log(:info) { ":wire serving #{served(client)} at #{url}" }
+        end
+      end
+
+      # What the stand-in IS, read off the object rather than re-deciding —
+      # one answer, and it can't drift from what was built. A fake of a dump
+      # has no name to give: the dump loads as an anonymous class, and
+      # guessing which file it came from would be a label that can be wrong.
+      def self.served(client)
+        case client
+        when GraphWeaver::Testing::Router then "the router"
+        when GraphWeaver::InProcess then "#{client.schema.name} (in-process)"
+        else client.schema.name ? "#{client.schema.name} (fake)" : "a fake"
+        end
+      end
+
+      # Live schema classes this process has loaded that nothing pointed
+      # :wire at. Named ones only — a dump loads as an anonymous subclass,
+      # and graphql-ruby's own NullSchema is not the app's. A class some
+      # graph already runs is named, just not by this graph.
+      def self.unnamed_schemas(graph)
+        claimed = GraphWeaver.graphs.filter_map(&:live_schema)
+        loaded_schemas.reject { |schema| claimed.include?(schema) || schema.equal?(graph&.live_schema) }
+      end
+
+      # Class#subclasses is direct descendants only, so an app with its own
+      # base schema class needs the walk.
+      def self.loaded_schemas(root = GraphQL::Schema)
+        root.subclasses.flat_map do |schema|
+          named = schema.name && !schema.name.start_with?("GraphQL::") ? [schema] : []
+          named + loaded_schemas(schema)
         end
       end
 
@@ -292,7 +350,7 @@ module GraphWeaver
       end
 
       private_class_method :wire_targets, :refuse_shared_endpoint!, :baked_client, :whose_client,
-        :webmock!, :webmock_enabled?
+        :webmock!, :webmock_enabled?, :disclose!, :served, :unnamed_schemas, :loaded_schemas
 
       # Included into every example group, so graphql_context is there
       # whether or not this example took a client from the hook.

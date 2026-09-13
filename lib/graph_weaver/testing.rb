@@ -63,9 +63,8 @@ module GraphWeaver
     class Config
       attr_accessor :overrides, :seed, :list_size, :cassette_dir, :record, :anonymize
       attr_reader :context
-      # #schema is written plainly and read with a fallback (below), the way
-      # #router and #default_mode are read plainly and written with a check
-      attr_writer :schema
+      # #schema is read with a fallback (below), the way #router and
+      # #default_mode are read plainly and written with a check
       attr_reader :router, :default_mode
 
       def initialize
@@ -116,6 +115,14 @@ module GraphWeaver
         @located
       end
 
+      # What every mode derives from — suite setup, like #context and for the
+      # same reason: an example's clients are built before any group `before`
+      # runs, so one set there is read too late (see {refuse_late!}).
+      def schema=(schema)
+        refuse_late!("config.schema", "graphql_in_process(MySchema) / graphql_fake(schema: MySchema)")
+        @schema = schema
+      end
+
       # What's been set, without falling back to the dump — so validating
       # overrides at configure time doesn't force a schema load on a suite
       # that never asks for one.
@@ -157,6 +164,7 @@ module GraphWeaver
       # have to restate where the supergraph is. `fake:` says how those
       # fabricate; graphql_router(fake: …) says it for one example.
       def router=(arguments)
+        refuse_late!("config.router", "graphql_router(fake: …)")
         unless arguments.nil? || arguments.is_a?(Hash)
           raise ArgumentError, "router: must be the arguments to build one, e.g. " \
             "{ supergraph: \"supergraph.graphql\" } or { subgraphs: { \"reviews\" => :fake } }, " \
@@ -192,20 +200,26 @@ module GraphWeaver
       # Whether `graph` has a composed supergraph to plan against — what
       # decides whether :wire serves the router or the live schema class,
       # the same question :router and :in_process each answer for themselves.
-      def supergraph?(graph = nil)
-        supergraph!(graph)
-        true
-      rescue GraphWeaver::Error
-        false
+      def supergraph?(graph = nil) = !supergraph_for(graph).nil?
+
+      # The composed supergraph `graph` plans against, or the refusal saying
+      # what was looked for. Per graph, because a graph that is in no
+      # supergraph must be refused by name rather than routed into someone
+      # else's.
+      private def supergraph!(graph = nil)
+        supergraph_for(graph) ||
+          raise(GraphWeaver::Error, supergraph_advice(graph, GraphWeaver::SchemaLoader.locate_path))
       end
 
-      # The composed supergraph `graph` plans against: the one that graph
-      # names when it names one, else config.router[:supergraph], else the
-      # conventional dump when that's what it is. Per graph, because a graph
-      # that is in no supergraph must be refused by name rather than routed
-      # into someone else's. A client can't supply one — its schema is the API
-      # schema a router serves, with the @join__* routing table stripped out.
-      private def supergraph!(graph = nil)
+      # The lookup on its own, nil when there is none — so asking the
+      # question doesn't build an error. Every GraphWeaver::Error writes a
+      # warn line as it is constructed, and a predicate that raised to say
+      # "no" put a refusal that never happened in the log of every :wire
+      # example. The one that graph names, else config.router[:supergraph],
+      # else the conventional dump when that's what it is. A client can't
+      # supply one — its schema is the API schema a router serves, with the
+      # @join__* routing table stripped out.
+      private def supergraph_for(graph)
         # named_schema?, so a graph that declared no schema of its own falls
         # through to config.router rather than past it to the conventional dump
         named = (graph.supergraph if graph&.named_schema?)
@@ -213,9 +227,7 @@ module GraphWeaver
         return @router[:supergraph] if @router&.key?(:supergraph)
 
         path = GraphWeaver::SchemaLoader.locate_path
-        return path if path && GraphWeaver::Internal::Util.composed?(path)
-
-        raise GraphWeaver::Error, supergraph_advice(graph, path)
+        path if path && GraphWeaver::Internal::Util.composed?(path)
       end
 
       # what to do about it, which differs by who asked: a graph in no
@@ -242,26 +254,16 @@ module GraphWeaver
       # live class has resolvers, so there is nothing else to fall back to:
       # a dump is type information.
       def schema_class!(graph = nil)
-        # explicit_schema, not schema: the latter falls back to the committed
-        # dump, which loads as an anonymous GraphQL::Schema subclass — runnable
-        # by every test that matters, and holding not one resolver.
-        found = runnable(explicit_schema) || graph&.live_schema || GraphWeaver::Internal::Util.live_schema
-        return found if found
-
         # a named graph is told how to name its own class; the app-wide answer
         # is told the two app-wide ways to say it
-        raise GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
-          "GraphQL::Schema class — and #{schema_class_advice(graph)}"
+        schema_class_for(graph) || raise(GraphWeaver::Error, ":in_process runs your resolvers, " \
+          "so it needs the live GraphQL::Schema class — and #{schema_class_advice(graph)}")
       end
 
       # Whether `graph` has a live schema class at all — what decides, with
-      # #supergraph?, which of the three things :wire serves.
-      def schema_class?(graph = nil)
-        schema_class!(graph)
-        true
-      rescue GraphWeaver::Error
-        false
-      end
+      # #supergraph?, which of the three things :wire serves. Asked without
+      # building an error, for the reason {supergraph_for} gives.
+      def schema_class?(graph = nil) = !schema_class_for(graph).nil?
 
       # The schema everything else derives from: the one you set, else the one
       # `graph` names — the schema its generated code was checked against —
@@ -293,6 +295,28 @@ module GraphWeaver
       end
 
       private
+
+      # explicit_schema, not schema: the latter falls back to the committed
+      # dump, which loads as an anonymous GraphQL::Schema subclass — runnable
+      # by every test that matters, and holding not one resolver.
+      def schema_class_for(graph)
+        runnable(explicit_schema) || graph&.live_schema || GraphWeaver::Internal::Util.live_schema
+      end
+
+      # One rule for every suite-setup setting: say it at load, or in an
+      # `around` — a plain `before` is too late, because the tag builds (and
+      # under :wire serves) this example's clients in a `before` of its own,
+      # and rspec runs that one first. Silence there is the expensive
+      # outcome: the example passes against whatever the tag already picked.
+      def refuse_late!(setting, per_example)
+        return unless GraphWeaver::Internal::TestClients.built?
+
+        raise GraphWeaver::Error, "#{setting} is read when this example's clients are built, and " \
+          "the graphql: tag already built them — it does that in a `before` hook of its own, which " \
+          "rspec runs before yours, so setting it now reaches nothing. Say it for the suite in " \
+          "GraphWeaver::Testing.configure, or in an `around` hook, which wraps the tag's setup; " \
+          "say it for one example in the helper (#{per_example})."
+      end
 
       # what to do about it, which differs by who asked: a graph names its
       # own class where it is declared, the app names one for the suite

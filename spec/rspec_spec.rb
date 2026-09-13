@@ -681,5 +681,32 @@ describe "graph_weaver/rspec" do
       expect { config.router = { supergraph: RouterGraph::SUPERGRAPH, context: { current_user_id: "2" } } }
         .to raise_error(ArgumentError, /config\.context/)
     end
+
+    # One rule for every suite-setup setting, and the same one config.context
+    # already has: the tag builds this example's clients in a `before` hook of
+    # its own, and rspec runs that before any `before` of yours — so a plain
+    # `before` is always too late. An `around` wraps the tag's setup, which is
+    # why every group in this file uses one.
+    context "a suite-setup setting made after the tag built the clients" do
+      around do |example|
+        app_client!(DraftsDemo::Schema)
+        GraphWeaver::Testing.configure { |config| config.schema = DraftsDemo::Schema }
+        example.run
+      end
+
+      it "takes it from an around hook, which is the sanctioned place", graphql: :fake do
+        expect(config.explicit_schema).to be DraftsDemo::Schema
+      end
+
+      it "refuses config.schema, naming around and the per-example helper", graphql: :fake do
+        expect { config.schema = DraftsDemo::Schema }
+          .to raise_error(GraphWeaver::Error, /already built them.*`around` hook.*graphql_fake\(schema:/m)
+      end
+
+      it "refuses config.router the same way", graphql: :fake do
+        expect { config.router = { subgraphs: { "reviews" => :fake } } }
+          .to raise_error(GraphWeaver::Error, /already built them.*graphql_router/m)
+      end
+    end
   end
 end

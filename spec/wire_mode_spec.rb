@@ -2,6 +2,8 @@
 # frozen_string_literal: true
 
 require "bigdecimal"
+require "logger"
+require "stringio"
 require "graph_weaver/rspec"
 require "graph_weaver/transport/faraday"
 require "webmock"
@@ -434,6 +436,101 @@ describe "graphql: :wire" do
     it "still refuses a helper that contradicts an ordinary tag", graphql: :fake do
       expect { graphql_in_process(WireDemo::Schema) }
         .to raise_error(GraphWeaver::Error, /tagged graphql: :fake but calls graphql_in_process/)
+    end
+  end
+
+  # :wire is the one tag that picks from three candidates, and the pick is
+  # invisible from inside the example — an app that owns resolvers being
+  # served a fake is a green run against fabricated data. So it says which,
+  # on the logger a Rails app already has.
+  describe "what it says it served" do
+    let(:io) { StringIO.new }
+
+    # outside the tag's own before hook, which is where the line is written
+    around do |example|
+      GraphWeaver.logger = Logger.new(io, level: Logger::INFO)
+      example.run
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    context "with the live class named" do
+      around do |example|
+        GraphWeaver::Testing.config.schema = WireDemo::Schema
+        app_client!
+        example.run
+      end
+
+      # and nothing else: every GraphWeaver::Error writes a warn line as it is
+      # built, so the predicates deciding what to serve used to log two
+      # refusals that never happened in front of this one
+      it "names it and the endpoint, at info and nothing louder", graphql: :wire do
+        expect(io.string).to include(":wire serving WireDemo::Schema (in-process) at #{WireDemo::ENDPOINT}")
+        expect(io.string).not_to include("WARN")
+      end
+    end
+
+    # the silent green run this exists for: a url client, no config.schema,
+    # and the app's own schema class sitting right there unnamed
+    context "with a fake standing in while the process has a schema class" do
+      around do |example|
+        GraphWeaver.graph(:orders) { schema WireDemo::SDL }
+        app_client!
+        example.run
+      ensure
+        GraphWeaver.reset_graphs!
+      end
+
+      it "warns, naming a class it could have served and how to say so", graphql: :wire do
+        expect(io.string).to include("WARN")
+        expect(io.string).to include(":wire serving a fake at #{WireDemo::ENDPOINT}")
+        expect(io.string).to match(/WireDemo::Schema.*loaded and nothing named/)
+        expect(io.string).to include("your resolvers did not run")
+        expect(io.string).to match(/GraphWeaver::Testing\.config\.schema = \w/)
+      end
+    end
+  end
+
+  # :wire has no failure injection of its own and needs none: it adds one
+  # stub per endpoint, and webmock answers with the LAST stub declared for a
+  # url — so an example that wants the server to fail declares its own, and
+  # the transport meets a real response rather than a raise from inside the
+  # stub. That is the documented recipe (docs/testing.md).
+  describe "serving a failure" do
+    around do |example|
+      GraphWeaver::Testing.config.schema = WireDemo::Schema
+      app_client!(WireDemo::ENDPOINT, retries: 2)
+      example.run
+    end
+
+    it "serves a 503 the transport reads back with its headers", graphql: :wire do
+      failing = WebMock::API.stub_request(:post, WireDemo::ENDPOINT)
+        .to_return(status: 503, headers: { "Retry-After" => "0" }, body: "down for maintenance")
+
+      expect { GraphWeaver.client.execute(WireDemo::QUERY) }
+        .to raise_error(GraphWeaver::ServerError) { |error|
+          expect(error.status).to eq 503
+          expect(error.retry_after).to eq 0    # the header crossed the wire
+          expect(error.throttled?).to be true
+        }
+      expect(exchanges.size).to eq 3           # and the real Retry ran: 1 + retries: 2
+    ensure
+      WebMock::API.remove_request_stub(failing)
+    end
+
+    it "serves a timeout the transport reads as a TransportError", graphql: :wire do
+      failing = WebMock::API.stub_request(:post, WireDemo::ENDPOINT).to_timeout
+
+      expect { GraphWeaver.client.execute(WireDemo::QUERY) }
+        .to raise_error(GraphWeaver::TransportError, /timeout|timed out/i)
+    ensure
+      WebMock::API.remove_request_stub(failing)
+    end
+
+    # the tag's own stub is still the one underneath, so an example that
+    # doesn't declare a failure is answered by the schema as usual
+    it "leaves the served schema answering the examples that don't", graphql: :wire do
+      expect(GraphWeaver.client.execute(WireDemo::QUERY).dig("data", "order", "id")).to eq "o1"
     end
   end
 
