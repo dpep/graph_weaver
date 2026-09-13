@@ -1,6 +1,8 @@
 # typed: true
 # frozen_string_literal: true
 
+require "date" # Date/DateTime, named below
+
 require_relative "errors"
 require_relative "internal/refusal"
 
@@ -58,7 +60,7 @@ module GraphWeaver
         # DateTime is a Date to Ruby and a timestamp to everyone else
         when DateTime, Time then cross(value, "Date", DATE_HINT)
         when Date then value
-        when String then parsing("Date") { Date.iso8601(value) }
+        when String then parsing("Date", value) { Date.iso8601(value) }
         else time_like?(value) ? cross(value, "Date", DATE_HINT) : refuse(value, "Date")
         end
       end
@@ -68,7 +70,7 @@ module GraphWeaver
         when Time then value
         when DateTime then value.to_time # the same instant in another class
         when Date then cross(value, "Time", TIME_HINT)
-        when String then parsing("Time") { Time.parse(value) }
+        when String then parsing("Time", value) { Time.parse(value) }
         else time_like?(value) ? value.to_time : refuse(value, "Time")
         end
       end
@@ -110,6 +112,23 @@ module GraphWeaver
         end
       end
 
+      # A registration's own `cast:` — Date.iso8601, Money.parse — standing in
+      # for a Coerce rule the library has none of. Two things the codec can't
+      # do for itself: the pass-through guard (a value already of the type is
+      # not rebuilt), and a verdict, since a cast complains about the value
+      # alone — "no implicit conversion of Integer into String" names neither
+      # what was expected nor which half of the value was wrong.
+      def cast(type, value)
+        # DateTime is a Date to Ruby and a timestamp to everyone else, so it is
+        # not "already a Date" however the app spelled its cast: .date's own
+        # refusal, applied BEFORE the cast rather than instead of it.
+        cross(value, "Date", DATE_HINT) if type.equal?(::Date) && value.is_a?(::DateTime)
+        # a type given as a type string ("T::Hash[...]") names no class to ask
+        return value if type.is_a?(Module) && value.is_a?(type)
+
+        parsing(type.is_a?(Module) ? type.name : type.to_s, value) { yield value }
+      end
+
       # Brands one variable's coercion failure with the variable and the
       # operation: a cast complains about the value alone ("invalid date"),
       # which locates nothing in an app that runs a hundred queries. The
@@ -144,11 +163,17 @@ module GraphWeaver
 
       # A stdlib parser's own complaint, kept word for word ("invalid date")
       # and labelled with the scalar the schema named — which the parser,
-      # handed only a String, has no way to know.
-      def parsing(scalar)
+      # handed only a String, has no way to know. Ruby's own convention splits
+      # the two: ArgumentError is wrong CONTENT, and the parser says more
+      # about it than we could; TypeError is a wrong CLASS, which the parser
+      # describes in terms of its own argument ("no implicit conversion of
+      # Integer into String") and we can name properly.
+      def parsing(scalar, value = nil)
         yield
-      rescue ::ArgumentError, ::TypeError => e
+      rescue ::ArgumentError => e
         raise Internal::Refusal.brand(e, :unparseable, type: scalar)
+      rescue ::TypeError
+        raise mismatch(::TypeError, "#{expected(scalar)}, got #{shown(value)}", scalar)
       end
 
       # Kernel#Float("1e400") is Infinity rather than a raise, and so is
@@ -203,7 +228,9 @@ module GraphWeaver
       # inside an input object never reaches a sentence (see Redact)
       def shown(value) = Internal::Redact.shown(value)
 
-      def expected(scalar) = "expected #{%w[Int ID].include?(scalar) ? "an" : "a"} #{scalar}"
+      # the article by the initial, so a registered Ruby class ("an Integer")
+      # reads as well as the scalars ("an Int", "an ID", "a Date")
+      def expected(scalar) = "expected #{scalar.start_with?(/[AEIOU]/) ? "an" : "a"} #{scalar}"
     end
   end
 end

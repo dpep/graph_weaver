@@ -220,6 +220,33 @@
   stays the wire hash and `#coordinate` still names the schema's
   `Tricky.class`.*
 
+<!-- lane: cast -->
+- **A scalar you cast yourself now refuses what the built-in refuses, in the
+  same words.** With a registration like
+  `register_scalar("Date", Date, cast: :iso8601, serialize: :iso8601)`, a wrong
+  value went straight to your codec and came back as Ruby's own sentence about
+  an argument you never wrote — `$input of Probe: birthday: no implicit
+  conversion of Integer into String`, filed under `kind: :unparseable`. The
+  guard in front of a cast and the verdict when it refuses are the library's
+  now, whoever wrote the codec, and they split the way Ruby itself does: a
+  `TypeError` means the *class* was wrong and reads `$input of Probe: birthday:
+  expected a Date, got 5` under `kind: :type_mismatch`, while an
+  `ArgumentError` means the *content* was and keeps the parser's own words
+  (`invalid date`, `kind: :unparseable`) — the difference between "send
+  something else" and "fix the text", which is the half a form needs.
+  `#details[:type]` names the Ruby type for both, and the same split now
+  applies to any `TypeError` a `cast:` or `serialize:` raises.
+- **A `DateTime` is no longer "already a `Date`" for a scalar you cast
+  yourself.** `DateTime < Date`, so the pass-through guard let one by and your
+  own `serialize:` then wrote `"2024-01-15T10:20:30+00:00"` into a field the
+  schema says holds a date — the cross-type trap the built-in `Date` has always
+  refused. It is refused here too, with the same hint: `expected a Date, got a
+  DateTime — pass .to_date if dropping the time of day is what you meant`. Pass
+  `.to_date` where you meant a date.
+- **Regenerate** to pick either of these up: the guard is emitted into your
+  generated files, so a checked-in file keeps the old `is_a?` one until
+  `rake graph_weaver:generate` rewrites it.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

@@ -40,7 +40,10 @@ both directions: casting a date to `Time` invents a midnight the server never
 sent, and sending a `Time` for a date variable drops the time of day. Give one
 for the other and it is refused, naming the class —
 `$on of Report: expected a Date, got a Time — pass .to_date if dropping the
-time of day is what you meant`. A schema that means something
+time of day is what you meant`. That holds when you register your own `cast:`
+too: a cast says how the Ruby object is *built*, not which values are right, so
+a `DateTime` — which Ruby files under `Date` — is refused for a `Date` scalar
+however the codec is spelled. A schema that means something
 else by one of these names fails loudly — the cast raises, naming the field —
 and one `register_scalar` overrides it, like any other entry. Names that are
 *not* a convention (`Timestamp`, `UUID`, `URL`, `Decimal`, `Money`) are left to

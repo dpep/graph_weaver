@@ -149,13 +149,15 @@ class GraphWeaver::Codegen
     # scalar's Ruby type before it is serialized, or nil for nothing to do.
     # The Ruby type's own rule in Coerce is the check, which is what
     # `.checked(:never)` on the generated sig gives up. A registration that
-    # named its own `cast:` says how to build the Ruby object instead,
-    # guarded so an already-typed value passes through.
+    # named its own `cast:` says how to build the Ruby object instead — but
+    # the guard in front of it and the verdict when it refuses are still the
+    # library's, so both go through Coerce.cast rather than a bare `is_a?`
+    # (a DateTime is one of those, and is not a Date on any wire).
     def coerce_input(expr)
       if (fn = coercer)
         "GraphWeaver::Coerce.#{fn}(#{expr})"
       elsif cast?
-        "(#{expr}.is_a?(#{@type}) ? #{expr} : #{cast(expr)})"
+        "GraphWeaver::Coerce.cast(#{@type}, #{expr}) { |raw| #{cast("raw")} }"
       end
     end
 

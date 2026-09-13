@@ -26,14 +26,20 @@ module GraphWeaver
         end
 
         # What a raised exception says went wrong, as an InputError kind.
-        # Coerce's own refusals carry their verdict; an app's `cast:` —
-        # Date.iso8601, Money.parse — raises whatever it likes, and
-        # ArgumentError/TypeError is Ruby's own "that value doesn't convert".
+        # Coerce's own refusals carry their verdict; an app's `cast:` or
+        # `serialize:` raises whatever it likes, and Ruby's own convention
+        # splits the two it raises for a value it can't use: TypeError means
+        # the CLASS was wrong, ArgumentError the CONTENT — which is the
+        # difference between "send something else" and "fix the text".
         # Anything else is :refused rather than a guess at what it meant.
         def kind_of(error)
           return error.graph_weaver_kind if error.is_a?(Refusal)
 
-          error.is_a?(::ArgumentError) || error.is_a?(::TypeError) ? :unparseable : :refused
+          case error
+          when ::TypeError then :type_mismatch
+          when ::ArgumentError then :unparseable
+          else :refused
+          end
         end
 
         def details_of(error) = error.is_a?(Refusal) ? error.graph_weaver_details : {}

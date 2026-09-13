@@ -194,8 +194,8 @@ describe "custom scalar deserialization" do
     expect(source).to include('MoneyDemo::Money.parse(data.fetch("price"))')
     # inferred serialize emits the inverse for the Money variable — inside
     # Coerce.variable, so a refusal from it names the variable too
-    expect(source).to include("OPERATION_NAME, budget) { |v| (v.is_a?(MoneyDemo::Money) ? " \
-      "v : MoneyDemo::Money.parse(v)).to_s }")
+    expect(source).to include("OPERATION_NAME, budget) { |v| GraphWeaver::Coerce.cast(MoneyDemo::Money, v) " \
+      "{ |raw| MoneyDemo::Money.parse(raw) }.to_s }")
   end
 
   it "emits requires: atop the generated source, before the module" do
@@ -319,7 +319,7 @@ describe "custom scalar deserialization" do
 
       expect(source).to include("budget: MoneyDemo::Money")
       expect(source).to include(
-        '(v.is_a?(MoneyDemo::Money) ? v : MoneyDemo::Money.parse(v))',
+        "GraphWeaver::Coerce.cast(MoneyDemo::Money, v) { |raw| MoneyDemo::Money.parse(raw) }",
       )
     end
 
@@ -613,6 +613,110 @@ describe "custom scalar deserialization" do
   it "rejects an anonymous class as a scalar type (would emit a literal nil)" do
     expect { GraphWeaver.register_scalar("Anon", Class.new) }
       .to raise_error(ArgumentError, /anonymous/)
+  end
+end
+
+# A `cast:` replaces how the Ruby object is BUILT. It does not replace the
+# library's rules about which values are the right ones — an app's cast
+# complains about the value alone ("no implicit conversion of Integer into
+# String"), and the stdlib's own class graph files a DateTime under Date.
+describe "a registration that names its own cast:" do
+  after { GraphWeaver::Codegen.reset_scalars! }
+
+  # the built-in Date, respelled by an app that prefers #iso8601 on the way out
+  def register
+    GraphWeaver.register_scalar("Date", Date, cast: :iso8601, serialize: :iso8601)
+  end
+
+  let(:capture) do
+    Class.new do
+      attr_reader :variables
+
+      def execute(_query, variables:, operation_name: nil)
+        @variables = variables
+        { "data" => nil, "errors" => [{ "message" => "captured" }] }
+      end
+    end.new
+  end
+
+  let(:mutation) { "mutation Probe($input: AdoptionInput!) { adopt(input: $input) { name } }" }
+
+  # the input-field layer: the cast runs inside a generated input struct
+  def adopting(birthday, client: Demo::Schema)
+    GraphWeaver.parse(schema: Demo::Schema, client:, query: mutation)
+      .execute(input: { name: "Rex", species: "DOG", birthday: })
+  end
+
+  def refusal
+    yield
+    raise "expected a GraphWeaver::InputError"
+  rescue GraphWeaver::InputError => e
+    e
+  end
+
+  # the variable layer: the same cast, one rescue higher up
+  def on(day)
+    schema = GraphQL::Schema.from_definition(
+      "scalar Date\ntype Query { on(day: Date!): String }\nschema { query: Query }",
+    )
+    GraphWeaver.parse(schema:, client: capture, query: "query Day($day: Date!) { on(day: $day) }")
+      .execute(day:)
+  end
+
+  # The gem can't know what an app's cast accepts, so no guard belongs in the
+  # codec — but TypeError is Ruby's own word for "wrong class", and that is
+  # the same refusal the built-in Date gives for the same mistake.
+  it "says what was expected when the cast refuses the value's class" do
+    register
+
+    expect { adopting(5) }
+      .to raise_error(GraphWeaver::InputError, "$input of Probe: birthday: expected a Date, got 5")
+    expect { on(5) }.to raise_error(GraphWeaver::InputError, "$day of Day: expected a Date, got 5")
+  end
+
+  # ArgumentError is Ruby's word for "wrong content", and the parser's own
+  # sentence is the better one — it says which part of the date was wrong
+  it "keeps the cast's own words when only the content was wrong" do
+    register
+
+    expect { adopting("nope") }
+      .to raise_error(GraphWeaver::InputError, "$input of Probe: birthday: invalid date")
+    # the variable layer quotes the value a parser never does, as it does for
+    # the built-in Date
+    expect { on("nope") }.to raise_error(GraphWeaver::InputError, '$day of Day: invalid date (got "nope")')
+  end
+
+  # DateTime < Date, so is_a? passed one straight through the guard and the
+  # app's serializer wrote "2024-01-15T10:20:30+00:00" where a date belongs
+  it "refuses a DateTime for a Date, in the built-in Date's own words" do
+    noon = DateTime.new(2024, 1, 15, 10, 20, 30)
+    builtin = refusal { on(noon) }
+    register
+
+    expect { adopting(noon) }.to raise_error(
+      GraphWeaver::InputError,
+      "$input of Probe: birthday: expected a Date, got a DateTime — " \
+        "pass .to_date if dropping the time of day is what you meant",
+    )
+    # the variable layer quotes the value a cross-type refusal names only by
+    # class, and does it the same way for both
+    expect(refusal { on(noon) }.message).to eq builtin.message
+  end
+
+  it "passes a Date through untouched, and writes a date on the wire" do
+    register
+
+    adopting(Date.new(2024, 1, 15), client: capture)
+
+    expect(capture.variables["input"]["birthday"]).to eq "2024-01-15"
+  end
+
+  it "still casts the wire spelling the registration named" do
+    register
+
+    adopting("2024-01-15", client: capture)
+
+    expect(capture.variables["input"]["birthday"]).to eq "2024-01-15"
   end
 end
 

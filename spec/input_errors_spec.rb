@@ -189,6 +189,39 @@ describe "input errors" do
       expect(error.kind).to eq :type_mismatch
     end
 
+    # an app's `cast:` — Date.iso8601, Money.parse — raises whatever it likes,
+    # and Ruby's own convention says which: TypeError is a wrong class,
+    # ArgumentError wrong content. Both used to arrive as :unparseable, which
+    # sends a form to re-validate text that was never text.
+    describe "a registration's own cast:" do
+      after { GraphWeaver::Codegen.reset_scalars! }
+
+      let(:adopt) do
+        GraphWeaver.register_scalar("Date", Date, cast: :iso8601, serialize: :iso8601)
+        GraphWeaver.parse(
+          schema: Demo::Schema, client: Demo::Schema,
+          query: "mutation Probe($input: AdoptionInput!) { adopt(input: $input) { name } }",
+        )
+      end
+
+      def adopting(birthday)
+        adopt.execute(input: { name: "Rex", species: "DOG", birthday: })
+      end
+
+      it "calls a wrong class a type mismatch, and carries the value" do
+        expect(refusal { adopting(5) }).to have_attributes(
+          kind: :type_mismatch, path: ["input", "birthday"],
+          coordinate: "AdoptionInput.birthday", value: 5, details: { type: "Date" },
+        )
+      end
+
+      it "calls wrong content unparseable, as the built-in Date does" do
+        expect(refusal { adopting("nope") }).to have_attributes(
+          kind: :unparseable, path: ["input", "birthday"], details: { type: "Date" },
+        )
+      end
+    end
+
     it "routes a value through filter_parameters, as the message already is" do
       error = refusal do
         GraphWeaver::Coerce.variable("password", "Login", "hunter2") { |v| GraphWeaver::Coerce.integer(v) }
