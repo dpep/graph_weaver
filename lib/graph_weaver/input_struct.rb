@@ -251,8 +251,14 @@ module GraphWeaver
           # :type_object carries the nilable-ness the prop was declared with;
           # :type is that unwrapped, which is the half worth naming — an
           # absent optional field is nil and legal, and a missing required
-          # one was reported by name before we got here
-          next if T::Utils.coerce(info[:type_object]).valid?(value)
+          # one was reported by name before we got here.
+          #
+          # recursively_valid?, which is the predicate the SETTER enforces:
+          # #valid? stops at the outermost type, so `[1, 2, 3]` for a
+          # T::Array[Float] (a type-string registration, so no coercer ran)
+          # passed here while the setter refused it — and the refusal came
+          # out blaming the list that held the struct, in sorbet's words.
+          next if T::Utils.coerce(info[:type_object]).recursively_valid?(value)
 
           type = T::Utils.coerce(info[:type]).to_s
           return GraphWeaver::InputError.new(

@@ -23,6 +23,20 @@
   as it is (the same reason an input can't send one). **Regenerate**:
   `as_json` is emitted code, and a struct generated before it raises
   `GraphWeaver::Error` telling you so.
+- **A type-string scalar's bad value is named like every other one.**
+  `register_scalar("Vector", "T::Array[Float]")` gives the field no coercer, so
+  only sorbet stands between the value and the struct — and the check that
+  turns sorbet's complaint back into the library's asked `#valid?`, which stops
+  at the outermost type. `[1, 2, 3]` for a `T::Array[Float]` passed it while
+  the struct's setter (which checks recursively) refused, so the refusal came
+  out blaming the list that *held* the struct, with empty `details` and
+  sorbet's wording: *"items: invalid input for LineItemInput: Parameter
+  'vector': Can't set LineItemInput.vector to [1, 2, 3] (instance of Array) -
+  need a T::Array[Float]"*. It now asks the same question the setter does, so
+  it says *"vector: expected T::Array[Float], got [1, 2, 3]"* with
+  `coordinate: "LineItemInput.vector"`, `path: ["input", "items", 0, "vector"]`
+  and `details: {type:}` — the same shape a class-registered scalar's refusal
+  has always had. Lists of lists and nilable fields alike.
 - **A `register_enum` fallback member no longer raises out of `to_json`.**
   Several wire values collapse into the fallback, so the to-wire table holds
   none of them — and the fallback is exactly the member a drifted response
