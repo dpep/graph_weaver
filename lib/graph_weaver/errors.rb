@@ -410,7 +410,10 @@ module GraphWeaver
     # both halves. [] when the server rejected nothing about the input, or
     # said nothing that identifies it as input (see GraphQLError::INPUT_CODES).
     #
-    #      response.input_errors.each { |e| form.errors.add(e.field, e.message) }
+    # #field is nil where the server stated no input path, so a form needs
+    # the :base branch:
+    #
+    #      response.input_errors.each { |e| form.errors.add(e.field&.underscore || :base, e.message) }
     sig { returns(T::Array[InputError]) }
     def input_errors
       errors.flat_map(&:input_errors)

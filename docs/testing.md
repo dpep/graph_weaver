@@ -47,6 +47,13 @@ before it asks any client for anything, so a
 raises the same way under every tag and under none. "Which mode do I need for
 this" has no answer there — pick `:fake`, the cheapest.
 
+**The other half is the one `:fake` can't reach.** It fabricates a
+shape-correct *success*, so your server's `validates:` rules and custom
+validators never run and nothing is ever rejected — a `:fake`-only suite has
+zero coverage of server-side refusal. Cover it with
+[`Failure.graphql(code:, extensions:)`](#simulating-failures) for the rejection
+you expect, or with `:in_process`, where the real validators do run.
+
 **Every example has exactly one mode.** An untagged one takes
 `config.default_mode`, which is `:live` — your own client, exactly as it is —
 unless the suite sets another; and **`graphql: :live` is how one example steps
@@ -271,7 +278,9 @@ needs — only `Money.parse` knows what wire value it accepts — so without one
 fabrication refuses at the path it reached (`at reader.orders.0.total`) and
 names the pin to add, rather than feeding your cast a placeholder that fails
 deep inside `from_h`. A scalar registered as `BigDecimal`, `Time`, `Date`,
-`Integer`, `Float`, `String` or `T::Boolean` needs nothing. Suite-wide, the same hash is
+`Integer`, `Float`, `String` or `T::Boolean` needs nothing. The key is the
+**schema's scalar name**, not the Ruby class it maps to, so two scalars that
+both deserialize into `Money` want a pin each. Suite-wide, the same hash is
 `config.overrides`, and the [cassette anonymizer](cassettes.md) reads it too.
 
 Pins lead and options follow — `graphql_fake("Money" => "12.00", values:
@@ -551,6 +560,10 @@ A hash still works, and is still the baseline `graphql_context` merges onto; a
 proc replaces it, and `graphql_context` then says so rather than merging onto
 something that isn't there. (Rack drops a header's capitalization, so `X-CALLER`
 arrives as `X-Caller`.)
+
+Like every suite setting, it goes in `Testing.configure` or an `around` —
+[never a plain `before`](#nothing-to-configure), `:wire` least of all, since the
+tag stubs this example's endpoints in a `before` hook of its own.
 
 **And webmock has to be *enabled*** — `require "webmock/rspec"` in the spec
 helper, in either order with `graph_weaver/rspec`. Having it in the Gemfile is

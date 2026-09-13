@@ -111,8 +111,8 @@ module StarredQuery
   GRAPH = T.let(:github, Symbol)
   private_constant :GRAPH
 
-  # .checked(:never): an untyped value (a Rails param) reaches the coercion below
-  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites.
+  # .checked(:never): an untyped value (a Rails param) reaches the coercion
+  # below instead of being rejected by sorbet-runtime's argument check.
   sig { params(login: String, first: Integer, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(login:, first:, client: nil)
     variables = {

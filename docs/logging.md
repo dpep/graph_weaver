@@ -61,6 +61,14 @@ is rejected with `[FILTERED]` in place of the value, and a value a message
 `got {"token" => "[FILTERED]"}`. Everything else keeps quoting the value,
 since `expected an Int, got "lots"` is the whole diagnosis.
 
+**It reaches what GraphWeaver composes, and nothing else.** That is
+`InputError#message` and `#value` on both halves — a server's sentence
+included, once it has been read back into an `InputError` — plus the variables
+line at debug. A `GraphQLError#message` is the server's or a resolver's own
+words and is **passed through untouched**, in `response.errors`, in
+`QueryError`'s summary, and in the `warn` line that summary writes. A server
+that quotes a rejected password in its message has to be fixed at the server.
+
 ## Instrumentation
 
 A logger tells a human what happened; an APM needs to time it and count

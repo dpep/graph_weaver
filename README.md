@@ -41,6 +41,10 @@ result.person&.nmae
 `person` is `T.nilable` because the schema says the field is nullable — the `&.`
 isn't defensive, it's the schema talking. A field you misspelled, or never
 selected, is a typecheck error rather than a `NoMethodError` in production.
+Static Sorbet is optional: `sorbet-runtime` is the only Sorbet gem this one
+needs, so if your app doesn't run `srb tc`, that same typo surfaces as a
+`NoMethodError` the first time the line runs instead of in CI — [Sorbet, with or
+without](docs/getting_started.md#sorbet-with-or-without).
 
 ## Start here
 

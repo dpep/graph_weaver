@@ -142,6 +142,13 @@ rather than `null` — `"value"` is missing both when the value was never known
 and when it was null, and `"kind"` tells those apart (`"missing"` has no value
 by definition). Read it with `hash["value"]`, not `hash.key?("value")`.
 
+**A JSON controller underscores on the way in.** Generated input structs take
+the prop spelling, so a camelCase request body makes *every* key an unknown
+one — `params.deep_transform_keys(&:underscore)` before `execute`.
+`details[:suggestion]` is how you tell that from a typo: a casing problem hands
+the same key back in snake_case (`customerEmail` → "did you mean
+'customer_email'?"), a real typo suggests a different field.
+
 A nested filter reports the innermost input type, so the error points at the
 input that actually held the bad field. Passing something that is neither — a
 bare `String` where the input goes — reports the same way. A call site that
@@ -193,10 +200,13 @@ kwargs of `execute` — and it is `#message`, the developer's line, that names
 it: `"external_id: expected an Int, got \"lots\""`. Two names for one field,
 each where it helps.
 
-In a Rails form the field names are the props, so underscore on the way in:
+In a Rails form the field names are the props, so underscore on the way in —
+and give the nil case a home, because **`#field` is `nil` whenever nothing named
+a slot**, which is what a `:refused` error from a server that stated no input
+path gives you:
 
 ```ruby
-form.errors.add(e.field.underscore, render_input_error(e))
+form.errors.add(e.field&.underscore || :base, render_input_error(e))
 ```
 
 The one segment that is neither is an **unknown key** — a typo names no field,
@@ -292,6 +302,13 @@ sentence Hasura writes for it ("expected a non-negative 32-bit integer for type
 a wrong type, not a value out of range. The field is worth having; the guess
 isn't.
 
+And the commonest real Hasura input mistake isn't read at all: a `where:` value
+that Hasura's comparison type accepts but the underlying Postgres column
+rejects (`{ id: { _eq: "abc" } }` on a `uuid`) gets past validation and fails at
+the database, which comes back as `data-exception` at path `"$"` — neither code
+read here, and no argument named. `#input_errors` is `[]`, and
+`invalid input syntax for type uuid` is the server's sentence to render.
+
 #### When your server marks nothing
 
 Then `#input_errors` is `[]` and says so — which is the signal to render what
@@ -301,7 +318,7 @@ the server *did* send, not to parse its prose:
 response = AdoptMutation.execute(input: params[:pet])
 
 if response.input_errors.any?
-  response.input_errors.each { |e| form.errors.add(e.field.underscore, e.message) }
+  response.input_errors.each { |e| form.errors.add(e.field&.underscore || :base, e.message) }
 elsif response.errors.any?
   # nothing claimed to be about the input: show what was said, and log the
   # rest — #extensions is where a server you're onboarding states its own

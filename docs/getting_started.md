@@ -8,6 +8,9 @@ instead? Start with [dynamic mode](real_world.md) — no build step.)
 Rails is assumed below; the [non-Rails note](#not-rails) at the bottom
 covers the differences. Still deciding whether to adopt at all?
 [Alternatives](alternatives.md) compares the field, this gem included.
+No Sorbet in your app? None needed: `sorbet-runtime` comes with the gem and the
+generated code checks itself at runtime — running `srb tc` on top is your call,
+and [Sorbet, with or without](#sorbet-with-or-without) says what that buys.
 
 ## 1. Install
 
@@ -687,6 +690,12 @@ runs) applies only when your app runs Sorbet, and only to checked-in
 generated files — dynamic `parse` is invisible to `srb tc`. Everything
 works without Sorbet; codegen plus Sorbet is what moves type errors from
 runtime to CI.
+
+A misspelled field is caught either way — by `srb tc` before it runs, or by
+`NoMethodError` the first time it does. Nullability is the gap:
+`country.capital.upcase` is a typecheck error because `capital` is `T.nilable`,
+but at runtime it only raises on the rows where `capital` really is nil — which
+may be none of your dev data and plenty of production's.
 
 If your app globally injects `T::Sig` (`class Module; include T::Sig`), the
 per-struct `extend T::Sig` in generated files is redundant — rubocop's

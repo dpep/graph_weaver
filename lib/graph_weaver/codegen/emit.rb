@@ -515,8 +515,8 @@ class GraphWeaver::Codegen
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # the typed result, or a raised QueryError.
-      out << "  # .checked(:never): an untyped value (a Rails param) reaches the coercion below"
-      out << "  # instead of sorbet-runtime's argument check; srb tc still holds typed call sites."
+      out << "  # .checked(:never): an untyped value (a Rails param) reaches the coercion"
+      out << "  # below instead of being rejected by sorbet-runtime's argument check."
       out << "  sig { params(#{sig_params.join(", ")}).returns(GraphWeaver::Response[Result]).checked(:never) }"
       out << "  def self.execute(#{kwargs.join(", ")})"
       emit_variables(out, required, optional, omitted)
