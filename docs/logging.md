@@ -36,7 +36,9 @@ written — at any depth, including inside input objects.
 
 In Rails you configure nothing: the railtie adopts the app's own
 `config.filter_parameters`, so GraphWeaver scrubs whatever the request logs
-already scrub.
+already scrub — including Rails' own default list, which has `:email` on it, so
+an ordinary field named `email` reads `[FILTERED]` in `#value` and in the
+message the day you add the gem.
 
 Everywhere else, one list:
 

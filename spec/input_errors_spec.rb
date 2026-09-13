@@ -394,6 +394,52 @@ describe "input errors" do
       expect(errors.map(&:path)).to eq [%w[input qty], %w[input mode]]
     end
 
+    # A validator on a FIELD isn't told which list element it is validating
+    # (graphql-ruby coerces a list with a plain map), so docs/errors.md sends
+    # the reader to the list argument instead. Run the recipe it prints.
+    it "carries a list index a validator on the list argument stated" do
+      line = Class.new(GraphQL::Schema::InputObject) do
+        graphql_name "LineInput"
+        argument :qty, Integer, required: true
+      end
+      validator = Class.new(GraphQL::Schema::Validator) do
+        define_method(:validate) do |_object, _context, lines|
+          lines.each_with_index do |element, index|
+            next if element[:qty] >= 1
+
+            raise GraphQL::ExecutionError.new(
+              "qty must be at least 1",
+              extensions: { "code" => "BAD_USER_INPUT", "input" => {
+                "kind" => "out_of_range", "path" => ["input", "lines", index, "qty"],
+                "coordinate" => "LineInput.qty", "value" => element[:qty], "min" => 1,
+              } },
+            )
+          end
+        end
+      end
+      order = Class.new(GraphQL::Schema::InputObject) do
+        graphql_name "OrderInput"
+        argument :lines, [line], required: true, validates: { validator => {} }
+      end
+      mutation = Class.new(GraphQL::Schema::Object) do
+        graphql_name "Mutation"
+        field(:create_order, String) { argument :input, order, required: true }
+        define_method(:create_order) { |input:| "ok" }
+      end
+      query = Class.new(GraphQL::Schema::Object) { graphql_name "Query"; field :ping, String }
+      schema = Class.new(GraphQL::Schema) { query(query); mutation(mutation) }
+
+      mod = GraphWeaver.parse(schema:, query: <<~QUERY)
+        mutation CreateOrder($input: OrderInput!) { createOrder(input: $input) }
+      QUERY
+      error = mod.execute(client: schema, input: { lines: [{ qty: 3 }, { qty: 0 }] }).input_errors.first
+
+      expect(error).to have_attributes(
+        kind: :out_of_range, path: ["input", "lines", 1, "qty"],
+        field: "qty", coordinate: "LineInput.qty", details: { min: 1 },
+      )
+    end
+
     # ---- the convention: extensions.input, taken verbatim (docs/errors.md)
     it "takes extensions.input verbatim when the server states it" do
       error = error_for(

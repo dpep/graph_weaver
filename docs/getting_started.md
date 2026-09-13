@@ -89,6 +89,12 @@ What it wrote:
   end
   ```
 
+  A custom `GraphQL::Schema::Validator` ([the `extensions.input`
+  recipe](errors.md#what-your-server-can-send)) is installed by *symbol*, so
+  nothing references its constant and Zeitwerk never autoloads it — name it in
+  the same `to_prepare` block, above the schema, or the schema raises
+  `unknown validation: :your_rule` on whichever file boots first.
+
 - **`app/graphql/schema.json`.** The schema dump codegen reads
   (`GraphWeaver.schema_path`) — never written by hand, always committed.
   `cache: true` in the initializer reuses it; delete the file to

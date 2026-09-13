@@ -165,6 +165,13 @@ operator at the bottom, so `where: { height: { _gte: "abc" } }` refuses with
 and useless to a form. Key the form on `#path` there: the column is the segment
 before the operator.
 
+**Long values are cut.** An error is built for whatever a caller sent and
+whatever a server echoed back, either of which can be megabytes — and every
+raised one writes a `warn` line as well as landing in `to_h`. So each String
+`#value` holds (at every depth), the value `#message` quotes, and a sentence a
+server wrote are capped at `GraphWeaver::InputError::VALUE_LIMIT` — 1024 bytes,
+with `…(N more bytes)` in place of the rest.
+
 #### Which spelling a path is in
 
 **`#path`, `#field` and `#coordinate` are the schema's spelling**
@@ -325,6 +332,14 @@ any key outside `type`/`members`/`min`/`max`/`pattern`/`suggestion` is dropped
 rather than reaching `#details`. None of those six is a name I18n reserves for
 itself, so `I18n.t(key, **details)` can never raise on the splat.
 
+`path` must be an **Array of field names and list indices**. A dotted String,
+or a segment that is neither, is dropped whole rather than parsed — and nothing
+stands in for it: `#path` is `[]` and `#field` is `nil`. In particular the
+GraphQL error's own `path` is never borrowed, because it names a *selection*
+(`["createOrder"]`) rather than an input slot, and a form that trusted `#field`
+there would highlight a field called `create_order`. Everything else the server
+did state — the `kind`, the `details` — still stands.
+
 In graphql-ruby this rides on a `Validator` raising `GraphQL::ExecutionError`:
 
 ```ruby
@@ -379,6 +394,43 @@ class EmailScalar < GraphQL::Schema::Scalar
 end
 ```
 
+**You author that `path`, and a validator on a field cannot know its list
+index.** `Validator#validate(object, context, value)` is handed the argument
+*definition* (`validated`, shared by every element), the value, and a context
+whose `current_path` is the **response** path (`["createOrder"]`) — graphql-ruby
+coerces a list with a plain `map` and keeps no index (measured against 2.6.10).
+Install the validator above on a `qty` inside `lines: [LineInput!]!` and it
+writes `["input", "qty"]` for every element alike, so a 200-line order can't say
+which line was wrong.
+
+Where the index matters, install the validator on the **list argument** instead:
+`value` is then the whole coerced Array, so you index it yourself.
+
+```ruby
+class LinesValidator < GraphQL::Schema::Validator
+  def validate(_object, _context, lines)
+    lines.each_with_index do |line, index|
+      next if line[:qty] >= 1
+
+      raise GraphQL::ExecutionError.new(
+        "qty must be at least 1",
+        extensions: { "code" => "BAD_USER_INPUT", "input" => {
+          "kind" => "out_of_range", "path" => ["input", "lines", index, "qty"],
+          "coordinate" => "LineInput.qty", "value" => line[:qty], "min" => 1,
+        } },
+      )
+    end
+  end
+end
+
+field :create_order, OrderType do
+  argument :lines, [LineInput], required: true, validates: { LinesValidator => {} }
+end
+```
+
+Per-element validators run first and the list's own runs after, so by the time
+this one sees `lines` every element is fully coerced.
+
 What the client then reads:
 
 ```ruby
@@ -398,6 +450,26 @@ Say it plainly: **without the convention**, that range failure is
 stamped `BAD_USER_INPUT`. **With it**, it is `:out_of_range` with `min` as a
 number your form can compare against. A server that follows none of this
 degrades; it does not guess.
+
+**One problem per call.** `#input_errors` is plural, but a single call rarely
+fills it — neither side collects the way `ActiveModel::Errors` does:
+
+- *Client side*, `coerce` walks the input type's fields in declaration order
+  and raises on the first one whose value won't convert; the rest are never
+  looked at. The two cases it does gather are the ones it can see all of
+  without walking further — **unknown keys** and **absent required fields** are
+  both listed in full in the message (`missing required key(s) for
+  AdoptionInput: name, species`), though `#path` names only the first, because
+  a path that points at two fields points at neither.
+- *Server side*, graphql-ruby (measured against 2.6.10) aborts variable
+  validation at the first `GraphQL::ExecutionError` a `validates:` rule raises,
+  across the whole input tree — a bad `coupon` and an out-of-range `qty` in one
+  submit come back as one error, and so do two bad elements of one list.
+
+Build the form expecting to iterate, in other words, rather than to show every
+problem after one round trip. The exception is a graphql-ruby **coercion**
+failure, which carries a `problems` array and really does report several fields
+at once.
 
 ## Extending TransportError
 

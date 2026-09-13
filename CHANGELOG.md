@@ -180,6 +180,44 @@
   socket, so neither it nor a `sleep` in `to_return` can exercise a
   `read_timeout:` of yours.
 
+<!-- lane: seniorB -->
+- **`InputError#path` is the input path the server stated, or empty** — one
+  rule, whichever shape the rejection arrived in. A GraphQL error's own `path`
+  names a *selection* rather than an input slot, so it is never stood in for
+  one: a server that sends `extensions.input.path` as a dotted String, or with
+  a segment that is neither a field name nor an index, now gets `#path` `[]`
+  and `#field` `nil` instead of `["createOrder"]` and `"createOrder"` — a
+  plausible-looking field name for a slot the input hasn't got, which a form
+  doing `errors.add(e.field.underscore, …)` would have highlighted. The same
+  goes for a recognized `extensions.code` that names no `argumentName`. The
+  `kind` and the `details` the server did state still stand, and the two arms
+  that were already right keep their behaviour — a graphql-ruby coercion
+  problem falls back to the variable plus the problem's *own* path, which is an
+  input path, and Hasura spells its argument path fully or claims nothing.
+- **`InputError::VALUE_LIMIT` bounds what an error can carry.** An error is
+  built for whatever a caller sent and whatever a server echoed back, either of
+  which can be megabytes — and every raised one writes a `warn` line as well as
+  landing in `#to_h`. Each String `#value` holds (at every depth), the value
+  `#message` quotes, and a sentence a server wrote are now cut to 1024 bytes
+  with `…(N more bytes)` in place of the rest.
+- **Docs.** [errors](docs/errors.md#what-your-server-can-send) says what shape
+  the convention's `path` must be, and that a `GraphQL::Schema::Validator` on a
+  *field* is never told which list element it is validating — graphql-ruby
+  coerces a list with a plain `map` — so a `qty` inside `lines: [LineInput!]!`
+  reports `["input", "qty"]` for every element alike; install the validator on
+  the **list argument** instead and index the coerced Array yourself (the
+  recipe is there, and a spec runs it). It also says plainly that neither side
+  collects every problem: `coerce` raises on the first field that won't convert
+  (unknown keys and absent required fields being the two it does list in full),
+  and graphql-ruby 2.6 aborts variable validation at the first `validates:`
+  failure across the whole tree — so build the form expecting to iterate.
+  [logging](docs/logging.md#filtered-variables) notes that Rails' own default
+  `filter_parameters` includes `:email`, so a stock app redacts an ordinary
+  field named `email` the day the gem is added, and
+  [getting started](docs/getting_started.md#2-run-the-generator) that a
+  validator installed by symbol is invisible to Zeitwerk — reference it from
+  the same `to_prepare` block, above the schema.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
