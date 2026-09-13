@@ -224,6 +224,35 @@ describe GraphWeaver::Testing do
           expect(result.pets.last.species).to be_truthy # fabricated
         end
 
+        # An ActiveRecord has_many hands back a CollectionProxy, which
+        # enumerates without being an Array — it reached the wire untouched
+        # and the cast blamed the server for "a
+        # Order::ActiveRecord_Associations_CollectionProxy".
+        it "reads a list the object answers with something other than an Array" do
+          collection = Class.new do
+            include Enumerable
+            def initialize(items) = @items = items
+            def each(&) = @items.each(&)
+          end
+          pets = collection.new([factory.build(:pet, name: "Shelby"), factory.build(:pet, name: "Rex")])
+
+          result = person("Person" => factory.build(:person, name: "Ada", pets:))
+
+          expect(result.pets.map(&:name)).to eq %w[Shelby Rex]
+        end
+
+        # GraphQL serializes ID and String as JSON strings whatever Ruby holds
+        # them, so a model's Integer primary key is a String on the wire. Read
+        # straight through it failed the cast with the advice for a server that
+        # sends ids unquoted — advice about a server that isn't there.
+        it "writes an ID the object answers with an Integer as the wire's string" do
+          result = person({ "Person" => Struct.new(:id, :name).new(7, :Ada) },
+            query: "query { person(id: 1) { id name } }")
+
+          expect(result.id).to eq "7"
+          expect(result.name).to eq "Ada" # a Symbol is a String on the wire too
+        end
+
         # the object holds Ruby values where the wire holds what the
         # registration serializes them to — resolved per field, as codegen does
         it "serializes a Ruby value through the scalar registry" do

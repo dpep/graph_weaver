@@ -147,7 +147,11 @@ class GraphWeaver::Testing::FakeClient
   # `hash` or a `count`, and a Struct answers both with plausible nonsense
   # where fabricating is right.
   RUBY_OWN = [BasicObject, Kernel, Object, Comparable, Enumerable, Struct, Data].freeze
-  private_constant :OPTIONS, :WIRE, :RUBY_OWN
+
+  # The scalars the GraphQL spec serializes as JSON strings, whatever Ruby
+  # holds them.
+  STRING_SCALARS = %w[ID String].freeze
+  private_constant :OPTIONS, :WIRE, :RUBY_OWN, :STRING_SCALARS
 
   def initialize(pins = {}, **options)
     config = GraphWeaver::Testing.config
@@ -502,11 +506,29 @@ class GraphWeaver::Testing::FakeClient
     case type.kind.name
     when "NON_NULL" then wire_value(type.of_type, value, coordinate)
     when "LIST"
-      value.is_a?(Array) ? value.map { |element| wire_value(type.of_type, element, coordinate) } : value
-    when "SCALAR" then @values.wire(type.graphql_name, value, coordinate)
+      # whatever enumerates, not an Array alone: a has_many is an
+      # ActiveRecord CollectionProxy, and reading one straight onto the wire
+      # failed the cast as "the server sent a
+      # Order::ActiveRecord_Associations_CollectionProxy". A Hash is the one
+      # thing that enumerates and isn't a list.
+      return value if value.is_a?(Hash) || !value.is_a?(Enumerable)
+
+      value.map { |element| wire_value(type.of_type, element, coordinate) }
+    when "SCALAR" then scalar_wire(type.graphql_name, value, coordinate)
     when "ENUM" then value.is_a?(T::Enum) ? value.serialize : value
     else value # a composite: pinned_object reads it, one level down
     end
+  end
+
+  # ID and String are JSON strings on every real wire, whatever Ruby type the
+  # object's column holds — an Integer primary key read straight through
+  # failed the cast with the advice for a server that sends ids unquoted,
+  # which is advice about a server that isn't there.
+  def scalar_wire(name, value, coordinate)
+    wired = @values.wire(name, value, coordinate)
+    return wired unless STRING_SCALARS.include?(name) && !wired.nil? && !wired.is_a?(String)
+
+    wired.to_s
   end
 
   # The concrete type a pinned object is fabricated as. At a union or
