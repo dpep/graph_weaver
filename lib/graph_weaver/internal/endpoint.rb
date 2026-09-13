@@ -54,20 +54,22 @@ module GraphWeaver
         def drop_secrets(query)
           kept = query.split("&").reject do |pair|
             name, value = pair.split("=", 2)
-            value && Redact.filtered?(URI.decode_www_form_component(name))
+            value && Redact.credential?(URI.decode_www_form_component(name))
           end
           kept.join("&") unless kept.empty?
         end
 
         # Which query parameters are secret is the same question
         # GraphWeaver.filter_parameters already answers for variables, so a
-        # scrubbed log reads the same either side of the seam. Split rather
-        # than decoded and re-encoded: every parameter that stays is printed
-        # exactly as it was sent.
+        # scrubbed log reads the same either side of the seam — widened by the
+        # default names, which apply here even when the app has emptied its
+        # list (see Redact.credential?). Split rather than decoded and
+        # re-encoded: every parameter that stays is printed exactly as it was
+        # sent.
         def scrub_query(query)
           query.split("&").map do |pair|
             name, value = pair.split("=", 2)
-            next pair if value.nil? || !Redact.filtered?(URI.decode_www_form_component(name))
+            next pair if value.nil? || !Redact.credential?(URI.decode_www_form_component(name))
 
             "#{name}=#{GraphWeaver::FILTERED}"
           end.join("&")

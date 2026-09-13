@@ -8,6 +8,8 @@ describe "the endpoint a transport names" do
   include_context "raw http server"
 
   describe GraphWeaver::Internal::Endpoint do
+    after { GraphWeaver.filter_parameters = GraphWeaver::DEFAULT_FILTER_PARAMETERS }
+
     it "says a plain url back exactly as it was configured" do
       expect(described_class.safe("https://api.example.com/graphql")).to eq "https://api.example.com/graphql"
       expect(described_class.safe("http://127.0.0.1:4000/graphql")).to eq "http://127.0.0.1:4000/graphql"
@@ -28,6 +30,22 @@ describe "the endpoint a transport names" do
     it "scrubs a query parameter filter_parameters already filters" do
       expect(described_class.safe("https://api.example.com/graphql?access_token=abc&page=2"))
         .to eq "https://api.example.com/graphql?access_token=[FILTERED]&page=2"
+    end
+
+    # filter_parameters is a knob about how much the log says; a url credential
+    # is a credential either way, the way the userinfo above already is
+    it "scrubs a query credential even when filter_parameters is empty" do
+      GraphWeaver.filter_parameters = []
+      expect(described_class.safe("https://api.example.com/graphql?access_token=abc&page=2"))
+        .to eq "https://api.example.com/graphql?access_token=[FILTERED]&page=2"
+      expect(described_class.bare("https://api.example.com/graphql?access_token=abc&page=2"))
+        .to eq "https://api.example.com/graphql?page=2"
+    end
+
+    it "still takes the app's list as a widening of the default one" do
+      GraphWeaver.filter_parameters = [/\Akey\z/]
+      expect(described_class.safe("https://api.example.com/graphql?key=abc&api_token=xyz"))
+        .to eq "https://api.example.com/graphql?key=[FILTERED]&api_token=[FILTERED]"
     end
 
     it "answers a url it can't take apart with nothing at all" do

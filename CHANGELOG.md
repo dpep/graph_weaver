@@ -1,5 +1,4 @@
 ###  Unreleased
-
 - **`examples/` now ships in the gem.** It was excluded from `s.files` while
   the README linked `examples/federation.rb` and promoted the directory by
   name — both dead links for anyone without a git checkout. It's ~30 KB of
@@ -11,6 +10,17 @@
 - **Every gemspec `*_uri` link verified live.** `homepage_uri` was considered
   and left out of `metadata` — identical to `s.homepage`, and `gem build`
   itself warns rubygems.org only renders one of the two.
+- **A credential in a url is scrubbed whatever `filter_parameters` says.**
+  Emptying or narrowing the list is a decision about how much the log says;
+  it used to also switch off `?access_token=` redaction in every debug line,
+  every `ServerError`/`TransportError` message, the APM `:url` and
+  `Transport#inspect` — while the url's userinfo stayed redacted, which was the
+  tell that one knob meant two things. A url's query parameters are now held to
+  the default names as well as yours, the way the userinfo already was.
+- **`Transport::HTTP.new` says a rejected url the way everything else does.**
+  "TLS options need an https url" and "expected an http(s) url" printed the url
+  raw — and both are raised from `#initialize`, i.e. at boot from an
+  initializer, so a url carrying `user:password@` reached the log there.
 
 ###  v0.7.0  (2026-09-13)
 

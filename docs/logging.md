@@ -50,7 +50,8 @@ Strings and Symbols match as case-insensitive substrings — `:token` covers
 `apiToken` — and Regexps match themselves. The default is `[:password,
 :token, :secret, :authorization]`, which covers the usual names before
 anyone configures anything; assigning replaces it rather than adding to it,
-and `[]` turns filtering off. Anything answering `#filter(hash)` is used
+and `[]` turns filtering off — for variables and messages. A credential in the
+*url* is scrubbed either way (see [the payload](#the-payload)). Anything answering `#filter(hash)` is used
 as-is, which is how the railtie hands over an
 `ActiveSupport::ParameterFilter`.
 
@@ -148,6 +149,11 @@ debug on the logger, where the level gates them.
 itself be a credential: its userinfo, and any query parameter
 `filter_parameters` filters, are folded to `[FILTERED]` — the same list, the
 same spelling — before the payload, a log line or a `TransportError` says it.
+A url credential is scrubbed **whatever your logging appetite**: the default
+names apply to a url's query parameters even when you have emptied or narrowed
+`filter_parameters`, which is a knob about how much the log says, not about
+whether a token in an endpoint is a token. Your list widens this; it can't
+narrow it.
 
 ### One line per operation
 

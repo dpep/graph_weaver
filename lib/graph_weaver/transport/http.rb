@@ -55,7 +55,7 @@ module GraphWeaver
           nil
         end
         unless uri && %w[http https].include?(uri.scheme)
-          raise ArgumentError, "expected an http(s) url, got #{url.inspect}"
+          raise ArgumentError, "expected an http(s) url, got #{GraphWeaver::Internal::Endpoint.safe(url).inspect}"
         end
 
         @uri = uri
@@ -69,7 +69,7 @@ module GraphWeaver
         # verify_mode: — so mTLS doesn't mean reaching for Faraday
         @ssl = { ca_file:, ca_path:, cert:, key:, verify_mode: }.compact
         if @ssl.any? && @uri.scheme != "https"
-          raise ArgumentError, "TLS options need an https url — got #{url}"
+          raise ArgumentError, "TLS options need an https url — got #{GraphWeaver::Internal::Endpoint.safe(url)}"
         end
 
         # One permit per allowed socket: holding a permit is the right to

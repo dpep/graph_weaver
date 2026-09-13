@@ -77,6 +77,15 @@ module GraphWeaver
           !key.nil? && Log.filter_variables({ key.to_s => nil })[key.to_s] == FILTERED
         end
 
+        # True when this key names a credential — asked of a url's query
+        # parameters, which are scrubbed whatever the app's logging appetite.
+        # filter_parameters is a knob about log verbosity; emptying it must
+        # not un-scrub a token in an endpoint, any more than it un-scrubs the
+        # url's userinfo. The app's list widens this; it can't narrow it.
+        def credential?(key)
+          filtered?(key) || Log.filtered?(key, GraphWeaver::DEFAULT_FILTER_PARAMETERS)
+        end
+
         # `detail` unless the key is filtered — free text a coercer or sorbet
         # wrote can spell a value any way, so for a filtered key none of it
         # survives, not the parts that would have been safe.
@@ -249,6 +258,16 @@ module GraphWeaver
           filters.nil? ? variables : filters.filter(variables)
         end
 
+        # Whether a key matches one of `filters` — the same matching the
+        # variables line uses, asked about a list other than the app's so
+        # Redact.credential? can hold url parameters to the default names.
+        def filtered?(key, filters)
+          name = key.to_s
+          filters.any? do |filter|
+            filter.is_a?(Regexp) ? name.match?(filter) : name.downcase.include?(filter.to_s.downcase)
+          end
+        end
+
         private
 
         # The GraphQL errors a response carries, whatever answered it — a
@@ -267,13 +286,6 @@ module GraphWeaver
           when Hash then value.to_h { |k, v| [k, filtered?(k, filters) ? FILTERED : scrub(v, filters)] }
           when Array then value.map { |v| scrub(v, filters) }
           else value
-          end
-        end
-
-        def filtered?(key, filters)
-          name = key.to_s
-          filters.any? do |filter|
-            filter.is_a?(Regexp) ? name.match?(filter) : name.downcase.include?(filter.to_s.downcase)
           end
         end
       end

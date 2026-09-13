@@ -444,6 +444,20 @@ describe GraphWeaver::Transport::HTTP do
       expect { described_class.new(url, ca_file: @ca.path) }
         .to raise_error(ArgumentError, /https/)
     end
+
+    # raised from #initialize, i.e. from an initializer at boot — the one
+    # url-bearing message that used to say the url raw
+    it "says the offending url the way every other message says it" do
+      credentialed = "http://svc:hunter2@api.example.com/graphql?access_token=abc"
+
+      expect { described_class.new(credentialed, ca_file: @ca.path) }
+        .to raise_error(ArgumentError, a_string_including("http://[FILTERED]@api.example.com/graphql?access_token=[FILTERED]"))
+    end
+  end
+
+  it "says a wrong-scheme url without its credential either" do
+    expect { described_class.new("ftp://svc:hunter2@files.example.com/graphql") }
+      .to raise_error(ArgumentError, a_string_including("ftp://[FILTERED]@files.example.com"))
   end
 
   it "never leaks auth headers through inspect/to_s" do
