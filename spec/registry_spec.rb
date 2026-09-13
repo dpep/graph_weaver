@@ -141,6 +141,14 @@ describe "the registration registry" do
       expect(pet&.name).to eq "Shelby" # the wire value stays honest
     end
 
+    # abstract! would refuse a struct that didn't supply `name`, so this also
+    # proves the generated prop counts as the implementation
+    it "takes a mixin whose sigs declare the fields it reads" do
+      GraphWeaver.extend_type("Pet", PetShoutingChecked)
+
+      expect(client.run!(query).person&.pets&.first&.shout).to eq "Shelby!"
+    end
+
     it "builds a mixin from a block, auto-named for generated source" do
       GraphWeaver.extend_type("Pet") do
         def whisper = "#{name.downcase}..."

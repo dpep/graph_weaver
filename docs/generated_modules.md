@@ -473,6 +473,28 @@ of yours instead.
 the enums into the query module itself; there's no cross-query set to share
 against, but one enum is still one class within that module.
 
+**The one misuse nothing catches** is comparing against the wire spelling:
+
+```ruby
+pet.species == "CAT"                    # => false, always, and silently
+pet.species == GraphQLTypes::Species::Cat
+```
+
+A generated enum is a plain `T::Enum`, so `==` against a String is `false` —
+`srb tc` allows it (`==` takes `BasicObject`) and nothing raises. sorbet-runtime
+owns this question and ships the switch; turn it on in dev and test and route
+the report wherever your other soft assertions go:
+
+```ruby
+T::Configuration.enable_legacy_t_enum_migration_mode
+T::Configuration.soft_assert_handler = ->(message, extra) { raise "#{message} #{extra}" }
+```
+
+It covers your own `T::Enum`s too, which is why it belongs there rather than in
+the generated classes. Careful reading it: in that mode the comparison answers
+**true** (it serializes first), so the handler, not the return value, is the
+signal.
+
 ## Selections
 
 - **Fragments** — inline fragments and named spreads flatten into the
@@ -623,12 +645,34 @@ Generated code spells it, so it depends on your source and nothing else — two
 graphs can extend the same type name, and the name a `generate` bakes in is the
 one a boot creates.
 
-**Neither form is statically checked**, for the same reason: `srb tc` checks a
-mixin's method bodies in the module's own scope, not the including struct's, so
-a helper reading a wire field (`name`, `birthday`) fails with "method does not
-exist on the module" — and the block form has no source on disk for `srb tc` to
-read at all. Write such a helper at `# typed: false`, or reach the field through
-`T.unsafe(self)`.
+**Neither form is statically checked as written**, for the same reason: `srb tc`
+checks a mixin's method bodies in the module's own scope, not the including
+struct's, so a helper reading a wire field (`name`, `birthday`) fails with
+"method does not exist on the module" — and the block form has no source on disk
+for `srb tc` to read at all (it shows up as `Unable to resolve constant` on the
+generated `include`, which is the cost of the convenience).
+
+A *named* module can carry real sigs, though, by declaring the fields it leans
+on — abstract sigs are how a mixin says "whatever includes me has these", and the
+struct's `const`s satisfy them:
+
+```ruby
+# typed: strict
+module PetHelpers
+  extend T::Sig
+  extend T::Helpers
+  abstract!
+
+  sig { abstract.returns(String) }
+  def name; end
+
+  sig { returns(String) }
+  def display_name = "#{name} 🐶"
+end
+```
+
+`T.unsafe(self).name` also silences it, at the cost of checking nothing. Either
+beats `# typed: false` for a helper you want checked.
 
 ### Flat accessors with `alias:`
 

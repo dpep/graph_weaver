@@ -44,6 +44,16 @@
   nothing registers it" while `verify`, run moments earlier on the same tree,
   called it up to date. Two graphs extending the same type name now each get
   their own constant.
+- Docs: [generated modules](docs/generated_modules.md) now names the one enum
+  misuse nothing catches — `result.tier == "GOLD"` is silently `false`, on a
+  generated `T::Enum` as on any other — and the sorbet-runtime switch that
+  reports it (`T::Configuration.enable_legacy_t_enum_migration_mode` plus a
+  `soft_assert_handler`). The generated enums keep `T::Enum` semantics: the
+  switch covers your own enums too, which is why it belongs in your boot
+  rather than in generated code.
+- Docs: an `extend_type` mixin CAN carry sigs `srb tc` checks — declare the
+  fields it reads as abstract sigs, which the struct's `const`s satisfy. The
+  type-helpers section shows the shape.
 
 ###  v0.7.0  (2026-09-13)
 
