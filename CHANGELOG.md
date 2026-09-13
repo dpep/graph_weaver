@@ -1,197 +1,3 @@
-###  Unreleased
-
-- **A retry policy that was inert behind a gateway now fires.** `Retry` read
-  only the failures that *raised*, and Apollo Router answers everything it
-  decides itself with a GraphQL errors body — rate limiting is `503` plus
-  `REQUEST_RATE_LIMITED`, its own faults are `500` plus a code — so the body
-  won over the status and `retries: 3` made one attempt. One rule now: a
-  response retries when its status is one a `ServerError` retries on (5xx,
-  408, 429), or when its error codes are named in `retry_codes:`. A `200` is
-  never retried on status, so a router's partial `GATEWAY_TIMEOUT` still needs
-  `retry_codes:` to opt in, and a mutation still gets one attempt unless
-  `retry_mutations: true`. **If you wrapped a gateway in `Retry` and relied on
-  it not actually retrying, set `retries: 0`.** `REQUEST_RATE_LIMITED` joins
-  `GraphQLError::THROTTLE_CODES`, so `#throttled?` answers it too.
-- **Both transports now name themselves to the graph.** Every request carries
-  `apollographql-client-name` and `apollographql-client-version`, which is what
-  an Apollo Router or GraphOS keys client attribution on — a real router's span
-  showed `client.name: ""` for everything this gem sent. The name is your Rails
-  application's, or `graph_weaver` outside Rails; the version is the gem's.
-  Override either in `headers:` — which is how one app names its several
-  clients apart. `Transport.default_headers` is the whole set;
-  `DEFAULT_HEADERS` stays the fixed half of it.
-- **A variable with no JSON form is now refused at the wire.** `JSON.generate`
-  renders a value it doesn't know as that value's `#to_s`, so an `Upload!`
-  given a real file went out as `{"file":"#<File:0x00007f…>"}` — 200 back, no
-  error, and a memory address in the server's database. A `File`, an `IO`, a
-  `Pathname` or a plain object is now refused before the body is built, naming
-  the variable and what to do instead; a `Date`, `Time`, `BigDecimal` or
-  `Symbol` still travels as its string. **If you were relying on that silent
-  `#to_s`, send the value the server expects.** File uploads still need your
-  own transport — graph_weaver doesn't implement the GraphQL multipart
-  request spec.
-- **`auth:` takes a token that rotates.** `auth: -> { Tokens.fetch }` is
-  resolved per request, the same as any callable `headers:` value — it used to
-  raise and send you to Faraday's middleware. `Transport::Faraday` resolves a
-  callable header per request now too, instead of refusing one, so a rotating
-  credential means the same thing on both bundled transports. **A spec
-  asserting that refusal will need updating.**
-- **A `multipart/mixed` response is named rather than dumped.** Forcing an
-  incremental-delivery `Accept` used to raise `non-GraphQL response:` followed
-  by the whole multipart payload, which misdiagnoses a body that is perfectly
-  well-formed GraphQL — just more than one document. It now says so:
-  "this response is incremental delivery (@defer/@stream), which this client
-  doesn't read".
-
-- **The local router refuses a `@fromContext` argument on any path.** The
-  refusal used to live only in the crossing-aware half of the planner, so a
-  query one subgraph answered whole skipped it — and the resolver was called
-  with the argument unset, which is a plausible wrong answer rather than an
-  error. Every refusal that must hold for a query however it is planned now
-  runs above the single-subgraph shortcut.
-- **The local router refuses a progressive `@override(label:)`.** Federation
-  2.7 leaves both subgraphs resolving the field and lets the gateway split
-  traffic by the label; the router used to pick one and answer from it every
-  time, silently and forever. New refusal category `:progressive_override`.
-  Drop the label and composition drops the losing copy, which plans normally.
-- **Regenerate if an entity's `@key` selects through a list.** `@key(fields:
-  "id lineItems { sku }")` over a `[LineItem!]!` typed its kwarg as one Hash:
-  the correct list was refused and a single hash was accepted and sent, which
-  described an entity that doesn't exist. The kwarg is now
-  `T::Array[T::Hash[...]]`, the list stays a list on the wire, and the
-  generated key set spells the hop `"lineItems[]"`. No other `@key` shape
-  changes.
-- **A subgraph SDL that renames what it imports now loads.**
-  `@link(import: [{name: "@key", as: "@primaryKey"}])` — the `@link` spec's own
-  aliasing — raised an error blaming the file for a directive the file had
-  declared. The `@link` header is now read for every spelling it binds and then
-  dropped from the schema, so `link__Import`/`link__Purpose` no longer appear in
-  a schema loaded from subgraph SDL.
-- **A subgraph error out of `Testing::Router` now carries
-  `extensions: {"service" => "<subgraph>"}`.** Every real transport stamps
-  which subgraph failed and a client branches on it, so a test asserting on an
-  unstamped error passed here and broke in front of a gateway. The Apollo
-  Router's spelling; a resolver's own `extensions` are left alone. **Update any
-  spec that compares a router error hash whole.**
-- **`@defer`/`@stream` are refused by name** (`:incremental_delivery`) rather
-  than by happening to fail validation — the answer would arrive in more than
-  one payload, and the Apollo Router supports `@defer` for real. The scan runs
-  above validation in both places that refuse, so the reason you get is this
-  one and not graphql-ruby's "Directive @defer is not defined": `Testing::
-  Router#execute` used to validate before it planned, and `rake
-  graph_weaver:generate` had no check at all — it refused only while no schema
-  declared the directive, and would have generated a module that dropped the
-  deferred selections against a supergraph that did.
-- **Regenerate if you build a type helper from a block inside a
-  `GraphWeaver.graph` block.** Those mixins are named for where the block is
-  written and what it extends — `GraphWeaver::TypeHelpers::Billing::Pet` in
-  `graph :billing`, `GraphWeaver::TypeHelpers::Pet` at the top level — where
-  the name used to be counted off whatever constants already existed. That
-  made it a function of how many times the process had read the graph's
-  registry, so `rake graph_weaver:generate` wrote a name `rails server` never
-  creates: boot failed with "includes GraphWeaver::TypeHelpers::WidgetV3, but
-  nothing registers it" while `verify`, run moments earlier on the same tree,
-  called it up to date. Two graphs extending the same type name now each get
-  their own constant.
-- **The unregistered-scalar advisory is grouped by graph** when a run covers
-  more than one. Merged into one flat list it read as "forgotten everywhere"
-  for a scalar registered for one graph and forgotten for the next.
-  `GraphWeaver.untyped_scalars` still answers the flat sorted names; the new
-  `GraphWeaver.untyped_scalars_by_graph` is the same fact kept apart.
-- **`rake graph_weaver:graphs` lists each graph's registrations** — scalars,
-  enums, `extend_type` targets — under the graph they belong to. Nothing else
-  said which registration applied where.
-- **`cassettes:check`'s stale advice names both causes.** The generated
-  structs move when a *registration* moves, not only when the schema dump
-  does, and re-recording doesn't fix that half — so regenerating is now
-  offered for it by name.
-- Docs: [generated modules](docs/generated_modules.md) now names the one enum
-  misuse nothing catches — `result.tier == "GOLD"` is silently `false`, on a
-  generated `T::Enum` as on any other — and the sorbet-runtime switch that
-  reports it (`T::Configuration.enable_legacy_t_enum_migration_mode` plus a
-  `soft_assert_handler`). The generated enums keep `T::Enum` semantics: the
-  switch covers your own enums too, which is why it belongs in your boot
-  rather than in generated code.
-- A **scalar pin written as the Ruby object** — `overrides: { "Money" =>
-  Money.parse("12.00") }` — is serialized the way the registration says,
-  rather than reaching `from_h` as a `Money` and failing there. Same rule an
-  object pin's fields already followed. Where the registration can't serialize
-  a value (a `serialize:` Proc builds source), the fake now refuses naming the
-  scalar instead of letting the cast fail two layers down.
-- Docs: an `extend_type` mixin CAN carry sigs `srb tc` checks — declare the
-  fields it reads as abstract sigs, which the struct's `const`s satisfy. The
-  type-helpers section shows the shape.
-- **`list_size:` also takes a Hash, saying how long ONE list is.** Every list
-  the fake reaches reads the same setting, so nested unbounded lists multiply:
-  `rows { owner { … } tags }` at `list_size: 1600` fabricates 1600 rows and
-  1600 tags in each of them, and per-row allocations double with every doubling
-  of the number (1,064 → 12,981 objects per row from 100 → 1600). Key the Hash
-  the way pins are keyed — a `"Type.field"` coordinate or a bare field name,
-  with `default:` for the rest — and the named list stays flat (205 objects per
-  row across the same sweep). `{ "Row.tags" => 3, default: 1000 }`. Integer and
-  Range mean exactly what they did; a key the schema doesn't know is refused
-  with a spellcheck, at the fake's door and at `Testing.configure`. Works the
-  same on `config.list_size`, `graphql_fake(list_size:)` and a router's `fake:`.
-- Docs: four performance questions answered with measurements —
-  [testing](docs/testing.md) on the nested-list multiplication above,
-  [scalars](docs/scalars.md) on what a timestamp cast costs (`Time.parse`, the
-  reader every `DateTime` field already uses, is ~7× `Date.iso8601`; `cast:
-  :iso8601` is ~3× cheaper and stricter), and [generated
-  modules](docs/generated_modules.md) on `verify_generated!` costing a full
-  `generate!` however little changed, and on
-  `T::Configuration.default_checked_level` buying nothing for `from_h`.
-- **`schema:refresh` no longer overwrites a composed supergraph with the API
-  schema behind it.** Introspection returns the merged shape a router serves,
-  with the `@join__*` routing table gone — so `rake graph_weaver:schema:refresh
-  URL=<router>` replaced a 5.8 KB supergraph with 1.6 KB of API schema and
-  exited 0, after which `federation:diff` failed and `schema:diff`/`verify`
-  went green against the wrong artifact. Any write that would trade a
-  supergraph dump for a non-supergraph one is refused, naming `rover supergraph
-  compose`; `schema:refresh` with no `URL=` says the same thing to a federated
-  app instead of suggesting one.
-- Docs: **a production Apollo Router redacts what `Testing::Router` hands you.**
-  With `include_subgraph_errors` omitted — the default — a subgraph error
-  becomes `{"message" => "Subgraph errors redacted", "path" => […]}` with the
-  extensions emptied, so a spec asserting on a subgraph's message or on the
-  `extensions.service` stamp passes here and fails in staging. testing.md says
-  what to assert on instead and gives the `Failure.graphql` that reproduces the
-  redacted shape; federation.md cross-references it.
-- Docs: **on a federated graph, no task in the CI toolbox looks at the schema
-  production is serving** — they all compare the app to its own checked-in
-  artifacts, and `schema:diff` can't be pointed at a supergraph. New
-  federation.md "in CI" section and a paragraph in getting_started.md §5 naming
-  the two `rover` commands that close it; the Actions job grew its
-  `federation:diff` step.
-- **A task that can't honour `SUPERGRAPH=` now says so.** The flag reaches the
-  `federation:*` tasks, and `queries:check`, `verify`, `generate` and the rest
-  ignored it in silence — so `SUPERGRAPH=public.graphql rake
-  graph_weaver:queries:check` reported every query valid against a supergraph
-  missing a field they select. They refuse it instead; honouring it would
-  collapse a multi-graph app into one unnamed graph, which for `generate` means
-  pruning the other graphs' generated files. Declare the supergraph on a graph
-  to check against it.
-- Docs: the request body carries no persisted-query id, so a safelist with
-  `require_id` refuses it — transports.md shows the `Transport::HTTP` subclass
-  that bolts APQ on today.
-- Docs: **federation.md now covers `@tag` and contract variants** — what codegen
-  says against each variant (it refuses at the boundary, which is the
-  guarantee), why `federation:diff` can't tell two variants apart, that nothing
-  cross-checks the variant you generated against with the endpoint you call, and
-  that a variant is mechanically just another `GraphWeaver.graph`.
-- Docs: two schema changes every gate calls clean — a scalar swapped for one
-  that still serializes as the same JSON kind (`String!` → `Currency!`,
-  `"19.99"` → `"$19.99"`), and an enum value removed where no query names it
-  literally. `schema:diff`'s `breaking: true` is the only signal for either.
-- Docs: finish an `@override` migration from the **old** side — deleting the new
-  owner's copy first hands the field back to the subgraph you were migrating
-  away from, and nothing reports it.
-- Docs: `Federation::Drift`'s `subgraphs:` takes a resolver-less schema from
-  `SchemaLoader.load(sdl)`, so a subgraph published as SDL by a team that
-  doesn't write Ruby is fully compared — and detection unions every candidate
-  that fits a subgraph, so diffing a *proposal* has to name it.
-- Docs: federation.md opens with a signpost saying which of its sections belong
-  to a client team, a subgraph team, and the supergraph owner.
-
 ###  v0.7.0  (2026-09-13)
 
 **What you must do.** Every change here is 0.6.1 → 0.7.0, and a typical app
@@ -201,7 +7,9 @@ same list with the greps that find each one.
 - **Regenerate** — `rake graph_weaver:generate`. Every generated file moved:
   reserved props take a trailing underscore, `as_json` is emitted beside
   `from_h`, a `cast:` of your own gets the library's own guard, each module
-  carries the graph it came from, and `execute` makes its request through the
+  carries the graph it came from, a `@key` that selects through a list types
+  its kwarg as a list, a block-built type helper is named for its graph and
+  its type, and `execute` makes its request through the
   gem. 0.6.1's modules keep running, but `rake graph_weaver:verify` is red
   until you regenerate, and one of them raises `GraphWeaver::Error` naming this
   the moment anything asks it for `as_json`.
@@ -234,6 +42,19 @@ same list with the greps that find each one.
   in `spec/support/` and you never uncommented rspec-rails' `spec/support`
   glob: the require never ran, so every `graphql: :fake` example has been
   hitting the real client.
+- **Set `retries: 0`** if you wrapped a gateway in `Retry` and relied on it not
+  actually retrying: a 5xx/429 that arrives with a GraphQL errors body — which
+  is how Apollo Router answers — retries now, where it used to make one
+  attempt.
+- **Update a spec that compares a `Testing::Router` error hash whole.** A
+  subgraph's error carries `extensions: {"service" => "<subgraph>"}` now, as
+  every real transport stamps it.
+- **Drop `SUPERGRAPH=` from any task but `federation:*`**, which refuse it now
+  where they used to ignore it — a `SUPERGRAPH=… rake graph_weaver:queries:check`
+  in CI goes red instead of passing every query against the wrong schema.
+- **Send the value the server expects** wherever a variable was a `File`, `IO`,
+  `Pathname` or plain object: refused at the wire now, where `JSON.generate`
+  used to ship its `#to_s`.
 
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
@@ -434,6 +255,27 @@ same list with the greps that find each one.
   trailing underscore the prop does (`Representations.room(class_: …)`), and
   still sends `"class"` on the wire. Regenerate if a `@key` of yours names such
   a field. ([federation](docs/federation.md))
+- **A `@key` that selects through a list stays a list.** `@key(fields: "id
+  lineItems { sku }")` over a `[LineItem!]!` typed its kwarg as one
+  `T::Hash[…]`: the correct list was refused and a single hash was accepted and
+  sent, which described an entity that doesn't exist. The kwarg is
+  `T::Array[T::Hash[…]]` now, the list stays a list on the wire, and the
+  generated key set spells the hop `"lineItems[]"`. No other `@key` shape
+  changes — **regenerate** if one of yours selects through a list.
+- **A block-built type helper is named for its source, not for what is
+  loaded.** `GraphWeaver.extend_type("Widget") { … }` minted its module by
+  counting whatever `GraphWeaver::TypeHelpers` constants already existed, which
+  made the name a function of how many times *that process* had read the
+  registry: `rake graph_weaver:generate` baked `WidgetV3` while a plain boot
+  only ever creates `WidgetV1`, so `rails server` died on "includes
+  GraphWeaver::TypeHelpers::WidgetV3, but nothing registers it" while `verify`,
+  run moments earlier on the same tree, called it up to date. The module is
+  named for where the block is written and what it extends —
+  `TypeHelpers::Pet` at the top level, `TypeHelpers::Billing::Pet` in `graph
+  :billing` — so two graphs extending one type name each get their own
+  constant, and the same source counts the same way in every process and after
+  a `to_prepare` reload. **Regenerate.** The reasoning is in
+  [DECISIONS.md](DECISIONS.md).
 - **Generation refuses an input type whose fields collide on one Ruby prop.**
   Two input fields that underscore onto the same name — `nameWithOwner` and
   `name_with_owner`, or `class` and `class_`, since `class` is renamed out of a
@@ -608,6 +450,14 @@ same list with the greps that find each one.
   `Float::INFINITY` is refused as well as a string that parses to one — and
   `register_scalar "Ratio", Float` now reads a whole number off the wire
   exactly as the built-in `Float` does, which it didn't before.
+- **A variable with no JSON form is refused at the wire.** `JSON.generate`
+  renders a value it doesn't know as that value's `#to_s`, so an `Upload!`
+  given a real file went out as `{"file":"#<File:0x00007f…>"}` — 200 back, no
+  error, and a memory address in the server's database. A `File`, an `IO`, a
+  `Pathname` or a plain object is refused before the body is built, naming the
+  variable and what to do instead; a `Date`, `Time`, `BigDecimal` or `Symbol`
+  still travels as its string. File uploads still need your own transport —
+  graph_weaver doesn't implement the GraphQL multipart request spec.
 - **A variable's whole trip onto the wire is branded.** Serialization ran
   *outside* the coercion's rescue, so anything it raised arrived as a bare
   `NoMethodError` naming neither the variable nor the operation — now it reads
@@ -644,6 +494,12 @@ same list with the greps that find each one.
   way every transport failure now does, secrets marked `[FILTERED]`. A dump
   written by an earlier version from such a url still holds the token: refresh
   it once, and rotate the token if the file was pushed.
+- **A `multipart/mixed` response is named rather than dumped.** Forcing an
+  incremental-delivery `Accept` used to raise `non-GraphQL response:` followed
+  by the whole multipart payload, which misdiagnoses a body that is perfectly
+  well-formed GraphQL — just more than one document. It says so now: "this
+  response is incremental delivery (@defer/@stream), which this client doesn't
+  read".
 - **A response behind a UTF-8 BOM now parses.** RFC 8259 §8.1 lets a parser
   ignore a leading BOM and Ruby's doesn't, so a .NET/IIS-fronted endpoint's
   answer came back as `non-GraphQL response: {"data":…}` — a body that looks
@@ -659,6 +515,18 @@ same list with the greps that find each one.
   `TransportError` — which retries, on a fresh connection — as is
   `Net::ProtocolError`. `Transport::Faraday` already classified all three this
   way; the two shipped transports now agree.
+- **A retry policy that was inert behind a gateway now fires.** `Retry` read
+  only the failures that *raised*, and Apollo Router answers everything it
+  decides itself with a GraphQL errors body — rate limiting is `503` plus
+  `REQUEST_RATE_LIMITED`, its own faults are `500` plus a code — so the body
+  won over the status and `retries: 3` made one attempt. One rule now: a
+  response retries when its status is one a `ServerError` retries on (5xx, 408,
+  429), or when its error codes are named in `retry_codes:`. A `200` is never
+  retried on status, so a router's partial `GATEWAY_TIMEOUT` still needs
+  `retry_codes:` to opt in, and a mutation still gets one attempt unless
+  `retry_mutations: true`. `REQUEST_RATE_LIMITED` joins
+  `GraphQLError::THROTTLE_CODES`, so `#throttled?` answers it too. The
+  reasoning is in [DECISIONS.md](DECISIONS.md).
 - **A retry delay can no longer kill the retry loop.** `base_delay:` and
   `max_delay:` are refused if negative, where the typo is; a custom `backoff:`
   returning one is floored at no wait. Either used to reach `Kernel#sleep`,
@@ -699,13 +567,23 @@ same list with the greps that find each one.
   ```
 
   A value (or a call) of `nil` sends no such header. `Transport::Faraday`
-  raises on a callable header instead of shipping `#<Proc:0x…>` on the wire —
-  Faraday resolves this in middleware, and the message says so.
+  resolves one per request too, so a rotating credential means the same thing
+  on both bundled transports. **And `auth:` takes a token that rotates** —
+  `auth: -> { Tokens.fetch }` is resolved per request like any other callable
+  header value, where it used to raise and send you to Faraday's middleware.
 - **A non-String header value is sent as its `to_s`** on both transports, rather
   than escaping as `NoMethodError: undefined method 'strip'` from inside
   net/http, naming neither graph_weaver nor the header. The documented
   `"X-Tenant" => -> { Current.tenant&.id }` crashed in any app whose ids are
   Integers. A callable is still resolved first and `nil` still drops the header.
+- **Both transports name themselves to the graph.** Every request carries
+  `apollographql-client-name` and `apollographql-client-version`, which is what
+  an Apollo Router or GraphOS keys client attribution on — a real router's span
+  showed `client.name: ""` for everything this gem sent. The name is your Rails
+  application's, or `graph_weaver` outside Rails; the version is the gem's.
+  Override either in `headers:`, which is how one app names its several clients
+  apart. `Transport.default_headers` is the whole set; `DEFAULT_HEADERS` stays
+  the fixed half of it.
 - **A prebuilt `Faraday::Connection` now sends graph_weaver's `User-Agent`.**
   Faraday pre-fills its own on every connection, so the fill-in-the-blanks
   `||=` never fired and the traffic attributed to `Faraday v…` — defeating the
@@ -1021,7 +899,24 @@ same list with the greps that find each one.
   schema whose own vocabulary collides with an option name. A keyword that is a
   near-miss for a pin (`Persn: "Ada"`) now raises `ArgumentError` from the fake
   rather than `GraphWeaver::Error` from the override check; the same key in the
-  leading hash is unchanged.
+  leading hash is unchanged. And a **scalar** pin written as the Ruby object —
+  `overrides: { "Money" => Money.parse("12.00") }` — is serialized the way the
+  registration says, rather than reaching `from_h` as a `Money` and failing
+  there; an object pin's fields already followed that rule. Where the
+  registration can't serialize a value (a `serialize:` Proc builds source), the
+  fake refuses naming the scalar instead of letting the cast fail two layers
+  down.
+- **`list_size:` also takes a Hash, saying how long ONE list is.** Every list
+  the fake reaches read the same setting, so nested unbounded lists multiply:
+  `rows { owner { … } tags }` at `list_size: 1600` fabricates 1600 rows and
+  1600 tags in each of them, and per-row allocations double with every doubling
+  of the number (1,064 → 12,981 objects per row from 100 → 1600). Key the Hash
+  the way pins are keyed — a `"Type.field"` coordinate or a bare field name,
+  with `default:` for the rest — and the named list stays flat (205 objects per
+  row across the same sweep): `{ "Row.tags" => 3, default: 1000 }`. Integer and
+  Range mean exactly what they did; a key the schema doesn't know is refused
+  with a spellcheck, at the fake's door and at `Testing.configure`. Works the
+  same on `config.list_size`, `graphql_fake(list_size:)` and a router's `fake:`.
 - **A test-time schema memo notices the file underneath it changing.**
   `GraphWeaver::Testing.config.schema` keys its located dump on the resolved
   path, so `GraphWeaver.schema_path=` and `root=` are no longer invisible to
@@ -1081,6 +976,23 @@ same list with the greps that find each one.
   and names the file and the task instead. `Graph#named_dump_path` and
   `SchemaLoader.dump_path?` are the new public names; `Graph#dump_path` still
   means "the dump that is there".
+- **`schema:refresh` no longer overwrites a composed supergraph with the API
+  schema behind it.** Introspection returns the merged shape a router serves,
+  with the `@join__*` routing table gone — so `rake graph_weaver:schema:refresh
+  URL=<router>` replaced a 5.8 KB supergraph with 1.6 KB of API schema and
+  exited 0, after which `federation:diff` failed and `schema:diff`/`verify`
+  went green against the wrong artifact. Any write that would trade a
+  supergraph dump for a non-supergraph one is refused, naming `rover supergraph
+  compose`; `schema:refresh` with no `URL=` says the same thing to a federated
+  app instead of suggesting one.
+- **A task that can't honour `SUPERGRAPH=` says so.** The flag reaches the
+  `federation:*` tasks, and `queries:check`, `verify`, `generate` and the rest
+  ignored it in silence — so `SUPERGRAPH=public.graphql rake
+  graph_weaver:queries:check` reported every query valid against a supergraph
+  missing a field they select. They refuse it instead; honouring it would
+  collapse a multi-graph app into one unnamed graph, which for `generate` means
+  pruning the other graphs' generated files. Declare the supergraph on a graph
+  to check against it. The reasoning is in [DECISIONS.md](DECISIONS.md).
 - **`verify` fails when the dump has fallen behind the schema class it was
   built from.** Its question is "is what's checked in current", and the dump is
   checked in too — for an app that serves its own schema it is an artifact
@@ -1099,7 +1011,10 @@ same list with the greps that find each one.
   often it runs. Unchanged behavior, newly stated and specced: editing a query
   changes the key, so the old entry stays behind as a recording nothing sends —
   what `cassettes:check` counts as "not sent by any query module", and what
-  deleting the cassette and recording afresh clears.
+  deleting the cassette and recording afresh clears. **`cassettes:check`'s
+  stale advice names both causes** too: the generated structs move when a
+  *registration* moves, not only when the schema dump does, and re-recording
+  doesn't fix that half — so regenerating is offered for it by name.
   ([cassettes](docs/cassettes.md))
 - **An `@interfaceObject` no longer breaks the subgraph its interface's *other*
   implementers live in.** Apollo writes a bare `@join__field` — no `graph:` at
@@ -1119,6 +1034,42 @@ same list with the greps that find each one.
   one `_entities` call**, as Apollo's do, instead of two — they are split only
   when a prefetch didn't answer for some node, which is the one case their node
   sets differ. A dashboard query drops from 6 fetches to 5.
+- **A subgraph SDL that renames what it imports now loads.**
+  `@link(import: [{name: "@key", as: "@primaryKey"}])` — the `@link` spec's own
+  aliasing — raised an error blaming the file for a directive the file had
+  declared. The `@link` header is read for every spelling it binds and then
+  dropped from the schema, so `link__Import`/`link__Purpose` no longer appear in
+  a schema loaded from subgraph SDL.
+- **Two more queries the local router refuses instead of answering them
+  wrong.** A **`@fromContext` argument** was refused only from the
+  crossing-aware half of the planner, so a query one subgraph answered whole
+  skipped the check — and only a gateway injects a `@fromContext` value, so the
+  resolver ran with the argument unset and the router returned a plausible
+  wrong number. And a **progressive `@override(label:)`** wasn't refused at
+  all: Federation 2.7 leaves both subgraphs resolving the field and lets the
+  gateway split traffic by the label, where the router picked one and answered
+  from it every time, silently and forever (new category
+  `:progressive_override`; drop the label and composition drops the losing
+  copy, which plans normally). Every refusal that must hold for a query however
+  it is planned now runs above the single-subgraph shortcut, which is the one
+  walk every plan passes through — see [DECISIONS.md](DECISIONS.md).
+- **`@defer`/`@stream` are refused by name** (`:incremental_delivery`) rather
+  than by happening to fail validation — the answer would arrive in more than
+  one payload, and the Apollo Router supports `@defer` for real. The scan runs
+  above validation in both places that refuse, so the reason you get is this
+  one and not graphql-ruby's "Directive @defer is not defined":
+  `Testing::Router#execute` used to validate before it planned, and `rake
+  graph_weaver:generate` had no check at all — it refused only while no schema
+  declared the directive, and would have generated a module that dropped the
+  deferred selections against a supergraph that did.
+- **A subgraph error out of `Testing::Router` carries `extensions: {"service"
+  => "<subgraph>"}`.** Every real transport stamps which subgraph failed and a
+  client branches on it, so a test asserting on an unstamped error passed here
+  and broke in front of a gateway. The Apollo Router's spelling; a resolver's
+  own `extensions` are left alone. **Update any spec that compares a router
+  error hash whole** — and note that a production router with
+  `include_subgraph_errors` omitted redacts the stamp along with the message
+  ([testing](docs/testing.md)).
 - **`rake graph_weaver:federation:diff` sees three things it used to miss.**
   It no longer **calls an absent subgraph stale**: a schema was recognized by
   the types its subgraph declares, and two subgraphs extending one entity
@@ -1296,7 +1247,10 @@ same list with the greps that find each one.
   `generate`'s and `verify`'s two registry advisories went only to the logger,
   which in Rails is `log/development.log`, so nobody running the task saw it —
   `GraphWeaver.untyped_scalars` is the list, beside
-  `GraphWeaver.unmatched_registrations`. And `rake graph_weaver:cassettes:check`
+  `GraphWeaver.unmatched_registrations`, and it is grouped by graph when a run
+  covers more than one — merged flat it read as "forgotten everywhere" for a
+  scalar registered for one graph and forgotten for the next, so
+  `GraphWeaver.untyped_scalars_by_graph` is the same fact kept apart. And `rake graph_weaver:cassettes:check`
   sees a namespaced graph's modules: it looked for top-level constants, so an
   app whose graphs set `namespace` found "0 generated modules", refused for
   having checked nothing, and blamed the cassette directory.
@@ -1382,7 +1336,10 @@ same list with the greps that find each one.
   query reads the field; a `JSON`-narrowed coordinate opts that field out of
   `:fake` fabrication as well as hardening its shape; and which cross-type
   values are refused — Ruby **objects**, where a timestamp *string* for a `Date`
-  parses and truncates, as graphql-ruby's own `ISO8601Date` does.
+  parses and truncates, as graphql-ruby's own `ISO8601Date` does. And what a
+  timestamp cast costs, measured: `Time.parse`, the reader every `DateTime`
+  field already uses, is ~7× `Date.iso8601`, and `cast: :iso8601` is ~3×
+  cheaper than it and stricter.
   [getting_started](docs/getting_started.md) cuts the first hour down to the
   single-schema path, with multi-schema as its own section further down, names
   the measured false-negative rate of `rake graph_weaver:unused` where the task
@@ -1391,7 +1348,9 @@ same list with the greps that find each one.
   the GitHub Actions job, says that a validator installed by symbol is
   invisible to Zeitwerk (reference it from the same `to_prepare` block, above
   the schema), and answers the Sorbet question where the adoption decision is
-  made rather than at the end.
+  made rather than at the end. Its §5 also names the two `rover` commands that
+  close the federated-CI gap below, and the Actions job grew a `federation:diff`
+  step.
   [testing](docs/testing.md) gains `fail_at`'s path syntax, an
   `extensions.input` example, `Testing::Sequence` for ending a paging loop, what
   `to_timeout` does and doesn't prove (webmock stands in for the socket, so
@@ -1399,7 +1358,14 @@ same list with the greps that find each one.
   yours), that a fake-mode pin is keyed by the schema's scalar name rather than
   the Ruby class, that `:fake` never runs your server's `validates:` or custom
   validators, and loses the "partial failure" label on a call that fails the
-  whole response.
+  whole response. New there: **a production Apollo Router redacts what
+  `Testing::Router` hands you** — with `include_subgraph_errors` omitted, the
+  default, a subgraph error becomes `{"message" => "Subgraph errors redacted",
+  "path" => […]}` with the extensions emptied, so a spec asserting on a
+  subgraph's message or on the `extensions.service` stamp passes here and fails
+  in staging; it says what to assert on instead and gives the `Failure.graphql`
+  that reproduces the redacted shape. Also the nested-list multiplication
+  behind `list_size:`, measured.
   [federation](docs/federation.md#producing-a-supergraph) gains the step it
   never had — how to *produce* a supergraph: `federation_sdl` from the
   `apollo-federation` gem (named in prose for the first time), where other
@@ -1416,7 +1382,26 @@ same list with the greps that find each one.
   upgrade-timing event for every team sharing the supergraph), a document that
   fails ordinary GraphQL validation gets an `errors` response rather than an
   `Unplannable`, and apollo-federation's `orphan_types`-before-`query` ordering
-  trap.
+  trap. It now opens with a signpost saying which of its sections belong to a
+  client team, a subgraph team and the supergraph owner, and gains four more:
+  **in CI**, because no task in the toolbox looks at the schema production is
+  serving — they all compare the app to its own checked-in artifacts, and
+  `schema:diff` can't be pointed at a supergraph — so it names the two `rover`
+  commands that close it; **`@tag` and contract variants**, what codegen says
+  against each (it refuses at the boundary, which is the guarantee), why
+  `federation:diff` can't tell two variants apart, that nothing cross-checks the
+  variant you generated against with the endpoint you call, and that a variant
+  is mechanically just another `GraphWeaver.graph`; **two changes every gate
+  calls clean**, a scalar swapped for one that still serializes as the same JSON
+  kind (`String!` → `Currency!`, `"19.99"` → `"$19.99"`) and an enum value
+  removed where no query names it literally, with `schema:diff`'s `breaking:
+  true` the only signal for either; and that an `@override` migration is
+  finished from the **old** side, since deleting the new owner's copy first
+  hands the field back to the subgraph you were migrating away from and nothing
+  reports it. Also there: `Federation::Drift`'s `subgraphs:` takes a
+  resolver-less schema from `SchemaLoader.load(sdl)`, so a subgraph published as
+  SDL by a team that doesn't write Ruby is fully compared — and detection unions
+  every candidate that fits a subgraph, so diffing a *proposal* has to name it.
   [generated modules](docs/generated_modules.md#an-input-object-generates-its-whole-closure)
   states the rule the docs implied and never said — results are generated per
   selection set, input types by transitive closure, which is why one Hasura
@@ -1426,7 +1411,18 @@ same list with the greps that find each one.
   props, so the `String` or `Hash` a leaf holds is the one the response carried,
   as with `Struct` or `Data` — and that caching one wants `Marshal`, not YAML,
   since a `T::Enum` member is a singleton compared by identity and Psych
-  rehydrates a duplicate, so `pet.species == Species::Dog` comes back false.
+  rehydrates a duplicate, so `pet.species == Species::Dog` comes back false. It
+  also names the one enum misuse nothing catches — `result.tier == "GOLD"` is
+  silently `false`, on a generated `T::Enum` as on any other — and the
+  sorbet-runtime switch that reports it
+  (`T::Configuration.enable_legacy_t_enum_migration_mode` plus a
+  `soft_assert_handler`), which belongs in your boot rather than in generated
+  code because it covers your own enums too. And two costs: `verify_generated!`
+  runs a full `generate!` however little changed, while
+  `T::Configuration.default_checked_level` buys nothing for `from_h`. Its
+  type-helpers section now shows that an `extend_type` mixin *can* carry sigs
+  `srb tc` checks — declare the fields it reads as abstract sigs, which the
+  struct's `const`s satisfy.
   [upgrading](docs/upgrading.md) opens each version section with a table of
   which changes apply to you, separates the grep hits that self-heal on
   regenerate from the ones to rename by hand, and ends on `graph_weaver:verify`.
@@ -1435,7 +1431,9 @@ same list with the greps that find each one.
   browsing a live schema from a console
   ([real world](docs/real_world.md#browsing-the-schema)), the four settings
   rake-free generation needs to agree on, what `retries:` does and doesn't
-  cover plus `pool_size:` and the pool's fork-safety
+  cover plus `pool_size:` and the pool's fork-safety, and that the request body
+  carries no persisted-query id — so a gateway safelist with `require_id`
+  refuses it, with the `Transport::HTTP` subclass that bolts APQ on today
   ([transports](docs/transports.md#retries)), that Rails' own default
   `filter_parameters` includes `:email` so a stock app redacts an ordinary field
   named `email` the day the gem is added ([logging](docs/logging.md#filtered-variables)),
