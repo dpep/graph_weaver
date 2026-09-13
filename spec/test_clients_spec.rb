@@ -131,12 +131,22 @@ describe GraphWeaver::Internal::TestClients do
       expect(wire_client).to be_a GraphWeaver::Testing::FakeClient
     end
 
-    # the one thing :wire still refuses: nothing to serve and nothing to
-    # fabricate from
-    it "refuses a graph with no schema at all" do
+    # the one thing :wire still refuses — and in its own voice: the generic
+    # schema refusal reads as :in_process's, and never says :wire
+    it "refuses a graph with no schema at all, naming :wire" do
       GraphWeaver.client = nil
 
-      expect { wire_client }.to raise_error(GraphWeaver::Error, /no schema to run against/)
+      expect { wire_client }.to raise_error(GraphWeaver::Error, /\A:wire serves your schema/)
+    end
+
+    # a url client's #schema is an introspection request — to the endpoint
+    # :wire has stubbed, which is a request into a stub that isn't there yet.
+    # The other modes fall back to it; :wire refuses instead.
+    it "refuses rather than introspecting the endpoint it is about to stub" do
+      GraphWeaver.client = GraphWeaver.new("http://nowhere.test/graphql")
+
+      expect { wire_client }
+        .to raise_error(GraphWeaver::Error, /client's own schema can't stand in.*introspects/m)
     end
   end
 

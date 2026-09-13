@@ -408,8 +408,11 @@ supergraph, its [live schema class](#real-resolvers--graphql-in_process) when it
 has one, else a [fake](#fabricated-data--graphql-fake) of its schema. So one
 federated graph doesn't put its router behind a plain graph's url, and an app
 that is a pure *client* of someone else's API — a committed dump and no
-resolvers to serve — gets a schema-correct server without writing one. Only a
-graph with no schema at all is refused.
+resolvers to serve — gets a schema-correct server without writing one. A graph
+with no schema at all is refused, **by `:wire`'s own name**: the one thing the
+other tags can fall back to and this one can't is your client's own schema,
+since reading it means introspecting the endpoint `:wire` has just stubbed.
+Commit a dump, or set `config.schema`.
 
 **A helper says what goes behind the wire.** Under the other tags a
 `graphql_*` helper takes the client slot; under `:wire` it is served instead —

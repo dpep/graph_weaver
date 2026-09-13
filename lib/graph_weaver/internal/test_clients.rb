@@ -148,13 +148,24 @@ module GraphWeaver
         # What :wire serves for `graph`: its router when it is in a composed
         # supergraph, its live schema class when it has one, else a fake of
         # its schema — which is what an app that is a pure client of someone
-        # else's API has, and the only mode it could be. A graph with no
-        # schema at all is refused by :fake, which is the honest refusal.
+        # else's API has, and the only mode it could be.
+        #
+        # The one candidate the other modes have and :wire doesn't is
+        # GraphWeaver.client's own schema: reading it introspects the very
+        # endpoint :wire is about to stub, so it is a refusal here rather than
+        # a request into a stub that doesn't exist yet.
         def wire_mode(config, graph)
           return :router if config.supergraph?(graph)
           return :in_process if config.schema_class?(graph)
+          return :fake if config.schema || graph&.named_schema?
 
-          :fake
+          raise GraphWeaver::Error, ":wire serves your schema at the endpoint your client posts " \
+            "to, and #{graph&.name ? "graph #{graph.name.inspect}" : "this app"} has none to " \
+            "serve — no live GraphQL::Schema class, no composed supergraph, and no type " \
+            "information (nothing at #{GraphWeaver.schema_path}, and " \
+            "GraphWeaver::Testing.config.schema is unset). Your client's own schema can't stand " \
+            "in here: reading it introspects the endpoint :wire has stubbed. Commit a dump " \
+            "(rake graph_weaver:schema:refresh URL=…), or tag the example graphql: :live."
         end
 
         # The graph a mode builds for when no module named one: this app's

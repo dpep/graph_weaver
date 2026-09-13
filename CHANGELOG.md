@@ -8,7 +8,11 @@
   in descending faithfulness: its router when it is in a composed supergraph,
   its live schema class when it has one, else **a fake of its schema**. So a
   transport test needs no hand-written `GraphQL::Schema` shaped like your own
-  query. Only a graph with no schema at all is refused.
+  query. A graph with no schema at all is refused **in `:wire`'s own voice**,
+  naming the three places one can come from: the generic refusal spoke as
+  `:in_process` and never said `:wire`. The one candidate the other tags fall
+  back to and this one can't is `GraphWeaver.client`'s own schema — reading it
+  introspects the very endpoint `:wire` has stubbed.
   ([testing](docs/testing.md#over-the-wire--graphql-wire))
 - **A `graphql_*` helper says what goes behind the wire.** Under the other tags
   a helper takes the client slot; under `:wire` it is served instead — the slot
