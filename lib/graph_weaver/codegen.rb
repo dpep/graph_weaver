@@ -405,13 +405,17 @@ class GraphWeaver::Codegen
   end
 
   def generate
-    begin
-      errors = @schema.validate(@query)
+    document = begin
+      GraphQL.parse(@query)
     rescue GraphQL::ParseError => e
       # unparseable queries wrap like invalid ones — everything raised
       # here descends from GraphWeaver::Error
       raise GraphWeaver::QueryValidationError.new([detail(e.message, e.line, e.col)])
     end
+
+    refuse_incremental!(document)
+
+    errors = @schema.validate(document)
     if errors.any?
       raise GraphWeaver::QueryValidationError.new(errors.map { |e| validation_detail(e) })
     end
@@ -803,6 +807,24 @@ class GraphWeaver::Codegen
     acc
   end
   private_class_method :fragment_spreads
+
+  # @defer/@stream deliver the answer in instalments over a multipart body,
+  # and generated code reads one JSON response — so there is nothing to
+  # generate, whether or not the schema in hand declares the directives.
+  # Above validation because most schemas don't: "Directive @defer is not
+  # defined" reads like a typo, and it stops being raised at all the day a
+  # supergraph @links the defer spec.
+  def refuse_incremental!(document)
+    node = GraphWeaver::Internal::Selection.incremental_directive(document) or return
+
+    raise GraphWeaver::QueryValidationError.new([detail(
+      "this query carries @#{node.name}, and the answer would arrive in more than one payload " \
+      "(incremental delivery) — generated code reads a single JSON response, so drop the " \
+      "directive or move those selections into their own query",
+      node.line, node.col,
+    )])
+  end
+  private :refuse_incremental!
 
   # Structured shape for a schema-validation error: message plus its first
   # source location, so QueryValidationError#errors is inspectable.

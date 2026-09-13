@@ -12,6 +12,40 @@ module GraphWeaver
     module Selection
       include Kernel # for sorbet: hosts are Objects
 
+      # The directives that ask for the answer in instalments. Neither the
+      # generated code nor the local router reads a multipart body, and both
+      # have to say so BY NAME: whether the schema in hand declares @defer is
+      # graphql-ruby's business, so "Directive @defer is not defined" is an
+      # accident that happens to refuse — and it stops happening the day a
+      # supergraph @links the defer spec.
+      INCREMENTAL = %w[defer stream].freeze
+
+      # The first @defer/@stream node anywhere in a parsed document, or nil.
+      # A module function rather than part of the walk below: the callers ask
+      # before they have a schema, an operation, or a host to walk with.
+      def self.incremental_directive(node)
+        if node.respond_to?(:directives)
+          # a spread carries directives and no selections (`...Frag @defer`),
+          # so this is asked of every node rather than only of the ones below
+          applied = node.directives.find { |d| INCREMENTAL.include?(d.name) }
+          return applied if applied
+        end
+
+        children = if node.is_a?(GraphQL::Language::Nodes::Document)
+          node.definitions
+        elsif node.respond_to?(:selections)
+          node.selections
+        else
+          []
+        end
+
+        children.each do |child|
+          nested = incremental_directive(child)
+          return nested if nested
+        end
+        nil
+      end
+
       # Every method here becomes an instance method of its host (Codegen,
       # FakeClient, the cassette Anonymizer) — private so the walk stays the
       # host's own business rather than part of its API.

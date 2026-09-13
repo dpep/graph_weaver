@@ -3,6 +3,7 @@
 
 require "graphql"
 
+require_relative "selection"
 require_relative "subgraphs"
 
 module GraphWeaver
@@ -131,9 +132,6 @@ module GraphWeaver
       # the fields a router answers itself rather than routing
       INTROSPECTION = %w[__schema __type].freeze
 
-      # directives that ask for the answer in instalments
-      INCREMENTAL = %w[defer stream].freeze
-
       # a fragment spread can't cycle (validation rejects that), so this is
       # only ever reached by a document validation didn't see
       MAX_DEPTH = 32
@@ -158,7 +156,20 @@ module GraphWeaver
           .map { |error| Wire.graphql_error(error.message, "GRAPHQL_VALIDATION_FAILED") }
       end
 
+      # @defer/@stream send the rest of the answer in later payloads over a
+      # multipart body; this router answers in one. Public and document-wide
+      # because the caller has to ask it BEFORE validation — the composed API
+      # schema usually doesn't declare the directives, so graphql-ruby's
+      # "Directive @defer is not defined" fires first and shadows this.
+      def refuse_incremental!(document)
+        node = Selection.incremental_directive(document) or return
+
+        refuse :incremental_delivery,
+          "this operation carries @#{node.name}, and the answer would arrive in more than one payload"
+      end
+
       def plan(document, operation_name: nil)
+        refuse_incremental!(document)
         operation = pick_operation(document, operation_name)
         refuse(:operation_type, "this document is a subscription") if
           operation.operation_type == "subscription"
@@ -237,7 +248,6 @@ module GraphWeaver
         return if depth > MAX_DEPTH
 
         selections.each do |node|
-          incremental!(node)
           case node
           when GraphQL::Language::Nodes::Field
             next if node.name.start_with?("__")
@@ -258,20 +268,6 @@ module GraphWeaver
             check_reachable!(condition, fragment.selections, fragments, depth + 1)
           end
         end
-      end
-
-      # @defer/@stream send the rest of the answer in later payloads over a
-      # multipart body; this router answers in one. Refused by name rather
-      # than left to validation: whether the composed schema happens to
-      # declare the directive is graphql-ruby's business, and the Apollo
-      # Router supports @defer for real — so "we don't do this" shouldn't
-      # depend on a schema derivation nobody here controls.
-      def incremental!(node)
-        name = node.directives.map(&:name).find { |d| INCREMENTAL.include?(d) }
-        return unless name
-
-        refuse :incremental_delivery,
-          "this operation carries @#{name}, and the answer would arrive in more than one payload"
       end
 
       def interface_object!(type_name, where)

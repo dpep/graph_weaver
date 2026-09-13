@@ -836,6 +836,26 @@ describe GraphWeaver::Testing::Router do
             "this operation carries @stream, and the answer would arrive in more than one payload",
           )
       end
+
+      # @defer's other declared location: a spread carries directives and no
+      # selections, so a walk that only descends through selections misses it
+      it "refuses @defer on a fragment spread" do
+        expect { incremental.execute("{ me { ...Rest @defer } } fragment Rest on User { id }") }
+          .to refuse_to_plan(:incremental_delivery)
+      end
+
+      # The case a user actually meets: nothing declares @defer, so graphql-ruby
+      # answered "Directive @defer is not defined" and the refusal above was
+      # reachable only from a supergraph that happened to declare it. By name
+      # means before validation.
+      it "refuses @defer the composed schema doesn't declare" do
+        router = described_class.new(supergraph: RouterGraph::SUPERGRAPH, subgraphs: RouterGraph::SUBGRAPHS)
+
+        expect { router.execute("{ me { username ... on User @defer { id } } }") }
+          .to refuse_to_plan(:incremental_delivery).with_detail(
+            "this operation carries @defer, and the answer would arrive in more than one payload",
+          )
+      end
     end
 
     # Federation 2.7's progressive @override keeps BOTH copies resolvable and

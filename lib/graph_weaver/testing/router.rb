@@ -309,6 +309,12 @@ module GraphWeaver
           return { "data" => nil, "errors" => [Internal::Wire.graphql_error(e.message, "GRAPHQL_PARSE_FAILED")] }
         end
 
+        # above validation, which would otherwise answer "Directive @defer is
+        # not defined" — an accident of the composed schema, not this router's
+        # decision, and one that stops refusing the day a supergraph @links
+        # the defer spec
+        @planner.refuse_incremental!(document)
+
         # validate the way a router does, so a stale query fails as it fails
         # in production rather than somewhere inside the planner
         errors = @planner.validate(document)

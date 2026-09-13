@@ -410,6 +410,24 @@ describe GraphWeaver::Codegen do
     expect { codegen.generate }.to raise_error(GraphWeaver::QueryValidationError, /invalid query/)
   end
 
+  # Generated code reads one JSON body, so a query asking for the answer in
+  # instalments can't be generated for — whether or not the schema declares the
+  # directive. Undeclared, graphql-ruby says "Directive @defer is not defined",
+  # which reads like a typo in the query rather than a shape this client can't
+  # take; declared (a supergraph that @links the defer spec), it used to
+  # generate a module that silently dropped the deferred selections.
+  %w[defer stream].each do |directive|
+    it "refuses @#{directive} by name, before validation" do
+      expect {
+        described_class.generate(schema: Demo::Schema, name: "Late", path: "queries/late.graphql",
+          query: "query { person(id: 1) { ... @#{directive} { name } } }")
+      }.to raise_error(
+        GraphWeaver::QueryValidationError,
+        %r{invalid query in queries/late\.graphql:\n  1:\d+  this query carries @#{directive}\b.*single JSON response}m,
+      )
+    end
+  end
+
   it "names the file and position of each validation error" do
     expect {
       described_class.generate(schema: Demo::Schema, name: "Bad", path: "queries/typo.graphql",

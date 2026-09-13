@@ -75,7 +75,13 @@
   spec that compares a router error hash whole.**
 - **`@defer`/`@stream` are refused by name** (`:incremental_delivery`) rather
   than by happening to fail validation — the answer would arrive in more than
-  one payload, and the Apollo Router supports `@defer` for real.
+  one payload, and the Apollo Router supports `@defer` for real. The scan runs
+  above validation in both places that refuse, so the reason you get is this
+  one and not graphql-ruby's "Directive @defer is not defined": `Testing::
+  Router#execute` used to validate before it planned, and `rake
+  graph_weaver:generate` had no check at all — it refused only while no schema
+  declared the directive, and would have generated a module that dropped the
+  deferred selections against a supergraph that did.
 - **Regenerate if you build a type helper from a block inside a
   `GraphWeaver.graph` block.** Those mixins are named for where the block is
   written and what it extends — `GraphWeaver::TypeHelpers::Billing::Pet` in
