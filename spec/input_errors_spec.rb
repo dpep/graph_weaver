@@ -72,6 +72,21 @@ describe "input errors" do
       expect(error.coordinate).to eq "PetFilter.species"
     end
 
+    # Every enclosing layer prepends its segment, but only the innermost one
+    # writes the sentence — a refusal that already named a field keeps it. Say
+    # `species:` once, rather than once per input object on the way out, and
+    # carry the value that was AT the end of the path rather than the whole
+    # filter the caller passed in.
+    it "keeps the innermost sentence, and the value at the end of the path" do
+      error = refusal { FindPetsQuery.execute(where: { _and: [{ _not: { species: "LIZARD" } }] }) }
+
+      expect(error.message).to eq(
+        '$where of FindPetsQuery: species: "LIZARD" is not a valid GraphQLTypes::Species — expected one of: CAT, DOG',
+      )
+      expect(error.value).to eq "LIZARD"
+      expect(error.struct).to be GraphQLTypes::PetFilter
+    end
+
     # The index above rides on the nested input's own InputError. A list of
     # LEAVES has no nested struct: every leaf coercer raises a branded plain
     # ArgumentError/TypeError/KeyError, which the index wrapper used not to
@@ -137,6 +152,29 @@ describe "input errors" do
         .to have_attributes(kind: :refused, message: /got none/)
       expect(refusal { mod.execute(client: nil, ref: { id: "1", name: "x" }) })
         .to have_attributes(kind: :refused, message: /got id, name/)
+
+      # every @oneOf refusal names the input type it came from, like every
+      # other input refusal — a 422 body says which struct said no
+      expect(error.to_h["struct"]).to end_with "::Ref"
+      expect(refusal { mod.execute(client: nil, ref: {}) }.to_h["struct"]).to end_with "::Ref"
+    end
+
+    # The accepted values are listed in a stable order rather than the
+    # schema's, in the sentence and in #details[:members] alike: an app
+    # renders them to a user, and "whatever order the SDL happened to use"
+    # is not an order.
+    it "lists an enum's accepted values alphabetically, however the schema wrote them" do
+      mod = GraphWeaver.parse(schema: GraphQL::Schema.from_definition(<<~GRAPHQL), query: <<~QUERY)
+        enum Sp { DOG CAT BIRD }
+        type Query { ok(kind: Sp): Boolean }
+      GRAPHQL
+        query Kind($kind: Sp) { ok(kind: $kind) }
+      QUERY
+
+      error = refusal { mod.execute(client: nil, kind: "LIZARD") }
+
+      expect(error.details[:members]).to eq %w[BIRD CAT DOG]
+      expect(error.message).to end_with "expected one of: BIRD, CAT, DOG"
     end
 
     it "names a required field that wasn't supplied" do
