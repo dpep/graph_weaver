@@ -51,12 +51,12 @@ GraphWeaver::CastError#struct
 GraphWeaver::CastError#to_h
 GraphWeaver::CastError::SORBET_CALLER = Regexp
 GraphWeaver::Client (Class)
-GraphWeaver::Client.instrumented
 GraphWeaver::Client#execute
 GraphWeaver::Client#run
 GraphWeaver::Client#run!
 GraphWeaver::Client#schema
 GraphWeaver::Client#transport
+GraphWeaver::Client.instrumented
 GraphWeaver::Client::URL = Regexp
 GraphWeaver::Codegen (Class)
 GraphWeaver::Codegen#generate
