@@ -651,10 +651,7 @@ module GraphWeaver::SchemaLoader
     end
 
     result = GraphWeaver::Internal::Log.log_timed(:info, "introspected #{endpoint(transport)}") do
-      # include_is_one_of: graphql-ruby leaves isOneOf out by default, and a
-      # dump without it says "not @oneOf" for every input — which is the only
-      # thing codegen reads to emit the ONE_OF that enforces it
-      transport.execute(GraphQL::Introspection.query(include_is_one_of: true), variables: {}).to_h
+      ask(transport)
     end
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
@@ -700,6 +697,22 @@ module GraphWeaver::SchemaLoader
 
     schema
   end
+
+  # The introspection result, asking for isOneOf and falling back without it.
+  #
+  # isOneOf is the only thing that says an input object is @oneOf, and
+  # graphql-ruby leaves it out unless asked — but it is newer than plenty of
+  # servers, and one that doesn't define it REFUSES the query outright
+  # (Hasura: "field 'isOneOf' not found in type: '__Type'"). So ask, and ask
+  # the baseline query rather than give up. The second request costs one round
+  # trip on exactly the servers whose answer was going to be an error anyway.
+  def self.ask(transport)
+    result = transport.execute(GraphQL::Introspection.query(include_is_one_of: true), variables: {}).to_h
+    return result if result["errors"].nil? && result.dig("data", "__schema")
+
+    transport.execute(GraphQL::Introspection.query, variables: {}).to_h
+  end
+  private_class_method :ask
 
   # What to call the thing we introspected, for a log line or an error: its
   # url when it has one, else the class (a schema class, a fake). A

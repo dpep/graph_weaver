@@ -182,6 +182,29 @@ describe GraphWeaver::SchemaLoader do
         .to raise_error(GraphWeaver::InputError, /is @oneOf — supply exactly one field/)
     end
 
+    # isOneOf is newer than plenty of servers, and one that doesn't define it
+    # refuses the query outright rather than answering null — PokeAPI's Hasura
+    # does exactly this, so asking unconditionally broke introspection there
+    it "asks again without isOneOf when the server won't answer it" do
+      server = Class.new do
+        attr_reader :asked
+
+        def initialize = @asked = []
+
+        def execute(query, variables:, operation_name: nil)
+          @asked << query
+          if query.include?("isOneOf")
+            { "errors" => [{ "message" => "field 'isOneOf' not found in type: '__Type'" }] }
+          else
+            Demo::Schema.execute(query, variables:, operation_name:).to_h
+          end
+        end
+      end.new
+
+      codegen_parity(described_class.introspect(server))
+      expect(server.asked.size).to eq 2
+    end
+
     it "round-trips schemas through their own to_json for external caches" do
       # the Rails.cache pattern: introspect(...).to_json, then load
       schema = described_class.introspect(Demo::Schema)

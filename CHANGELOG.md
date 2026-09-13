@@ -268,7 +268,11 @@
   every input object and the enforcing struct was never generated. Both halves
   are fixed, and a schema introspected now and one loaded back off the file that
   writes are the same schema. Schemas built from SDL (`.graphql`/`.gql` dumps,
-  inline SDL, a live class) were always correct. **Action:** regenerate
+  inline SDL, a live class) were always correct. A server too old to define
+  `isOneOf` *refuses* the query rather than answering null — PokeAPI's Hasura
+  does — so introspection asks for it and asks the baseline query again rather
+  than fail: one extra round trip, only where the first answer was going to be
+  an error either way. **Action:** regenerate
   (`rake graph_weaver:schema:refresh && rake graph_weaver:generate`) if you use
   `@oneOf` inputs and your dump is `.json` — the newly emitted `ONE_OF` will
   start refusing calls that set two fields, which the server was refusing all
