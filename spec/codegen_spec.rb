@@ -717,7 +717,7 @@ describe GraphWeaver::Codegen do
         name: "Bad",
       )
 
-      expect { codegen.generate }.to raise_error(ArgumentError, /__typename/)
+      expect { codegen.generate }.to raise_error(GraphWeaver::Error, /__typename/)
     end
 
     it "requires the dispatched __typename to be unconditional" do
@@ -728,7 +728,7 @@ describe GraphWeaver::Codegen do
           query: 'query($d: Boolean!) { search(term: "x") { __typename @skip(if: $d) ' \
             "... on Pet { species } ... on Person { email } } }",
         )
-      }.to raise_error(ArgumentError, /not under @skip/)
+      }.to raise_error(GraphWeaver::Error, /not under @skip/)
     end
   end
 
@@ -805,7 +805,7 @@ describe GraphWeaver::Codegen do
           schema: Demo::Schema,
           query: 'query($d: Boolean!) { search(term: "el") { __typename @include(if: $d) ... on Pet { name } } }',
         )
-      }.to raise_error(ArgumentError, /not under @skip\/@include/)
+      }.to raise_error(GraphWeaver::Error, /not under @skip\/@include/)
     end
 
     it "doesn't narrow when a fragment on the abstract type asks for shared fields" do
@@ -1877,6 +1877,23 @@ describe GraphWeaver::Codegen do
 
       expect(message).to include("select __typename on Content")
       expect(message).to match(/each `\.\.\. on Type` .* only after the dispatch it would decide/)
+    end
+
+    # a refusal about a query is branded and names its file, like every other —
+    # a bare ArgumentError escaped generate!'s refusal list and left rake
+    # naming no query (found on GitLab's corpus)
+    it "is a GraphWeaver::Error that names the file" do
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Action { action: String }
+        type Thought { body: String }
+        union Content = Action | Thought
+        type Query { content: Content }
+      GRAPHQL
+
+      expect {
+        GraphWeaver::Codegen.generate(schema:, name: "Q", path: "app/graphql/queries/feed.graphql",
+          query: "{ content { ... on Action { action } ... on Thought { body } } }")
+      }.to raise_error(GraphWeaver::Error, /\Aapp\/graphql\/queries\/feed\.graphql: .*select __typename on Content/)
     end
 
     # the plain case keeps the plain message: there is no near miss to explain

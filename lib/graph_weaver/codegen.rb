@@ -1147,7 +1147,11 @@ class GraphWeaver::Codegen
   # about. Dispatch reads __typename, so the query must select it; for
   # interfaces the interface-level fields gather into every member.
   def union_members(type, selections)
-    raise ArgumentError, typename_refusal(type, selections) unless dispatchable_typename?(type, selections)
+    unless dispatchable_typename?(type, selections)
+      # a refusal about the query, like its siblings: branded and path-named,
+      # so generate! can collect it and rake names the file
+      raise GraphWeaver::Error, "#{@path ? "#{@path}: " : ""}#{typename_refusal(type, selections)}"
+    end
 
     selected_members(type, selections).sort_by(&:graphql_name).to_h do |possible|
       [possible.graphql_name, object_node(possible, selections, camelize(possible.graphql_name))]

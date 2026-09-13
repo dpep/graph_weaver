@@ -1,4 +1,9 @@
 ###  Unreleased
+- **The union-dispatch refusal is a `GraphWeaver::Error` that names its file.**
+  It was a bare `ArgumentError` with no path, so under `rake` it aborted with a
+  backtrace naming no query, and it escaped the run's refusal list. Found on
+  GitLab's query corpus. *Action:* a spec rescuing `ArgumentError` for it
+  rescues `GraphWeaver::Error` now.
 - **`examples/` now ships in the gem.** It was excluded from `s.files` while
   the README linked `examples/federation.rb` and promoted the directory by
   name — both dead links for anyone without a git checkout. It's ~30 KB of
