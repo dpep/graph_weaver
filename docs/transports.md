@@ -264,6 +264,19 @@ it, and a second `charge` is worse than a failed one.
 `retry_mutations: true` opts an idempotent API back in; the skipped
 retry says so on the logger.
 
+The cap is on **attempts**, not on a kind of failure: a mutation gets its one
+attempt whatever `retry_on:` says, so a `ServerError` is not retried either —
+not a 500, not a 429 that named a `Retry-After`. `retry_mutations: true` puts
+the mutation back on the same budget as a query, for every one of them.
+
+**Idempotency is the server's.** GraphWeaver never reads an `idempotencyKey`
+input: it is an argument like any other, and nothing in the client
+deduplicates on it. So before turning `retry_mutations: true` on for a
+checkout, the *server* has to dedupe on that key. And either way a failed
+response does not mean nothing happened — the request that timed out was
+still delivered, so the order may exist behind the error your controller
+rendered. Reconcile; don't assume.
+
 **`Retry-After` wins over the backoff.** When the server names a delay
 (seconds or an HTTP-date), that's the wait — the server is the only
 party that knows when its window reopens. It's clamped to `max_delay:` so a

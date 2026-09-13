@@ -1,5 +1,38 @@
 ###  Unreleased
 
+<!-- lane: wire2 -->
+- **`graphql: :wire` says which of the three it served.** The tag picks the
+  most faithful backend a graph has, and the pick was invisible from inside the
+  example — an app whose client is a url transport and whose `Shop::Schema` no
+  one named got **a fake**, so its suite went green against fabricated data
+  with nothing said. It now writes one line per endpoint on `GraphWeaver.logger`
+  (a Rails app already has one): `:wire serving Shop::Schema (in-process) at
+  https://…` at `info`, and at `warn` — naming the class, and
+  `config.schema` — when a fake stood in while this process has a
+  `GraphQL::Schema` class nothing pointed at. A warning rather than a refusal,
+  because a loaded class isn't proof you meant it at *this* endpoint (a
+  federated suite loads every subgraph's) and a fake behind the wire is a thing
+  to want: name the class for the suite, and call `graphql_fake` in the examples
+  that want fabricated data. Nothing else is logged from a `:wire` example any
+  more — the predicates deciding what to serve raised-and-rescued to answer
+  "no", and every `GraphWeaver::Error` writes a `warn` line as it is built, so
+  each example used to log two refusals that never happened.
+  [Making the served endpoint fail](docs/testing.md#making-the-served-endpoint-fail)
+  is now documented too: `:wire` adds one stub per endpoint and webmock answers
+  with the last one declared, so a `stub_request(…).to_return(status: 503)` in
+  the example is a **served** failure — your transport reads the status and
+  `Retry-After` off a real response and spends its real retry budget, which a
+  `Failure` client (which raises above the wire) can't reach.
+- **`config.schema` and `config.router` are refused once they're too late**,
+  joining `config.context` under one rule: **configure at load, or in an
+  `around` — never in a plain `before`.** The tag builds (and under `:wire`
+  serves) an example's clients in a `before` hook of its own, which rspec runs
+  ahead of any group `before`, so one set there changed nothing and the example
+  passed against whatever the tag had already picked. The refusal fires exactly
+  when the clients are already built and names the `around` and the per-example
+  helper (`graphql_fake(schema:)`, `graphql_router(fake:)`). Move any such
+  `before` to an `around`, or to `Testing.configure` in the spec helper.
+
 <!-- lane: junior4 -->
 - **`InputError`'s structured half is spelled the way the schema is.**
   `#path`, `#field` and `#coordinate` are wire names — `["input", "issuedOn"]`,

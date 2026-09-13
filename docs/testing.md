@@ -131,9 +131,7 @@ GraphWeaver::Testing.configure do |config|
   # config.schema = MySchema         # the live class, rather than the dump
   # config.router = { supergraph: Rails.root.join("supergraph.graphql") }
   # config.router = { subgraphs: { "reviews" => :fake } }   # either key alone
-  # config.context = { tenant: }     # baseline context every example starts
-  #                                  # from — suite setup, so it is refused
-  #                                  # once an example is running (graphql_context)
+  # config.context = { tenant: }     # baseline context every example starts from
   # config.default_mode = :fake      # what an UNtagged example runs against;
   #                                  # :live (the default) leaves your client
   #                                  # alone, and graphql: :live opts one out
@@ -142,6 +140,25 @@ GraphWeaver::Testing.configure do |config|
   # config.list_size = 1..3
 end
 ```
+
+**Configure at load, or in an `around` — never in a plain `before`.** The tag
+builds this example's clients in a `before` hook of its own, and rspec runs
+that one ahead of yours, so a `before` setting `config.schema`, `config.router`
+or `config.context` arrives after the decision it meant to change. It is
+**refused**, not ignored — a green example running against the wrong stand-in
+is the expensive outcome. `Testing.configure` in the spec helper is the usual
+place; an `around` wraps the tag's setup when one group needs its own:
+
+```ruby
+around do |example|
+  GraphWeaver::Testing.configure { |config| config.schema = Catalog::Schema }
+  example.run
+end
+```
+
+For a single example the helper says it where it varies instead —
+`graphql_in_process(MySchema)`, `graphql_fake(schema: MySchema)`,
+`graphql_router(fake: …)`, `graphql_context(current_user: …)`.
 
 Anything whose honest answer differs per example belongs on the fake instead
 — `graphql_fake(null_chance: 1.0)` for the example that's about an empty
@@ -418,6 +435,30 @@ other tags can fall back to and this one can't is your client's own schema,
 since reading it means introspecting the endpoint `:wire` has just stubbed.
 Commit a dump, or set `config.schema`.
 
+**It says which, on the logger** — the choice is the one thing this tag makes
+for you, and it is invisible from inside the example. One line per endpoint, at
+`info` (a Rails app already has a logger; elsewhere set `GraphWeaver.logger`):
+
+```
+graph_weaver: :wire serving Shop::Schema (in-process) at https://api.example.com/graphql
+```
+
+When a **fake** stands in while the process has a `GraphQL::Schema` class that
+nothing named, that line is a `warn` instead and names the class — the case
+worth catching, because an app that owns real resolvers otherwise goes green
+against fabricated data with nothing said:
+
+```
+graph_weaver: :wire serving a fake at https://api.example.com/graphql — Shop::Schema
+is loaded and nothing named it, so your resolvers did not run. To serve them,
+name it: GraphWeaver::Testing.config.schema = Shop::Schema
+```
+
+A warning rather than a refusal, because a loaded class isn't proof you meant
+it *here* — a federated suite loads every subgraph's — and a fake behind the
+wire is a thing to want. Name the class for the suite, and call `graphql_fake`
+in the examples that want fabricated data.
+
 **A helper says what goes behind the wire.** Under the other tags a
 `graphql_*` helper takes the client slot; under `:wire` it is served instead —
 the client slot has to keep your own client for the transport to run at all —
@@ -488,6 +529,38 @@ rather have a real socket:
 run GraphWeaver::Testing::Endpoint.new(router)   # config.ru, or a Puma in a thread
 ```
 
+### Making the served endpoint fail
+
+The tag adds **one stub per endpoint**, and webmock answers with the *last*
+stub declared for a url — so an example that wants the server to misbehave
+declares its own, and it wins for that example:
+
+```ruby
+it "surfaces a 503, after the retries it's allowed", graphql: :wire do
+  stub_request(:post, "https://api.example.com/graphql")
+    .to_return(status: 503, headers: { "Retry-After" => "0" }, body: "down for maintenance")
+
+  expect { PlaceOrderMutation.execute!(input:) }.to raise_error(GraphWeaver::ServerError) { |e|
+    expect(e.status).to eq 503
+    expect(e.retry_after).to eq 0    # the header your backoff read
+  }
+end
+
+it "surfaces a timeout", graphql: :wire do
+  stub_request(:post, "https://api.example.com/graphql").to_timeout
+
+  expect { PlaceOrderMutation.execute!(input:) }.to raise_error(GraphWeaver::TransportError)
+end
+```
+
+That is a **served** failure: your transport reads the status and the headers
+off a real response, and your `retries:` budget really spends itself against it
+— including [the one attempt a mutation gets](transports.md#retries). That is
+the half a [`Failure` client](#simulating-failures) can't reach, since those sit
+*in* the client slot and raise above the wire. Use `Failure.server` /
+`Failure.timeout` when the example is about your `rescue`; a stub when it is
+about the transport.
+
 ## Simulating failures
 
 Every failure mode is just a client, so error-handling paths are testable
@@ -546,6 +619,14 @@ Failure.graphql(
 # several errors, and partial data: each carries its own hash
 Failure.graphql({ message: "boom", path: ["person"] }, "and again", data: { "person" => nil })
 ```
+
+**A server's own rejection lands in `#errors` unless it marked it.** A
+graphql-ruby `validates:` failure carries no `extensions` at all, so it is an
+ordinary error in `response.errors` — `#input_errors` is empty, because
+"the value was out of range" and "the database is down" are the same bytes.
+Assert on `errors` for that, and reach for `#input_errors` only once your
+server [says the error is about the input](errors.md#when-the-server-rejects-the-input);
+the `Failure.graphql(code:, extensions:)` call above is the shape that says it.
 
 ## Capture and replay
 

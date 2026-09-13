@@ -26,6 +26,11 @@ response.extensions     # { "cost" => … } — rides on success too
 response.data!          # the Result, or raise GraphWeaver::QueryError
 ```
 
+**`execute!` raises whenever `errors` is non-empty** — partial data included,
+so a mutation that created the order and then failed on the way out still
+raises, with the data hanging off `QueryError#data`. Reach for `execute` when
+a partial answer is one you can use.
+
 The envelope is a single generic `GraphWeaver::Response[Result]` — `response.data`
 stays fully typed to *this* query's result, no per-query wrapper class.
 
