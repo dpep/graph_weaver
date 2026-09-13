@@ -99,7 +99,7 @@ then one tag says what an example runs against:
 it "shows the profile", graphql: :fake do
   person = PersonQuery.execute!(id: "1").person
 
-  person.name       # => "Shakita Stark"      fabricated from your schema
+  person.name       # => "Shakita Stark"      with faker installed; "name-1" without
   person.birthday   # => #<Date: 2024-12-16>  custom scalars included
   person.pets.size  # => 2
 end

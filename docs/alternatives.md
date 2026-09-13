@@ -191,8 +191,8 @@ Said plainly.
 - **No `@defer`, no file uploads, no persisted queries, no batching.** artemis
   has multiplex batching;<!-- lib/artemis/client.rb .multiplex --> this gem has
   none of the four.
-- **One author, and it's new.** First commit July 2026, 4 stars, pre-1.0, and 28
-  breaking-change notes in the changelog so far.<!-- gh api repos/dpep/graph_weaver created_at 2026-07-07, stargazers_count 4; grep -c breaking CHANGELOG.md -->
+- **One author, and it's new.** First commit July 2026, 4 stars, pre-1.0, and
+  about 30 breaking-change notes in the changelog so far.<!-- gh api repos/dpep/graph_weaver created_at 2026-07-07, stargazers_count 4; grep -c -i breaking CHANGELOG.md -->
   Codegen is unforgiving and there is a lot of surface to get wrong.
   `verify` mitigates drift; nothing mitigates the maintainer. "No static types"
   is a cost many teams will rationally accept over that.

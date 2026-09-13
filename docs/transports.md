@@ -46,15 +46,24 @@ contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
   scheme (`"Basic dXNlcjpwYXNz..."`)
 - `transport:` — `:http` (the default) or `:faraday`
 - `headers:` — anything else (API keys, custom headers)
-- `retries:` — off by default; a count (`retries: 3`), or `true` for the
-  default count. Every other [`Retry`](#retries) option sits beside it
-  (`backoff:`, `retry_codes:`, ...)
+- `retries:` — off by default; a count of the attempts *after* the first
+  (`retries: 3` makes up to four), or `true` for `Retry`'s own default of 2.
+  Every other [`Retry`](#retries) option sits beside it (`backoff:`,
+  `retry_codes:`, ...)
 - `open_timeout:` / `read_timeout:` — seconds, defaulting to 10 and 30 on
   either transport
 - `cache:` / `ttl:` — schema introspection caching (see
   [real world](real_world.md)); url clients only — a schema source never
   introspects, so passing them raises
 - a block customizes the Faraday connection (Faraday only — raises without it)
+
+They combine, so the whole thing is still one call:
+
+```ruby
+GraphWeaver.new(url, transport: :faraday, retries: 2) do |conn|
+  conn.response :logger
+end
+```
 
 What you pass is what you get; the client logs which transport it built at
 `info`.

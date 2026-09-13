@@ -1,7 +1,8 @@
 # Testing
 
 How to run a spec that executes a GraphQL query without a server — against
-fabricated data, against your own resolvers, or across a federated graph.
+fabricated data, against your own resolvers, across a federated graph, or
+through your own transport with any of those behind it.
 Setup is one require and one tag; the rest of this page is what you reach for
 when an example is *about* the data, the resolvers, or the transport.
 
@@ -45,8 +46,9 @@ unless the suite sets another; and **`graphql: :live` is how one example steps
 back out** of a default the suite did set.
 
 `GraphWeaver.client` is **snapshotted before every example and restored
-after** — whatever its mode, and whatever the example did to it. So building
-your own client is a plain assignment, cleaned up like a tagged one:
+after** — tagged or untagged, whatever its mode, and whatever the example did
+to it. So building your own client is a plain assignment, cleaned up like a
+tagged one:
 
 ```ruby
 before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }
@@ -198,7 +200,9 @@ Keys are schema vocabulary, so they survive query refactors — a type name, or
 and spellchecked: `"Person.nmae"` raises rather than quietly pinning nothing
 and leaving the example green against random data. **Schema vocabulary, not
 Ruby:** a `countries` field generates a `Countries` struct, but the pin is
-`"Country"`, the type name the schema uses.
+`"Country"`, the type name the schema uses — spelled the way *that* schema
+spells it, so a Hasura table type is `"pokemon_v2_pokemon"` and not a
+Ruby-cased guess at it.
 
 An **object pin** is anything answering the field names — a FactoryBot build, a
 model, a `Struct`, an `OpenStruct`. For each selected field the fake calls the

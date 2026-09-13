@@ -82,6 +82,11 @@ preserving everything that makes the recording faithful:
 | enums, booleans, `__typename` | numbers, dates |
 | id *relationships* (same original id → same fake id) | the id values themselves |
 
+**Every plain string goes**, not the PII-shaped ones — nothing here can tell a
+user's name from a product's, so a recorded `"pikachu"` replays as `"name-1"`
+and an assertion pinned to it fails. Leave it off for a public, non-sensitive
+API, where the real values *are* the point of the cassette.
+
 `data` is walked against the schema — which is why it needs one, to know which
 values are enums, dates, ids. `errors` and `extensions` have none behind them,
 so they're walked by shape instead: keys, nesting and structure survive, every

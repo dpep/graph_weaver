@@ -28,6 +28,7 @@ rails g graph_weaver:install https://api.example.com/graphql
       create  app/graphql/fragments/.keep
       create  app/graphql/generated/.keep
       create  graphql.config.yml
+      insert  spec/rails_helper.rb
   introspect  app/graphql/schema.json from https://api.example.com/graphql
 ```
 
@@ -46,8 +47,15 @@ initializer that fits:
 | `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`. Url only, and omitted entirely for a public API that needs no token. The name is recorded into the dump, so `schema:refresh`/`schema:diff`/`queries:check` read the same one the initializer does |
 | `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh URL=...` does it later |
 
-Re-running is safe — every file goes through the usual Rails conflict
-prompt, so an initializer you've edited is never overwritten silently.
+Re-running is safe — every file it writes goes through the usual Rails
+conflict prompt, so an initializer you've edited is never overwritten
+silently. The schema dump is the one file that isn't Thor's to diff, so it is
+**kept** rather than prompted for — replacing it would drop the source url it
+records, which `schema:diff`/`:refresh` read:
+
+```
+        keep  app/graphql/schema.json — delete it and re-run to re-introspect
+```
 
 What it wrote:
 
@@ -588,7 +596,29 @@ mkdir -p app/graphql/queries app/graphql/generated
 rake graph_weaver:schema:refresh URL=https://api.example.com/graphql
 ```
 
+Those paths are the Rails convention, not a requirement: put the files where
+your project already puts things and say so with `GraphWeaver.queries_paths`
+and `GraphWeaver.generated_paths`.
+
 Add `require "graph_weaver/tasks"` to your Rakefile for the rake tasks —
 and, since there's no `:environment` hook to run your registrations,
-require the file that does them from the Rakefile too. `graphql.config.yml`
-is copy/paste from [editors](editors.md).
+require the file that does them from the Rakefile too.
+
+**Or skip rake too.** The tasks are a thin wrapper over public calls, so a
+script of your own does the same work — and `cache: true` writes the dump on
+that first introspection, so there's nothing to refresh first:
+
+```ruby
+client = GraphWeaver.new("https://api.example.com/graphql", cache: true)
+client.schema                     # introspects once, writing the dump
+
+schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
+GraphWeaver.generate!(schema:)    # => every file the plan produces
+GraphWeaver.changed_files         # => only the ones whose bytes moved
+```
+
+Pruning, the shared types module, and `verify_generated!` — the freshness
+guard `rake graph_weaver:verify` runs — are in
+[generated modules](generated_modules.md#generating).
+
+`graphql.config.yml` is copy/paste from [editors](editors.md).
