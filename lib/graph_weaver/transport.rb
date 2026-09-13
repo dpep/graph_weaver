@@ -122,6 +122,7 @@ class GraphWeaver::Transport
     request = { query:, variables: }
     request[:operationName] = operation_name if operation_name
 
+    GraphWeaver::Internal::Wire.check_variables!(variables)
     encoded = GraphWeaver::Internal::Wire.json(request)
 
     # headers is optional: a third-party subclass returning the

@@ -301,6 +301,44 @@ module GraphWeaver
         raise GraphWeaver::Error, "variables are not JSON-serializable: #{e.message}"
       end
 
+      # The half of that discipline JSON doesn't raise for. JSON.generate
+      # carries a String, a number, a boolean, null, a list and an object;
+      # anything else it renders as the value's #to_s — right for a Date or
+      # a Symbol, a memory address for a File, which then sits in the
+      # server's database looking like it meant something. So a variable
+      # whose #to_s is Ruby's debug form, or that is a stream whose bytes
+      # JSON can't carry at all, is refused before the body is built.
+      def self.check_variables!(variables)
+        variables.each { |name, value| check_variable!(name.to_s, value) }
+      end
+
+      def self.check_variable!(path, value)
+        case value
+        when Hash then value.each { |key, nested| check_variable!("#{path}.#{key}", nested) }
+        when Array then value.each_with_index { |nested, i| check_variable!("#{path}[#{i}]", nested) }
+        when String, Symbol, Numeric, true, false, nil then nil
+        else
+          raise GraphWeaver::Error, variable_refusal(path, value) if value.respond_to?(:read) ||
+            value.to_s.start_with?("#<")
+        end
+      end
+      private_class_method :check_variable!
+
+      # A stream and an anonymous object fail the same way and need different
+      # next steps: one is a feature this client doesn't have, the other is a
+      # value that never said what it is.
+      def self.variable_refusal(path, value)
+        if value.respond_to?(:read)
+          "$#{path} is a #{value.class} — graph_weaver posts application/json and doesn't implement " \
+            "the GraphQL multipart request spec, so a file can't ride along; send what the server " \
+            "expects as JSON, or POST the upload with your own transport"
+        else
+          "$#{path} is a #{value.class}, which has no JSON form — it would go on the wire as " \
+            "#{value.to_s.inspect}; send a String, a number, a boolean, a list, or an object"
+        end
+      end
+      private_class_method :variable_refusal
+
       # The name of the document's FIRST operation, nil when anonymous. Only
       # the fallback for a raw query string handed straight to a transport —
       # generated modules pass their OPERATION_NAME, parsed properly.

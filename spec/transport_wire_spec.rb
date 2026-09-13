@@ -1,3 +1,5 @@
+require "bigdecimal"
+require "pathname"
 require "stringio"
 require "zlib"
 
@@ -126,6 +128,57 @@ describe "a transport reading the wire" do
         expect(error).to be_throttled
         expect(error.retry_after).to be_within(2).of(expected)
       end
+    end
+  end
+
+  # JSON.generate renders anything it doesn't know as the value's #to_s — right
+  # for a Date, a memory address for a File. An Upload! variable given a real
+  # file went out as {"file":"#<File:0x…>"} with a 200 back and no error
+  # anywhere, which is wire corruption the server stores as if it meant
+  # something.
+  describe "variables with no JSON form" do
+    let(:url) { answering(http_response(200, good_body)) }
+
+    def sending(variables, transport = GraphWeaver::Transport::HTTP)
+      transport.new(url).execute(query, variables:)
+    end
+
+    it "refuses a file, and says why a file can't ride in a JSON body" do
+      transports.each do |transport|
+        expect { sending({ "file" => File.open(__FILE__) }, transport) }
+          .to raise_error(GraphWeaver::Error, /\$file is a File — .*multipart request spec.*own transport/m)
+      end
+      expect(raw_requests).to be_empty # refused before anything was sent
+    end
+
+    it "refuses a stream whose #to_s reads fine, like a Pathname" do
+      expect { sending({ "avatar" => Pathname.new("/tmp/avatar.png") }) }
+        .to raise_error(GraphWeaver::Error, /\$avatar is a Pathname/)
+    end
+
+    # an object that never said what it is — the memory address is the point
+    it "refuses an object JSON would render as its debug form" do
+      expect { sending({ "who" => Object.new }) }
+        .to raise_error(GraphWeaver::Error, /\$who is a Object, which has no JSON form.*#<Object:0x/m)
+    end
+
+    it "names where in a variable the value sits" do
+      expect { sending({ "input" => { "avatar" => StringIO.new("x") } }) }
+        .to raise_error(GraphWeaver::Error, /\$input\.avatar is a StringIO/)
+      expect { sending({ "files" => [nil, File.open(__FILE__)] }) }
+        .to raise_error(GraphWeaver::Error, /\$files\[1\] is a File/)
+    end
+
+    # the refusal has to stay narrow: these all have an honest string form,
+    # and a registered scalar's serialized value is JSON-native by then
+    it "leaves a value that renders honestly alone" do
+      variables = {
+        "day" => Date.new(2024, 1, 1), "at" => Time.at(0).utc, "amount" => BigDecimal("1.5"),
+        "mode" => :live, "nested" => { "list" => [Date.new(2024, 1, 1), 1, "s", true, nil] },
+      }
+
+      transports.each { |transport| expect(sending(variables, transport)).to eq answer }
+      expect(raw_requests.last.last).to include %("day":"2024-01-01"), %("mode":"live")
     end
   end
 

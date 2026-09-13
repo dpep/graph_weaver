@@ -209,6 +209,20 @@ module at generation, so the name is declared in the query too. A raw query
 string handed straight to a transport falls back to the name in the document,
 and a genuinely anonymous one sends no `operationName` key at all.
 
+**Variables have to be JSON.** The body is one `application/json` document, so
+every variable value, at any depth, must be something JSON carries: a string,
+a number, a boolean, null, a list, an object — or a value with an honest
+string form, which is how a `Date`, a `Time`, a `BigDecimal` or a `Symbol`
+travels. A `File`, an `IO`, a `Pathname` or a plain object is refused before
+the body is built, naming the variable: JSON would otherwise render it as its
+`#to_s`, so `$file` reaches the server as `"#<File:0x00007f…>"` and is stored
+as if it meant something. graph_weaver does not implement the [GraphQL
+multipart request
+spec](https://github.com/jaydenseric/graphql-multipart-request-spec), so an
+`Upload!` argument needs your own transport or a separate upload endpoint —
+registering a scalar can't help, because multipart restructures the whole
+request rather than one value.
+
 **Concurrency.** One transport is normally the whole app's transport
 (`GraphWeaver.client = api`), so it has to serve every thread.
 `Transport::HTTP` opens up to `pool_size:` sockets lazily and reuses the

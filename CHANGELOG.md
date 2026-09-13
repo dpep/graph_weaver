@@ -20,6 +20,16 @@
   Override either in `headers:` — which is how one app names its several
   clients apart. `Transport.default_headers` is the whole set;
   `DEFAULT_HEADERS` stays the fixed half of it.
+- **A variable with no JSON form is now refused at the wire.** `JSON.generate`
+  renders a value it doesn't know as that value's `#to_s`, so an `Upload!`
+  given a real file went out as `{"file":"#<File:0x00007f…>"}` — 200 back, no
+  error, and a memory address in the server's database. A `File`, an `IO`, a
+  `Pathname` or a plain object is now refused before the body is built, naming
+  the variable and what to do instead; a `Date`, `Time`, `BigDecimal` or
+  `Symbol` still travels as its string. **If you were relying on that silent
+  `#to_s`, send the value the server expects.** File uploads still need your
+  own transport — graph_weaver doesn't implement the GraphQL multipart
+  request spec.
 
 - **The local router refuses a `@fromContext` argument on any path.** The
   refusal used to live only in the crossing-aware half of the planner, so a
