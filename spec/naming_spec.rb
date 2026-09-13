@@ -207,3 +207,52 @@ describe "generated class naming" do
     end
   end
 end
+
+# The module a .graphql file names, derived from the file name alone. Apollo,
+# Relay and GitLab's frontend all name query files `foo.query.graphql`, and
+# kebab-case is as common — both used to derive a name no constant can spell.
+describe "the module a query file names" do
+  def names(filename, source = "query { person { name } }")
+    GraphWeaver::Internal::Util.generated_names("app/graphql/queries/#{filename}", source)
+  end
+
+  it "treats every non-alphanumeric run in the file name as a word boundary" do
+    expect(names("get-hello.graphql")).to eq ["GetHelloQuery", "get_hello_query.rb"]
+    expect(names("user.profile.graphql")).to eq ["UserProfileQuery", "user_profile_query.rb"]
+  end
+
+  it "drops a trailing kind extension the operation's own suffix already says" do
+    expect(names("hello.query.graphql")).to eq ["HelloQuery", "hello_query.rb"]
+    expect(names("save-list-entry.mutation.graphql", "mutation { save { id } }"))
+      .to eq ["SaveListEntryMutation", "save_list_entry_mutation.rb"]
+  end
+
+  it "leaves a plain snake_case name exactly as it was" do
+    expect(names("person.graphql")).to eq ["PersonQuery", "person_query.rb"]
+    expect(names("save_list_entry.graphql", "mutation { save { id } }"))
+      .to eq ["SaveListEntryMutation", "save_list_entry_mutation.rb"]
+  end
+
+  # nothing would be left of the name
+  it "keeps a kind extension that is the whole name" do
+    expect(names("query.graphql")).to eq ["QueryQuery", "query_query.rb"]
+  end
+
+  it "refuses a kind extension that disagrees with the document" do
+    expect { names("hello.query.graphql", "mutation { save { id } }") }
+      .to raise_error(GraphWeaver::Error,
+        /hello\.query\.graphql: the file name ends \.query, but the document defines a mutation — rename it hello\.mutation\.graphql or drop the \.query/)
+  end
+
+  # unparseable: codegen brands the real error a moment later, and a naming
+  # refusal here would bury it
+  it "says nothing about a kind extension it can't check" do
+    expect(names("hello.query.graphql", "query { person {{ name } }"))
+      .to eq ["HelloQuery", "hello_query.rb"]
+  end
+
+  # nothing left to camelize, so the name stays as written and the refusal quotes it
+  it "leaves a name no constant can spell unspellable" do
+    expect(names("--.graphql").first).to eq "--Query"
+  end
+end

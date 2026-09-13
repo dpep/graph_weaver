@@ -86,6 +86,29 @@ describe "GraphWeaver.generate!" do
       .to raise_error(GraphWeaver::Error, %r{\A.*/queries/01_home_featured\.graphql: name: must be a constant name, got "01HomeFeaturedQuery" — it comes from the file name, so rename})
   end
 
+  # punctuation is a word boundary now, so a name that is nothing BUT
+  # punctuation has no words left — and must still refuse, not answer "Query"
+  it "names the query file whose name is all punctuation" do
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "--.graphql"), "query { person(id: 1) { name } }")
+
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
+      .to raise_error(GraphWeaver::Error, %r{\A.*/queries/--\.graphql: name: must be a constant name, got "--Query" — it comes from the file name, so rename})
+  end
+
+  # a file that names its own kind and then holds another is a rename gone
+  # half-done; either half could be the truth, so it says so instead of picking
+  it "refuses a file whose kind extension disagrees with its operation" do
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "save_pet.query.graphql"),
+      %(mutation { addPet(name: "x", species: DOG) { id } }))
+
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
+      .to raise_error(GraphWeaver::Error, %r{queries/save_pet\.query\.graphql: the file name ends \.query, but the document defines a mutation — rename it save_pet\.mutation\.graphql or drop the \.query})
+  end
+
   it "names the query file a validation error came from" do
     queries = File.join(@dir, "queries")
     FileUtils.mkdir_p(queries)

@@ -52,19 +52,29 @@ module GraphWeaver
 
         # The module a .graphql file generates, and the basename of the file
         # it generates into: the camelized file name plus the operation's own
-        # word.
+        # word. Every run of non-alphanumerics in the name is a word boundary,
+        # and a trailing extension naming the document's own operation kind is
+        # dropped rather than doubled.
         #
         #      person.graphql          => PersonQuery       (person_query.rb)
         #      save_list_entry.graphql => SaveListEntryMutation
         #                                 (save_list_entry_mutation.rb)
+        #      get-hello.graphql       => GetHelloQuery     (get_hello_query.rb)
+        #      hello.query.graphql     => HelloQuery        (hello_query.rb)
         #
         # Every naming site goes through here — generate!, parse(path), and
         # load_queries! — so the constant a file produces is the same one
         # whichever door you came in by, and the file it lands in matches it.
         def generated_names(path, source)
-          base = File.basename(path, ".*")
-          suffix = operation_suffix(source)
-          ["#{Inflect.camelize(base)}#{suffix}", "#{base}_#{suffix.downcase}.rb"]
+          kind = operation_kind(source)
+          base = strip_kind_extension(File.basename(path, ".*"), kind, path)
+          stem = base.gsub(/[^A-Za-z0-9]+/, "_")
+          suffix = (kind == "mutation") ? "Mutation" : "Query"
+          name = Inflect.camelize(stem)
+          # all punctuation camelizes to nothing, which would leave the suffix
+          # standing alone as the whole name — keep the base so it stays refusable
+          name = base if name.empty?
+          ["#{name}#{suffix}", "#{stem}_#{suffix.downcase}.rb"]
         end
 
         # just the module name — see generated_names
@@ -240,13 +250,36 @@ module GraphWeaver
           source
         end
 
-        # "Mutation" for a mutation document, "Query" for everything else.
-        def operation_suffix(source)
+        # The document's operation kind — "query", "mutation" or
+        # "subscription" — or nil when it holds no operation or won't parse.
+        # The one source of truth for the word a module name ends in AND for
+        # the file-name extension that word makes redundant.
+        def operation_kind(source)
           operation = GraphQL.parse(source).definitions
             .grep(GraphQL::Language::Nodes::OperationDefinition).first
-          (operation&.operation_type == "mutation") ? "Mutation" : "Query"
+          operation && (operation.operation_type || "query") # `{ hello }` is shorthand for a query
         rescue GraphQL::ParseError
-          "Query" # unparseable: codegen brands the real error a moment later
+          nil # unparseable: codegen brands the real error a moment later
+        end
+
+        # GraphQL's operation kinds, as a file name spells them. Apollo, Relay
+        # and GitLab's frontend all name a query file for its operation, so
+        # `blob_content.query.graphql` says in the extension exactly what the
+        # module's own suffix says — drop it rather than emit BlobContentQueryQuery.
+        # `_query` inside a snake_case name is a word OF the name, not this, so
+        # nothing that generates today is renamed.
+        OPERATION_EXTENSION = /\.(query|mutation|subscription)\z/i
+        private_constant :OPERATION_EXTENSION
+
+        def strip_kind_extension(base, kind, path)
+          declared = base[OPERATION_EXTENSION, 1]&.downcase
+          stem = declared && base[0...-(declared.length + 1)]
+          return base if stem.nil? || stem.empty?
+          return stem if kind.nil? || kind == declared
+
+          raise GraphWeaver::Error, "#{relative(path)}: the file name ends .#{declared}, but the " \
+            "document defines a #{kind} — rename it #{stem}.#{kind}#{File.extname(path)} " \
+            "or drop the .#{declared}"
         end
       end
     end
