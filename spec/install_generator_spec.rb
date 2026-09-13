@@ -135,9 +135,16 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       RUBY
     end
 
-    it "points at GRAPHWEAVER_AUTH by default" do
-      expect(initializer(run_generator)).to include 'ENV["GRAPHWEAVER_AUTH"]'
-      expect(initializer(run_generator)).to include "register_scalar", "extend_type" # pointers, not a wall of options
+    # --auth is what says this API takes a token. Wiring one anyway read as
+    # setup a public API needs, and pointed every install at an ENV var
+    # nobody had set — while docs/getting_started.md said the flag was
+    # "omitted entirely for a public API that needs no token".
+    it "shows the auth line rather than wiring it when no --auth was given" do
+      written = initializer(run_generator)
+
+      expect(written).not_to match(/^\s*auth:/)
+      expect(written).to include %(  # auth: ENV["GRAPHWEAVER_AUTH"],)
+      expect(written).to include "register_scalar", "extend_type" # pointers, not a wall of options
     end
 
     # The one registration a new app copies, so it has to be the current

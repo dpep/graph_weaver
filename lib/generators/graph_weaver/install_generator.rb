@@ -254,6 +254,15 @@ module GraphWeaver
 
       def auth_var = options[:auth] || GraphWeaver::SchemaLoader::DEFAULT_AUTH_ENV
 
+      # --auth is what says this API takes a token. Without it the line is
+      # shown rather than wired: a public API's initializer shouldn't read an
+      # ENV var nobody set, and the commented line is how you add one later.
+      def auth_setting
+        return %(auth: ENV["#{auth_var}"],) if options[:auth]
+
+        %(# auth: ENV["#{auth_var}"],  # uncomment when the API needs a token)
+      end
+
       # The command just typed, retyped. One rule for every source form, and
       # the only one that always works: the files already written come back
       # "identical", and --auth rides along — where schema:refresh has no flag
@@ -283,7 +292,7 @@ module GraphWeaver
           <<~RUBY
             GraphWeaver.client = GraphWeaver.new(
               "#{source}",
-              auth: ENV["#{auth_var}"],
+              #{auth_setting}
               cache: true, # reuse the committed dump; delete it to re-introspect
             )
           RUBY

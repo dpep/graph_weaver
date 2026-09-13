@@ -88,6 +88,14 @@
   confident pitch for `#input_errors` — so the section now opens with the
   servers read by name (graphql-ruby, Apollo, Hasura), what marks an error as
   input on each, and a worked fallback for a server that marks nothing.
+- **`rails g graph_weaver:install` no longer wires auth you didn't ask for.**
+  The initializer carried `auth: ENV["GRAPHWEAVER_AUTH"]` on every url
+  install, so a public API's setup read an ENV var nobody had set — while the
+  `--auth` docs said the flag was "omitted entirely for a public API that
+  needs no token". Without `--auth` the line is now written commented, which
+  is both the honest default and how you add a token later; `--auth VAR` wires
+  it exactly as before. Existing initializers are untouched — this is what the
+  *next* install writes.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
