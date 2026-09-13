@@ -265,10 +265,21 @@ and the module's name is written into the document instead. The same rule
 runs at all three doors: `generate!`, `GraphWeaver.parse(path)`, and
 `client.load_queries!`.
 
+**Every run of non-alphanumerics in the file name is a word boundary**, after a
+trailing `.query`/`.mutation`/`.subscription` extension naming the document's
+own operation is dropped — so `get-hello.graphql` is `GetHelloQuery` in
+`get_hello_query.rb`, and `hello.query.graphql` is `HelloQuery` in
+`hello_query.rb`, not `HelloQueryQuery`. Only that extension is dropped:
+`user.profile.graphql` is `UserProfileQuery`, keeping the `profile`. A file
+whose extension names a kind it doesn't hold (`hello.query.graphql` defining a
+mutation) is refused, naming both halves. What is left still has to spell a
+constant — `01_home.graphql` is refused, since `01HomeQuery` isn't one.
+
 Subdirectories are yours to organize with — `queries/admin/pets.graphql` is
 found, but the module name still comes from the file name alone, so it is
-`PetsQuery` in `pets_query.rb`. Two files with the same base name are refused at
-generation, naming both, rather than one silently overwriting the other; so is a
+`PetsQuery` in `pets_query.rb`. Two files that name the same module are refused
+at generation (`pets.graphql` and `pets.query.graphql` both name `PetsQuery`),
+naming both, rather than one silently overwriting the other; so is a
 file holding two operations, since one file can't name two modules. Change a
 file's `query` to `mutation` and its constant changes with it; the next
 `generate!` prunes the old file, and `verify` fails until you regenerate.
