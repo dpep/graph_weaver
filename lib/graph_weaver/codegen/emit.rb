@@ -632,6 +632,11 @@ class GraphWeaver::Codegen
       out << "#{pad}  include GraphWeaver::InputStruct"
       out << "#{pad}  extend GraphWeaver::InputStruct::ClassMethods"
       out << ""
+      # the schema's name for this type, so a refusal reports GraphQL
+      # vocabulary rather than the Ruby class generation happened to pick
+      out << "#{pad}  GRAPHQL_NAME = T.let(#{node.graphql_name.inspect}, String)"
+      out << "#{pad}  private_constant :GRAPHQL_NAME"
+      out << ""
       if node.one_of
         out << "#{pad}  # @oneOf: every field is nullable, so exactly-one is checked at runtime"
         out << "#{pad}  ONE_OF = T.let(true, T::Boolean)"

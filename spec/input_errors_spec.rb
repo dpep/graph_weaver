@@ -294,6 +294,27 @@ describe "input errors" do
     end
   end
 
+  # #details is what an app translates for a user ("%{field} must be a
+  # %{type}"), so it never carries a Ruby class name: the schema's is the only
+  # vocabulary both halves share, and the generated class name is an artifact
+  # of generation.
+  describe "#details[:type]" do
+    it "names the GraphQL input type, not the class generated for it" do
+      error = refusal { AdoptMutation.execute(input: "just a string") }
+
+      expect(error.kind).to eq :type_mismatch
+      expect(error.details[:type]).to eq "AdoptionInput"
+      # the message names the Ruby you may pass, which is the developer's half
+      expect(error.message).to include "GraphQLTypes::AdoptionInput"
+    end
+
+    it "names the GraphQL scalar for a leaf" do
+      error = refusal { PersonQuery.execute(id: []) }
+
+      expect(error.details[:type]).to eq "ID"
+    end
+  end
+
   # One rule, both directions. A server can spell an input field only the way
   # its schema does, so that is the spelling BOTH halves use — the prop is what
   # you type in Ruby, and it is the message (the developer's line) that names

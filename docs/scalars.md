@@ -43,7 +43,9 @@ for the other and it is refused, naming the class —
 time of day is what you meant`. That holds when you register your own `cast:`
 too: a cast says how the Ruby object is *built*, not which values are right, so
 a `DateTime` — which Ruby files under `Date` — is refused for a `Date` scalar
-however the codec is spelled. A schema that means something
+however the codec is spelled. The refusal is about Ruby **objects**: a
+timestamp *string* given for a `Date` parses and truncates to its date, which
+is what graphql-ruby's own `ISO8601Date` does with it. A schema that means something
 else by one of these names fails loudly — the cast raises, naming the field —
 and one `register_scalar` overrides it, like any other entry. Names that are
 *not* a convention (`Timestamp`, `UUID`, `URL`, `Decimal`, `Money`) are left to
@@ -273,15 +275,26 @@ than a spelling. **`Boolean` takes no string** — Ruby has no `Kernel#Boolean`,
 so every rule for reading `"0"`, `"off"`, `"no"` is somebody's convention, and
 the library will not pick one for you; convert at the call site. **A `Date` and
 a `Time` are not each other** — one converts to the other only by dropping the
-time of day or inventing a midnight, so a cross-type value is refused rather
-than truncated. What *is* accepted for a `Time` is anything that already is one:
+time of day or inventing a midnight, so a cross-type Ruby **object** is refused
+rather than truncated. A timestamp *string* is a different question, answered
+by the wire table above: it truncates. What *is* accepted for a `Time` is anything that already is one:
 a `DateTime`, or the `ActiveSupport::TimeWithZone` that `Time.zone.now` returns.
 
 Anything the table refuses raises `GraphWeaver::InputError` naming the variable,
 the operation and the value — `$count of Compute: expected an Int, got "lots"`
 — which is the same [422 rescue point](errors.md) as a bad input-object field.
-Input-object fields go through this table too, so `{first: "20"}` inside a
-filter hash reads the same as `first: "20"` as a kwarg.
+It is named the way the **schema** names it, so a `register_scalar("Money",
+BigDecimal)` field refuses a `Money`, in `#message` and in `#details[:type]`
+alike. Input-object fields go through this table too, so `{first: "20"}` inside
+a filter hash reads the same as `first: "20"` as a kwarg.
+
+When it is the **server's** custom scalar that refuses, its
+`GraphQL::CoercionError` earns a specific
+[`kind`](errors.md#what-an-inputerror-says-without-reading-english) only where
+its message matches one of graphql-ruby's own explanations, or the scalar
+raises with `extensions: { "input" => … }`
+([the convention](errors.md#what-your-server-can-send)) itself — a scalar's own
+wording arrives `:refused`, with that wording.
 
 `GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
 scalars restored, enum mappings and type helpers dropped. `GraphWeaver.reset_graphs!`

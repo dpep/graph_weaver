@@ -147,7 +147,7 @@ or an API response needs is beside it, as data:
 | `#path` | the route from the variable down, Strings and list indices: `["where", "_and", 0, "_not", "species"]`. Every named segment is the **schema's** spelling — see [which spelling](#which-spelling-a-path-is-in) |
 | `#coordinate` | the [schema coordinate](https://github.com/graphql/graphql-spec/pull/794) for the slot — `"PetFilter.species"`. `nil` when there isn't one |
 | `#value` | the rejected value, through [`filter_parameters`](logging.md#filtered-variables), and always JSON-representable (a non-finite Float travels as `"NaN"`/`"Infinity"`). `nil` when it was never known — a missing field has none, and an unknown key owns no slot to hold one |
-| `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }` |
+| `#details` | kind-specific facts, never pre-formatted — `{ members: ["CAT", "DOG"] }`, `{ type: "Int" }`, `{ suggestion: "species" }`. `type` is the **schema's** name for the type (`Money`, `AdoptionInput`), never the Ruby class it maps to |
 | `#field` | `#path`'s last *named* segment — the one field a form highlights. A trailing list index is a position, not a field, so `["ids", 2]` is still `"ids"` |
 | `#struct` | the input type being built |
 

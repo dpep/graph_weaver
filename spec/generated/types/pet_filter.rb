@@ -8,6 +8,9 @@ module GraphQLTypes
     include GraphWeaver::InputStruct
     extend GraphWeaver::InputStruct::ClassMethods
 
+    GRAPHQL_NAME = T.let("PetFilter", String)
+    private_constant :GRAPHQL_NAME
+
     const :_and, T.nilable(T::Array[PetFilter]), default: nil
     const :_not, T.nilable(PetFilter), default: nil
     const :metadata, T.untyped, default: nil
@@ -19,7 +22,7 @@ module GraphQLTypes
       GraphWeaver::InputStruct::Field.new(:_and, "_and", false, ->(v) { v.map { |v1| v1.serialize } }, ->(v) { v.map.with_index { |v1, i1| GraphWeaver::InputStruct.element(i1, v1) { PetFilter.coerce(v1) } } }, "PetFilter._and"),
       GraphWeaver::InputStruct::Field.new(:_not, "_not", false, ->(v) { v.serialize }, ->(v) { PetFilter.coerce(v) }, "PetFilter._not"),
       GraphWeaver::InputStruct::Field.new(:metadata, "metadata", false, nil, nil, "PetFilter.metadata"),
-      GraphWeaver::InputStruct::Field.new(:name, "name", false, nil, ->(v) { GraphWeaver::Coerce.string(v) }, "PetFilter.name"),
+      GraphWeaver::InputStruct::Field.new(:name, "name", false, nil, ->(v) { GraphWeaver::Coerce.string(v, "String") }, "PetFilter.name"),
       GraphWeaver::InputStruct::Field.new(:species, "species", false, ->(v) { v.serialize }, ->(v) { GraphWeaver::InputStruct.enum(Species, v) }, "PetFilter.species"),
     ].freeze, T::Array[GraphWeaver::InputStruct::Field])
     private_constant :FIELDS

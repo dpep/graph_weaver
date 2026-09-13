@@ -77,7 +77,7 @@ module AddPetMutation
   sig { params(name: String, species: T.any(Species, String), client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(name:, species:, client: nil)
     variables = {
-      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v) },
+      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v, "String") },
       "species" => GraphWeaver::Coerce.variable("species", OPERATION_NAME, species) { |v| GraphWeaver::InputStruct.enum(Species, v).serialize },
     }
 

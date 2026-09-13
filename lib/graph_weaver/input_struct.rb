@@ -184,9 +184,11 @@ module GraphWeaver
         # list was expected) is bad input — surface a branded 422, not a raw
         # NoMethodError from validate_keys!'s `.keys`
         unless value.is_a?(Hash)
+          # the message names the Ruby you may pass; #details is what an app
+          # translates for a user, so it speaks the schema's vocabulary
           raise GraphWeaver::InputError.new(
             "expected a Hash or #{self}, got #{value.class}",
-            kind: :type_mismatch, details: { type: to_s }, struct: self,
+            kind: :type_mismatch, details: { type: graphql_name }, struct: self,
           )
         end
 
@@ -233,6 +235,8 @@ module GraphWeaver
       end
 
       private
+
+      def graphql_name = T.unsafe(self).const_get(:GRAPHQL_NAME)
 
       # The prop whose value its own type refuses, reported the way every
       # other input failure is. Only sorbet stands between a field with no

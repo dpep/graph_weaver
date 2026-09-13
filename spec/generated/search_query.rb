@@ -151,7 +151,7 @@ module SearchQuery
   sig { params(term: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(term:, client: nil)
     variables = {
-      "term" => GraphWeaver::Coerce.variable("term", OPERATION_NAME, term) { |v| GraphWeaver::Coerce.string(v) },
+      "term" => GraphWeaver::Coerce.variable("term", OPERATION_NAME, term) { |v| GraphWeaver::Coerce.string(v, "String") },
     }
 
     from_response(dispatch(variables, client:))

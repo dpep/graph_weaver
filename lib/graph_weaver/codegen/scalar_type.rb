@@ -153,11 +153,14 @@ class GraphWeaver::Codegen
     # the guard in front of it and the verdict when it refuses are still the
     # library's, so both go through Coerce.cast rather than a bare `is_a?`
     # (a DateTime is one of those, and is not a Date on any wire).
+    # The schema's name for the scalar travels with the value, so a refusal
+    # reports GraphQL vocabulary rather than the Ruby type it maps to —
+    # register_scalar("Money", BigDecimal) refuses a Money, not a BigDecimal.
     def coerce_input(expr)
       if (fn = coercer)
-        "GraphWeaver::Coerce.#{fn}(#{expr})"
+        "GraphWeaver::Coerce.#{fn}(#{expr}, #{@graphql_name.inspect})"
       elsif cast?
-        "GraphWeaver::Coerce.cast(#{@type}, #{expr}) { |raw| #{cast("raw")} }"
+        "GraphWeaver::Coerce.cast(#{@type}, #{expr}, #{@graphql_name.inspect}) { |raw| #{cast("raw")} }"
       end
     end
 

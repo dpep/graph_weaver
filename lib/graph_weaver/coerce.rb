@@ -33,21 +33,26 @@ module GraphWeaver
     private_constant :DATE_HINT, :TIME_HINT
 
     class << self
-      def integer(value)
+      # `scalar` is the schema's name for what this rule builds, and it is what
+      # the refusal reports — as the message and as #details[:type], which an
+      # app translates for a user. It defaults to the GraphQL scalar the rule
+      # is named for; generated code passes the schema's own name, so a
+      # `register_scalar("BigInt", Integer)` field refuses as a BigInt.
+      def integer(value, scalar = "Int")
         case value
         when Integer then value
-        when Float then whole(value)
-        when String then INTEGER.match?(value.strip) ? Integer(value.strip, 10) : unparseable(value, "Int")
-        else refuse(value, "Int")
+        when Float then whole(value, scalar)
+        when String then INTEGER.match?(value.strip) ? Integer(value.strip, 10) : unparseable(value, scalar)
+        else refuse(value, scalar)
         end
       end
 
-      def float(value)
+      def float(value, scalar = "Float")
         case value
-        when Float then finite(value)
-        when Integer then finite(value.to_f)
-        when String then NUMBER.match?(value.strip) ? finite(Float(value.strip)) : unparseable(value, "Float")
-        else refuse(value, "Float")
+        when Float then finite(value, scalar)
+        when Integer then finite(value.to_f, scalar)
+        when String then NUMBER.match?(value.strip) ? finite(Float(value.strip), scalar) : unparseable(value, scalar)
+        else refuse(value, scalar)
         end
       end
 
@@ -55,23 +60,23 @@ module GraphWeaver
       # drops the time of day or invents a midnight, so a cross-type value is
       # refused rather than guessed at — by class, since a timestamp printed
       # in full looks a great deal like a date.
-      def date(value)
+      def date(value, scalar = "Date")
         case value
         # DateTime is a Date to Ruby and a timestamp to everyone else
-        when DateTime, Time then cross(value, "Date", DATE_HINT)
+        when DateTime, Time then cross(value, scalar, DATE_HINT)
         when Date then value
-        when String then parsing("Date", value) { Date.iso8601(value) }
-        else time_like?(value) ? cross(value, "Date", DATE_HINT) : refuse(value, "Date")
+        when String then parsing(scalar, value) { Date.iso8601(value) }
+        else time_like?(value) ? cross(value, scalar, DATE_HINT) : refuse(value, scalar)
         end
       end
 
-      def time(value)
+      def time(value, scalar = "Time")
         case value
         when Time then value
         when DateTime then value.to_time # the same instant in another class
-        when Date then cross(value, "Time", TIME_HINT)
-        when String then parsing("Time", value) { Time.parse(value) }
-        else time_like?(value) ? value.to_time : refuse(value, "Time")
+        when Date then cross(value, scalar, TIME_HINT)
+        when String then parsing(scalar, value) { Time.parse(value) }
+        else time_like?(value) ? value.to_time : refuse(value, scalar)
         end
       end
 
@@ -88,27 +93,27 @@ module GraphWeaver
 
       # Ruby has no Kernel#Boolean, and every string rule ("0", "off", "no")
       # is somebody's convention — so refuse rather than pick one.
-      def boolean(value)
+      def boolean(value, scalar = "Boolean")
         return value if value == true || value == false
 
-        refuse(value, "Boolean", "there is no one right reading of it — convert at the call site")
+        refuse(value, scalar, "there is no one right reading of it — convert at the call site")
       end
 
-      def string(value)
+      def string(value, scalar = "String")
         return value if value.is_a?(String)
 
-        refuse(value, "String")
+        refuse(value, scalar)
       end
 
       # The GraphQL spec has ID serialize as a String but accept an integer
       # input, which is `execute(id: user.id)` — the everyday Rails call.
       # String gets no such licence: an Integer where a String belongs is
       # more often a bug than a spelling.
-      def id(value)
+      def id(value, scalar = "ID")
         case value
         when String then value
         when Integer then value.to_s
-        else refuse(value, "ID")
+        else refuse(value, scalar)
         end
       end
 
@@ -118,15 +123,16 @@ module GraphWeaver
       # not rebuilt), and a verdict, since a cast complains about the value
       # alone — "no implicit conversion of Integer into String" names neither
       # what was expected nor which half of the value was wrong.
-      def cast(type, value)
+      def cast(type, value, scalar = nil)
+        scalar ||= type.is_a?(Module) ? type.name : type.to_s
         # DateTime is a Date to Ruby and a timestamp to everyone else, so it is
         # not "already a Date" however the app spelled its cast: .date's own
         # refusal, applied BEFORE the cast rather than instead of it.
-        cross(value, "Date", DATE_HINT) if type.equal?(::Date) && value.is_a?(::DateTime)
+        cross(value, scalar, DATE_HINT) if type.equal?(::Date) && value.is_a?(::DateTime)
         # a type given as a type string ("T::Hash[...]") names no class to ask
         return value if type.is_a?(Module) && value.is_a?(type)
 
-        parsing(type.is_a?(Module) ? type.name : type.to_s, value) { yield value }
+        parsing(scalar, value) { yield value }
       end
 
       # Brands one variable's coercion failure with the variable and the
@@ -181,18 +187,18 @@ module GraphWeaver
       # and the GraphQL spec excludes them from Float outright. Refusing here
       # names the variable; the transport otherwise complains that the
       # variables aren't serializable, a whole query away from the value.
-      def finite(value)
+      def finite(value, scalar = "Float")
         return value if value.finite?
 
         # a number, but not one GraphQL's Float admits — no conversion applies
-        raise mismatch(ArgumentError, "#{expected("Float")}, got #{shown(value)} — not a finite number", "Float")
+        raise mismatch(ArgumentError, "#{expected(scalar)}, got #{shown(value)} — not a finite number", scalar)
       end
 
-      def whole(value)
+      def whole(value, scalar = "Int")
         # Integer(2.5) is 2 — a silent loss where refusing costs nothing
         return value.to_i if value.finite? && (value % 1).zero?
 
-        raise mismatch(ArgumentError, "#{expected("Int")}, got #{shown(value)} — not a whole number", "Int")
+        raise mismatch(ArgumentError, "#{expected(scalar)}, got #{shown(value)} — not a whole number", scalar)
       end
 
       def unparseable(value, scalar)

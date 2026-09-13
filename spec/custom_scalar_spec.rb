@@ -194,8 +194,8 @@ describe "custom scalar deserialization" do
     expect(source).to include('MoneyDemo::Money.parse(data.fetch("price"))')
     # inferred serialize emits the inverse for the Money variable — inside
     # Coerce.variable, so a refusal from it names the variable too
-    expect(source).to include("OPERATION_NAME, budget) { |v| GraphWeaver::Coerce.cast(MoneyDemo::Money, v) " \
-      "{ |raw| MoneyDemo::Money.parse(raw) }.to_s }")
+    expect(source).to include("OPERATION_NAME, budget) { |v| GraphWeaver::Coerce.cast(MoneyDemo::Money, v, " \
+      "\"Money\") { |raw| MoneyDemo::Money.parse(raw) }.to_s }")
   end
 
   it "emits requires: atop the generated source, before the module" do
@@ -319,7 +319,7 @@ describe "custom scalar deserialization" do
 
       expect(source).to include("budget: MoneyDemo::Money")
       expect(source).to include(
-        "GraphWeaver::Coerce.cast(MoneyDemo::Money, v) { |raw| MoneyDemo::Money.parse(raw) }",
+        %(GraphWeaver::Coerce.cast(MoneyDemo::Money, v, "Money") { |raw| MoneyDemo::Money.parse(raw) }),
       )
     end
 
@@ -353,7 +353,23 @@ describe "custom scalar deserialization" do
     it "checks a pass-through scalar's Ruby type" do
       GraphWeaver.register_scalar("Money", String) # String has no .parse/.load
 
-      expect(generate).to include("GraphWeaver::Coerce.string(v)")
+      expect(generate).to include(%(GraphWeaver::Coerce.string(v, "Money")))
+    end
+
+    # #details is what an app translates for a user, so a refusal speaks the
+    # schema's vocabulary — "Money", never the BigDecimal it happens to map to
+    it "refuses in the schema's vocabulary, not the Ruby type's" do
+      GraphWeaver.register_scalar("Money", BigDecimal)
+      mod = GraphWeaver.parse(schema: MoneyDemo::Schema, client: MoneyDemo::Schema, query:)
+
+      error = begin
+        mod.execute(name: "Widget", budget: "abc")
+      rescue GraphWeaver::InputError => e
+        e
+      end
+
+      expect(error.details[:type]).to eq "Money"
+      expect(error.message).to include "invalid value for BigDecimal()"
     end
   end
 
@@ -437,7 +453,7 @@ describe "custom scalar deserialization" do
       GraphWeaver.register_scalar("Cents", Integer) # not Integer(v) — see Coerce
 
       expect(GraphWeaver::Codegen.scalar("Cents").cast?).to be false
-      expect(GraphWeaver::Codegen.scalar("Cents").coerce_input("v")).to eq "GraphWeaver::Coerce.integer(v)"
+      expect(GraphWeaver::Codegen.scalar("Cents").coerce_input("v")).to eq %(GraphWeaver::Coerce.integer(v, "Cents"))
     end
 
     it "rejects a malformed serialize: Array" do
@@ -508,17 +524,17 @@ describe "custom scalar deserialization" do
 
       it "refuses a timestamp for a Date variable, whatever class it arrives in" do
         expect { on.execute(d: noon) }.to raise_error(
-          GraphWeaver::InputError, /\$d of On: expected a Date, got a Time — pass \.to_date/
+          GraphWeaver::InputError, /\$d of On: expected an ISO8601Date, got a Time — pass \.to_date/
         )
         expect { on.execute(d: DateTime.new(2024, 1, 15, 12, 30, 45)) }
-          .to raise_error(GraphWeaver::InputError, /expected a Date, got a DateTime/)
+          .to raise_error(GraphWeaver::InputError, /expected an ISO8601Date, got a DateTime/)
         expect { on.execute(d: TimeWithZoneAlike.new(noon)) }
-          .to raise_error(GraphWeaver::InputError, /expected a Date, got a TimeWithZoneAlike/)
+          .to raise_error(GraphWeaver::InputError, /expected an ISO8601Date, got a TimeWithZoneAlike/)
       end
 
       it "refuses a Date for a timestamp variable rather than inventing a midnight" do
         expect { at.execute(t: Date.new(2024, 1, 15)) }.to raise_error(
-          GraphWeaver::InputError, /\$t of At: expected a Time, got a Date — a Date has no time of day/
+          GraphWeaver::InputError, /\$t of At: expected an ISO8601DateTime, got a Date — a Date has no time of day/
         )
       end
 

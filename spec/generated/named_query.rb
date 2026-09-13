@@ -116,7 +116,7 @@ module NamedQuery
   sig { params(name: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }
   def self.execute(name:, client: nil)
     variables = {
-      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v) },
+      "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v, "String") },
     }
 
     from_response(dispatch(variables, client:))
