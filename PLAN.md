@@ -15,9 +15,10 @@ step for CI. Runtime deps: `graphql` + `sorbet-runtime`, nothing else.
 
 ## State
 
-`0.7.0` tagged (`gem push` is the manual step). The `v0.6.0` CHANGELOG entry
-is the launch-hardening sweep: every entry marked **Regenerate** changed
-emitted code, and the upgrade guide's "Upgrading from 0.5.1" covers the rest.
+`0.7.0` published to RubyGems (2026-09-13). Its CHANGELOG entry is the diff
+from 0.6.1 — multi-graph codegen, the test modes, input errors, the local
+router's refusal boundary — and the upgrade guide's "Upgrading from 0.6.1" is
+the checklist; every entry marked **Regenerate** changed emitted code.
 
 Green gate is in `CLAUDE.md`; `make check` runs the core of it.
 
