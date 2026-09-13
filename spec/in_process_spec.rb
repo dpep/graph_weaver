@@ -86,6 +86,28 @@ describe GraphWeaver::InProcess do
     GraphWeaver.logger = nil
   end
 
+  # a schema built from SDL is an anonymous class, and its #to_s is an object
+  # address — a new value every boot, so an APM grouping by :schema got one
+  # series per process instead of one per schema
+  it "names an anonymous schema rather than its address" do
+    payloads = []
+    GraphWeaver.instrumenter = ->(_event, payload, &block) { payloads << payload; block.call }
+    from_sdl = described_class.new(GraphQL::Schema.from_definition("type Query { me: String }"))
+
+    # SDL alone carries no resolvers, so the query itself fails — the payload
+    # is written before it runs, which is the part under test
+    expect { from_sdl.execute("query Me { me }") }.to raise_error(GraphWeaver::ServerError)
+
+    expect(payloads.last[:schema]).to eq "anonymous"
+    expect(from_sdl.inspect).to eq "#<GraphWeaver::InProcess schema=anonymous>"
+  ensure
+    GraphWeaver.instrumenter = nil
+  end
+
+  it "names a schema class by its constant" do
+    expect(client.inspect).to eq "#<GraphWeaver::InProcess schema=InProcessDemo::Schema>"
+  end
+
   it "never leaks the context through inspect/to_s" do
     secretive = described_class.new(InProcessDemo::Schema, context: { token: "s3cret" })
 

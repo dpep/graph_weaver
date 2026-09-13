@@ -51,7 +51,7 @@ class GraphWeaver::InProcess
 
   def execute(query, variables: {}, operation_name: nil)
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
-    payload = { url: nil, schema: @schema.to_s, operation: operation_name, client: self.class }
+    payload = { url: nil, schema: schema_label, operation: operation_name, client: self.class }
 
     GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
       perform(query, variables, operation_name)
@@ -66,11 +66,11 @@ class GraphWeaver::InProcess
     tag = GraphWeaver.logger && GraphWeaver::Internal::Wire.log_tag(operation_name)
 
     GraphWeaver::Internal::Log.log(:debug) do
-      "in-process #{@schema} #{tag} variables=#{GraphWeaver::Internal::Log.variables_for_log(variables)}\n" \
+      "in-process #{schema_label} #{tag} variables=#{GraphWeaver::Internal::Log.variables_for_log(variables)}\n" \
         "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
-    result = GraphWeaver::Internal::Log.log_timed(:debug, "in-process #{@schema} #{tag} completed") do
+    result = GraphWeaver::Internal::Log.log_timed(:debug, "in-process #{schema_label} #{tag} completed") do
       # a copy per query: graphql-ruby writes a resolver's `context[...] =`
       # into the hash it is handed, and one client serves every request
       @schema.execute(query, variables:, operation_name:,
@@ -89,6 +89,11 @@ class GraphWeaver::InProcess
 
   # never leak the context (session tokens, current_user) through logs or
   # exceptions — an in-process client inspects as its schema, nothing more
-  def inspect = "#<#{self.class.name} schema=#{@schema}>"
+  def inspect = "#<#{self.class.name} schema=#{schema_label}>"
   alias to_s inspect
+
+  # What to call this schema in a log line or an instrumentation payload. A
+  # schema built from SDL is an anonymous class, whose #to_s is its object
+  # address — a new value every boot, and unbounded cardinality as an APM tag.
+  private def schema_label = @schema.name || "anonymous"
 end

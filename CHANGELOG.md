@@ -20,6 +20,12 @@
   request your middleware wrote, the headers it sent, `from_h` reading real JSON
   off a socket — but not that your `cast:` agrees with the real server, since
   the fabricated bytes are written to match your own scalar registrations.
+- **An in-process client names an anonymous schema `"anonymous"`.** The
+  instrumentation payload's `:schema` was the schema's `#to_s`, which for one
+  built from SDL is its object address — a new value every boot, so an APM
+  grouping by it got a series per process rather than one per schema. A schema
+  class is still named by its constant, in the payload, the debug log and
+  `#inspect`. ([logging](docs/logging.md#the-payload))
 - **The webmock refusal names rack as well.** `:wire` needs both — webmock's
   `to_rack` builds the Rack env with rack, and doesn't depend on it — so both
   are named in one sentence, in the refusal and in the docs, rather than found
