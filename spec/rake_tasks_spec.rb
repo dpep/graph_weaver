@@ -427,6 +427,33 @@ describe "graph_weaver rake tasks" do
       expect(result.err).to include "no schema dump at #{GraphWeaver.schema_path}", "URL=https://"
     end
 
+    # the three steps an operator walks during drift: the runtime message says
+    # refresh, refresh says pass a url, and the url writes the API schema over
+    # the composed supergraph. The second and third steps stop here.
+    context "when the dump is a composed supergraph" do
+      before do
+        write_schema(File.read(File.expand_path("support/federation/supergraph.graphql", __dir__)))
+      end
+
+      it "says recompose rather than pass URL=" do
+        result = invoke("schema:refresh")
+
+        expect(result.status).to eq 1
+        expect(result.err).to include "is a composed supergraph", "rover supergraph compose"
+        expect(result.err).not_to include "URL="
+      end
+
+      it "refuses to overwrite it with the API schema behind URL=" do
+        allow(GraphWeaver).to receive(:new).and_return(Struct.new(:transport).new(Demo::Schema))
+
+        result = invoke("schema:refresh", URL: "https://router.example.com/graphql")
+
+        expect(result.status).to eq 1
+        expect(result.err).to include "is a composed supergraph", "rover supergraph compose"
+        expect(File.read(GraphWeaver.schema_path)).to include "@join__graph"
+      end
+    end
+
     context "when the app runs its schema in-process" do
       before { GraphWeaver.client = GraphWeaver.new(Demo::Schema) }
 

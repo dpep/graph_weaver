@@ -729,6 +729,10 @@ module GraphWeaver::SchemaLoader
         header = meta && "# graph_weaver: #{JSON.generate(meta)}\n\n"
         "#{header}#{schema.to_definition}"
       end
+      # the one place a dump is overwritten, so the one place that can stop a
+      # supergraph being traded for the API schema behind it
+      raise GraphWeaver::Error, recompose_hint(cache) if composed_dump?(cache) && !federation_sdl?(content)
+
       begin
         FileUtils.mkdir_p(File.dirname(cache))
         GraphWeaver::Internal::Util.atomic_write(cache, content)
@@ -873,12 +877,39 @@ module GraphWeaver::SchemaLoader
   end
 
   def self.refresh_hint(path)
+    # a supergraph records no url because none could serve it — saying
+    # "pass one" sends a federated app to the overwrite composed_dump? stops
+    return recompose_hint(path) if composed_dump?(path)
+
     missing = path ? "#{path} records no source url" : "no schema dump at #{GraphWeaver.schema_path}"
     "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql " \
       "(if this app serves the schema itself, point GraphWeaver.client at the class and the dump is " \
       "rebuilt from it — see docs/getting_started.md#your-apps-own-schema-in-process)"
   end
   private_class_method :refresh_hint
+
+  # A dump that carries the @join__* routing table: what `rover supergraph
+  # compose` emits, and the only artifact that says which subgraph resolves
+  # what. Asked of the bytes on disk, which is the only form of the question
+  # available before something overwrites them.
+  def self.composed_dump?(path)
+    return false unless path
+
+    resolved = GraphWeaver::Internal::Util.resolve(path)
+    File.exist?(resolved) && federation_sdl?(File.read(resolved))
+  end
+  private_class_method :composed_dump?
+
+  # Composition is the only thing that rebuilds a supergraph: introspection
+  # answers with the API schema, which is the merged shape minus the routing
+  # table, so refreshing one from a url replaces the contract with a strictly
+  # smaller artifact and reports success.
+  def self.recompose_hint(path)
+    "#{GraphWeaver::Internal::Util.relative(path)} is a composed supergraph; introspection returns " \
+      "the API schema, not the @join__* routing table — recompose it (rover supergraph compose) " \
+      "and check the result in, instead of refreshing it"
+  end
+  private_class_method :recompose_hint
 
   # A transport to the dump's recorded url, authenticated from whichever ENV
   # var the dump named (else DEFAULT_AUTH_ENV). The single way to reach a

@@ -508,6 +508,38 @@ describe GraphWeaver::SchemaLoader do
       expect(path).to eq named
       expect(File.exist?(GraphWeaver.schema_path)).to be false
     end
+
+    # Introspection answers with the API schema — the merged shape a router
+    # serves, minus the @join__* routing table. Writing it over a composed
+    # supergraph swaps the contract for a strictly smaller one, and the
+    # recovery path an operator walks during drift leads straight here.
+    context "when the dump on disk is a composed supergraph" do
+      let(:dump) { File.join(@dir, "supergraph.graphql") }
+
+      before do
+        GraphWeaver.schema_path = dump
+        FileUtils.cp(File.expand_path("support/federation/supergraph.graphql", __dir__), dump)
+      end
+
+      it "refuses to overwrite it with an introspected API schema" do
+        expect { described_class.refresh!(url: "https://router.example.com/graphql") }.to raise_error(
+          GraphWeaver::Error,
+          /supergraph.graphql is a composed supergraph.*routing table.*rover supergraph compose/m,
+        )
+        expect(File.read(dump)).to include "@join__graph"
+      end
+
+      it "tells a federated app to recompose rather than to pass URL=" do
+        message = begin
+          described_class.refresh!
+        rescue GraphWeaver::Error => e
+          e.message
+        end
+
+        expect(message).to match(/supergraph.graphql is a composed supergraph.*rover supergraph compose/m)
+        expect(message).not_to include "URL="
+      end
+    end
   end
 
 

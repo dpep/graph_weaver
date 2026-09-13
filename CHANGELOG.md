@@ -134,6 +134,15 @@
   modules](docs/generated_modules.md) on `verify_generated!` costing a full
   `generate!` however little changed, and on
   `T::Configuration.default_checked_level` buying nothing for `from_h`.
+- **`schema:refresh` no longer overwrites a composed supergraph with the API
+  schema behind it.** Introspection returns the merged shape a router serves,
+  with the `@join__*` routing table gone — so `rake graph_weaver:schema:refresh
+  URL=<router>` replaced a 5.8 KB supergraph with 1.6 KB of API schema and
+  exited 0, after which `federation:diff` failed and `schema:diff`/`verify`
+  went green against the wrong artifact. Any write that would trade a
+  supergraph dump for a non-supergraph one is refused, naming `rover supergraph
+  compose`; `schema:refresh` with no `URL=` says the same thing to a federated
+  app instead of suggesting one.
 
 ###  v0.7.0  (2026-09-13)
 
