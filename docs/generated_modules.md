@@ -232,10 +232,12 @@ end
   split is deliberate: a Symbol-keyed Ruby hash can't be mistaken for a
   server's response, and a JSON string can — so the JSON is the one that has
   to be true. (An **input** struct's `to_h` is already the wire hash it
-  sends, so there its JSON and its `to_h` agree.) One gap: a
-  `register_scalar` with a `cast:` and no `serialize:` has no wire spelling,
-  so its value goes to the encoder as it is — the same reason an input can't
-  send one.
+  sends, so there its JSON and its `to_h` agree.) The trip is exactly as
+  faithful as each scalar's own `cast:`/`serialize:` pair: a `Time` goes back
+  out with [the microseconds its registration writes](scalars.md#going-out--what-a-variable-kwarg-accepts),
+  and a `register_scalar` with a `cast:` and no `serialize:` has no wire
+  spelling at all, so its value reaches the encoder as it is — the same
+  reason an input can't send one.
 - `OPERATION_NAME` rides along on every request as the spec's
   `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
   limits and slow-query reports on the operation instead of lumping every

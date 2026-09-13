@@ -16,9 +16,11 @@
   `render json:` and a plain `.to_json` agree. `#to_h` is unchanged and still
   the Ruby view (Symbol prop names, `T::Enum` members, codec-built objects):
   a Symbol-keyed hash can't be mistaken for a server's response, and a JSON
-  string can, so the JSON is the one that has to be true. A scalar registered
-  with a `cast:` and no `serialize:` has no wire spelling, so its value passes
-  through as it is — the same reason an input can't send one. **Regenerate**:
+  string can, so the JSON is the one that has to be true. The trip is as
+  faithful as each scalar's own `cast:`/`serialize:` pair — a `Time` goes back
+  out with the microseconds its registration writes, and a `cast:` with no
+  `serialize:` has no wire spelling at all, so its value reaches the encoder
+  as it is (the same reason an input can't send one). **Regenerate**:
   `as_json` is emitted code, and a struct generated before it raises
   `GraphWeaver::Error` telling you so.
 - **A `register_enum` fallback member no longer raises out of `to_json`.**

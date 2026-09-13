@@ -166,6 +166,13 @@ register that and say where it comes from:
 GraphWeaver.register_scalar("URL", URI::Generic, cast: ->(v) { "URI.parse(#{v})" })
 ```
 
+`URI.parse` is ASCII-only, so a server that writes an un-escaped unicode path
+(`https://example.com/café`) raises `URI must be ascii only` — a clean
+`CastError` naming the field, but a refusal of a URL that is fine. Escape
+before parsing (`URI::DEFAULT_PARSER.escape(#{v})`), or register
+[Addressable](https://github.com/sporkmonger/addressable), which takes unicode
+as it comes.
+
 The type also accepts a plain string (`"Money"`) when you'd rather not
 reference the class — which **skips inference entirely**, since there is no
 class in hand to probe: a string-registered type with no `cast:` of its own has
@@ -322,6 +329,16 @@ the sig is `.checked(:never)`).
 | an input object | the struct **or** a Hash | — | the wire hash |
 | a registered custom scalar | its Ruby type | whatever its cast takes | what its serialize writes |
 | `JSON`, or unregistered | `T.untyped` | anything | straight through |
+
+The **on the wire** column is also what a result's
+[`#as_json`/`#to_json`](generated_modules.md#anatomy)
+writes, so a result read back with `from_h` equals the one you rendered.
+
+**Writing the scalar on the server too?** graphql-ruby calls a *nullable*
+scalar argument's `coerce_input` with `nil` for an explicit `null` — only
+`NonNull` short-circuits — so a coercer written the way the examples above are
+(`value.upcase`, `Money.parse(value)`) raises `NoMethodError` on nil. Guard it,
+or `:in_process` will show it to you as a `ServerError`.
 
 Two rows are judgment calls worth stating. **`ID` takes an `Integer`** because
 the GraphQL spec says an ID serializes as a string but accepts an integer input,
