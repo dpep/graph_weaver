@@ -162,6 +162,14 @@
   federation.md "in CI" section and a paragraph in getting_started.md §5 naming
   the two `rover` commands that close it; the Actions job grew its
   `federation:diff` step.
+- **A task that can't honour `SUPERGRAPH=` now says so.** The flag reaches the
+  `federation:*` tasks, and `queries:check`, `verify`, `generate` and the rest
+  ignored it in silence — so `SUPERGRAPH=public.graphql rake
+  graph_weaver:queries:check` reported every query valid against a supergraph
+  missing a field they select. They refuse it instead; honouring it would
+  collapse a multi-graph app into one unnamed graph, which for `generate` means
+  pruning the other graphs' generated files. Declare the supergraph on a graph
+  to check against it.
 - Docs: the request body carries no persisted-query id, so a safelist with
   `require_id` refuses it — transports.md shows the `Transport::HTTP` subclass
   that bolts APQ on today.

@@ -66,6 +66,21 @@ module GraphWeaver
             "this is a warning and not drift. The subgraphs read here: #{names.join(", ")}."
       end
 
+      # SUPERGRAPH= names the supergraph the federation:* tasks run over, and
+      # nothing else can honour it: every other task reads the schema its
+      # graphs declare, and pointing one at an ad-hoc supergraph would collapse
+      # a multi-graph app into a single unnamed graph — which for `generate`
+      # means pruning the generated files of every graph it didn't cover. So
+      # refuse, rather than report a verdict about a different schema than the
+      # one just typed.
+      def self.refuse_supergraph_flag!
+        return unless ENV["SUPERGRAPH"]
+
+        abort "SUPERGRAPH= applies to the federation:* tasks (diff, subgraphs, coverage) — " \
+          "every other task reads the schema its graph declares. Name it there so every run " \
+          "finds it: GraphWeaver.graph(:api) { schema \"supergraph.graphql\" }."
+      end
+
       # The spellings a CI config turns a flag off with. STRICT=0 used to be
       # "set, therefore on" — the one answer nobody means by it.
       OFF = %w[0 false no off].freeze
@@ -213,11 +228,18 @@ namespace :graph_weaver do
     GraphWeaver.skip_generated_load = false
   end
 
+  # Plumbing, like :environment: the dependency every task that reads the
+  # schema its graphs declare carries, so a SUPERGRAPH= it cannot honour is
+  # refused once rather than ignored nine times.
+  task own_schema: :environment do
+    GraphWeaver::Internal::Tasks.refuse_supergraph_flag!
+  end
+
   # the default, not GraphWeaver.queries_paths: a desc is baked when this file
   # loads, which in Rails is before :environment has run an initializer that
   # moves it — interpolating would print the default as though it were the setting
   desc "Generate typed query modules (default app/graphql/queries -> app/graphql/generated)"
-  task generate: :environment do
+  task generate: :own_schema do
     # every graph's output, not just the default one's: this is the "pruned"
     # report, and a file deleted in one graph is as much a diff as in another
     globs = GraphWeaver.graphs.map { |graph| File.join(GraphWeaver::Internal::Util.resolve(graph.output), "**/*.rb") }
@@ -245,7 +267,7 @@ namespace :graph_weaver do
   # Rails that is before :environment, so before the initializer that declares
   # them has run. This is the task that can.
   desc "List the configured graphs and where each one generates"
-  task graphs: :environment do
+  task graphs: :own_schema do
     GraphWeaver.graphs.each do |graph|
       name = graph.name ? graph.name.inspect : "(the default graph — GraphWeaver's own settings)"
       puts "#{name}  #{Array(graph.queries).join(", ")} -> #{GraphWeaver::Internal::Util.relative(graph.output)}"
@@ -260,7 +282,7 @@ namespace :graph_weaver do
   end
 
   desc "Verify generated query modules are up to date"
-  task verify: :environment do
+  task verify: :own_schema do
     GraphWeaver.verify_generated!
     puts "generated queries up to date"
     GraphWeaver::Internal::Tasks.report_registry
@@ -274,7 +296,7 @@ namespace :graph_weaver do
   # reading a field. Nothing is edited, and the default exit is 0: a finding is
   # a prompt to look.
   desc "Report selections whose generated props no code reads (PATHS= to scope, STRICT=1 to fail)"
-  task unused: :environment do
+  task unused: :own_schema do
     require "graph_weaver/internal/unused"
 
     # an app with no queries has nothing to over-fetch: sweeping it to report
@@ -309,7 +331,7 @@ namespace :graph_weaver do
     # itself, so an app that serves its own schema needs no network.
 
     desc "Fail when the schema behind the dump has drifted from it"
-    task diff: :environment do
+    task diff: :own_schema do
       subjects = GraphWeaver::Internal::Tasks.dumps
       abort GraphWeaver::Internal::Tasks.no_dump if subjects.none? { |_, path, _| path }
 
@@ -343,7 +365,7 @@ namespace :graph_weaver do
     end
 
     desc "Rewrite the local dump from the schema behind it (URL= to bootstrap the first one)"
-    task refresh: :environment do
+    task refresh: :own_schema do
       # anything else in URL= reaches introspection as a schema *source*, and
       # fails talking about file extensions rather than the flag just typed
       if ENV["URL"] && !ENV["URL"].match?(GraphWeaver::Client::URL)
@@ -380,7 +402,7 @@ namespace :graph_weaver do
 
   namespace :queries do
     desc "Report checked-in queries that no longer validate against the server's schema"
-    task check: :environment do
+    task check: :own_schema do
       failures = GraphWeaver.check_queries
       failures.each do |path, errors|
         puts path
@@ -519,7 +541,7 @@ namespace :graph_weaver do
     # as a cast error naming a struct and a sorbet frame — nothing points at
     # the stale file.
     desc "Fail when a recorded response no longer casts into the generated structs"
-    task check: :environment do
+    task check: :own_schema do
       require "graph_weaver/testing"
 
       # unlike its siblings this task reads generated modules — they are what
@@ -567,7 +589,7 @@ namespace :graph_weaver do
     end
 
     desc "Anonymize every cassette in Testing.config.cassette_dir (PII-safe to commit)"
-    task anonymize: :environment do
+    task anonymize: :own_schema do
       require "graph_weaver/testing"
 
       # locate, not schema_path: the dump is whichever supported extension is

@@ -716,6 +716,22 @@ describe "graph_weaver rake tasks" do
     end
   end
 
+  # SUPERGRAPH= names what the federation:* tasks run over, and the tasks that
+  # read the schema their graphs declare used to ignore it in silence — so
+  # `SUPERGRAPH=public.graphql rake graph_weaver:queries:check` reported every
+  # query valid against a supergraph that doesn't carry a field they select.
+  describe "SUPERGRAPH= on a task that can't honour it" do
+    %w[generate verify unused graphs queries:check schema:diff schema:refresh].each do |name|
+      it "refuses graph_weaver:#{name}" do
+        result = invoke(name, SUPERGRAPH: RouterGraph::SUPERGRAPH)
+
+        expect(result.status).to eq 1
+        expect(result.err).to include "SUPERGRAPH= applies to the federation:* tasks",
+          "GraphWeaver.graph(:api) { schema \"supergraph.graphql\" }"
+      end
+    end
+  end
+
   # The one check that reads a recording from someone else's server, so it is
   # also the one that reads the generated modules a recording is checked against.
   # The one task that can name the graphs — and, since a registration is

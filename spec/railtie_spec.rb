@@ -107,7 +107,9 @@ describe "GraphWeaver::Railtie" do
     Rake.application = RakeHarness.application
     RakeHarness.application.tasks.each(&:reenable) # rake runs a task once per process otherwise
 
-    expect(Rake::Task["graph_weaver:generate"].prerequisites).to eq %w[environment]
+    # generate → own_schema → environment; each link is what makes the boot happen
+    expect(Rake::Task["graph_weaver:generate"].prerequisites).to eq %w[own_schema]
+    expect(Rake::Task["graph_weaver:own_schema"].prerequisites).to eq %w[environment]
 
     booted = false
     Rake::Task.define_task(:environment) { booted = true }

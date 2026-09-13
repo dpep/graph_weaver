@@ -247,6 +247,15 @@ beside it, at which point it has to name the first one too
 ([why](getting_started.md#more-than-one-schema)). `SUPERGRAPH=supergraph.graphql`
 overrides all of that for one run.
 
+`SUPERGRAPH=` reaches the `federation:*` tasks and **nothing else**: every other
+task reads the schema its graph declares, and one pointed at an ad-hoc
+supergraph would collapse a multi-graph app into a single unnamed graph — which
+for `generate` means pruning the generated files of every graph that graph
+didn't cover. So they refuse it rather than ignore it, which is what
+`SUPERGRAPH=… rake graph_weaver:queries:check` used to do while reporting every
+query valid. To check queries against a supergraph, declare it:
+`GraphWeaver.graph(:api) { schema "supergraph.graphql" }`.
+
 It reads the routing table and the subgraph schemas loaded in this process —
 **no network** — so it belongs in the normal PR run, and it exits non-zero on
 drift so CI can gate on it:
