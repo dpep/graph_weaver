@@ -80,11 +80,20 @@ module GraphWeaver
     # what a validation error's subgraph branding is read off. nil for a live
     # class, a Client, or inline SDL.
     def dump_path
+      path = named_dump_path
+      path if path && File.exist?(path)
+    end
+
+    # The dump this graph's schema NAMES, file or no file — dump_path once
+    # there is one, and where `schema:refresh` writes the first. A path is
+    # told from SDL by its extension, which is how SchemaLoader reads one
+    # anyway, and is the only question askable before the file exists.
+    def named_dump_path
       return GraphWeaver::SchemaLoader.locate_path unless @schema
 
       source = named_source
       path = source.respond_to?(:to_path) ? source.to_path : source
-      path if path.is_a?(String) && File.exist?(path)
+      path if path.is_a?(String) && GraphWeaver::SchemaLoader.dump_path?(path)
     end
 
     # What this graph's dump is derived FROM — what `schema:refresh`
@@ -99,9 +108,34 @@ module GraphWeaver
     # the app's own schema would overwrite it with the wrong graph.
     def dump_source
       path = dump_path
-      url = path && GraphWeaver::SchemaLoader.provenance(path)&.dig("url")
+      # A dump this graph names but hasn't written yet has no provenance to
+      # read a source off, so the source is where its modules already post.
+      # That is what bootstraps a second graph's dump: URL= names one
+      # endpoint, and each graph has its own.
+      url = path ? GraphWeaver::SchemaLoader.provenance(path)&.dig("url") : (client_url if named_dump_path)
       url || live_schema
     end
+
+    # The url this graph's modules post to, or nil. `client:` holds a constant
+    # or its name — codegen spells it into source — so a name is resolved here
+    # the way the generated DEFAULT_CLIENT lambda resolves it; a graph baking
+    # none posts to the app default, which is where its modules go too.
+    def client_url
+      client = @client.is_a?(String) ? resolve_client! : @client
+      client ||= GraphWeaver.client
+      target = (client.transport if client.respond_to?(:transport)) || client
+      target.url if target.respond_to?(:url)
+    end
+    private :client_url
+
+    def resolve_client!
+      Object.const_get(@client)
+    rescue NameError
+      raise GraphWeaver::Error, "graph #{name.inspect} bakes client #{@client.inspect} into its " \
+        "modules and nothing defines that constant, so there is no endpoint to introspect " \
+        "#{named_dump_path} from"
+    end
+    private :resolve_client!
 
     # The composed supergraph this graph plans against, or nil — the dump it
     # names (for the default graph, the conventional one) when that dump

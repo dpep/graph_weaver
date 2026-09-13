@@ -426,6 +426,50 @@ describe "graph_weaver rake tasks" do
         expect(File.exist?(GraphWeaver.schema_path)).to be true
       end
     end
+
+    # An app that is a pure client of two remote APIs has no schema class to
+    # rebuild from and no second URL= to type — but each graph already names
+    # the file it wants and the client its modules post to, which is the whole
+    # of a bootstrap.
+    context "when a graph names a dump it hasn't got yet" do
+      before do
+        Object.const_set(:POKE_CLIENT, GraphWeaver.new("https://poke.example/graphql"))
+        GraphWeaver.graph(:poke) do
+          schema "app/graphql/poke/schema.json"
+          client "POKE_CLIENT"
+        end
+      end
+
+      after do
+        GraphWeaver.reset_graphs!
+        Object.send(:remove_const, :POKE_CLIENT)
+      end
+
+      it "introspects the graph's own client into the graph's own path" do
+        allow(GraphWeaver::SchemaLoader).to receive(:refresh!)
+          .and_return(["app/graphql/poke/schema.json", "https://poke.example/graphql"])
+
+        result = invoke("schema:refresh")
+
+        expect(GraphWeaver::SchemaLoader).to have_received(:refresh!)
+          .with(url: "https://poke.example/graphql", schema: nil, path: "app/graphql/poke/schema.json")
+        expect(result).to have_attributes(status: 0, out: <<~OUT)
+          graph :poke
+          refreshed app/graphql/poke/schema.json from https://poke.example/graphql
+        OUT
+      end
+
+      # diff read the missing file as "generates from the url directly", which
+      # is what a graph naming a LIVE CLASS does — and pointed at no task
+      it "tells diff the dump isn't written yet, and which task writes it" do
+        write_schema
+        GraphWeaver.graph(:countries) { schema GraphWeaver.schema_path }
+
+        expect(invoke("schema:diff").out)
+          .to include "no schema dump at app/graphql/poke/schema.json yet",
+            "rake graph_weaver:schema:refresh"
+      end
+    end
   end
 
   describe "graph_weaver:queries:check" do

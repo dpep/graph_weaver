@@ -141,6 +141,12 @@ module GraphWeaver
       # refresh or compare, and nothing that can be stale.
       def self.no_dump_needed(graph, source)
         whose = heading(graph) || "this app"
+        # a dump this graph names and hasn't written yet — refresh writes it
+        # from the url its modules post to, so there is one task to name
+        if (missing = graph.named_dump_path)
+          return "#{whose}: no schema dump at #{missing} yet — take one: " \
+            "rake graph_weaver:schema:refresh"
+        end
         return "#{whose}: #{no_dump}" unless source
 
         "#{whose} generates from #{source_name(source)} directly — no dump to keep in step"
@@ -318,11 +324,16 @@ namespace :graph_weaver do
         heading = GraphWeaver::Internal::Tasks.heading(graph)
         puts heading if heading
         # a graph that names a live class generates straight from it — no
-        # dump to write. The default graph names none, so it lands below and
-        # refresh! bootstraps its first dump (or says how).
+        # dump to write. One that names a dump it hasn't got yet has one, and
+        # its source is the url its modules already post to: that bootstraps a
+        # second graph's dump, which URL= can't, naming one endpoint for an
+        # app with one per graph. The default graph names neither, so it lands
+        # below and refresh! bootstraps its first dump (or says how).
+        path ||= graph.named_dump_path
         next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) if !path && graph.named_schema?
 
-        written, from = GraphWeaver::SchemaLoader.refresh!(schema: (source if source.is_a?(Module)), path:)
+        written, from = GraphWeaver::SchemaLoader.refresh!(url: (source unless source.is_a?(Module)),
+          schema: (source if source.is_a?(Module)), path:)
         puts "refreshed #{GraphWeaver::Internal::Util.relative(written)} from #{from}"
       end
     rescue GraphWeaver::Error => e

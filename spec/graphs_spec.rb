@@ -158,6 +158,69 @@ describe "GraphWeaver.graph" do
     expect(File.read(File.join(output(:billing), "person_query.rb"))).not_to include("DEFAULT_CLIENT")
   end
 
+  # An app that is a pure client of two remote APIs owns no schema class, so
+  # the only way a second graph's dump can exist is for something to fetch it
+  # — and the installer is single-graph, URL= names one endpoint, and
+  # real_world.md's recipe writes the conventional path. The graph already
+  # knows both halves: the file it wants and the url its modules post to.
+  describe "a graph naming a dump it hasn't got yet" do
+    before { Object.const_set(:POKE_CLIENT, GraphWeaver.new("https://beta.pokeapi.co/graphql/v1beta")) }
+
+    after { Object.send(:remove_const, :POKE_CLIENT) }
+
+    def poke = GraphWeaver.graphs.first
+
+    def declare!(path = File.join(@dir, "poke/schema.json"))
+      GraphWeaver.graph(:poke) do
+        schema path
+        client "POKE_CLIENT"
+      end
+    end
+
+    it "names the dump before the file exists, where dump_path waits for one" do
+      declare!
+
+      expect(poke.named_dump_path).to eq File.join(@dir, "poke/schema.json")
+      expect(poke.dump_path).to be_nil
+    end
+
+    # SDL and a schema class name no dump, so neither grows one
+    it "names no dump for inline SDL or a live class" do
+      GraphWeaver.graph(:billing) { schema BILLING_SDL }
+      GraphWeaver.graph(:pets) { schema Demo::Schema }
+
+      expect(GraphWeaver.graphs.map(&:named_dump_path)).to eq [nil, nil]
+    end
+
+    it "sources the missing dump from the url its modules already post to" do
+      declare!
+
+      expect(poke.dump_source).to eq "https://beta.pokeapi.co/graphql/v1beta"
+    end
+
+    # the recorded url is a fact the file states about itself; the client is
+    # only the answer while there is no file to ask
+    it "prefers the dump's own recorded source once there is one" do
+      FileUtils.mkdir_p(File.join(@dir, "poke"))
+      File.write(File.join(@dir, "poke/schema.json"),
+        JSON.generate("graph_weaver" => { "url" => "https://recorded.example/graphql" }))
+      declare!
+
+      expect(poke.dump_source).to eq "https://recorded.example/graphql"
+    end
+
+    it "refuses a client constant nothing defines, naming the dump it can't fill" do
+      path = File.join(@dir, "poke/schema.json")
+      GraphWeaver.graph(:poke) do
+        schema path
+        client "NO_SUCH_CLIENT"
+      end
+
+      expect { poke.dump_source }.to raise_error(GraphWeaver::Error,
+        /graph :poke bakes client "NO_SUCH_CLIENT".*nothing defines that constant/m)
+    end
+  end
+
   # The docs promise an app "either has graphs or has settings, never a silent
   # third thing" — and declaring a graph left the default app/graphql/queries
   # read by nobody: generate skipped its files, verify was green about them,
