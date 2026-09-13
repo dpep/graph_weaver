@@ -52,6 +52,32 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect(contextual.unsupported).to be_empty
   end
 
+  # federation 2.7's progressive @override leaves both copies resolvable and
+  # marks each with the rollout label — the one fact that separates it from a
+  # plain @override, which composition resolves by dropping the losing copy.
+  it "reads a progressive @override's label" do
+    rolling = GraphWeaver::SchemaLoader.routing_table(<<~SDL)
+      directive @join__field(graph: join__Graph, override: String, overrideLabel: String) repeatable on FIELD_DEFINITION
+      directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+      directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+      scalar join__FieldSet
+      enum join__Graph {
+        LEGACY @join__graph(name: "legacy", url: "http://legacy")
+        MODERN @join__graph(name: "modern", url: "http://modern")
+      }
+      type Product @join__type(graph: LEGACY, key: "upc") @join__type(graph: MODERN, key: "upc") {
+        upc: ID!
+        popularity: Int! @join__field(graph: LEGACY, overrideLabel: "percent(50)")
+          @join__field(graph: MODERN, override: "legacy", overrideLabel: "percent(50)")
+        rating: Int! @join__field(graph: MODERN, override: "legacy")
+      }
+    SDL
+
+    expect(rolling.field("Product", "popularity").override_label).to eq "percent(50)"
+    expect(rolling.owners("Product", "popularity")).to eq %w[legacy modern]
+    expect(rolling.field("Product", "rating").override_label).to be_nil
+  end
+
   it "reads the @key field sets a subgraph answers on" do
     expect(table.keys("User", "accounts")).to eq [["id"]]
     expect(table.keys("Product", "reviews")).to eq [["upc"]]

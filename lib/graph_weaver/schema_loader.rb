@@ -973,7 +973,11 @@ module GraphWeaver::SchemaLoader
     # the migration marker verbatim. `contextual` names the arguments a
     # @fromContext fills from an ancestor selection (federation 2.8) — a fetch
     # has to supply them, so whoever plans one needs to know they exist.
-    Field = Struct.new(:graphs, :external, :requires, :provides, :override, :contextual)
+    # `override_label` is federation 2.7's progressive @override(label:): both
+    # subgraphs stay resolvable and the label is the rollout rule that decides
+    # between them, so a router that can't evaluate it has to know it's there.
+    Field = Struct.new(:graphs, :external, :requires, :provides, :override, :contextual,
+      :override_label)
 
     # Every @join__ directive this table understands. One it doesn't is a
     # federation construct nobody has taught it to read, and it lands in
@@ -1256,6 +1260,7 @@ module GraphWeaver::SchemaLoader
           resolvable.filter_map { |d| argument(d, "provides") }.first,
           applied.filter_map { |d| argument(d, "override") }.first,
           applied.flat_map { |d| context_arguments(d) },
+          applied.filter_map { |d| argument(d, "overrideLabel") }.first,
         )]
       end.to_h
     end

@@ -6,6 +6,11 @@
   with the argument unset, which is a plausible wrong answer rather than an
   error. Every refusal that must hold for a query however it is planned now
   runs above the single-subgraph shortcut.
+- **The local router refuses a progressive `@override(label:)`.** Federation
+  2.7 leaves both subgraphs resolving the field and lets the gateway split
+  traffic by the label; the router used to pick one and answer from it every
+  time, silently and forever. New refusal category `:progressive_override`.
+  Drop the label and composition drops the losing copy, which plans normally.
 
 ###  v0.7.0  (2026-09-13)
 

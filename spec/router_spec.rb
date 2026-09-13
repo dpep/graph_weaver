@@ -797,6 +797,58 @@ describe GraphWeaver::Testing::Router do
       end
     end
 
+    # Federation 2.7's progressive @override keeps BOTH copies resolvable and
+    # writes the rollout rule beside them — composition decides nothing, the
+    # gateway does, per request. A local router that just picked one would
+    # answer from the same side forever, and look right doing it.
+    describe "a progressive @override" do
+      def rollout(popularity)
+        described_class.new(supergraph: <<~SDL, subgraphs: { "legacy" => :fake, "modern" => :fake })
+          schema @link(url: "https://specs.apollo.dev/link/v1.0")
+            @link(url: "https://specs.apollo.dev/join/v0.5", for: EXECUTION)
+          { query: Query }
+          directive @join__field(graph: join__Graph, override: String, overrideLabel: String) repeatable on FIELD_DEFINITION
+          directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+          directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+          scalar join__FieldSet
+          enum join__Graph {
+            LEGACY @join__graph(name: "legacy", url: "http://legacy")
+            MODERN @join__graph(name: "modern", url: "http://modern")
+          }
+          type Query @join__type(graph: LEGACY) @join__type(graph: MODERN) {
+            product(upc: ID!): Product @join__field(graph: LEGACY)
+            ping: String @join__field(graph: MODERN)
+          }
+          type Product @join__type(graph: LEGACY, key: "upc") @join__type(graph: MODERN, key: "upc") {
+            upc: ID!
+            #{popularity}
+          }
+        SDL
+      end
+
+      # the line @apollo/composition writes for @override(from: "legacy", label: "percent(50)")
+      it "refuses the field while the label is still there" do
+        labelled = rollout('popularity: Int! @join__field(graph: LEGACY, overrideLabel: "percent(50)") ' \
+          '@join__field(graph: MODERN, override: "legacy", overrideLabel: "percent(50)")')
+
+        expect { labelled.execute('{ product(upc: "p1") { popularity } }') }
+          .to refuse_to_plan(:progressive_override).with_detail(
+            'Product.popularity is mid-rollout under @override(label: "percent(50)") — legacy ' \
+            "and modern both resolve it, and a local router can't evaluate a rollout percentage",
+          )
+      end
+
+      # and the line it writes once the label comes off: the losing copy is
+      # gone, so there is nothing left to decide
+      it "plans the finished rollout, where composition kept one side" do
+        finished = rollout('popularity: Int! @join__field(graph: MODERN, override: "legacy")')
+
+        expect(finished.execute('{ product(upc: "p1") { popularity } }').dig("data", "product"))
+          .to be_a Hash
+        expect(finished).to have_fetched_subgraphs "legacy", "modern"
+      end
+    end
+
     # a @requires the supergraph places nowhere is a graph nothing can serve,
     # so there is no fetch to chain
     it "names a @requires field no subgraph holds" do

@@ -239,6 +239,7 @@ module GraphWeaver
             next if node.name.start_with?("__")
 
             contextual!(type_name, node)
+            progressive_override!(type_name, node)
             child = raw_child_type(type_name, node.name) or next
             interface_object!(child, "#{type_name}.#{node.name} returns #{child}")
             check_reachable!(child, node.selections, fragments, depth + 1)
@@ -399,6 +400,20 @@ module GraphWeaver
         refuse :context_argument, "#{type_name}.#{node.name} takes #{names.map(&:inspect).join(", ")} " \
           "from a @context an ancestor selection sets, and the router would have to fetch it " \
           "on its own"
+      end
+
+      # A progressive @override(label:) leaves BOTH subgraphs resolving the
+      # field — the label is the rollout rule the gateway evaluates per
+      # request to pick between them. A plain @override drops the losing copy
+      # at composition, so there is nothing to decide and nothing to refuse;
+      # a labelled one is a coin only the gateway can toss.
+      def progressive_override!(type_name, node)
+        field = @table.field(type_name, node.name)
+        label = field&.override_label or return
+
+        refuse :progressive_override, "#{type_name}.#{node.name} is mid-rollout under " \
+          "@override(label: #{label.inspect}) — #{field.graphs.join(" and ")} both resolve it, " \
+          "and a local router can't evaluate a rollout percentage"
       end
 
       # The keys a fetch injects are stripped from the answer, so a caller's

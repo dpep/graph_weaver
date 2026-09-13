@@ -50,6 +50,13 @@ module GraphWeaver
             "ancestor, and only the gateway that planned the fetch knows what to put there. Run " \
             "this one against a real router.",
         ],
+        progressive_override: [
+          "a progressive @override still rolling out",
+          "federation 2.7's @override(label:) leaves both subgraphs resolving the field and " \
+            "splits traffic between them by a rule only the gateway evaluates — a local router " \
+            "would pick one and answer from it every time. Run this one against a real router, " \
+            "or finish the rollout (drop the label) first.",
+        ],
         chained_requires: [
           "a @requires whose field set names another @requires field",
           "the router satisfies a @requires with one fetch, so it can't first satisfy that " \
