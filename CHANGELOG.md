@@ -18,6 +18,12 @@
   `T::Array[T::Hash[...]]`, the list stays a list on the wire, and the
   generated key set spells the hop `"lineItems[]"`. No other `@key` shape
   changes.
+- **A subgraph SDL that renames what it imports now loads.**
+  `@link(import: [{name: "@key", as: "@primaryKey"}])` — the `@link` spec's own
+  aliasing — raised an error blaming the file for a directive the file had
+  declared. The `@link` header is now read for every spelling it binds and then
+  dropped from the schema, so `link__Import`/`link__Purpose` no longer appear in
+  a schema loaded from subgraph SDL.
 
 ###  v0.7.0  (2026-09-13)
 

@@ -330,6 +330,41 @@ describe "federation / subgraph SDL" do
     expect(schema.get_type("User").fields.keys).to eq %w[id name]
   end
 
+  # The @link spec lets a file rename what it imports, per directive — and
+  # composition normalizes the rename away, so only raw subgraph SDL sees it.
+  # Loading used to raise advice blaming the file for a directive the file had
+  # declared, through the spec's own mechanism.
+  it "loads a subgraph that imports a federation directive under another name" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      extend schema
+        @link(url: "https://specs.apollo.dev/federation/v2.9", import: [{name: "@key", as: "@primaryKey"}])
+
+      type Query { widget(id: ID!): Widget }
+      type Widget @primaryKey(fields: "id") { id: ID! name: String! }
+    GRAPHQL
+
+    expect(schema.get_type("Widget").fields.keys).to eq %w[id name]
+    # the rename reaches the entity plumbing too — @primaryKey IS @key here
+    expect(schema.possible_types(schema.get_type("_Entity")).map(&:graphql_name)).to eq %w[Widget]
+  end
+
+  # a rename binds the local name and nothing else, so the namespaced
+  # spelling of everything it didn't import still has to work
+  it "keeps the namespaced spelling alongside an import alias" do
+    schema = GraphWeaver::SchemaLoader.load(<<~GRAPHQL)
+      extend schema
+        @link(url: "https://specs.apollo.dev/federation/v2.9", import: [{name: "@key", as: "@primaryKey"}])
+
+      type Query { widget(id: ID!): Widget }
+      type Widget @primaryKey(fields: "id") {
+        id: ID!
+        name: String! @federation__shareable
+      }
+    GRAPHQL
+
+    expect(schema.get_type("Widget").fields.keys).to eq %w[id name]
+  end
+
   # a duplicate definition is a hard error in graphql-ruby, so the subgraph's
   # own declarations must win and only the rest get supplied
   it "leaves a subgraph's own directive definitions alone" do

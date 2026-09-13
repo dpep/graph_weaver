@@ -243,7 +243,6 @@ module GraphWeaver::SchemaLoader
     "@authenticated" => "directive @authenticated on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
     "@requiresScopes" => "directive @requiresScopes(scopes: [[federation__Scope!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
     "@policy" => "directive @policy(policies: [[federation__Policy!]!]!) on FIELD_DEFINITION | OBJECT | INTERFACE | SCALAR | ENUM",
-    "@link" => "directive @link(url: String!, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA",
   }.freeze
 
   # The types those definitions reference — injected only alongside a
@@ -254,44 +253,92 @@ module GraphWeaver::SchemaLoader
     "federation__FieldSet" => "scalar federation__FieldSet",
     "federation__Scope" => "scalar federation__Scope",
     "federation__Policy" => "scalar federation__Policy",
-    "link__Import" => "scalar link__Import",
-    "link__Purpose" => "enum link__Purpose { SECURITY EXECUTION }",
   }.freeze
   private_constant :SUBGRAPH_DIRECTIVE_DEFS, :SUBGRAPH_HELPER_TYPES
 
-  # A fed-2 subgraph that @links the spec under a namespace — `as: "fed"`,
-  # and "federation" is the default — applies every non-imported directive
-  # under it: @federation__key rather than @key.
-  def self.subgraph_namespace(sdl)
-    sdl[/#{SUBGRAPH_LINK}[^)]*\bas:\s*"([^"]+)"/, 1] || "federation"
+  # A fed-2 subgraph's federation @link, as a plain argument hash. One header
+  # settles both spellings a directive can arrive under: `as:` namespaces the
+  # whole spec (@fed__key), each `import:` entry binds one directive in the
+  # root namespace, possibly renamed. Read rather than matched — an
+  # `import: [{name: "@key", as: "@primaryKey"}]` entry has an `as:` of its
+  # own, which a regex over the header can't tell from the spec's.
+  def self.federation_link(doc)
+    link_declarations(doc).find { |args| spec_name(args["url"] || args["feature"]) == "federation" }
   end
-  private_class_method :subgraph_namespace
+  private_class_method :federation_link
+
+  # What this subgraph calls each federation directive: the local name it
+  # imported it under, else the namespace's (@federation__key), else the bare
+  # spec name, which is fed-1 and a fed-2 plain `import: ["@key"]` alike.
+  # Ordered — the first spelling the file actually applies wins.
+  def self.subgraph_spellings(doc)
+    link = federation_link(doc)
+    namespace = (link && link["as"].is_a?(String)) ? link["as"] : "federation"
+    aliases = imports(link && link["import"]).to_h
+
+    SUBGRAPH_DIRECTIVE_DEFS.keys.to_h do |name|
+      [name, [aliases[name], name, "@#{namespace}__#{name.delete_prefix("@")}"].compact.uniq]
+    end
+  end
+  private_class_method :subgraph_spellings
 
   # Prepend the definitions this subgraph applies but doesn't declare, under
   # whichever name it applies them by. Only the missing ones — a duplicate
   # definition is a hard error in graphql-ruby, and a subgraph spelling out
   # its own @key (fed-1 style, or a differing shape) must win.
   def self.add_subgraph_definitions(sdl)
-    defined = GraphQL.parse(sdl).definitions.filter_map do |defn|
+    doc = GraphQL.parse(sdl)
+    defined = doc.definitions.filter_map do |defn|
       next unless defn.respond_to?(:name)
 
       defn.is_a?(GraphQL::Language::Nodes::DirectiveDefinition) ? "@#{defn.name}" : defn.name
     end.to_set
-    namespace = subgraph_namespace(sdl)
+    spellings = subgraph_spellings(doc)
 
     directives = SUBGRAPH_DIRECTIVE_DEFS.filter_map do |name, defn|
-      applied = [name, "@#{namespace}__#{name.delete_prefix("@")}"]
-        .find { |as| !defined.include?(as) && sdl.match?(/#{as}\b/) }
+      applied = spellings.fetch(name).find { |as| !defined.include?(as) && sdl.match?(/#{as}\b/) }
       applied && defn.sub(name, applied)
     end
     types = SUBGRAPH_HELPER_TYPES
       .select { |name, _| !defined.include?(name) && directives.any? { |defn| defn.include?(name) } }
       .values
 
-    added = types + directives + entity_plumbing(sdl, namespace, defined)
-    added.empty? ? sdl : "#{added.join("\n")}\n\n#{sdl}"
+    added = types + directives + entity_plumbing(doc, defined, spellings.fetch("@key"))
+    body = strip_link_header(sdl, doc)
+    added.empty? ? body : "#{added.join("\n")}\n\n#{body}"
   end
   private_class_method :add_subgraph_definitions
+
+  # The composition header says which spec a file's directives come from and
+  # under what names. That's metadata about the FILE, not part of the graph it
+  # describes — it is read (see subgraph_spellings) and then dropped, as the
+  # supergraph path drops its own. Dropping it is also what makes the spec's
+  # own aliasing loadable: `import:` is a `scalar link__Import`, and
+  # graphql-ruby's schema builder walks an object entry
+  # (`{name: "@key", as: "@primaryKey"}`) into a type that has no arguments.
+  #
+  # The original text is returned untouched when there's no header, so a
+  # fed-1 subgraph and a plain schema are never reprinted.
+  def self.strip_link_header(sdl, doc)
+    headers = doc.definitions.select do |defn|
+      (defn.is_a?(GraphQL::Language::Nodes::SchemaDefinition) ||
+        defn.is_a?(GraphQL::Language::Nodes::SchemaExtension)) &&
+        defn.directives.any? { |d| LINK_DIRECTIVES.include?(d.name) }
+    end
+    return sdl if headers.empty?
+
+    definitions = doc.definitions.filter_map do |defn|
+      next defn unless headers.include?(defn)
+
+      kept = defn.directives.reject { |d| LINK_DIRECTIVES.include?(d.name) }
+      # `extend schema` with nothing left in it isn't a definition any more
+      next if kept.empty? && [defn.query, defn.mutation, defn.subscription].all?(&:nil?)
+
+      defn.merge(directives: kept)
+    end
+    GraphQL::Language::Nodes::Document.new(definitions:).to_query_string
+  end
+  private_class_method :strip_link_header
 
   # The entity resolver every subgraph serves — and which no subgraph SDL
   # contains: `_service { sdl }` and `rover subgraph fetch` both print the
@@ -300,10 +347,9 @@ module GraphWeaver::SchemaLoader
   # (a supergraph doesn't describe `_entities` at all). `_Entity` is the
   # union of the file's own @key'd types, so it stays accurate per subgraph.
   # https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/reference/subgraph-spec
-  def self.entity_plumbing(sdl, namespace, defined)
-    doc = GraphQL.parse(sdl)
+  def self.entity_plumbing(doc, defined, key_spellings)
     root = query_root_name(doc)
-    entities = entity_names(doc, namespace)
+    entities = entity_names(doc, key_spellings)
     return [] if entities.empty? || root.nil? || defined.include?("_Any")
 
     [
@@ -320,10 +366,11 @@ module GraphWeaver::SchemaLoader
 
   # The object types this subgraph resolves as entities: the ones it applies
   # @key to, under whichever name it applies it by (@federation__key when the
-  # spec is linked under a namespace). Type extensions count — fed-1 spells an
-  # entity it doesn't own as `extend type User @key(...)`.
-  def self.entity_names(doc, namespace)
-    key_names = ["key", "#{namespace}__key"]
+  # spec is linked under a namespace, @primaryKey when it was imported under
+  # that name). Type extensions count — fed-1 spells an entity it doesn't own
+  # as `extend type User @key(...)`.
+  def self.entity_names(doc, key_spellings)
+    key_names = key_spellings.map { |name| name.delete_prefix("@") }
 
     doc.definitions.filter_map do |defn|
       next unless defn.is_a?(GraphQL::Language::Nodes::ObjectTypeDefinition) ||

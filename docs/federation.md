@@ -700,10 +700,13 @@ in `spec/support/federation`, not a real app's mix.)
 A raw subgraph SDL — `rover subgraph fetch`, `_service { sdl }`, or the
 `.graphql` in a service repo — loads too. It applies `@key`/`@external`/
 `@shareable`/… without declaring them (federation v1 leaves them implicit, v2
-imports them via `@link`, including under a namespace as
-`@federation__key`), so the missing definitions are supplied on load; anything
-the file declares itself wins. The federation directives themselves generate no
-code — codegen is query-driven.
+imports them via `@link`), so the missing definitions are supplied on load;
+anything the file declares itself wins. Whatever the `@link` header says the
+directives are called is what's supplied — the bare `@key`, the namespaced
+`@federation__key`, or `@primaryKey` from
+`import: [{name: "@key", as: "@primaryKey"}]`. The header itself is read and
+then dropped: it describes the file, not the graph. The federation directives
+generate no code either way — codegen is query-driven.
 
 Reach for this when the subgraph is what you have, or to type an `_entities`
 query (below). But a subgraph is one service's slice of the graph, and its
