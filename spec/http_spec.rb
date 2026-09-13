@@ -360,7 +360,9 @@ describe GraphWeaver::Transport::HTTP do
     end
 
     expect { html.new(url).execute("query { x }") }
-      .to raise_error(GraphWeaver::ServerError, /non-GraphQL response: <html>/)
+      .to raise_error(GraphWeaver::ServerError, /non-GraphQL response/) { |e|
+        expect(e.body).to include "<html>Service Temporarily Unavailable</html>"
+      }
   end
 
   it "lets a 4xx with a GraphQL errors body flow into the envelope (graphql-over-http routers)" do

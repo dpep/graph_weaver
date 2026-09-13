@@ -33,7 +33,7 @@ describe "a transport reading the wire" do
       url = answering("HTTP/1.1 204 No Content\r\n\r\n")
       transports.each do |transport|
         expect { transport.new(url).execute(query) }
-          .to raise_error(GraphWeaver::ServerError, "HTTP 204: empty response body — POST #{url}")
+          .to raise_error(GraphWeaver::ServerError, "HTTP 204 — empty response body — POST #{url}")
       end
     end
 
@@ -41,7 +41,9 @@ describe "a transport reading the wire" do
       url = answering(http_response(200, "<html>sign in</html>", "Content-Type" => "text/html"))
       transports.each do |transport|
         expect { transport.new(url).execute(query) }
-          .to raise_error(GraphWeaver::ServerError, %r{non-GraphQL response: <html>sign in</html>})
+          .to raise_error(GraphWeaver::ServerError, /non-GraphQL response/) { |e|
+            expect(e.body).to eq "<html>sign in</html>"
+          }
       end
     end
 
@@ -66,7 +68,7 @@ describe "a transport reading the wire" do
       transports.each do |transport|
         expect { transport.new(url).execute(query) }.to raise_error(
           GraphWeaver::ServerError,
-          "HTTP 200: this response is incremental delivery (@defer/@stream), " \
+          "HTTP 200 — this response is incremental delivery (@defer/@stream), " \
             "which this client doesn't read — POST #{url}",
         )
       end

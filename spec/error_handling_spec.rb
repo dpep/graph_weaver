@@ -123,7 +123,9 @@ describe "error handling" do
       expect(e).to be_a GraphWeaver::Error
       expect(e.status).to eq 500
       expect(e.body).to eq "kaboom"
-      expect(e.message).to include("HTTP 500").and include("kaboom")
+      # a message never carries a body: Error#initialize writes every message
+      # to the log at warn, and a body is whatever the server chose to send
+      expect(e.message).to eq "HTTP 500"
       expect(e.headers).to be_empty
       expect(e.retry_after).to be_nil
       expect(e).not_to be_throttled

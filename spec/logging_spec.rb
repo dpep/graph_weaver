@@ -22,7 +22,7 @@ describe "GraphWeaver.logger" do
     expect(io.string).to include("POST #{url}")
     expect(io.string).to include("query { people { name } }")
     expect(io.string).to match(/POST .* completed \(\d+ms\)/)
-    expect(io.string).to match(/HTTP 200 .* \(\d+ bytes\)/)
+    expect(io.string).to match(%r{HTTP 200 .* \(\d+ bytes, application/json\)})
   end
 
   it "tags each request's lines with an id and the operation name" do

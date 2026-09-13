@@ -132,12 +132,21 @@ class GraphWeaver::Transport
         post(encoded)
       end
     rescue *GraphWeaver.transport_errors.to_a => e
-      # never got a response — DNS, connection refused/reset, TLS, timeout
-      raise GraphWeaver::TransportError.new("#{e.class}: #{e.message}", url: safe_url)
+      # never got a response — DNS, connection refused/reset, TLS, timeout.
+      # The adapter's sentence is its own words, capped like any text we
+      # didn't author.
+      raise GraphWeaver::TransportError.new(
+        "#{e.class}: #{GraphWeaver::Internal::Redact.cap(e.message)}", url: safe_url,
+      )
     end
 
     payload[:http_status] = status
-    GraphWeaver::Internal::Log.log(:debug) { "HTTP #{status} #{tag} from #{safe_url} (#{body.to_s.bytesize} bytes)" }
+    # the content type, not the body: it is what tells a proxy's HTML page
+    # from a router's JSON without quoting bytes a server chose
+    GraphWeaver::Internal::Log.log(:debug) do
+      type = GraphWeaver::Internal::Redact.tag(GraphWeaver::Internal::Headers.wrap(headers || {})["content-type"])
+      "HTTP #{status} #{tag} from #{safe_url} (#{body.to_s.bytesize} bytes#{", #{type}" if type})"
+    end
 
     parsed = parse_body(body)
 
@@ -154,27 +163,35 @@ class GraphWeaver::Transport
         return Envelope.new(parsed, status)
       end
 
-      raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {}, url: safe_url)
+      refuse!(status, body, headers)
     end
 
     unless parsed.is_a?(Hash)
       # a 200 that isn't a GraphQL object — an HTML error page from a proxy, a
       # captive portal, or a bare JSON array/string: the server misbehaved.
-      # An empty body says so rather than trailing off after the colon, and a
-      # well-formed @defer stream is named rather than dumped: it isn't
+      # A well-formed @defer stream is named rather than lumped in: it isn't
       # non-GraphQL, it's more than one GraphQL document.
-      quoted =
+      detail =
         if incremental?(headers)
           "this response is incremental delivery (@defer/@stream), which this client doesn't read"
         elsif body.to_s.empty?
           "empty response body"
         else
-          "non-GraphQL response: #{body.to_s[0, 500]}"
+          "non-GraphQL response"
         end
-      raise GraphWeaver::ServerError.new(status:, body: quoted, headers: headers || {}, url: safe_url)
+      refuse!(status, body, headers, detail:)
     end
 
     Envelope.new(parsed, status)
+  end
+
+  # The response wasn't one we can read. A body is never quoted — not into the
+  # message, not into a log line: it is text a server chose, and an error page
+  # that echoes the request fills it with the variables and the Authorization
+  # header we just sent. `detail` is what WE say went wrong; the bytes are on
+  # ServerError#body for whoever rescues it.
+  private def refuse!(status, body, headers, detail: nil)
+    raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {}, url: safe_url, detail:)
   end
 
   # The parsed envelope, plus the HTTP status it came back on — a Hash to

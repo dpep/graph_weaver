@@ -5,6 +5,7 @@ require "sorbet-runtime"
 require "time" # Time.httpdate, for Retry-After
 
 require_relative "inflect"
+require_relative "internal/endpoint"
 require_relative "internal/headers"
 require_relative "logging"
 
@@ -125,15 +126,26 @@ module GraphWeaver
     attr_reader :url
 
     sig do
-      params(status: Integer, body: T.untyped, headers: T::Hash[String, String], url: T.nilable(String)).void
+      params(
+        status: Integer,
+        body: T.untyped,
+        headers: T::Hash[String, String],
+        url: T.nilable(String),
+        detail: T.nilable(String),
+      ).void
     end
-    def initialize(status:, body: nil, headers: {}, url: nil)
+    def initialize(status:, body: nil, headers: {}, url: nil, detail: nil)
       @status = status
       @body = body
       @url = url
       @headers = T.let(GraphWeaver::Internal::Headers.wrap(headers), T::Hash[String, String])
-      snippet = body.to_s.empty? ? "" : ": #{body.to_s[0, 500]}"
-      super("HTTP #{status}#{snippet}#{" — #{hint}" if hint}#{" — POST #{url}" if url}")
+      # A message never carries a body. `detail` is what WE say went wrong; the
+      # bytes the server sent stay on #body, the way #to_h already keeps the
+      # headers off — an error page that echoes the request (Rails' own dev
+      # page, many proxies) carries the caller's variables and our own
+      # Authorization header, and every raised error writes its message to the
+      # log at warn.
+      super("HTTP #{status}#{" — #{detail}" if detail}#{" — #{hint}" if hint}#{" — POST #{url}" if url}")
     end
 
     # What to do about this status, where the status says it. A redirect is
@@ -145,7 +157,10 @@ module GraphWeaver
     sig { returns(T.nilable(String)) }
     def hint
       if REDIRECTS.include?(status)
+        # the destination is a url the SERVER chose — said the way we say our
+        # own, and without the framing a header value could smuggle in
         location = headers["location"]
+        location &&= GraphWeaver::Internal::Redact.tag(GraphWeaver::Internal::Endpoint.safe(location))
         "redirects are not followed#{" — point the client at #{location}" if location}"
       elsif [401, 403].include?(status)
         "the server rejected the credentials — check auth: (the token, and its scopes)"

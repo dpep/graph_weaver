@@ -103,18 +103,18 @@ module GraphWeaver
         # optional because a coercer refusing a value hasn't been told one.
         def shown(raw, key = nil) = filtered?(key) ? FILTERED : cap(value(key, raw).inspect)
 
-        # A server-chosen string the library republishes as a TAG — the APM's
-        # :code, the one line a Rails log writes at info. Control characters
-        # are stripped because a tag lands where the log's own framing lives:
-        # a newline in extensions.code forges a second, complete-looking line.
+        # A short server-chosen string the library republishes inside its own
+        # text — the APM's :code, the [CODE] in the one line info writes, a
+        # redirect's destination. Control characters are stripped because it
+        # lands where the log's own framing lives: a newline in
+        # extensions.code forges a second, complete-looking line.
         def tag(value) = value.is_a?(String) ? cap(value.gsub(/[[:cntrl:]]+/, " ")) : value
 
         # Text the library didn't author — a value a caller sent, a sentence a
         # server wrote — cut to what an error may carry. The number lives on
         # InputError, which is the class that documents it and the one every
         # capped string reaches.
-        def cap(text)
-          limit = GraphWeaver::InputError::VALUE_LIMIT
+        def cap(text, limit = GraphWeaver::InputError::VALUE_LIMIT)
           return text if text.bytesize <= limit
 
           # byteslice can land mid-character; scrub drops the partial tail

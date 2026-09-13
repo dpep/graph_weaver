@@ -13,7 +13,7 @@ What logs at which level — pick the level, get the story:
 
 | Level | What you see |
 |-------|--------------|
-| `debug` | the wire: query + variables per call (long queries truncated), response status/bytes, request timing, connection open/drop, dynamically parsed modules |
+| `debug` | the wire: query + variables per call (long queries truncated), response status/bytes/content type, request timing, connection open/drop, dynamically parsed modules |
 | `info` | one line per operation in Rails (see Instrumentation), schema introspection (with timing) and cache hits/misses, the transport a client built, generated files written and any unregistered scalars, query modules loaded, a retry's wait and attempt number — and in development, what's being watched and what a save regenerated |
 | `warn` | every GraphWeaver error raised — `TransportError`, `ServerError`, `QueryError`, `QueryValidationError`, `CastError` — registrations the schema being generated against can't match, a retry skipped because the operation was a mutation, and every fetch the test router answered with fabricated data |
 | `error` | development only: a `.graphql` edit that won't compile, with its file and position — the modules already loaded keep serving |
@@ -62,13 +62,37 @@ is rejected with `[FILTERED]` in place of the value, and a value a message
 `got {"token" => "[FILTERED]"}`. Everything else keeps quoting the value,
 since `expected an Int, got "lots"` is the whole diagnosis.
 
-**It reaches what GraphWeaver composes, and nothing else.** That is
-`InputError#message` and `#value` on both halves — a server's sentence
-included, once it has been read back into an `InputError` — plus the variables
-line at debug. A `GraphQLError#message` is the server's or a resolver's own
-words and is **passed through untouched**, in `response.errors`, in
-`QueryError`'s summary, and in the `warn` line that summary writes. A server
-that quotes a rejected password in its message has to be fixed at the server.
+## The channels that carry text we didn't author
+
+A log line, an exception and an APM tag all outlive the request, and each one
+can carry text somebody else wrote — a value you sent, a page a proxy served, a
+code a server chose. Every such channel has a policy, and there are no others:
+
+| Channel | Policy |
+|---------|--------|
+| the variables line | scrubbed through `filter_parameters` at every depth, and written at **debug** only |
+| the query text | debug only, truncated |
+| `InputError#message`, `#value`, `#to_h` | `[FILTERED]` under a filtered key, at every depth; capped at 1 KB |
+| `ServerError#message` | the status, what *we* judged wrong, the hint, the safe url — **never the body** |
+| `ServerError#body` | the bytes verbatim. This is the channel that carries them, which is why no other has to |
+| `ServerError#to_h` | status, `retry_after`, url — the body and the headers stay off it (read `#headers`) |
+| a redirect's `Location` | a url the server chose, folded the way we fold our own |
+| `TransportError#message` | the adapter's own sentence, capped, plus the safe url |
+| `GraphQLError#message` | the server's own words, **passed through untouched** |
+| `extensions.code` → the info line, the APM `:code` | control characters stripped, capped — a tag can't forge a line |
+| the endpoint, everywhere it is said | userinfo and credential query parameters folded to `[FILTERED]` |
+| `#inspect` on any public object | its class and its safe url; never a header, a context or a body |
+
+**A message never carries a body.** `Error#initialize` writes every message to
+the log at `warn`, which is the level production runs at — and the commonest
+non-2xx body in the world is a framework error page that echoes the request,
+Authorization header included. So the bytes stay on `#body` for whoever rescues
+the error, and the log says the status, the size and the content type.
+
+**A `GraphQLError#message` is the one thing passed through untouched** — in
+`response.errors`, in `QueryError`'s summary, and in the `warn` line that
+summary writes. It is the server's or a resolver's own words, and a server that
+quotes a rejected password in its message has to be fixed at the server.
 
 ## Instrumentation
 

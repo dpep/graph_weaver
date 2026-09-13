@@ -17,6 +17,22 @@
   `Transport#inspect` — while the url's userinfo stayed redacted, which was the
   tell that one knob meant two things. A url's query parameters are now held to
   the default names as well as yours, the way the userinfo already was.
+- **A `ServerError` message no longer carries the response body.** A non-2xx
+  body was spliced into `#message`, and `Error#initialize` writes every message
+  to the log at `warn` — the level production runs at. The commonest non-2xx
+  body in the world is a framework error page that echoes the request, so a
+  single upstream 500 put the request's variables (a password among them) and
+  our own `Authorization` header into the production log, with the url in the
+  same sentence correctly scrubbed. One rule now: **a message never carries a
+  body.** `#message` is the status, what GraphWeaver judged wrong, the hint and
+  the safe url; the bytes are on `#body`, as they always were, and the debug
+  line reports the status, the size and the content type rather than quoting
+  them. `docs/logging.md` now enumerates every channel that carries text the
+  library didn't author, and what each is allowed to say.
+  - A **redirect's `Location`** is a url the server chose, and now goes through
+    the same folding as our own before it reaches the hint.
+  - A `ServerError` raised by an in-process resolver carries its diagnosis in
+    `#message`; `#body` is nil, since there was no response.
 - **A server's `extensions.code` can no longer forge a log line.** The code is
   a server-chosen string that becomes the `[CODE]` tag in the one line Rails
   logs at info and a tag on your APM metric; a newline in it wrote a second,

@@ -84,7 +84,11 @@ class GraphWeaver::InProcess
     # a resolver blew up. The same failure over HTTP arrives as a 500, so
     # raise what HTTP would — code that rescues GraphWeaver::Error, or
     # branches on ServerError#status, behaves the same either side.
-    raise GraphWeaver::ServerError.new(status: 500, body: "#{e.class}: #{e.message}")
+    # detail:, not body: — there was no response, so there are no bytes to
+    # hold, and the diagnosis is this process's own exception
+    raise GraphWeaver::ServerError.new(
+      status: 500, detail: "#{e.class}: #{GraphWeaver::Internal::Redact.cap(e.message)}",
+    )
   end
 
   # never leak the context (session tokens, current_user) through logs or

@@ -72,7 +72,8 @@ describe "the endpoint a transport names" do
         error = e
       end
 
-      expect(error.message).to eq "HTTP 500: <html>oops</html> — POST #{url}"
+      expect(error.message).to eq "HTTP 500 — POST #{url}"
+      expect(error.body).to eq "<html>oops</html>"
       expect(error.url).to eq url
       expect(error.to_h["url"]).to eq url
     end
