@@ -68,6 +68,11 @@ class GraphWeaver::Retry
     backoff: :exponential, base_delay: 0.5, max_delay: 30, jitter: true, retry_if: DEFAULT_RETRY_IF,
     retry_codes: [], retry_mutations: false, sleeper: nil)
     raise ArgumentError, "retries: must be >= 0" unless retries.is_a?(Integer) && retries >= 0
+    # a negative would reach Kernel#sleep, which raises — and the failure being
+    # retried would be lost behind an ArgumentError from somewhere else
+    { base_delay:, max_delay: }.each do |name, value|
+      raise ArgumentError, "#{name}: must be >= 0, got #{value}" unless value >= 0
+    end
 
     @client = client
     @retries = retries
@@ -148,7 +153,9 @@ class GraphWeaver::Retry
     after = failure.retry_after if failure.is_a?(GraphWeaver::ServerError)
     return [after, @max_delay].min.to_f if after
 
-    seconds = [@backoff.call(@base_delay, attempt), @max_delay].min.to_f
+    # floored at 0: a custom backoff: is the caller's arithmetic, and a
+    # negative from it would raise out of Kernel#sleep rather than retry
+    seconds = [[@backoff.call(@base_delay, attempt), @max_delay].min.to_f, 0.0].max
     @jitter ? seconds * (0.5 + rand * 0.5) : seconds
   end
 end

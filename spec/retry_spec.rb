@@ -196,6 +196,29 @@ describe GraphWeaver::Retry do
     end
   end
 
+  # A delay that isn't a delay would reach Kernel#sleep, which raises
+  # ArgumentError — so a typo in one option reports as a bug somewhere else,
+  # and the failure being retried is lost entirely.
+  describe "a delay that can't be waited" do
+    it "refuses a negative base_delay: or max_delay: where the typo is" do
+      expect { described_class.new(fake, base_delay: -5) }
+        .to raise_error(ArgumentError, "base_delay: must be >= 0, got -5")
+      expect { described_class.new(fake, max_delay: -1) }
+        .to raise_error(ArgumentError, "max_delay: must be >= 0, got -1")
+    end
+
+    # a custom backoff: is the caller's arithmetic, so it can't be refused up
+    # front — but it must not be able to kill the loop it is steering
+    it "clamps a custom backoff's negative to no wait at all" do
+      executor = described_class.new(
+        sequence(failure.transport, fake), retries: 1, backoff: ->(_attempt) { -30 }, sleeper:,
+      )
+
+      expect(PersonQuery.execute!(client: executor, id: "1").person).not_to be_nil
+      expect(slept).to eq [0.0]
+    end
+  end
+
   it "honors a custom retry_if and error list" do
     only_transport = described_class.new(
       sequence(failure.server(status: 503), fake),

@@ -64,6 +64,11 @@
   perfectly good, broken by three invisible bytes. And **an empty body says so**
   (`HTTP 204: empty response body`) rather than trailing off after the colon,
   which read as a truncated message rather than as the answer it was.
+- **A retry delay can no longer kill the retry loop.** `base_delay:` and
+  `max_delay:` are refused if negative, where the typo is; a custom `backoff:`
+  returning one is floored at no wait. Either used to reach `Kernel#sleep`,
+  which raises `ArgumentError` — so one mistyped option reported as a bug
+  somewhere else, and the failure being retried was lost behind it.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's
