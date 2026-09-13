@@ -202,6 +202,18 @@ describe "GraphWeaver.instrumenter" do
     expect(payload[:code]).to eq "undefinedField"
   end
 
+  # the code is the server's word, and it lands where the log's own framing
+  # lives — as a tag on an APM metric and inside the one line info writes
+  it "strips control characters out of a server-chosen code" do
+    forged = "OK\nI, [2026-01-01T00:00:00]  INFO -- graph_weaver: GraphWeaver AdminQuery (1.0ms) ok"
+    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, { operation: "Forged" }) do
+      { "data" => nil, "errors" => [{ "message" => "no", "extensions" => { "code" => forged } }] }
+    end
+
+    expect(payload[:code]).to eq "OK I, [2026-01-01T00:00:00]  INFO -- graph_weaver: GraphWeaver AdminQuery (1.0ms) ok"
+    expect(payload[:code]).not_to include "\n"
+  end
+
   it "names the error class on a failure, and a ServerError's status as the code" do
     bad = GraphWeaver::Transport::HTTP.new(throttled_url)
 

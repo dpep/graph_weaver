@@ -103,6 +103,12 @@ module GraphWeaver
         # optional because a coercer refusing a value hasn't been told one.
         def shown(raw, key = nil) = filtered?(key) ? FILTERED : cap(value(key, raw).inspect)
 
+        # A server-chosen string the library republishes as a TAG — the APM's
+        # :code, the one line a Rails log writes at info. Control characters
+        # are stripped because a tag lands where the log's own framing lives:
+        # a newline in extensions.code forges a second, complete-looking line.
+        def tag(value) = value.is_a?(String) ? cap(value.gsub(/[[:cntrl:]]+/, " ")) : value
+
         # Text the library didn't author — a value a caller sent, a sentence a
         # server wrote — cut to what an error may carry. The number lives on
         # InputError, which is the class that documents it and the one every
@@ -192,7 +198,8 @@ module GraphWeaver
                 payload[:status] = :ok
               else
                 payload[:status] = :errors
-                payload[:code] = errors.grep(Hash).filter_map { |e| GraphWeaver::GraphQLError.from_h(e).code }.first
+                code = errors.grep(Hash).filter_map { |e| GraphWeaver::GraphQLError.from_h(e).code }.first
+                payload[:code] = Redact.tag(code)
               end
               result
             rescue => e

@@ -83,6 +83,28 @@ describe GraphWeaver::LogSubscriber do
 
   # GraphWeaver.logger = nil is the documented way to silence the gem, and
   # ActiveSupport::LogSubscriber#call skips a subscriber whose logger is nil
+  # the code is the server's word. Stripped where the payload is built, so
+  # the line info writes stays one line and the APM tag stays one tag.
+  it "can't be made to forge a second line by a code carrying a newline" do
+    forged = "OK\nI, [2026-01-01T00:00:00]  INFO -- graph_weaver: GraphWeaver AdminQuery (1.0ms) ok"
+    payload = { operation: "PersonQuery" }
+    GraphWeaver.instrumenter = ->(_event, p, &block) { block.call.tap { payload = p } }
+    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+      { "data" => nil, "errors" => [{ "message" => "no", "extensions" => { "code" => forged } }] }
+    end
+
+    expect(line(**payload).lines.size).to eq 1
+  ensure
+    GraphWeaver.instrumenter = nil
+  end
+
+  it "stands alone: requiring this file is all a hand-rolled subscriber needs" do
+    script = 'require "graph_weaver/log_subscriber"; print GraphWeaver::LogSubscriber.name'
+    lib = File.expand_path("../lib", __dir__)
+
+    expect(`#{RbConfig.ruby} -I#{lib} -e #{script.inspect} 2>&1`).to eq "GraphWeaver::LogSubscriber"
+  end
+
   it "answers GraphWeaver's logger, so silencing the gem silences this too" do
     expect(described_class.new.logger).to be GraphWeaver.logger
 

@@ -17,6 +17,16 @@
   `Transport#inspect` — while the url's userinfo stayed redacted, which was the
   tell that one knob meant two things. A url's query parameters are now held to
   the default names as well as yours, the way the userinfo already was.
+- **A server's `extensions.code` can no longer forge a log line.** The code is
+  a server-chosen string that becomes the `[CODE]` tag in the one line Rails
+  logs at info and a tag on your APM metric; a newline in it wrote a second,
+  complete-looking line. Control characters are stripped, and the code is
+  capped, where the payload is built — so the subscriber and the APM get the
+  same cleaned tag.
+- **`require "graph_weaver/log_subscriber"` works on its own**, which is what
+  the docs tell you to write when you subscribe outside Rails. It raised
+  `NameError` unless something had already loaded
+  `active_support/log_subscriber`.
 - **`Transport::HTTP.new` says a rejected url the way everything else does.**
   "TLS options need an https url" and "expected an http(s) url" printed the url
   raw — and both are raised from `#initialize`, i.e. at boot from an

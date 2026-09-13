@@ -1,6 +1,12 @@
 # typed: ignore — ActiveSupport::LogSubscriber, which sorbet can't resolve here
 # frozen_string_literal: true
 
+# The superclass, so this file stands alone: requiring it by hand is the
+# documented way to subscribe outside Rails, and there is no railtie out there
+# to have loaded ActiveSupport first. Skipped when the constant already
+# exists, which is how a stand-in can take its place.
+require "active_support/log_subscriber" unless defined?(ActiveSupport::LogSubscriber)
+
 module GraphWeaver
   # One line per GraphQL operation in a Rails log, the shape ActiveRecord
   # uses for a query:
