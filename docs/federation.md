@@ -348,6 +348,46 @@ GraphWeaver::Federation::Drift.new(
 exits on. `#unplaced` sits
 outside both, being the warning above rather than drift.
 
+## In CI
+
+`federation:diff` needs no network, so it belongs beside the other checks in the
+normal PR run — the
+[GitHub Actions job](getting_started.md#5-verify-in-ci) has the step, guarded by
+nothing more than "this app is federated".
+
+**What that job does not do is look at the schema production is serving**, and
+on a federated graph nothing here can. Every check in it compares the app to
+artifacts checked in beside it: `verify` to the generated Ruby, `queries:check`
+and `unused` to the dump, `federation:diff` to the subgraph classes in this
+process. `schema:diff` is the one that reads a live source, and it can't be
+pointed at a supergraph — a composed supergraph records no source url because no
+endpoint serves one, and a production router refuses introspection by default
+(`{"message": "introspection has been disabled", "extensions": {"code":
+"INTROSPECTION_DISABLED"}}`). Hot-reload a router onto a supergraph that dropped
+a field your queries select and all of it still exits 0 while every one of those
+requests fails.
+
+That gap is Apollo's to close, and it has two commands for it:
+
+```sh
+rover subgraph check my-graph@prod --name products --schema products.graphql
+rover supergraph fetch my-graph@prod   # then recompose and diff what you get back
+```
+
+`rover subgraph check` asks GraphOS whether publishing this subgraph would break
+the composition or a client operation registered against the variant — the
+pre-merge half. `rover supergraph fetch` hands you the supergraph the router is
+running, which is the artifact `federation:diff` should be pointed at when what
+you want to know is "does the deployed graph still answer my queries", rather
+than "is my checked-in supergraph consistent with my checked-in subgraphs".
+
+Nothing in this gem talks to GraphOS, and the runtime half is where a federated
+app finds out: a query the served supergraph rejects comes back with
+`schema_stale?` true and a message naming the repair
+([errors → stale schemas](errors.md#stale-schemas)). That is detection at the
+point of damage, which is exactly why the two `rover` commands belong in the
+same job as the five tasks.
+
 ## The local router
 
 Specs for a federated app have a bad choice: fake the whole graph, or boot a
@@ -685,6 +725,15 @@ header; the gateway doesn't know the directive), and on introspection, which it
 disables by default. So when a refusal says "run this one against a real
 router", run it against the one you deploy — not against the one these numbers
 came from.
+
+**And a production router shows you less than this one does.** A subgraph error
+arrives here with its message and an `extensions: {"service" => …}` stamp; an
+Apollo Router with `include_subgraph_errors` omitted — the default — answers
+`{"message" => "Subgraph errors redacted", "path" => […]}` with the extensions
+emptied. A spec asserting on the message or the stamp therefore passes here and
+against a dev router and fails in staging. Assert on `path` and on your own
+extensions: [testing → production redacts what this router hands
+you](testing.md#production-redacts-what-this-router-hands-you).
 
 ### Is it worth wiring up? Measure.
 

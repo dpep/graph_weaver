@@ -302,9 +302,32 @@ jobs:
       - run: bundle exec rake graph_weaver:schema:diff
         env:
           GRAPHWEAVER_AUTH: ${{ secrets.GRAPHWEAVER_AUTH }}
+      # federated apps only — needs no network, so it runs beside the rest
+      - run: bundle exec rake graph_weaver:federation:diff
 ```
 
 An in-process schema needs no `env:` — it answers introspection itself.
+
+**On a federated graph, none of the five looks at the schema production is
+serving.** `verify`, `queries:check`, `unused` and `federation:diff` compare the
+app to artifacts checked in beside it, and `schema:diff` reads a live source
+only where the dump records one — a composed supergraph doesn't, because no
+endpoint serves it. Hot-reload a router onto a supergraph that dropped a field
+your queries select and all five still exit 0 while every one of those requests
+fails; the first detector is a user's failed request, answered by the runtime
+[drift message](errors.md#stale-schemas). The pre-deploy check against the
+live graph is Apollo's, not this gem's — run it in the same job:
+
+```sh
+rover subgraph check my-graph@prod --name products --schema products.graphql
+rover supergraph fetch my-graph@prod   # then recompose and diff what you get back
+```
+
+`rover subgraph check` asks GraphOS whether publishing this subgraph would break
+the composition or a client's registered operations; `rover supergraph fetch`
+hands you what the router is actually running, which is the artifact
+`federation:diff` should have been pointed at all along. See
+[federation → in CI](federation.md#in-ci).
 
 `schema:diff` names what moved, breaking changes first — breaking meaning
 a query written against your dump stops validating, or stops casting:

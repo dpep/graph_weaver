@@ -226,6 +226,26 @@ spec](https://github.com/jaydenseric/graphql-multipart-request-spec), so an
 registering a scalar can't help, because multipart restructures the whole
 request rather than one value.
 
+**No persisted-query id goes with it**, so a gateway safelist configured with
+`require_id` refuses every request this client makes; automatic persisted
+queries (APQ) are an optimization, so those just never kick in. Until the gem
+sends one, `post` is the seam — it sees the encoded body and can put the hash
+beside it:
+
+```ruby
+class APQ < GraphWeaver::Transport::HTTP
+  def post(body)
+    request = JSON.parse(body)
+    sha = Digest::SHA256.hexdigest(request.fetch("query"))
+    extensions = { "persistedQuery" => { "version" => 1, "sha256Hash" => sha } }
+    status, response, headers = super(JSON.generate(request.except("query").merge("extensions" => extensions)))
+    return [status, response, headers] unless response.to_s.include?("PersistedQueryNotFound")
+
+    super(JSON.generate(request.merge("extensions" => extensions))) # register on miss
+  end
+end
+```
+
 **Concurrency.** One transport is normally the whole app's transport
 (`GraphWeaver.client = api`), so it has to serve every thread.
 `Transport::HTTP` opens up to `pool_size:` sockets lazily and reuses the

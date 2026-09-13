@@ -149,6 +149,22 @@
   supergraph dump for a non-supergraph one is refused, naming `rover supergraph
   compose`; `schema:refresh` with no `URL=` says the same thing to a federated
   app instead of suggesting one.
+- Docs: **a production Apollo Router redacts what `Testing::Router` hands you.**
+  With `include_subgraph_errors` omitted — the default — a subgraph error
+  becomes `{"message" => "Subgraph errors redacted", "path" => […]}` with the
+  extensions emptied, so a spec asserting on a subgraph's message or on the
+  `extensions.service` stamp passes here and fails in staging. testing.md says
+  what to assert on instead and gives the `Failure.graphql` that reproduces the
+  redacted shape; federation.md cross-references it.
+- Docs: **on a federated graph, no task in the CI toolbox looks at the schema
+  production is serving** — they all compare the app to its own checked-in
+  artifacts, and `schema:diff` can't be pointed at a supergraph. New
+  federation.md "in CI" section and a paragraph in getting_started.md §5 naming
+  the two `rover` commands that close it; the Actions job grew its
+  `federation:diff` step.
+- Docs: the request body carries no persisted-query id, so a safelist with
+  `require_id` refuses it — transports.md shows the `Transport::HTTP` subclass
+  that bolts APQ on today.
 
 ###  v0.7.0  (2026-09-13)
 

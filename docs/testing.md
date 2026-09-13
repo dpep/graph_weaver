@@ -487,6 +487,41 @@ What it plans, what it **refuses** and why, how subgraphs are matched to your
 schema classes, and what to do about a supergraph only partly local:
 **[federation → the local router](federation.md#the-local-router)**.
 
+### Production redacts what this router hands you
+
+A subgraph's error reaches you here in full — its message, and
+`extensions: {"service" => "<subgraph>"}` saying which subgraph produced it. So
+does a dev router configured with `include_subgraph_errors.all: true`. A
+production Apollo Router, with that setting **omitted** — the default — replaces
+the message and empties the extensions:
+
+```
+here, and a dev router
+  {"message" => "carrier unavailable for this weight",
+   "path" => ["product", "shippingEstimate"], "extensions" => {"service" => "reviews"}}
+a production router
+  {"message" => "Subgraph errors redacted", "path" => ["product", "shippingEstimate"]}
+```
+
+`path` survives; nothing else about the subgraph does. So assert on `path`, on
+a code or extension **your own** schema sets (those are yours to keep, and the
+router passes them through where it isn't redacting), and on what your app does
+with the failure — not on a subgraph's message and not on the `service` stamp.
+An example that needs the redacted shape gets it from
+[`Failure`](#simulating-failures), which reproduces it exactly:
+
+```ruby
+it "degrades when shipping is unavailable" do
+  response = ProductQuery.execute(
+    client: GraphWeaver::Testing::Failure.graphql(
+      "Subgraph errors redacted", path: ["product", "shippingEstimate"],
+    ),
+    upc: "p1",
+  )
+  expect(response.errors.first.path).to eq ["product", "shippingEstimate"]
+end
+```
+
 ## Over the wire — `graphql: :wire`
 
 Your schema, served at the endpoint your own client posts to — with
