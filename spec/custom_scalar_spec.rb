@@ -50,6 +50,11 @@ module MoneyDemo
 
   Product = Struct.new(:name, :price, keyword_init: true)
 
+  # a T::Enum's values are singletons, so it inherits eql?/hash and is right to
+  class Currency < T::Enum
+    enums { USD = new("USD") }
+  end
+
   class MoneyType < GraphQL::Schema::Scalar
     graphql_name "Money"
 
@@ -117,35 +122,66 @@ describe "custom scalar deserialization" do
   end
 
   # A result compares its props with eql?, so it and #hash agree on "same".
-  # A value object that defines == and leaves eql?/hash at Object's — the most
-  # common Ruby idiom there is — makes two results parsed from the SAME bytes
-  # unequal, which no caller would guess from the leaf comparing fine.
-  it "warns when a registered type defines == but not eql?" do
+  # The rule is eql? alone: a type that leaves it at Object's compares by
+  # identity, so two results parsed from the SAME bytes are unequal — which no
+  # caller would guess from the leaf comparing fine. Both drafts below get
+  # there, the == one being the most common Ruby idiom there is.
+  def warnings_for(type)
     io = StringIO.new
     GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+    GraphWeaver.register_scalar("Money", type)
+    io.string
+  ensure
+    GraphWeaver.logger = nil
+  end
+
+  it "warns when a registered type defines == but not eql?" do
     half_a_value_object = Class.new do
       def self.name = "HalfValue"
       def self.parse(str) = new
       def ==(other) = other.is_a?(self.class)
     end
 
-    GraphWeaver.register_scalar("Money", half_a_value_object)
+    expect(warnings_for(half_a_value_object))
+      .to include("HalfValue inherits #eql? and #hash, so its instances compare by identity")
+  end
 
-    expect(io.string).to include("HalfValue defines #== but inherits #eql? and #hash")
-  ensure
-    GraphWeaver.logger = nil
+  it "warns about a type with no equality at all, the commoner first draft" do
+    no_value_object = Class.new do
+      def self.name = "NoValue"
+      def self.parse(str) = new
+    end
+
+    expect(warnings_for(no_value_object))
+      .to include("NoValue inherits #eql? and #hash, so its instances compare by identity")
   end
 
   it "says nothing about a type whose eql? agrees with its ==" do
-    io = StringIO.new
-    GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+    expect(warnings_for(MoneyDemo::Money)).to be_empty
+  end
 
-    GraphWeaver.register_scalar("Money", MoneyDemo::Money)
-    GraphWeaver.register_scalar("Date", Date)
+  # Every type the docs tell you to reach for, plus the Comparable idiom's one
+  # honest true positive: Comparable supplies == off <=> and leaves eql?/hash
+  # at Object's, so it IS the bug this warns about.
+  it "says nothing about the stdlib types a registration names" do
+    [String, Integer, Float, Date, Time, DateTime, BigDecimal].each do |type|
+      expect(warnings_for(type)).to(be_empty, "expected no warning for #{type}")
+    end
+  end
 
-    expect(io.string).to be_empty
-  ensure
-    GraphWeaver.logger = nil
+  it "says nothing about a T::Enum, whose values are singletons" do
+    expect(warnings_for(MoneyDemo::Currency)).to be_empty
+  end
+
+  it "warns about a Comparable that stops at <=>" do
+    comparable = Class.new do
+      include Comparable
+      def self.name = "Ranked"
+      def self.parse(str) = new
+      def <=>(other) = 0
+    end
+
+    expect(warnings_for(comparable)).to include("Ranked inherits #eql? and #hash")
   end
 
   it "compares two results holding the same registered scalar as equal" do
@@ -791,6 +827,34 @@ describe "a class whose codec can't be inferred" do
     scalar = GraphWeaver::Codegen.scalar("Money")
     expect(scalar.cast?).to be false
     expect(scalar.serialize?).to be false
+  end
+
+  # Two different mistakes reach the same dead end, so the refusal has to say
+  # which one you made: a class the probes missed, or a name that was never
+  # probed at all.
+  it "refuses at generation, naming the three probes that found nothing" do
+    GraphWeaver.register_scalar("Money", Money)
+
+    expect { source }.to raise_error(GraphWeaver::Error, <<~MSG.chomp.tr("\n", " "))
+      register_scalar("Money", Money) has no cast, so nothing builds a Money out of the JSON at
+      Product.price — Money defines no .parse and no .load, and Kernel has no Money conversion
+      function, so there was nothing to infer. Give it a cast (cast: :parse names a class method,
+      cast: ->(v) { "Money.new(\#{v})" } emits any expression), or register a type the wire already
+      parses into
+    MSG
+  end
+
+  # The string form skips probing by design — there is no class in hand — so
+  # the same class that would have inferred nothing is a different diagnosis.
+  it "refuses a name-registered type by saying nothing was probed" do
+    GraphWeaver.register_scalar("Money", "Money")
+
+    expect { source }.to raise_error(GraphWeaver::Error, <<~MSG.chomp.tr("\n", " "))
+      register_scalar("Money", "Money") has no cast, so nothing builds a Money out of the JSON at
+      Product.price — a type: given by name is never probed, since there is no class in hand. Pass
+      the class (register_scalar("Money", Money)) to infer a cast from it, or name one yourself
+      (cast: :parse names a class method, cast: ->(v) { "Money.parse(\#{v})" } emits any expression)
+    MSG
   end
 
   it "inlines the source the cast: proc builds, and #to_s as the serializer" do

@@ -164,21 +164,45 @@ class GraphWeaver::Codegen
       end
     end
 
+    # Why this registration can't read the JSON at `where`, and what to do about
+    # it. Two different mistakes land here, so say which: a type: given by name
+    # was never probed (there is no class in hand to probe), while a class was
+    # probed and matched nothing. Raised by Codegen#refuse_uncastable!, which
+    # owns the question of whether the wire could satisfy the prop at all.
+    def uncastable_message(where)
+      head = "register_scalar(#{@graphql_name.inspect}, #{@klass ? @type : @type.inspect}) has no " \
+        "cast, so nothing builds a #{@type} out of the JSON at #{where}"
+      if @klass.nil?
+        "#{head} — a type: given by name is never probed, since there is no class in hand. Pass " \
+          "the class (register_scalar(#{@graphql_name.inspect}, #{@type})) to infer a cast from " \
+          "it, or name one yourself (cast: :parse names a class method, " \
+          "cast: ->(v) { \"#{@type}.parse(\#{v})\" } emits any expression)"
+      else
+        "#{head} — #{@type} defines no .parse and no .load, and Kernel has no #{@type} conversion " \
+          "function, so there was nothing to infer. Give it a cast (cast: :parse names a class " \
+          "method, cast: ->(v) { \"#{@type}.new(\#{v})\" } emits any expression), or register a " \
+          "type the wire already parses into"
+      end
+    end
+
     private
 
     # A result compares its props with eql?, so that it and #hash agree on what
-    # "same" means. A value object that defines == and leaves eql?/hash at
-    # Object's — the common Ruby idiom — therefore makes two results parsed from
-    # the same bytes unequal, and useless as hash keys, while the leaf itself
-    # compares fine. Nothing here can fix that; only the type can.
+    # "same" means. A type that leaves eql? at Object's compares by identity,
+    # so two results parsed from the same bytes are unequal and useless as hash
+    # keys — whether it defined == (the common Ruby idiom, and the leaf itself
+    # then compares fine) or no equality at all. Nothing here can fix that;
+    # only the type can.
     def warn_half_a_value_object
-      # a Module type names a duck the gem never sees an instance of
-      return unless @klass.is_a?(Class) && defines?(:==) && !defines?(:eql?)
+      # a Module type names a duck the gem never sees an instance of; a T::Enum's
+      # values are singletons, so identity already is equality
+      return unless @klass.is_a?(Class) && !(@klass < T::Enum) && !defines?(:eql?)
 
       GraphWeaver::Internal::Log.log(:warn) do
-        "register_scalar(#{@graphql_name.inspect}, #{@type}): #{@type} defines #== but inherits " \
-          "#eql? and #hash, so two results parsed from the same response won't be equal and a " \
-          "result won't work as a hash key — define eql? and hash alongside =="
+        "register_scalar(#{@graphql_name.inspect}, #{@type}): #{@type} inherits #eql? and #hash, " \
+          "so its instances compare by identity — two results parsed from the same response won't " \
+          "be equal and a result won't work as a hash key — define ==, eql? and hash off the same " \
+          "values (alias_method :eql?, :== is the usual shortcut)"
       end
     end
 

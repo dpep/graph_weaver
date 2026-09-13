@@ -1407,11 +1407,9 @@ class GraphWeaver::Codegen
     klass = Object.const_get(scalar.type)
     return unless klass.is_a?(Class) && ScalarType::WIRE_CLASSES.none? { |native| native <= klass }
 
-    raise GraphWeaver::Error,
-      "register_scalar(#{scalar.graphql_name.inspect}, #{scalar.type}) has no cast, so nothing " \
-      "builds a #{scalar.type} out of the JSON at #{where} — give it one (cast: :parse names a " \
-      "class method, cast: ->(v) { \"#{scalar.type}(\#{v})\" } emits any expression), or register " \
-      "a type the wire already parses into"
+    # why there is no cast — and so what to do — is the registration's own
+    # knowledge, not the walk's
+    raise GraphWeaver::Error, scalar.uncastable_message(where)
   rescue ::NameError
     nil # a type: given as a String names a class this process may not have
   end
