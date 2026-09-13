@@ -561,6 +561,50 @@ that fall back to `GraphWeaver.client`, the app default.
 form: the block is `instance_eval`'d, so that would be a local variable that
 silently does nothing — the same reason graphql-ruby writes `field :name`.
 
+### Two remote APIs, and no schema of your own
+
+An app that is a pure client of someone else's GraphQL owns no schema class at
+all, so every graph's schema is a dump — and the dumps have to come from
+somewhere. Name the file you want and the client that can fetch it, and
+`schema:refresh` writes it:
+
+```ruby
+# config/initializers/graph_weaver.rb
+COUNTRIES = GraphWeaver.new("https://countries.trevorblades.com/")
+POKE      = GraphWeaver.new("https://beta.pokeapi.co/graphql/v1beta")
+
+GraphWeaver.graph :countries do
+  schema    "app/graphql/countries/schema.json"
+  queries   "app/graphql/countries/queries"
+  output    "app/graphql/countries/generated"
+  client    "COUNTRIES"
+  namespace "Countries"
+end
+
+GraphWeaver.graph :poke do
+  schema    "app/graphql/poke/schema.json"
+  queries   "app/graphql/poke/queries"
+  output    "app/graphql/poke/generated"
+  client    "POKE"
+  namespace "Poke"
+end
+```
+
+```sh
+rake graph_weaver:schema:refresh   # introspects each graph's client into its schema
+rake graph_weaver:generate
+```
+
+A graph whose dump isn't there yet is introspected from the url its own client
+posts to, and the dump records that url — so every later `schema:refresh` and
+`schema:diff` re-reads the right server without being told again. `URL=` is for
+the app that has one dump and no graphs; it names a single endpoint, and here
+each graph has its own.
+
+In specs, `graph:` is how an example says which graph a helper stands in for —
+`graphql_fake(graph: :poke, "pokemon_v2_pokemon.name" => "pikachu")`. See
+[testing.md](testing.md).
+
 **In Rails, declare graphs in the initializer itself, and name an autoloaded
 schema class with a lambda** — `schema -> { Billing::Schema }` — as above.
 Zeitwerk is set up *after* `config/initializers` run, so a bare

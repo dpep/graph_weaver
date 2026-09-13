@@ -218,6 +218,62 @@
   validator installed by symbol is invisible to Zeitwerk — reference it from
   the same `to_prepare` block, above the schema.
 
+<!-- lane: multigraph -->
+- **`graph:` names a graph in every mode helper.** `graphql_fake(graph: :poke,
+  "pokemon_v2_pokemon.name" => "pikachu")`, `graphql_in_process(graph:
+  :catalog)`, `graphql_router(graph: :storefront, fake: …)`. A helper stands in
+  for the modules of *one* graph, and the only way to say which was
+  `schema:` — matched by the identity of the object the graph's `schema`
+  setting holds, which only a graph running a live class in-process has. An app
+  that is a pure client of two remote APIs has none: `SchemaLoader` builds a
+  fresh anonymous class per load, so the client, the declared dump path and the
+  graph's own name were all refused with `names none of this app's graphs`, and
+  the workaround was loading each dump into a constant and passing that same
+  object in both places. `graph:` takes the name — the handle a graph has
+  everywhere else, printed by `rake graph_weaver:graphs` and baked into every
+  module's `GRAPH`. `schema:` still serves the single-graph override it always
+  did; every refusal now leads with `graph:`, and `graphql_router`, which had
+  no way at all to say whose `fake:` it was holding and so could only refuse,
+  gains one.
+- **`schema:refresh` bootstraps a graph's first dump from the client that graph
+  already names.** Nothing wrote the second one: the installer is single-graph,
+  `URL=` names one endpoint for an app that has one dump per graph, and
+  `real_world.md`'s `GraphWeaver.new(url, cache: true).schema` recipe writes the
+  conventional `schema_path`. A graph naming a dump that isn't there yet is now
+  introspected from the url its own client posts to, and the dump records that
+  url as its source like any other — so two plain remote APIs are: declare both
+  graphs with `schema "app/graphql/poke/schema.json"` and `client "POKE"`, run
+  `schema:refresh`, run `generate`. `schema:diff` stops reading a missing dump
+  as "generates from that url directly", which is what a graph naming a live
+  schema class does, and names the file and the task instead.
+  `Graph#named_dump_path` and `SchemaLoader.dump_path?` are the new public
+  names; `Graph#dump_path` still means "the dump that is there".
+- **A pin is told from an option by a lookup, not by casing.** The rule was "a
+  dot or a leading capital is a pin", so a lowercase type could not be pinned at
+  all: `graphql_fake("pokemon_v2_pokemon" => …)` against a Hasura API came back
+  as `a fake doesn't take pokemon_v2_pokemon:` and the pin was silently gone.
+  Now a key the fake takes is an option, a key **your schema** knows — a type,
+  enum, scalar, `Type.field` coordinate, or a field name — is a pin, and a key
+  that is neither is refused naming both and guessing across both. A key written
+  in the leading positional hash is only ever a pin, which is the spelling for a
+  schema whose own vocabulary collides with an option name. **Action:** a
+  keyword that is a near-miss for a pin (`Persn: "Ada"`) now raises
+  `ArgumentError` from the fake rather than `GraphWeaver::Error` from the
+  override check; the same key in the leading hash is unchanged.
+- **`@oneOf` was never enforced on any schema read from an introspection dump.**
+  Codegen emits `ONE_OF` from `one_of?` and `InputStruct#one_of!` is the only
+  thing that refuses two fields being set — but graphql-ruby's introspection
+  query omits `isOneOf` unless asked, and its loader drops the field even when
+  it is present, so every dump this gem has ever written said "not @oneOf" for
+  every input object and the enforcing struct was never generated. Both halves
+  are fixed, and a schema introspected now and one loaded back off the file that
+  writes are the same schema. Schemas built from SDL (`.graphql`/`.gql` dumps,
+  inline SDL, a live class) were always correct. **Action:** regenerate
+  (`rake graph_weaver:schema:refresh && rake graph_weaver:generate`) if you use
+  `@oneOf` inputs and your dump is `.json` — the newly emitted `ONE_OF` will
+  start refusing calls that set two fields, which the server was refusing all
+  along.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

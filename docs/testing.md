@@ -167,6 +167,15 @@ For a single example the helper says it where it varies instead —
 `graphql_in_process(MySchema)`, `graphql_fake(schema: MySchema)`,
 `graphql_router(fake: …)`, `graphql_context(current_user: …)`.
 
+**With more than one graph, `graph:` says which one a helper stands in for** —
+`graphql_fake(graph: :poke, "pokemon_v2_pokemon.name" => "pikachu")`,
+`graphql_in_process(graph: :catalog)`, `graphql_router(graph: :storefront,
+fake: …)`. A helper is the stand-in for one graph's modules, so an app with
+several is refused, naming them, rather than guessing. A schema class names
+its graph and its schema in one word — `graphql_in_process(Reviews::Schema)`
+— but only for a graph that runs that class in-process; a graph whose schema
+is a dump has no such object, and `graph:` is the handle every graph has.
+
 Anything whose honest answer differs per example belongs on the fake instead
 — `graphql_fake(null_chance: 1.0)` for the example that's about an empty
 state, `graphql_fake(values: :literal)` for the one that reads better without
@@ -248,12 +257,15 @@ deep inside `from_h`. A scalar registered as `BigDecimal`, `Time`, `Date`,
 `config.overrides`, and the [cassette anonymizer](cassettes.md) reads it too.
 
 Pins lead and options follow — `graphql_fake("Money" => "12.00", values:
-:literal)`. Options are lowercase words, so a key with a dot or a leading
-capital is a pin wherever it is written; `overrides:` takes the same hash by
-keyword, and the leading pins win where both name a key. A fake refuses an
-option it doesn't take, lists the ones it does, and guesses at what you meant —
-at every door: `FakeClient.new`, `graphql_fake`, `Router.new(fake:)` and
-`graphql_router(fake:)`.
+:literal)`. Pins and options are the same keywords, told apart by a lookup: a
+key the fake takes is an option, a key **your schema** knows is a pin, and a
+key that is neither is refused naming both. So a lowercase type pins as
+readily as a capitalized one — `graphql_fake("pokemon_v2_pokemon" => …)` for a
+Hasura API. `overrides:` takes the same hash by keyword, and the leading pins
+win where both name a key; written as that leading hash a key is only ever a
+pin, which is the spelling for a schema whose own vocabulary collides with an
+option name. The refusal is the same at every door: `FakeClient.new`,
+`graphql_fake`, `Router.new(fake:)` and `graphql_router(fake:)`.
 
 **A pin answers every call the same way**, which is how a paging loop fed by a
 fake runs forever — page two is as full as page one.
