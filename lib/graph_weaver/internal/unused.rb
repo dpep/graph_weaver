@@ -23,19 +23,30 @@ module GraphWeaver
       # them, which is what keeps comments and locals out.
       READ = /[.:"']([a-z_]\w*)|\b([a-z_]\w*):/
       # Hand a struct to one of these and every prop is read at once, by a
-      # call that names none of them. Caught only where the module's own name
-      # is on the same line — once the value is in a local it is out of reach,
-      # which the footer says.
+      # call that names none of them. Caught where the sink line carries the
+      # module's own name, or a local a line above assigned from it.
       SINKS = /\b(?:to_h|to_json|as_json|serialize|deconstruct_keys)\b|render\s+json:/
-      # A graphql-ruby type class NAMES every field the server offers, as
+      # `result = PersonQuery.execute!(...)` — the local a response lands in.
+      # Following one is what lets the sink be on the NEXT line, which is how
+      # anyone actually writes a controller. Excludes == and =~.
+      ASSIGN = /\b([a-z_]\w*)\s*=[^=~]/
+      # A graphql-ruby TYPE class NAMES every field the server offers, as
       # `field :sku` and as a resolver method — which is the server answering,
       # not this app reading a prop back. Without this an app that serves the
       # graph it consumes (graphql_in_process) marks every prop read, and the
       # task reports nothing however much it over-fetches.
-      SCHEMA = /^\s*(?:class \w+ < GraphQL::Schema::|include GraphQL::Schema::Interface\b)/
+      #
+      # Type kinds only: GraphQL::Schema::Resolver and ::Mutation hold
+      # application logic — in a BFF that is exactly where an upstream graph
+      # gets read — and skipping those files lost every read in them. Both
+      # spellings, because graphql-ruby's own generator emits the app-owned
+      # base class (`< Types::BaseObject`), not the gem's.
+      TYPE_KINDS = "Object|Interface|Union|Enum|Scalar|InputObject"
+      SCHEMA = /^[ \t]*(?:class \w+ < (?:GraphQL::Schema::|Types::Base)(?:#{TYPE_KINDS})\b|include GraphQL::Schema::Interface\b)/
       # What the sweep can read. A prop read from anywhere else — a .vue, a
       # .json.erb's sibling JS — is a blind spot, and the footer says so.
-      EXTENSIONS = %w[.rb .erb .slim .haml .jbuilder].freeze
+      # .rake and .builder are Ruby too.
+      EXTENSIONS = %w[.rb .rake .builder .erb .slim .haml .jbuilder].freeze
       # Directories that hold no app source. "generated" covers both a graph's
       # own output under the convention and a spec/generated fixture dir; a
       # graph that writes somewhere else is pruned by #outputs.
@@ -43,20 +54,36 @@ module GraphWeaver
       # enough of the quoted line to judge it by, without wrapping a terminal
       SNIPPET = 100
 
+      # Measured against real corpora (actionview, activesupport, graphql and
+      # six Rails gems swept together): half to two thirds of genuinely unread
+      # selections go unreported, rising with corpus size. Saying so is the
+      # difference between a lint and a number somebody trusts.
       FOOTER = "This is a lint, not a proof — it matches prop names as text, so a common name reads " \
-        "as\nused the moment anything says it. It can't see a prop reached by public_send, a " \
-        "struct\nthat reaches a serializer through a local variable, or a read in a file type it " \
-        "doesn't\nsweep (#{EXTENSIONS.join(", ")})."
+        "as\nused the moment anything says it. It can't see a prop reached by public_send, or a " \
+        "read\nin a file type it doesn't sweep (#{EXTENSIONS.join(", ")}). On a real app half to " \
+        "two\nthirds of genuinely unread selections go unreported; silence is the safe direction."
 
       # query: the .graphql that selected it. struct/prop: where it landed.
-      Selection = Struct.new(:query, :module_name, :struct, :prop) do
+      # wire: how the query spells that prop, when it differs.
+      Selection = Struct.new(:query, :module_name, :struct, :prop, :wire) do
         # The GraphQL-side name, which is what you go and delete: the struct's
         # own name is the response key, so `Person.birthday` reads the way the
-        # query does.
-        def coordinate = "#{struct.name.split("::").last}.#{prop}"
+        # query does — and a camelCase field, an alias or a reserved rename
+        # reads the way the query spells it, not the way the prop does.
+        def coordinate = "#{struct.name.split("::").last}.#{wire || prop}"
 
         # …and the Ruby side, so the report is greppable both ways.
         def constant = "#{struct.name}##{prop}"
+      end
+
+      # Why a module's props were all counted read, and on what evidence. Via
+      # is the local the value was standing in when it reached the serializer,
+      # nil when the sink line named the module itself.
+      Excuse = Struct.new(:path, :number, :source, :via) do
+        def reason
+          where = "handed whole to a serializer at #{path}:#{number}"
+          via ? "#{where}, as `#{via}`" : where
+        end
       end
 
       # What one pass over the files answers.
@@ -69,6 +96,16 @@ module GraphWeaver
         @graphs = graphs
         given = Array(paths).map { |path| path.to_s.strip }.reject(&:empty?)
         @roots = (given.empty? ? ["."] : given).map { |path| Util.resolve(path) }
+        # A root that isn't there sweeps nothing, and sweeping nothing reports
+        # every prop unread — under STRICT, a red build demanding you delete
+        # fields you use. `0 files swept` was the only tell, printed beneath
+        # the accusations.
+        missing = @roots.reject { |root| Dir.exist?(root) }
+        return if missing.empty?
+
+        raise GraphWeaver::Error,
+          "no directory at #{missing.map { |root| Util.relative(root) }.join(", ")} — " \
+          "PATHS= names directories under #{GraphWeaver.root}"
       end
 
       # Every selection nothing reads, grouped the way the report prints them.
@@ -82,9 +119,8 @@ module GraphWeaver
         # The evidence, not just the verdict: name-matching a serializer call
         # is the mushiest thing here, and a suppression that was wrong should
         # be obvious at a glance rather than silently eating the report.
-        lines = wholly_used.flat_map do |name, (path, number, source)|
-          ["#{name}: every prop counted as read — handed whole to a serializer at #{path}:#{number}",
-            "  #{source[0, SNIPPET]}"]
+        lines = wholly_used.flat_map do |name, excuse|
+          ["#{name}: every prop counted as read — #{excuse.reason}", "  #{excuse.source[0, SNIPPET]}"]
         end
         lines += findings.map do |selection|
           "#{Util.relative(selection.query)}: #{selection.coordinate} — selected, never read " \
@@ -98,10 +134,12 @@ module GraphWeaver
 
       # What the summary counts, so the task can phrase its own STRICT abort.
       def summary
-        queries = selections.map(&:query).uniq.size
         "#{selections.size} selections, #{findings.size} unread — " \
-          "#{queries} #{(queries == 1) ? "query" : "queries"}, #{swept} files swept under #{where}"
+          "#{count(selections.map(&:query).uniq.size, "query", "queries")}, " \
+          "#{count(swept, "file", "files")} swept under #{where}"
       end
+
+      def count(number, one, many) = "#{number} #{(number == 1) ? one : many}"
 
       private
 
@@ -136,15 +174,25 @@ module GraphWeaver
             candidates = short.reject { |name, base| whole.key?(name) || !body.include?(base) }
             next if candidates.empty?
 
-            # ONE line has to carry both the module's name and the sink.
-            # Anywhere-in-the-file was the first cut and it suppressed this
-            # gem's whole report: a doc comment naming PersonQuery three
-            # hundred lines above an unrelated to_h counted as serializing it.
+            # ONE line has to carry the module — itself, or a local a line
+            # above assigned from it. Anywhere-in-the-file was the first cut
+            # and it suppressed this gem's whole report: a doc comment naming
+            # PersonQuery three hundred lines above an unrelated to_h counted
+            # as serializing it. Following the local is what the line rule
+            # missed, and it is the shape every Rails controller has:
+            # `result = Q.execute!(...)`, then `render json: result.person`.
+            locals = Hash.new { |hash, key| hash[key] = [] }
             body.each_line.with_index(1) do |line, number|
+              candidates.each do |name, base|
+                locals[name] << Regexp.last_match(1) if line.include?(base) && ASSIGN.match(line)
+              end
               next unless SINKS.match?(line)
 
               candidates.each do |name, base|
-                whole[name] ||= [Util.relative(path), number, line.strip] if line.include?(base)
+                via = locals[name].find { |local| line.match?(/\b#{Regexp.escape(local)}\b/) }
+                next unless line.include?(base) || via
+
+                whole[name] ||= Excuse.new(Util.relative(path), number, line.strip, via)
               end
             end
           end
@@ -157,15 +205,27 @@ module GraphWeaver
       def selections
         @selections ||= @graphs.flat_map do |graph|
           Util.query_files(graph.queries).flat_map do |path|
-            name = graph.generated_names(path, File.read(path)).first
+            source = File.read(path)
+            name = graph.generated_names(path, source).first
             next [] unless Object.const_defined?(name)
 
             result = Object.const_get(name)
             next [] unless result.const_defined?(:Result, false)
 
-            props(result.const_get(:Result, false)).map { |struct, prop| Selection.new(path, name, struct, prop) }
+            words = source.scan(/[A-Za-z_]\w*/).uniq
+            props(result.const_get(:Result, false))
+              .map { |struct, prop| Selection.new(path, name, struct, prop, wire_word(words, prop)) }
           end
         end
+      end
+
+      # How the query spells a prop, when that isn't the prop's own name — a
+      # camelCase field, an alias, a reserved rename. Read back off the query
+      # text rather than derived from the prop, since no rule inverts an
+      # alias; nil when the query spells it the same way, which is most of
+      # the time.
+      def wire_word(words, prop)
+        words.find { |word| word != prop.to_s && GraphWeaver::Codegen.prop_name(word) == prop.to_s }
       end
 
       # Nested structs are nested constants, so the props of a whole response

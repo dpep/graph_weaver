@@ -326,14 +326,18 @@ app/graphql/queries/products.graphql: Products.blurb — selected, never read (C
 
 Each line names the query file, the selection to go and delete, and the
 generated prop behind it. It reads the generated structs for the props a
-query produced, then sweeps your `.rb`, `.erb`, `.slim`, `.haml` and
-`.jbuilder` **once** for every name they could be read by — `.sku`, `sku:`,
-`:sku`, `"sku"`. `PATHS=app,lib` narrows the sweep; everything under a
-directory named `generated`, plus `vendor`, `node_modules`, `tmp` and `log`,
-is skipped either way, as is any file defining a graphql-ruby type (a
-`field :sku` there is your *server* offering a field, not this app reading one
-back). Nothing is edited and the exit is 0; `STRICT=1` exits 1 when anything
-is unread, for teams who want the gate.
+query produced, then sweeps your `.rb`, `.rake`, `.builder`, `.erb`, `.slim`,
+`.haml` and `.jbuilder` **once** for every name they could be read by —
+`.sku`, `sku:`, `:sku`, `"sku"`. `PATHS=app,lib` narrows the sweep, and a
+`PATHS=` naming a directory that isn't there is refused rather than swept as
+nothing. Everything under a directory named `generated`, plus `vendor`,
+`node_modules`, `tmp` and `log`, is skipped either way, as is any file
+defining a graphql-ruby **type** — `< GraphQL::Schema::Object` or the
+`< Types::BaseObject` the generator writes — since a `field :sku` there is
+your *server* offering a field, not this app reading one back. A `Resolver` or
+a `Mutation` is swept like any other code: that is where a BFF reads the graph
+it consumes. Nothing is edited and the exit is 0; `STRICT=1` exits 1 when
+anything is unread, for teams who want the gate.
 
 A line handing a query module straight to a serializer — `render json:`,
 `to_h`, `to_json`, `as_json`, `serialize`, `deconstruct_keys` — reads every
@@ -346,13 +350,20 @@ Accounts::MeQuery: every prop counted as read — handed whole to a serializer a
   render json: Accounts::MeQuery.execute!.me
 ```
 
+A local counts too, which is what makes the ordinary two-line controller work
+— `result = Accounts::MeQuery.execute!` on one line, `render json: result.me`
+on the next — and the excuse names the local it followed.
+
 **It is a lint, not a proof**, and the task's own footer says so. It matches
 names as text, so a prop called `name` counts as read the moment anything at
-all says `.name`; and it can't see a prop reached by `public_send`, a struct
-that reaches a serializer through a local variable, or a read in a file type
-it doesn't sweep. Treat a finding as a prompt to go and look, and a clean run
-as nothing more than the absence of an obvious one — which is why it exits 0
-unless you ask it not to.
+all says `.name`; and it can't see a prop reached by `public_send` or a read
+in a file type it doesn't sweep. The example above is the best case, not the
+typical one: measured against real corpora, **half to two thirds of genuinely
+unread selections go unreported**, the share rising with the size of the app,
+because common prop names collide with ordinary words somewhere in it.
+Silence is the safe direction here. Treat a finding as a prompt to go and
+look, and a clean run as nothing more than the absence of an obvious one —
+which is why it exits 0 unless you ask it not to.
 
 ## Your app's own schema, in-process
 

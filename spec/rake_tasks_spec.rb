@@ -842,6 +842,71 @@ describe "graph_weaver rake tasks" do
       expect(result.out).not_to include "nothing to check"
     end
 
+    # PATHS= that names nothing sweeps nothing, and sweeping nothing reports
+    # every prop unread — under STRICT a red build demanding you delete fields
+    # you use. `0 files swept` was the only tell, printed under the accusations.
+    it "refuses a PATHS= that names no directory, instead of accusing everything" do
+      generate_query("unused_bad_paths", "name birthday")
+      write_app("app/models/bad_paths.rb", "def greet(result) = result.person.name")
+
+      result = invoke("unused", PATHS: "ap")
+
+      expect(result.out + result.err).to include "no directory at", "ap"
+      expect(result.out).not_to include "never read"
+    end
+
+    # The two-line form is how anyone actually writes this, and the sweep can't
+    # tell a local apart from the value it came from. Accusing four fields is a
+    # worse answer than staying quiet about them and saying why.
+    it "suppresses with a stated reason when a file both names the module and serializes" do
+      generate_query("unused_local", "name birthday")
+      write_app("app/controllers/local_controller.rb", <<~RUBY)
+        def show
+          result = UnusedLocalQuery.execute!(id: params[:id])
+          render json: result.person
+        end
+      RUBY
+
+      out = invoke("unused").out
+
+      expect(out).to include "UnusedLocalQuery: every prop counted as read"
+      expect(out).to include "as `result`"
+      expect(out).not_to include "never read"
+    end
+
+    # A Resolver or a Mutation is application logic — in a BFF it is exactly
+    # where an upstream graph gets read. Only a TYPE definition names its
+    # fields because the server offers them.
+    it "sweeps a resolver, and skips a type declared the way the generator writes it" do
+      generate_query("unused_resolver", "name birthday")
+      write_app("app/graphql/resolvers/person_resolver.rb", <<~RUBY)
+        class PersonResolver < GraphQL::Schema::Resolver
+          def resolve(result) = result.person.name
+        end
+      RUBY
+      write_app("app/graphql/types/scaffolded_type.rb", <<~RUBY)
+        class ScaffoldedType < Types::BaseObject
+          field :birthday, GraphQL::Types::ISO8601Date
+        end
+      RUBY
+
+      expect(invoke("unused").out).to include "Person.birthday — selected, never read"
+    end
+
+    # The coordinate is what you go and delete, so it has to be a word the
+    # .graphql contains. The prop is the Ruby spelling — a camelCase field or
+    # an alias makes it a name that appears nowhere in the file it names.
+    it "names the field as the query spells it, not as the prop does" do
+      write_schema
+      write_query("unused_wire.graphql", 'query { person(id: "1") { name bornOn: birthday } }')
+      invoke("generate")
+      GraphWeaver.load_generated!
+      write_app("app/models/wire_greeter.rb", "def greet(result) = result.person.name")
+
+      expect(invoke("unused").out).to include "Person.bornOn — selected, never read " \
+        "(UnusedWireQuery::Result::Person#born_on)"
+    end
+
     # the caveats are the task: a finding is a prompt to look, and a clean run
     # is not a proof of anything
     it "states its blind spots whether or not it found something" do
