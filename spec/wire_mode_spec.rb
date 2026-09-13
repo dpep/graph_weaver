@@ -345,6 +345,15 @@ describe "graphql: :wire" do
       expect(order_query.execute!.order.buyer).to eq "ada"
     end
 
+    # the same rule for the other two helpers: under :wire a helper names
+    # what is SERVED, options and all, rather than contradicting the tag
+    it "serves the schema class a helper names", graphql: :wire do
+      graphql_in_process(WireDemo::Schema, context: { current_user: "ada" })
+      order_query = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY)
+
+      expect(order_query.execute!.order.buyer).to eq "ada"
+    end
+
     # rspec runs `after` hooks innermost-first, so a suite's own
     # `after { WebMock.reset! }` takes our stub down before this gem's hook
     # reaches it — which used to raise from inside the cleanup and pile a
