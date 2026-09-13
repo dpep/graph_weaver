@@ -61,6 +61,11 @@ module GraphWeaver
     CLIENT_MODES = %i[live fake in_process router wire].freeze
 
     class Config
+      # How long an unbounded list fabricates when nothing names it — the
+      # starting #list_size, and the fallback under a Hash one with no
+      # `default:`.
+      DEFAULT_LIST_SIZE = (1..3).freeze
+
       attr_accessor :overrides, :seed, :list_size, :cassette_dir, :record, :anonymize
       attr_reader :context
       # #schema is read with a fallback (below), the way #router and
@@ -70,7 +75,7 @@ module GraphWeaver
       def initialize
         @overrides = {}
         @seed = nil
-        @list_size = 1..3
+        @list_size = DEFAULT_LIST_SIZE
         @schema = nil
         @located = nil # the committed dump, once located
         @located_path = nil # and the path it was located at
@@ -349,9 +354,13 @@ module GraphWeaver
 
       def configure
         yield config
-        # a typo'd override key pins nothing and the test still passes, so
-        # catch it here — while the block that set it is still on the stack
-        Internal::Overrides.validate!(config.explicit_schema, config.overrides) if config.explicit_schema
+        # a typo'd override or list_size key names nothing and the test still
+        # passes, so catch it here — while the block that set it is still on
+        # the stack
+        if (schema = config.explicit_schema)
+          Internal::Overrides.validate!(schema, config.overrides)
+          Internal::Overrides.validate_list_size!(schema, config.list_size)
+        end
         config
       end
 

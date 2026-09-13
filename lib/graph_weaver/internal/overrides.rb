@@ -10,6 +10,10 @@ module GraphWeaver
     # suite-wide ones while the block that set them is still on the stack,
     # and a fake built with its own checks them then.
     module Overrides
+      # The key a Hash `list_size:` says its fallback under — every list it
+      # doesn't name.
+      LIST_SIZE_DEFAULT = "default"
+
       class << self
         # A pin key names something in the schema: a type ("Money",
         # "Person"), a "Type.field" coordinate, or a bare field name
@@ -42,6 +46,23 @@ module GraphWeaver
         # Every name a pin may be keyed by — the dictionary a refusal guesses
         # from when a key is neither a pin nor an option.
         def pin_names(schema) = schema.types.keys + field_names(schema)
+
+        # A Hash `list_size:` sizes one list at a time, keyed the way a pin is
+        # minus the bare type name: a type says nothing about how long any one
+        # of its fields is.
+        def validate_list_size!(schema, list_size)
+          return unless list_size.is_a?(Hash)
+
+          list_size.each do |key, value|
+            unless value.is_a?(Integer) || value.is_a?(Range)
+              raise GraphWeaver::Error, "list_size: #{key.to_s.inspect} must be an Integer or a " \
+                "Range — how long an unbounded list is — got #{value.inspect}"
+            end
+            next if key.to_s == LIST_SIZE_DEFAULT
+
+            validate_field_key!(schema, key.to_s, "list_size: key")
+          end
+        end
 
         # A pin that's a proc is handed the seeded Random when it takes one
         # and called bare when it doesn't, so a varying pin still reproduces
@@ -76,16 +97,36 @@ module GraphWeaver
 
             # a leading capital names a type, as it does wherever a pin is written
             dictionary = type_name.match?(/\A[A-Z]/) ? schema.types.keys : known
-            bad!(key, "matches no type or field in this schema", dictionary, type_name)
+            bad!("override key", key, "matches no type or field in this schema", dictionary, type_name)
           end
 
+          coordinate!(schema, "override key", key, type_name, field_name)
+        end
+
+        # A key naming one FIELD — a "Type.field" coordinate, or a bare field
+        # name matching that field on any type.
+        def validate_field_key!(schema, key, label)
+          type_name, field_name = key.split(".", 2)
+          return if (field_name || type_name).start_with?("__")
+
+          if field_name.nil?
+            known = field_names(schema)
+            return if known.include?(type_name)
+
+            bad!(label, key, "matches no field in this schema", known, type_name)
+          end
+
+          coordinate!(schema, label, key, type_name, field_name)
+        end
+
+        def coordinate!(schema, label, key, type_name, field_name)
           type = schema.get_type(type_name)
           unless type.respond_to?(:fields)
-            bad!(key, "names no object type in this schema", schema.types.keys, type_name)
+            bad!(label, key, "names no object type in this schema", schema.types.keys, type_name)
           end
           return if type.fields.key?(field_name)
 
-          bad!(key, "is not a field of #{type_name}", type.fields.keys, field_name)
+          bad!(label, key, "is not a field of #{type_name}", type.fields.keys, field_name)
         end
 
         # A type pin says what every value of that type is, and the fake only
@@ -105,10 +146,10 @@ module GraphWeaver
             "#{type.graphql_name}, and a pin fabricates a scalar, enum or object: #{advice}"
         end
 
-        def bad!(key, problem, dictionary, term)
+        def bad!(label, key, problem, dictionary, term)
           suggestion = Util.did_you_mean(dictionary, term)
           hint = suggestion ? " — did you mean '#{suggestion}'?" : ""
-          raise GraphWeaver::Error, "override key #{key.inspect} #{problem}#{hint}"
+          raise GraphWeaver::Error, "#{label} #{key.inspect} #{problem}#{hint}"
         end
 
         # Every output field name in the schema — walked only when a bare key

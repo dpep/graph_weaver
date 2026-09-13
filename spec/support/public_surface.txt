@@ -391,6 +391,7 @@ GraphWeaver::Testing::Config#schema_class?
 GraphWeaver::Testing::Config#seed
 GraphWeaver::Testing::Config#seed=
 GraphWeaver::Testing::Config#supergraph?
+GraphWeaver::Testing::Config::DEFAULT_LIST_SIZE = Range
 GraphWeaver::Testing::Coverage (Class)
 GraphWeaver::Testing::Coverage#elsewhere
 GraphWeaver::Testing::Coverage#inspect

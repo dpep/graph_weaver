@@ -93,6 +93,14 @@ require_relative "../parsing"
 #
 #      FakeClient.new(schema:, null_chance: 1.0)   # everything nullable, null
 #
+# list_size: how long an unbounded list is — an Integer exactly, a Range
+# randomized within it, and a Hash per list, keyed the way a pin is (a
+# "Type.field" coordinate or a bare field name) with "default" for the rest.
+# Every list the walk reaches reads this, so nested lists MULTIPLY under one
+# number: n rows each fabricate n tags. Naming the inner one flattens that.
+#
+#      FakeClient.new(schema:, list_size: { "Row.tags" => 3, default: 500 })
+#
 # seed: makes a run reproducible (also seeds faker). schema:, overrides:
 # and list_size: fall back to GraphWeaver::Testing.config — and the
 # config's schema falls back to the committed dump.
@@ -162,6 +170,8 @@ class GraphWeaver::Testing::FakeClient
     @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values],
       pins: @overrides, schema: @schema, registry: @registry)
     @list_size = options[:list_size] || config.list_size
+    @list_size = @list_size.transform_keys(&:to_s) if @list_size.is_a?(Hash)
+    GraphWeaver::Internal::Overrides.validate_list_size!(@schema, @list_size)
     @null_chance = options[:null_chance] || 0.0
     # NOT Array(): it would explode a bare Hash into key/value pairs
     @extra_errors = wrap(options[:errors]).map { |error| normalize_error(error) }
@@ -578,15 +588,31 @@ class GraphWeaver::Testing::FakeClient
 
   # honor pagination-ish arg semantics: first/last/limit caps the fabricated
   # list length, whether it arrives as a literal or as a variable
-  def list_length(node)
+  def list_length(node, coordinate)
     argument = node.arguments.find { |arg| %w[first last limit].include?(arg.name) }
     capped = argument && argument_value(argument)
     # Array.new(-1) is "negative array size" out of the fabricator's guts; a
     # cap below zero asks for nothing, which is what a page of none is
     return [capped, 0].max if capped.is_a?(Integer)
 
+    size = list_size_for(coordinate, node.name)
     # an Integer list_size means exactly that many; a Range randomizes within it
-    @list_size.is_a?(Range) ? rng.rand(@list_size) : @list_size
+    size.is_a?(Range) ? rng.rand(size) : size
+  end
+
+  # How long an unbounded list is. A Hash says it per list, read most
+  # specific first like a pin — which is what keeps nested lists from
+  # multiplying: every list the walk reaches re-reads this, so one number
+  # for all of them is n rows x n tags.
+  def list_size_for(coordinate, name)
+    return @list_size unless @list_size.is_a?(Hash)
+
+    @list_size.fetch(coordinate) do
+      @list_size.fetch(name) do
+        @list_size.fetch(GraphWeaver::Internal::Overrides::LIST_SIZE_DEFAULT,
+          GraphWeaver::Testing::Config::DEFAULT_LIST_SIZE)
+      end
+    end
   end
 
   def type_value(type, node, selections, coordinate: nil, non_null: false)
@@ -599,7 +625,7 @@ class GraphWeaver::Testing::FakeClient
 
     case type.kind.name
     when "LIST"
-      elements = Array.new(list_length(node)) do |index|
+      elements = Array.new(list_length(node, coordinate)) do |index|
         @path.push(index)
         element = type_value(type.of_type, node, selections, coordinate:)
         @path.pop

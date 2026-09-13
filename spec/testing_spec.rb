@@ -409,6 +409,47 @@ describe GraphWeaver::Testing do
       expect(person&.birthday).to be_a Date # default null_chance 0: nullable but present
       expect(person&.pets&.size).to eq 2
     end
+
+    describe "list_size" do
+      def pets_per_person(list_size)
+        GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, list_size:)
+          .execute("query { people { pets { name } } }")
+          .dig("data", "people").map { |person| person["pets"].size }
+      end
+
+      # A nested unbounded list reads the setting again one level down, so a
+      # single number multiplies: people x pets, not people + pets.
+      it "sizes one list by coordinate, leaving the rest on default:" do
+        expect(pets_per_person(4)).to eq [4, 4, 4, 4]
+        expect(pets_per_person("Person.pets" => 1, :default => 4)).to eq [1, 1, 1, 1]
+      end
+
+      it "keeps a named list flat however large the default grows" do
+        expect(pets_per_person("pets" => 1, :default => 2)).to eq [1, 1]
+        expect(pets_per_person("pets" => 1, :default => 8)).to eq [1] * 8
+      end
+
+      it "rejects a key the schema doesn't know, spellchecked" do
+        expect { pets_per_person("Person.pest" => 1) }.to raise_error(GraphWeaver::Error,
+          /list_size: key "Person.pest" is not a field of Person — did you mean 'pets'\?/)
+        expect { pets_per_person("petz" => 1) }.to raise_error(GraphWeaver::Error,
+          /list_size: key "petz" matches no field in this schema — did you mean 'pets'\?/)
+      end
+
+      it "rejects a size that isn't a length" do
+        expect { pets_per_person("pets" => "1") }
+          .to raise_error(GraphWeaver::Error, /list_size: "pets" must be an Integer or a Range/)
+      end
+
+      it "validates a suite-wide list_size against the schema in play" do
+        expect {
+          GraphWeaver::Testing.configure do |config|
+            config.schema = Demo::Schema
+            config.list_size = { "Person.pest" => 1 }
+          end
+        }.to raise_error(GraphWeaver::Error, /list_size: key "Person.pest"/)
+      end
+    end
   end
 
   describe GraphWeaver::Internal::Values do
