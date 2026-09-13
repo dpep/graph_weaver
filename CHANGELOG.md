@@ -44,6 +44,18 @@
   nothing registers it" while `verify`, run moments earlier on the same tree,
   called it up to date. Two graphs extending the same type name now each get
   their own constant.
+- **The unregistered-scalar advisory is grouped by graph** when a run covers
+  more than one. Merged into one flat list it read as "forgotten everywhere"
+  for a scalar registered for one graph and forgotten for the next.
+  `GraphWeaver.untyped_scalars` still answers the flat sorted names; the new
+  `GraphWeaver.untyped_scalars_by_graph` is the same fact kept apart.
+- **`rake graph_weaver:graphs` lists each graph's registrations** — scalars,
+  enums, `extend_type` targets — under the graph they belong to. Nothing else
+  said which registration applied where.
+- **`cassettes:check`'s stale advice names both causes.** The generated
+  structs move when a *registration* moves, not only when the schema dump
+  does, and re-recording doesn't fix that half — so regenerating is now
+  offered for it by name.
 - Docs: [generated modules](docs/generated_modules.md) now names the one enum
   misuse nothing catches — `result.tier == "GOLD"` is silently `false`, on a
   generated `T::Enum` as on any other — and the sorbet-runtime switch that

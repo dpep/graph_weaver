@@ -72,10 +72,26 @@ module GraphWeaver
 
         # The one sentence about scalars nothing registered — said on the
         # logger per parse and once per run by the build, and worth saying
-        # identically in both.
-        def untyped_scalars_report(names)
-          "#{names.size} unregistered custom scalar#{"s" unless names.one?} → T.untyped: " \
-            "#{names.join(", ")} (register with GraphWeaver.register_scalar)"
+        # identically in both. Keyed by graph name (nil for an app with no
+        # declared graphs): a registration is scoped to one graph, so merging
+        # the names across several would read as "forgotten everywhere" for a
+        # scalar registered for one of them and forgotten for the next.
+        def untyped_scalars_report(by_graph)
+          found = by_graph.reject { |_, names| names.empty? }
+          return if found.empty?
+
+          advice = "(register with GraphWeaver.register_scalar)"
+          # One graph ran, so there is nothing to attribute — including when it
+          # is the only one with findings is what made a forgetful graph read
+          # as a forgetful app.
+          if by_graph.one?
+            names = found.values.first.sort
+            return "#{names.size} unregistered custom scalar#{"s" unless names.one?} → T.untyped: " \
+              "#{names.join(", ")} #{advice}"
+          end
+
+          ["unregistered custom scalars → T.untyped #{advice}:",
+            *found.map { |graph, names| "  graph #{graph.inspect}: #{names.sort.join(", ")}" }].join("\n")
         end
 
         # A path setting, as a real path: relative to GraphWeaver.root, which

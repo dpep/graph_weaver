@@ -392,7 +392,7 @@ module GraphWeaver
     def generate!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
       @changed_files = []
       @unmatched_registrations = []
-      @untyped_scalars = []
+      @untyped_scalars_by_graph = {}
       seen = new_seen
 
       # Every plan first, then every write. Generation refusing must leave the
@@ -490,7 +490,7 @@ module GraphWeaver
     #      end
     def verify_generated!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
       @unmatched_registrations = []
-      @untyped_scalars = []
+      @untyped_scalars_by_graph = {}
       seen = new_seen
       graphs = graphs_for(schema:, queries:, output:, client:, types_module:)
 
@@ -574,7 +574,14 @@ module GraphWeaver
     # when every scalar a query touched is registered. The same list codegen
     # logs at info, kept here so the build can print it once instead of once
     # per query file.
-    def untyped_scalars = @untyped_scalars || []
+    def untyped_scalars = untyped_scalars_by_graph.values.flatten.uniq.sort
+
+    # The same, kept apart by the graph that found them. A registration is
+    # scoped to one graph, so a scalar registered for one and forgotten for
+    # the next is a different finding from one forgotten everywhere — and a
+    # merged list can't tell them apart. Keyed by graph name, nil for an app
+    # that declared none.
+    def untyped_scalars_by_graph = @untyped_scalars_by_graph || {}
 
     # Which checked-in queries no longer validate — breaking-change
     # detection scoped to the operations you actually ship. Reports rather
@@ -832,7 +839,8 @@ module GraphWeaver
     private :new_seen
 
     def generation_plan(graph, seen = new_seen, fragments: fragments_paths)
-      @untyped_scalars ||= []
+      @untyped_scalars_by_graph ||= {}
+      found = (@untyped_scalars_by_graph[graph.name] ||= [])
       schema = graph.schema
       registry = graph.registry
       @unmatched_registrations |= registry.unmatched_registrations(schema)
@@ -859,7 +867,7 @@ module GraphWeaver
         )
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
-        @untyped_scalars |= codegen.untyped_scalars
+        found.concat(codegen.untyped_scalars).uniq!
         used_unions |= codegen.used_union_names
         [filename, out]
       end
@@ -871,7 +879,7 @@ module GraphWeaver
           inputs: used[:inputs], enums: used[:enums] + used[:mapped],
           unions: used_unions, fragments: shared,
         )
-        @untyped_scalars |= codegen.untyped_scalars
+        found.concat(codegen.untyped_scalars).uniq!
         # these land in the graph's output like any other file, so they collide
         # with another graph's the same way
         types.each_key { |filename| refuse_duplicate_file!(seen, filename, graph, graph.types_module) }

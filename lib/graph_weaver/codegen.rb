@@ -1496,7 +1496,9 @@ class GraphWeaver::Codegen
     names = untyped_scalars
     return if names.empty?
 
-    GraphWeaver::Internal::Log.log(:info) { GraphWeaver::Internal::Util.untyped_scalars_report(names) }
+    GraphWeaver::Internal::Log.log(:info) do
+      GraphWeaver::Internal::Util.untyped_scalars_report(@graph_name => names)
+    end
   end
 
   # rebuild the NON_NULL/LIST wrappers around the core node

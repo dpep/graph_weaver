@@ -249,7 +249,9 @@ Five questions, five tasks — the last only on a federated graph:
 | did a subgraph change without a recompose? | `rake graph_weaver:federation:diff` | no |
 
 (`rake graph_weaver:graphs` answers a sixth, when an app has more than one
-schema: which graphs are configured, and where each generates.)
+schema: which graphs are configured, where each generates, and what each
+registers — the one place those registrations are listed, since a registration
+belongs to one graph.)
 
 `verify` compares the committed generated files against what the current
 schema + queries + registrations would produce, so it belongs in every CI

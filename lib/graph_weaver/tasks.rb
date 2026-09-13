@@ -137,8 +137,20 @@ module GraphWeaver
       # there rather than one each way.
       def self.report_registry
         GraphWeaver.unmatched_registrations.each { |message| puts message }
-        untyped = GraphWeaver.untyped_scalars
-        puts GraphWeaver::Internal::Util.untyped_scalars_report(untyped) if untyped.any?
+        report = GraphWeaver::Internal::Util.untyped_scalars_report(GraphWeaver.untyped_scalars_by_graph)
+        puts report if report
+      end
+
+      # What one graph registers, for the graphs task — the answer an app
+      # otherwise reads out of every initializer by hand. The built-in scalars
+      # are pre-registered rather than app intent, so they aren't registrations.
+      def self.registrations(graph)
+        registry = graph.registry
+        {
+          "scalars" => registry.scalar_registry.keys - GraphWeaver::Codegen::BUILTIN_SCALARS,
+          "enums" => registry.enum_registry.keys,
+          "extend_type" => registry.type_registry.keys,
+        }.filter_map { |kind, names| "  #{kind}: #{names.sort.join(", ")}" if names.any? }
       end
 
       # Neither task that needs the committed dump can take one itself, so both
@@ -240,6 +252,8 @@ namespace :graph_weaver do
       # say. A graph that bakes none falls back to GraphWeaver.client, which is
       # an app-wide setting and not this task's subject.
       puts "  client: #{graph.client}" if graph.client
+      # a registration is scoped to one graph, and nothing else says which
+      GraphWeaver::Internal::Tasks.registrations(graph).each { |line| puts line }
     end
   end
 
@@ -532,10 +546,12 @@ namespace :graph_weaver do
       stale = checks.sum { |check| check.stale.size }
       $stdout.flush
       if stale.positive?
+        # the structs move when a REGISTRATION moves, not only when the dump
+        # does — and re-recording a fresh response doesn't fix that half
         abort "#{stale} stale #{(stale == 1) ? "recording" : "recordings"} — the recorded server's " \
-          "answers no longer fit the structs generated from your schema. Re-record " \
-          "(GRAPHWEAVER_RECORD=1, with a live client:), or regenerate if it was the schema dump " \
-          "that moved: rake graph_weaver:generate."
+          "answers no longer fit the structs generated from your schema. Regenerate if the schema " \
+          "dump or a registration moved (rake graph_weaver:generate), or re-record if the server's " \
+          "answer did (GRAPHWEAVER_RECORD=1, with a live client:)."
       end
       if checks.sum(&:checked).zero?
         # a green run that compared nothing is worse than a failure: it would

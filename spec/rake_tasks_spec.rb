@@ -191,6 +191,32 @@ describe "graph_weaver rake tasks" do
         "(register with GraphWeaver.register_scalar)"
     end
 
+    # Merged across graphs with no label, a scalar registered for one graph and
+    # forgotten for another read exactly like "forgotten everywhere".
+    it "says which graph each unregistered scalar is missing from" do
+      write_schema
+      root = @root
+      %w[a b].each do |name|
+        FileUtils.mkdir_p(File.join(root, name))
+        File.write(File.join(root, name, "m.graphql"), "query M#{name.upcase} { findPets { metadata } }")
+        GraphWeaver.graph(name.to_sym) do
+          queries File.join(root, name)
+          output File.join(root, "generated", name)
+          namespace name.capitalize
+          register_scalar "Metadata", String if name == "a"
+        end
+      end
+
+      result = invoke("generate")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "unregistered custom scalars → T.untyped (register with " \
+        "GraphWeaver.register_scalar):\n  graph :b: Metadata\n"
+      expect(result.out).not_to include "graph :a:"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
     # a typo'd query is a user error: the message names file, position and
     # fix, and a rake backtrace through codegen only buries it
     it "names the file and position for a bad query, and exits non-zero" do
@@ -665,6 +691,41 @@ describe "graph_weaver rake tasks" do
 
   # The one check that reads a recording from someone else's server, so it is
   # also the one that reads the generated modules a recording is checked against.
+  # The one task that can name the graphs — and, since a registration is
+  # scoped to one, the one place an app can read which landed where without
+  # opening every initializer.
+  describe "graph_weaver:graphs" do
+    it "lists each graph's registrations under it" do
+      root = @root
+      stub_const("TaskSpecies", Class.new(T::Enum) { enums { const_set(:Cat, new("CAT")) } })
+      stub_const("TaskPetHelpers", Module.new)
+      GraphWeaver.graph(:billing) do
+        queries File.join(root, "queries")
+        output File.join(root, "generated")
+        namespace "Billing"
+        register_scalar "Money", String
+        register_enum "Species", TaskSpecies
+        extend_type "Pet", TaskPetHelpers
+      end
+
+      expect(invoke("graphs")).to have_attributes(status: 0, out: <<~OUT)
+        :billing  #{File.join(root, "queries")} -> #{GraphWeaver::Internal::Util.relative(File.join(root, "generated"))}
+          namespace: Billing
+          scalars: Money
+          enums: Species
+          extend_type: Pet
+      OUT
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    # the built-in scalars are pre-registered rather than app intent, so a
+    # graph that registered nothing says nothing
+    it "says nothing about a graph with no registrations of its own" do
+      expect(invoke("graphs").out).not_to include "scalars:"
+    end
+  end
+
   describe "graph_weaver:cassettes:check" do
     def record(query, response)
       dir = GraphWeaver::Testing.config.cassette_dir = File.join(@root, "cassettes")
@@ -699,7 +760,12 @@ describe "graph_weaver rake tasks" do
       result = invoke("cassettes:check")
 
       expect(result.status).to eq 1
-      expect(result.err).to include "1 stale recording", "GRAPHWEAVER_RECORD=1"
+      # both causes named: the structs move when a registration does, not only
+      # when the dump does, and regenerating is the fix for that half
+      expect(result.err).to eq "1 stale recording — the recorded server's answers no longer fit the " \
+        "structs generated from your schema. Regenerate if the schema dump or a registration moved " \
+        "(rake graph_weaver:generate), or re-record if the server's answer did (GRAPHWEAVER_RECORD=1, " \
+        "with a live client:).\n"
     end
 
     # a green run that compared nothing would pass whatever the recordings said

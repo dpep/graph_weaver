@@ -45,6 +45,7 @@ GraphWeaver.types_module
 GraphWeaver.types_module=
 GraphWeaver.unmatched_registrations
 GraphWeaver.untyped_scalars
+GraphWeaver.untyped_scalars_by_graph
 GraphWeaver.verify_generated!
 GraphWeaver::CastError (Class)
 GraphWeaver::CastError#struct
