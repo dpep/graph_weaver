@@ -25,9 +25,9 @@ Mostly mechanical — two error constants, one rspec tag and one notification
 event to rename — but `InputError#field` changed meaning without raising, the
 instrumentation payload's `:status` changed meaning without raising,
 `respond_to?` on a result struct stopped answering true for props you don't
-have, six things that used to run now refuse, and a `DateTime` that used to
-reach a `Date` variable now raises. Three commands find everything except the
-silent ones:
+have, a Rails app starts logging a line per call, several things that used to
+run now refuse, and a `DateTime` that used to reach a `Date` variable now
+raises. Three commands find everything except the silent ones:
 
 ```sh
 grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
@@ -86,11 +86,36 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   refuses, naming `graphql_context`. From a `before` hook it was read too late
   and silently never reached a resolver, so the refusal replaces a line that
   wasn't working; `configure` and an `around` hook are unchanged.
+- **A Rails app logs one line per GraphQL call, and emits one notification.**
+  The railtie now sets `GraphWeaver.instrumenter` to the
+  `ActiveSupport::Notifications` adapter and attaches
+  `GraphWeaver::LogSubscriber`, so an app that configured neither gets
+  `GraphWeaver billing/InvoicesQuery (12.3ms) ok` at **info** — one line per
+  operation, carrying nothing that can hold PII; the query and variables stay
+  at debug. An instrumenter you set yourself is never replaced, and **to opt
+  out, set `GraphWeaver.logger = nil` or `GraphWeaver.instrumenter = nil` in
+  `config/initializers`** — which now takes effect, so an app that worked
+  around it with `config.after_initialize { GraphWeaver.logger = nil }` can
+  drop that. In-process calls are in scope too: a bare schema class in a client
+  slot (`GraphWeaver.client = MyApp::Schema`, `execute!(client: MyApp::Schema)`,
+  a graph's `client "Billing::Schema"`) goes through the same wrapper
+  `GraphWeaver.new(MyApp::Schema)` always used, so it produces events and log
+  lines where it produced none. See [logging](logging.md).
 - **Regenerate**, as ever — generated modules carry a private `GRAPH` naming the
   graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
   app whose modules predate it refuses rather than guessing which schema a
-  module belongs to. Result structs also gained `==`/`eql?`/`hash`,
-  `deconstruct_keys` and `#to_h`.
+  module belongs to. A generated `execute` also makes its request through the
+  gem now (`from_response(dispatch(variables, client:))`), which is what lets
+  an event name the graph; 0.6.1's modules keep working as they are, but `rake
+  graph_weaver:verify` reports the tree out of date until you regenerate.
+  Result structs also gained `==`/`eql?`/`hash`, `deconstruct_keys` and
+  `#to_h`, and the emitted guard in front of a `cast:` changed (below).
+- **Check that your `require "graph_weaver/rspec"` actually runs.** The old
+  setup put it in `spec/support/graph_weaver.rb`, and rspec-rails ships the
+  `spec/support` glob **commented out** — so if you never uncommented it, the
+  tag did nothing and every `graphql: :fake` example has been hitting the real
+  client. `rails g graph_weaver:install` now writes the line into
+  `spec/rails_helper.rb` instead; **move yours there** if the glob isn't live.
 - **`graphql: :wire`, if you adopt it, needs webmock *enabled*** — `require
   "webmock/rspec"` in the spec helper. Having it in the Gemfile is not enough:
   `Bundler.require` loads webmock without installing its adapters, and the tag
@@ -107,6 +132,20 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   `InputError` rather than Ruby's *"no implicit conversion of Time into
   String"*, and a `DateTime` or `Time.zone.now` for a *timestamp* converts
   losslessly where it used to raise.
+- **A `cast:` of your own gets the same guard and the same verdict.** A
+  registration like `register_scalar("Date", Date, cast: :iso8601, serialize:
+  :iso8601)` emitted a bare `value.is_a?(Date)` pass-through, so a `DateTime`
+  went by untouched and your `serialize:` wrote a full timestamp into a date
+  field — **pass `.to_date` there too**. Anything else wrong used to arrive as
+  Ruby's own sentence about an argument you never wrote (`no implicit
+  conversion of Integer into String`) under `kind: :unparseable`; the verdict
+  is the library's now and splits the way Ruby does — a `TypeError` from a
+  codec reads `expected a Date, got 5` under `kind: :type_mismatch`, an
+  `ArgumentError` keeps the parser's words under `:unparseable`, and
+  `#details[:type]` names the Ruby type for both. **A spec matching the old
+  message, or branching on `:unparseable` for a wrong class, needs updating**
+  — and the guard is emitted into your generated files, so a checked-in one
+  keeps the old behavior until you regenerate.
 - **A field whose name a struct already answers to now generates as `name_`.**
   `class` becomes the prop `class_`, `hash` becomes `hash_`, and so on for
   `display`, `to_json`, `each` and (on an input) `supplied`. Nothing that used
@@ -133,9 +172,21 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   a few more names move than 0.6.1 touched. Kernel's *private* methods are not
   on it: `format`, `select`, `test`, `open`, `load` and `pp` are ordinary
   column names, and the gem's mixins qualify their own calls (`Kernel.raise`)
-  so a prop may take one. Generated source marks each rename on the line above
-  the prop — `# wire: class — reserved as a prop name` — so **read the
-  regenerate diff** rather than grepping for the names yourself.
+  so a prop may take one. A federation `@key` on such a field follows the same
+  rule instead of being refused: the kwarg takes the underscore
+  (`Representations.room(class_: …)`) and `"class"` still goes on the wire, so
+  **regenerate if a `@key` of yours names one**. Generated source marks each
+  rename on the line above the prop — `# wire: class — reserved as a prop
+  name` — so **read the regenerate diff** rather than grepping for the names
+  yourself.
+- **If you adopt `GraphWeaver.graph`, every queries directory needs a graph.**
+  Declaring one replaces the implicit graph your top-level settings describe,
+  so an app that declares a graph beside its existing `app/graphql/queries`
+  leaves that directory unread — `generate` skipping it, `verify` calling the
+  tree up to date. `generate!`, `verify_generated!` and `check_queries` refuse
+  instead, naming the stray files. **Name the directory in a graph
+  (`queries`/`output`), declare a graph for it, or delete it.** An app that
+  declares no graph is unaffected.
 - **A `client` that isn't a constant is refused at generation.** Its value is
   spelled into every module the graph generates, so `client` given an endpoint
   url emitted a file that doesn't parse, from a run that reported success.
