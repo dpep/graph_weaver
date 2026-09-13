@@ -47,5 +47,16 @@ describe GraphWeaver::Hints do
       expect { cast(["p1"]) }
         .to raise_error(GraphWeaver::CastError, /pets\.0: expected an object, but the server sent a string/)
     end
+
+    # What arrived, named as JSON names it — sorbet reports the Ruby type of
+    # whatever the cast had half-built by then, which is a different thing.
+    it "names what arrived in the wire's vocabulary, whatever it was" do
+      expect { cast(5) }.to raise_error(GraphWeaver::CastError, /pets: .*sent a number/)
+      expect { cast(true) }.to raise_error(GraphWeaver::CastError, /pets: .*sent a boolean/)
+      # nothing on the wire is a Symbol, so JSON has no word for it: say Ruby's
+      expect { cast(:nope) }.to raise_error(GraphWeaver::CastError, /pets: .*sent a Symbol/)
+      expect { PersonQuery::Result.from_h("person" => []) }
+        .to raise_error(GraphWeaver::CastError, /person: expected an object, but the server sent a list/)
+    end
   end
 end

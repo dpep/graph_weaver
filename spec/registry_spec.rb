@@ -98,6 +98,20 @@ describe "the registration registry" do
         .to raise_error(GraphWeaver::InputError, /not a valid CatsOnly — expected one of: CAT/)
     end
 
+    # The response-side twin of an input's refusal. Almost always drift — the
+    # server grew a value since you generated — and Hash#fetch's own KeyError
+    # says neither that nor which values the map has, naming only the table.
+    it "says which wire value the map has no entry for, and what to do" do
+      GraphWeaver.register_enum("Species", PetKind)
+      mod = client.parse(query)
+
+      expect { mod.from_response!("data" => { "person" => { "pets" => [{ "species" => "LIZARD" }] } }) }
+        .to raise_error(
+          GraphWeaver::CastError,
+          /species: "LIZARD" is not a PetKind — expected one of: CAT, DOG.*regenerate.*register_enum fallback:/m,
+        )
+    end
+
     it "names the map: keyword when a value map is passed positionally" do
       # a bare "given 3, expected 2" never mentions the keyword
       message = 'register_enum: the value map is a keyword — register_enum("Species", PetKind, map: {...})'

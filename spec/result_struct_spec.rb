@@ -51,6 +51,13 @@ describe GraphWeaver::ResultStruct do
 
       expect(counts).to eq(person => 2)
     end
+
+    # eql? and #hash have to agree, and agreeing on the class alone is a legal
+    # #hash that puts every result of a query in one bucket — which turns
+    # `results.uniq` and `group_by` from a lookup into a linear scan
+    it "hashes by the props, not by the class" do
+      expect(person.hash).not_to eq person(pets: [{ "name" => "Zoidberg" }]).hash
+    end
   end
 
   describe "pattern matching" do

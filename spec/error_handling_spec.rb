@@ -43,6 +43,22 @@ describe "error handling" do
       expect(resp.data&.person&.name).to eq "Daniel" # partial data still typed
       expect { resp.data! }.to raise_error(GraphWeaver::QueryError)
     end
+
+    # the strict accessor raises rather than returns, so the partial data and
+    # the cost metadata have nowhere else to go — a handler that reports the
+    # failure still gets to read what did arrive
+    it "hands the partial data and the extensions to the error data! raises" do
+      resp = run(
+        "data" => person_data,
+        "errors" => [{ "message" => "pets unavailable" }],
+        "extensions" => { "cost" => { "actualQueryCost" => 5 } },
+      )
+
+      expect { resp.data! }.to raise_error(GraphWeaver::QueryError) do |e|
+        expect(e.data&.person&.name).to eq "Daniel"
+        expect(e.extensions.dig("cost", "actualQueryCost")).to eq 5
+      end
+    end
   end
 
   describe "GraphQLError" do
@@ -504,8 +520,14 @@ describe "error handling" do
       expect { canned(200, "[1,2,3]").execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
     end
 
+    # a well-formed GraphQL response pairs null data with errors; one that
+    # does neither is the server (or a proxy that strips errors) being broken,
+    # and saying so beats a bare T.must TypeError
     it "raises QueryError (not a bare TypeError) when data! sees null data and no errors" do
-      expect { run("data" => nil).data! }.to raise_error(GraphWeaver::QueryError)
+      expect { run("data" => nil, "extensions" => { "cost" => 5 }).data! }
+        .to raise_error(GraphWeaver::QueryError, /response carried neither data nor errors/) do |e|
+          expect(e.extensions).to eq({ "cost" => 5 })
+        end
     end
 
     # each used to arrive as a Response reporting success with no data
