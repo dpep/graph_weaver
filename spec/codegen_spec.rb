@@ -1834,6 +1834,36 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  # A query module's own constants — the Result struct, the QUERY heredoc —
+  # share one namespace with every input struct and enum it generates. An enum
+  # that lands on one is already refused; an input type wasn't, and `class
+  # Result` was emitted twice, the second reopening the first into a struct
+  # that answered for both the variable and the response.
+  describe "an input type named after a generated constant" do
+    def generate(type_name)
+      schema = GraphQL::Schema.from_definition(
+        "input #{type_name} { id: ID }\ntype Query { ping(r: #{type_name}!): String }"
+      )
+      GraphWeaver::Codegen.generate(schema:, query: "query Q($r: #{type_name}!) { ping(r: $r) }", name: "Q")
+    end
+
+    it "refuses Result rather than reopening the result struct" do
+      expect { generate("Result") }
+        .to raise_error(GraphWeaver::Error, /input type Result generates Result, which collides/)
+    end
+
+    # without the check this was a bare TypeError from Ruby: the QUERY heredoc
+    # is a String, and `class QUERY < T::Struct` can't reopen one
+    it "refuses QUERY rather than letting Ruby raise about the heredoc" do
+      expect { generate("QUERY") }
+        .to raise_error(GraphWeaver::Error, /input type QUERY generates QUERY, which collides/)
+    end
+
+    it "generates any other name" do
+      expect(generate("Filter")).to include("class Filter < T::Struct")
+    end
+  end
+
   it "rejects two variables that underscore to the same kwarg" do
     schema = GraphQL::Schema.from_definition("type Query { thing(userId: ID, alt: ID): String }")
     query = "query($userId: ID, $user_id: ID) { thing(userId: $userId, alt: $user_id) }"

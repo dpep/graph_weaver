@@ -82,6 +82,17 @@
   which raises `ArgumentError` — so one mistyped option reported as a bug
   somewhere else, and the failure being retried was lost behind it.
 <!-- lane: corpus -->
+- **An input type named `Result`, `QUERY` or `Representations` is refused**,
+  the way an enum by one of those names already was. Those are the constants
+  every generated query module defines, and nothing checked an input struct
+  against them: `input Result` emitted `class Result` twice, the second
+  reopening the first into one struct that answered for both the variable and
+  the response — generated code that looks authoritative and is wrong — while
+  `input QUERY` raised a bare `TypeError: QUERY is not a class` from Ruby,
+  about the document heredoc. The refusal names the type and the three
+  constants. No public schema in a 23-schema sweep declares one (SpaceX has an
+  *object* named `Result`, which is unaffected — a result class is named for
+  the response key, not the type).
 - **The round-trip harness reads a scalar off the registry, not off its name.**
   Sweeping 23 public schemas turned up two schemas (GitLab's, universe's)
   declaring `scalar Time` and one (Linear's) declaring `DateTimeOrDuration`,

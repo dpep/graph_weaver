@@ -1240,7 +1240,18 @@ class GraphWeaver::Codegen
   def input_node(core)
     return @variable_inputs[core.graphql_name] if @variable_inputs.key?(core.graphql_name)
 
-    node = @variable_inputs[core.graphql_name] = InputNode.new(camelize(core.graphql_name), core.graphql_name)
+    class_name = camelize(core.graphql_name)
+    # enum_node's twin. Without it `class Result` was emitted twice, the second
+    # reopening the first into one struct answering for both the variable and
+    # the response — and `class QUERY` raised a bare TypeError about the heredoc.
+    if MODULE_RESERVED.include?(class_name)
+      raise GraphWeaver::Error,
+        "input type #{core.graphql_name} generates #{class_name}, which collides with a generated " \
+        "constant — every query module defines #{MODULE_RESERVED.to_a.join(", ")}, so an input type " \
+        "by one of those names has no room here"
+    end
+
+    node = @variable_inputs[core.graphql_name] = InputNode.new(class_name, core.graphql_name)
     node.one_of = core.respond_to?(:one_of?) && core.one_of?
     # sorted so output is deterministic across schema sources
     core.arguments.values.sort_by(&:graphql_name).each do |argument|
