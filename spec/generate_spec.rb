@@ -275,6 +275,62 @@ describe "GraphWeaver.generate!" do
     end
   end
 
+  # Declaring graph two refuses the whole app until graph one is declared
+  # too, which is correct and was not discoverable: the message named the
+  # files and said "no declared graph covers", and the reader's own settings
+  # are exactly what it was talking about.
+  describe "a second graph orphaning the settings' own directories" do
+    before do
+      GraphWeaver.root = @dir
+      GraphWeaver.schema_path = File.join(@dir, "app/graphql/schema.graphql")
+      FileUtils.mkdir_p(File.join(@dir, "app/graphql/queries"))
+      File.write(GraphWeaver.schema_path, Demo::Schema.to_definition)
+      File.write(File.join(@dir, "app/graphql/queries/person.graphql"), "query { people { name } }")
+      dir = @dir
+      GraphWeaver.graph(:billing) do
+        schema Demo::Schema
+        queries File.join(dir, "billing/queries")
+        output File.join(dir, "billing/generated")
+        namespace "Billing"
+      end
+    end
+
+    after do
+      GraphWeaver.reset_graphs!
+      GraphWeaver.schema_path = nil
+      GraphWeaver.root = nil
+    end
+
+    it "spells the missing graph out, in the settings' own paths" do
+      expect { GraphWeaver.generate! }.to raise_error(GraphWeaver::Error) { |error|
+        expect(error.message).to include "app/graphql/queries/person.graphql"
+        expect(error.message).to include "declaring a second graph means declaring the first too"
+        expect(error.message).to include <<~RUBY.chomp
+          GraphWeaver.graph :app do
+              queries "app/graphql/queries"
+              output  "app/graphql/generated"
+            end
+        RUBY
+      }
+    end
+
+    # the advice has to be code that runs: a graph naming no schema reads the
+    # one schema_path names, which is what the settings were already doing
+    it "generates once the app follows it" do
+      GraphWeaver.graph(:app) do
+        queries "app/graphql/queries"
+        output "app/graphql/generated"
+      end
+
+      written = GraphWeaver.generate!
+
+      expect(written.map { |path| GraphWeaver::Internal::Util.relative(path) })
+        .to include "app/graphql/generated/person_query.rb"
+      expect(File.read(File.join(@dir, "app/graphql/generated/person_query.rb")))
+        .to include "module PersonQuery"
+    end
+  end
+
   # a mistyped queries_paths looks exactly like a brand-new app: generate!
   # printed nothing and exited 0, and verify_generated! returned true having
   # compared nothing, so a CI gate stayed green forever

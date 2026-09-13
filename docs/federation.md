@@ -86,6 +86,14 @@ schema class. It computes the `_Entity` union when `query` is called, so an
 `orphan_types` after it drops those types from the printed SDL and from
 `_entities` with no error at all, while `Schema.types` still lists them.
 
+`orphan_types` is also what an **extend-only type** needs — one this subgraph
+contributes fields to but never returns from its own `Query`, the shape a
+warehouse/inventory split produces. Nothing reaches it from a root field, so
+graphql-ruby never visits it, `federation_sdl` never prints it, and the fields
+simply don't compose: no error from graphql-ruby, none from apollo-federation,
+and the first sign is a supergraph missing fields you wrote. Name every such
+type in `orphan_types`, before `query`.
+
 **Everyone else's.** From the team that runs it: a file they publish, `rover
 subgraph fetch` against their endpoint, or your schema registry.
 
@@ -234,7 +242,9 @@ graph's name.** An app that wrote `GraphWeaver.graph(:accounts) { schema
 supergraph is, and a graph that is in none — a plain API schema, a live schema
 class — is simply not a subject for these tasks. A single-schema app whose
 committed dump is a composed supergraph is that one graph, unnamed, and its
-output says nothing about graphs at all. `SUPERGRAPH=supergraph.graphql`
+output says nothing about graphs at all — until it declares a second graph
+beside it, at which point it has to name the first one too
+([why](getting_started.md#more-than-one-schema)). `SUPERGRAPH=supergraph.graphql`
 overrides all of that for one run.
 
 It reads the routing table and the subgraph schemas loaded in this process —
@@ -567,12 +577,21 @@ would be worse than refusing:
   result, so a subtree the real router would have nulled comes back null here.
 - **Error re-pathing.** A subgraph reports `_entities.2.shippingEstimate`; you
   get `topProducts.2.shippingEstimate`. `locations` are dropped rather than
-  pointing into a query you never wrote.
+  pointing into a query you never wrote. That is for a `GraphQL::ExecutionError`,
+  which is what `errors` carries; a resolver that raises anything else
+  propagates as a Ruby exception out of `execute`, the same way it would from
+  graphql-ruby on its own, and nothing here catches it into a response.
 - **`@skip`/`@include` on a stitched field.** A skipped field comes back
   *absent*, not null.
 
 Introspection is answered from the composed API schema, never from a subgraph,
 which would reply with its own slice — the one split a real router also makes.
+
+**One subgraph timing out while its siblings answer has no representation
+here.** A subgraph is a Ruby call, not a socket: `:router` fetches in-process,
+and `:wire` stubs one endpoint in front of the whole router. A subgraph that
+*fails* is expressible — raise from its resolver, or fake it — but partial
+availability is a gateway's property, not this double's.
 
 ### What it refuses
 

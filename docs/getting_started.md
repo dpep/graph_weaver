@@ -527,6 +527,24 @@ GraphWeaver.graph :github do
 end
 ```
 
+**Declaring graph two means declaring graph one.** A declared graph *replaces*
+the implicit one the top-level settings describe, so the moment any graph is
+named, the `app/graphql/queries` and `app/graphql/generated` an existing app was
+already using belong to no graph — nothing generates or prunes them, and
+`generate` refuses the whole app rather than leave them there silently. Wrap
+them in a graph of their own, its directories and nothing else:
+
+```ruby
+GraphWeaver.graph :app do
+  queries "app/graphql/queries"
+  output  "app/graphql/generated"
+end
+```
+
+No `schema`, so it keeps reading the one `schema_path` names; no `namespace`,
+so every constant keeps the name it has. Nothing about the existing queries or
+generated files changes.
+
 One `rake graph_weaver:generate` does the app, one `rake graph_weaver:verify`
 gates it, and `rake graph_weaver:graphs` lists what is configured. Everything a
 graph knows is said inside the block — six settings, and the same three

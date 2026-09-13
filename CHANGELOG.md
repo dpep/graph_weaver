@@ -1,6 +1,15 @@
 ###  Unreleased
 
 <!-- lane: fedF -->
+- **Declaring a second graph says how to declare the first.** Naming any graph
+  replaces the implicit one the top-level settings describe, so an existing
+  app's own `app/graphql/queries` and `app/graphql/generated` belong to no
+  graph and `generate` refuses the whole app. The refusal was correct and
+  undiscoverable — it named the files and said "under directories no declared
+  graph covers", which is the reader's own settings. It now spells the missing
+  graph out in those paths, and says why it takes no `schema` or `namespace`
+  (it keeps reading the schema `schema_path` names, and every constant keeps
+  its name). getting_started.md's multi-schema section says it too.
 - **`federation:diff` sees a field's type, not just its name.** The check was
   coordinate presence — `Warehouse.code` going from `String!` to `ID!` under an
   untouched supergraph reported "matches the schemas here", and CI passed on a

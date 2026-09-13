@@ -351,10 +351,26 @@ module GraphWeaver
         "Nothing generates or prunes them, verify and queries:check pass over them, and a " \
           "generated module left here still loads in production. The graphs this app declared cover:",
         *covers,
-        "Name these directories in one of them (queries/output in its block), declare a graph " \
-          "for them, or delete them."].join("\n")
+        "These are the directories the top-level settings name — the graph this app had before " \
+          "it declared any — so declaring a second graph means declaring the first too:",
+        *settings_as_graph,
+        "Its directories and nothing else: no schema, so it reads the one the settings already " \
+          "name, and no namespace:, which keeps every constant name exactly as it is. Or name " \
+          "these directories in a graph above (queries/output in its block), or delete them."].join("\n")
     end
     private :refuse_orphaned_paths!
+
+    # The graph the top-level settings already describe, spelled as a
+    # declaration — the fix for the commonest way to arrive at the refusal
+    # above, which is declaring graph two in an app that had only settings.
+    def settings_as_graph
+      queries = queries_paths.map { |path| Internal::Util.relative(path).inspect }
+      ["  GraphWeaver.graph :app do",
+        "    queries #{queries.join(", ")}",
+        "    output  #{Internal::Util.relative(generated_paths.first).inspect}",
+        "  end"]
+    end
+    private :settings_as_graph
 
     # Generate every query in a directory — .graphql/.gql, subdirectories
     # included — into checked-in Ruby files. Paths default to the conventions
