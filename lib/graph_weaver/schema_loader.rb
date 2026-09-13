@@ -127,9 +127,29 @@ module GraphWeaver::SchemaLoader
   private_class_method :build_sdl
 
   def self.build_introspection(result)
-    build(:introspection) { GraphQL::Schema.from_introspection(result) }
+    build(:introspection) { GraphQL::Schema.from_introspection(result) }.tap do |schema|
+      restore_one_of!(schema, result)
+    end
   end
   private_class_method :build_introspection
+
+  # graphql-ruby's loader drops isOneOf, so an input object that arrived
+  # @oneOf comes back as an ordinary one — and ONE_OF, the only thing that
+  # enforces it, is never emitted. SDL dumps keep the directive themselves;
+  # this is the introspection path catching up. Applied after the load, which
+  # is when the arguments one_of validates against exist.
+  def self.restore_one_of!(schema, result)
+    types = result.dig("data", "__schema", "types")
+    return unless types
+
+    types.each do |type|
+      next unless type["isOneOf"]
+
+      loaded = schema.get_type(type["name"])
+      loaded.one_of if loaded.respond_to?(:one_of)
+    end
+  end
+  private_class_method :restore_one_of!
 
   # Which artifact an SDL string is — it decides both the normalizing it
   # needs and what to say when it won't build.
@@ -631,7 +651,10 @@ module GraphWeaver::SchemaLoader
     end
 
     result = GraphWeaver::Internal::Log.log_timed(:info, "introspected #{endpoint(transport)}") do
-      transport.execute(GraphQL::Introspection.query, variables: {}).to_h
+      # include_is_one_of: graphql-ruby leaves isOneOf out by default, and a
+      # dump without it says "not @oneOf" for every input — which is the only
+      # thing codegen reads to emit the ONE_OF that enforces it
+      transport.execute(GraphQL::Introspection.query(include_is_one_of: true), variables: {}).to_h
     end
     if (errors = result["errors"])
       raise GraphWeaver::Error, "introspection failed: #{errors.inspect}"
@@ -646,7 +669,10 @@ module GraphWeaver::SchemaLoader
         "endpoint? got: #{result.inspect[0, 200]}"
     end
 
-    schema = GraphQL::Schema.from_introspection(result)
+    # the same door a dump read back off disk comes in by, so a schema
+    # introspected now and one loaded from the file this writes are the same
+    # schema — @oneOf included
+    schema = build_introspection(result)
 
     if cache
       # the extension picks the format: .json is the verbatim wire
@@ -683,6 +709,15 @@ module GraphWeaver::SchemaLoader
     return transport.url if transport.respond_to?(:url) && transport.url
 
     transport.is_a?(Module) ? (transport.name || transport.to_s) : transport.class
+  end
+
+  # Whether `source` names a dump file rather than being SDL or introspection
+  # content — by extension, which is how load_path reads one anyway. The only
+  # form of the question askable before the file exists, which is what
+  # `schema:refresh` needs to write the first one.
+  def self.dump_path?(source)
+    source = source.to_path if source.respond_to?(:to_path)
+    CACHE_EXTENSIONS.include?(File.extname(source.to_s))
   end
 
   # The conventional schema dump, whatever its format: schema_path or the

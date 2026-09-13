@@ -155,6 +155,33 @@ describe GraphWeaver::SchemaLoader do
       codegen_parity(described_class.introspect(Demo::Schema))
     end
 
+    # graphql-ruby's introspection query leaves isOneOf out unless asked, so
+    # every dump this gem ever wrote said "not @oneOf" — and the generated
+    # struct, which is the only thing that enforces it, silently took two
+    # fields. SDL-defined schemas were fine, which is why the suite was green.
+    it "carries @oneOf through, so the generated struct still enforces it" do
+      source = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { ok: Boolean }
+        type Mutation { save(input: Contact!): Boolean }
+        input Contact @oneOf { email: String phone: String }
+      GRAPHQL
+
+      path = File.join(@dir, "schema.json")
+      described_class.introspect(source, cache: path)
+
+      expect(JSON.parse(File.read(path)).dig("data", "__schema", "types")
+        .find { |type| type["name"] == "Contact" }["isOneOf"]).to be true
+
+      # and back off disk, which is the path generation actually reads
+      schema = described_class.load(path)
+      mod = GraphWeaver.parse(schema:, name: "IntrospectedOneOf", client: Demo::Schema,
+        query: "mutation Save($input: Contact!) { save(input: $input) }")
+
+      expect(schema.get_type("Contact").one_of?).to be true
+      expect { mod::Contact.new(email: "a@b.c", phone: "1").serialize }
+        .to raise_error(GraphWeaver::InputError, /is @oneOf — supply exactly one field/)
+    end
+
     it "round-trips schemas through their own to_json for external caches" do
       # the Rails.cache pattern: introspect(...).to_json, then load
       schema = described_class.introspect(Demo::Schema)
