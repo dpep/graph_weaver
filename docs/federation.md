@@ -81,6 +81,11 @@ class, which prints exactly what a composer wants:
 File.write("supergraph/accounts.graphql", Accounts::Schema.federation_sdl)
 ```
 
+One ordering trap in that gem: declare `orphan_types` **before** `query` in the
+schema class. It computes the `_Entity` union when `query` is called, so an
+`orphan_types` after it drops those types from the printed SDL and from
+`_entities` with no error at all, while `Schema.types` still lists them.
+
 **Everyone else's.** From the team that runs it: a file they publish, `rover
 subgraph fetch` against their endpoint, or your schema registry.
 
@@ -339,6 +344,15 @@ is which subgraphs a code path touched and a service object rarely runs one
 query. The rspec tag resets it before each example; outside rspec call
 `router.reset_trace` around the code path you're measuring.
 
+The count is the **local router's plan, not the gateway's**. The data is
+faithful — a real gateway answers byte-identically, or this refuses — but the
+cost isn't: every node at one level rides one `_entities` call, and the router
+still makes one call per *purpose* at that level where a gateway merges siblings
+bound for the same subgraph. A dashboard query a gateway does in 4 fetches takes
+6 here. So assert on a **bound** (`expect(router.trace.size).to be <= 8`) or on
+the **subgraph set** (`router.trace.map { _1[:subgraph] }.uniq`): both move when
+an N+1 appears, and neither pins a number production doesn't have.
+
 The router hands back a result hash *above* the wire, so the transport your app
 ships never runs. When that transport is the thing under test — a caller tag, an
 APM header, mTLS — [`graphql: :wire`](testing.md#over-the-wire--graphql-wire)
@@ -568,6 +582,17 @@ matching symbol):
 | a fragment the document never defines | define it, or point the query at the file that does |
 | a federation construct the routing table doesn't read | an incomplete table makes every answer about this supergraph a guess. The one refusal raised **at construction**, before a single query |
 | nested deeper than the router walks | past the walk's depth limit, which validation would have rejected first |
+
+A document that fails ordinary GraphQL validation — an undefined fragment, a
+subscription against a schema with no `Subscription` root — never reaches any of
+this: it gets the same `errors` response a plain client gets, not an
+`Unplannable`.
+
+The construction-time one is worth planning around. A `@join__` directive the
+table doesn't read refuses `Router.new` for the **whole graph**, so one team
+adopting a newer federation feature in their own subgraph is an upgrade-timing
+event for every team that tests with `:router` — including the ones whose
+queries never go near it.
 
 A subgraph two loaded schemas both fit raises a `ConfigurationError` rather than
 an `Unplannable` — it's a wiring mistake, not a query the router declines — but

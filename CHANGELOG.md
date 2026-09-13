@@ -27,6 +27,17 @@
   supergraph and `Drift#subgraphs` is the names it does have; the task asks
   every graph in the run, so a multi-graph app's second supergraph places its
   own.
+- **`router.trace`'s fetch count is the local router's plan, not a gateway's** —
+  [docs/federation.md](docs/federation.md#the-local-router) now says so. The data
+  is faithful, the cost isn't: a dashboard query a real `@apollo/gateway` does in
+  4 fetches takes 6 here, because the router makes one call per purpose at a
+  level where a gateway merges siblings bound for the same subgraph. An N+1
+  regression assertion belongs on a bound or on the subgraph set, not on an exact
+  count. Also newly written down: a `@join__` directive the routing table doesn't
+  read refuses `Router.new` for the whole graph (an upgrade-timing event for
+  every team sharing the supergraph), a document that fails ordinary GraphQL
+  validation gets an `errors` response rather than an `Unplannable`, and
+  apollo-federation's `orphan_types`-before-`query` ordering trap.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's
