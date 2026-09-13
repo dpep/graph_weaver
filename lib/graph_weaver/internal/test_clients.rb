@@ -36,8 +36,9 @@ module GraphWeaver
             "app has #{graphs.size} graphs (#{graphs.map { |g| g.name.inspect }.join(", ")}) — so " \
             "GraphWeaver.client has no one right answer, and this request would have gone to the " \
             "real endpoint. A generated module runs against its own graph's stand-in; to reach one " \
-            "directly, call the client a helper returns (graphql_fake(schema: MySchema), " \
-            "graphql_in_process(MySchema)). Tag the example graphql: :live for the app's own client."
+            "directly, call the client a helper returns (graphql_fake(graph: #{graphs.first.name.inspect}), " \
+            "graphql_in_process(graph: #{graphs.first.name.inspect})). Tag the example graphql: :live " \
+            "for the app's own client."
         end
 
         def inspect = "#<#{self.class} #{@mode.inspect}>"
@@ -196,11 +197,19 @@ module GraphWeaver
           graph ? standin(graph) : NoAppClient.new(@mode)
         end
 
-        # The graphs a helper stands in for: the ones `schema` names, else
-        # this app's only graph. A helper that reaches no module is the silent
-        # pass this slot exists to stop, so nothing to reach is a refusal —
-        # and `advice` is how THIS helper is told which graph it means.
-        def targets!(helper, schema, advice)
+        # The graphs a helper stands in for: the one `graph:` names, else the
+        # ones `schema` names, else this app's only graph. A helper that
+        # reaches no module is the silent pass this slot exists to stop, so
+        # nothing to reach is a refusal — and `advice` is what THIS helper
+        # does once it knows which graph.
+        #
+        # `graph:` leads because a graph's name is its identity everywhere
+        # else in the gem, and it is the only spelling that reaches every
+        # graph: `schema` is matched by object identity, which a graph whose
+        # schema is a dump has nothing to match with.
+        def targets!(helper, schema, advice, graph: nil)
+          return [graph!(helper, graph)] if graph
+
           named = named_graphs(schema)
           return named if named.any?
 
@@ -209,10 +218,22 @@ module GraphWeaver
 
           raise GraphWeaver::Error, "#{helper} stands in for the modules of one graph, and " \
             "#{schema ? "#{schema} names none of this app's graphs" : "this app has #{graphs.size}"} " \
-            "(#{declared_names}) — #{advice}"
+            "(#{declared_names}) — say which: #{helper}(graph: #{graphs.first.name.inspect}). #{advice}"
         end
 
         private
+
+        # The graph `graph:` names. Its name, not its schema: that is what
+        # `rake graph_weaver:graphs` prints, what codegen bakes into a
+        # module's GRAPH, and the one handle a dump-backed graph has.
+        def graph!(helper, name)
+          found = GraphWeaver.graphs.find { |graph| graph.name == name }
+          return found if found
+
+          near = Util.did_you_mean(GraphWeaver.graphs.map { |graph| graph.name.to_s }, name.to_s)
+          raise GraphWeaver::Error, "#{helper}(graph: #{name.inspect}) names none of this app's " \
+            "graphs (#{declared_names})#{" — did you mean #{near.to_sym.inspect}?" if near}"
+        end
 
         # The graphs `schema` names: a schema class is matched against what
         # each graph runs in-process, which is the only thing that ties a

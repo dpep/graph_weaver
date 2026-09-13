@@ -70,7 +70,7 @@ require_relative "testing"
 #     reset between examples.
 #
 # A helper — graphql_fake, graphql_in_process, graphql_router — is the
-# stand-in for the modules of the graph its schema names, for this app's only
+# stand-in for the modules of the graph `graph:` names, for this app's only
 # graph when it names none, and refuses when there is none it can reach. Under
 # :wire it is what gets SERVED behind that graph's endpoint, rather than what
 # fills the client slot — which is how a :wire example pins its data.
@@ -364,11 +364,18 @@ module GraphWeaver
       # :live and :wire have none, so they are the tag alone.
       #
       # **A helper called in an example is the stand-in for the modules of the
-      # graph its schema names — for this app's only graph when it names none
-      # — and it refuses, naming the graphs, when there is none it can reach.**
+      # graph `graph:` names — for this app's only graph when it names none —
+      # and it refuses, naming the graphs, when there is none it can reach.**
       # So what an example says applies to what it then runs: a helper used to
       # install itself at GraphWeaver.client, which each module's per-graph
       # stand-in outranks, and a correct pin was silently dropped.
+      #
+      # `graph:` takes the graph's name, the same handle `rake
+      # graph_weaver:graphs` prints and codegen bakes into a module. A schema
+      # object still names a graph too — `graphql_in_process(Reviews::Schema)`
+      # is the schema AND the graph in one word — but only a graph that runs
+      # that class in-process; one whose schema is a dump has no object to be
+      # matched by, and `graph:` is what reaches it.
       module Helpers
         # The fake this example runs against, built here rather than by the
         # tag — which is how it takes pins and options. `graphql: :fake` is
@@ -390,18 +397,19 @@ module GraphWeaver
         #      2.times { Dashboard.load }
         #      expect(fake.requests.size).to eq 1
         #
-        # With more than one graph, `schema:` says which one's modules this
+        # With more than one graph, `graph:` says which one's modules this
         # fake stands in for — pins are schema-shaped, so there is no app-wide
-        # answer to guess at.
+        # answer to guess at:
+        #
+        #      graphql_fake(graph: :poke, "pokemon_v2_pokemon.name" => "pikachu")
         #
         # Installed for that graph and restored after the example, like a
         # tagged one — so the tag is optional here, not required.
-        def graphql_fake(pins = {}, **options)
+        def graphql_fake(pins = {}, graph: nil, **options)
           claim_mode!(:fake)
           refuse_seed!(options)
           graphs = targets!("graphql_fake", options[:schema],
-            "say which: graphql_fake(schema: MySchema). A fake fabricates that schema's shapes, " \
-            "with that graph's scalar registrations.")
+            "A fake fabricates that graph's shapes, with its scalar registrations.", graph:)
           # the same two defaults the tag builds with (Internal::TestClients)
           options[:schema] ||= GraphWeaver::Testing.config.reference_schema!(graphs.first)
           options[:registry] ||= graphs.first&.registry
@@ -424,11 +432,11 @@ module GraphWeaver
         #
         # Returns the client, and is restored after the example like a tagged
         # one — so the tag is optional here.
-        def graphql_in_process(schema = nil, **options)
+        def graphql_in_process(schema = nil, graph: nil, **options)
           claim_mode!(:in_process)
           graphs = targets!("graphql_in_process", schema,
-            "say which: graphql_in_process(MySchema). Its resolvers stand in for that graph's " \
-            "modules.")
+            "That graph's own schema class runs, and its resolvers stand in for its modules.",
+            graph:)
           schema ||= GraphWeaver::Testing.config.schema_class!(graphs.first)
           options[:context] ||= GraphWeaver::Internal::TestClients.context
           stand_in!(GraphWeaver::InProcess.new(schema, **options), graphs)
@@ -446,16 +454,15 @@ module GraphWeaver
         #
         # A router is built once per supergraph — parsing one per example is
         # real time — so this installs that one and tells it where this
-        # example starts. It names no schema, so an app with several graphs is
-        # refused: the tag alone already routes each module through its own
-        # graph's supergraph.
-        def graphql_router(fake: nil)
+        # example starts. With more than one graph, `graph:` says whose
+        # supergraph the `fake:` is for; the tag alone already routes each
+        # module through its own.
+        def graphql_router(fake: nil, graph: nil)
           claim_mode!(:router)
           refuse_seed!(fake) if fake
           graphs = targets!("graphql_router", nil,
-            "the tag alone already routes each module through its own graph's supergraph, and " \
-            "graphql_router has no way to say which graph the fake: is for. Put it in " \
-            "GraphWeaver::Testing.config.router = { fake: … } for the suite.")
+            "The tag alone already routes each module through its own graph's supergraph; name a " \
+            "graph only to say whose the fake: is for.", graph:)
           # :router explicitly: under a :wire tag the table would otherwise
           # hand back whatever :wire picked for this graph
           router = GraphWeaver::Internal::TestClients.standin(graphs.first, :router)
@@ -495,8 +502,8 @@ module GraphWeaver
         end
 
         # The graphs this helper's client stands in for — see the rule above.
-        private def targets!(helper, schema, advice)
-          GraphWeaver::Internal::TestClients.targets!(helper, schema, advice)
+        private def targets!(helper, schema, advice, graph: nil)
+          GraphWeaver::Internal::TestClients.targets!(helper, schema, advice, graph:)
         end
 
         # Put `client` in the slot those graphs' modules read. An app with one

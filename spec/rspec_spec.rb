@@ -196,9 +196,9 @@ describe "graph_weaver/rspec" do
     end
 
     # the advice used to lead straight into that silent drop
-    it "refuses a bare graphql_fake, naming the graphs and schema:", graphql: :fake do
+    it "refuses a bare graphql_fake, naming the graphs and graph:", graphql: :fake do
       expect { graphql_fake("Draft.owner" => "ada") }
-        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_fake\(schema:/m)
+        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_fake\(graph: :drafts\)/m)
     end
 
     it "refuses a schema no declared graph names", graphql: :fake do
@@ -274,14 +274,66 @@ describe "graph_weaver/rspec" do
 
     it "refuses graphql_in_process with no schema, naming the graphs", graphql: :in_process do
       expect { graphql_in_process }
-        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_in_process\(MySchema\)/m)
+        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_in_process\(graph: :drafts\)/m)
     end
 
-    # graphql_router names no schema, so there is nothing for it to say which
-    # graph a fake: is for — and the tag alone already routes each module
-    it "refuses graphql_router, pointing at the tag and config.router" do
+    # graphql_router used to have nothing to say which graph a fake: was for,
+    # so it could only refuse; graph: is that word, and the refusal names it
+    it "refuses graphql_router, naming graph:" do
       expect { graphql_router(fake: { "Draft.owner" => "ada" }) }
-        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*config\.router = \{ fake:/m)
+        .to raise_error(GraphWeaver::Error, /:drafts, :pets.*graphql_router\(graph: :drafts\)/m)
+    end
+
+    it "stands in for the graph graph: names", graphql: :fake do
+      pets = module_for(:pets, Demo::Schema, "query { person(id: 1) { name } }", "PetsByName")
+
+      fake = graphql_fake({ "Person.name" => "Grace" }, graph: :pets)
+
+      expect(pets.execute!.person&.name).to eq "Grace"
+      expect(fake.requests.size).to eq 1
+    end
+
+    it "refuses a graph name nothing declares, guessing at the ones that are" do
+      expect { graphql_fake(graph: :pet) }
+        .to raise_error(GraphWeaver::Error,
+          /graphql_fake\(graph: :pet\) names none of this app's graphs \(:drafts, :pets\).*did you mean :pets\?/m)
+    end
+  end
+
+  # An app that is a pure client of two remote APIs owns no schema class at
+  # all, so every graph's schema is a dump — and a dump is matched by object
+  # identity, which nothing the spec can write holds. schema: refused the
+  # client, the path and the name alike; the graph's own name is the handle.
+  describe "a graph whose schema is a dump" do
+    around do |example|
+      dir = Dir.mktmpdir("graph-weaver-dumps")
+      File.write(File.join(dir, "pets.graphql"), Demo::Schema.to_definition)
+      File.write(File.join(dir, "drafts.graphql"), DraftsDemo::Schema.to_definition)
+      GraphWeaver.graph(:pets) { schema File.join(dir, "pets.graphql") }
+      GraphWeaver.graph(:drafts) { schema File.join(dir, "drafts.graphql") }
+      @dir = dir
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+      FileUtils.remove_entry(dir)
+    end
+
+    it "pins the graph graph: names, and leaves the other alone", graphql: :fake do
+      pets = module_for(:pets, Demo::Schema, "query { person(id: 1) { name } }", "DumpPets")
+      drafts = module_for(:drafts, DraftsDemo::Schema, "query { drafts { id owner } }", "DumpDrafts")
+
+      graphql_fake({ "Person.name" => "Grace" }, graph: :pets)
+
+      expect(pets.execute!.person&.name).to eq "Grace"
+      expect(drafts.execute!.drafts.map(&:owner)).to all(be_a(String))
+    end
+
+    # every spelling the junior reached for; SchemaLoader builds a fresh
+    # anonymous class per load, so even the dump loaded again is a different
+    # object from the one the graph holds
+    it "refuses the dump re-loaded, and names graph: instead", graphql: :fake do
+      expect { graphql_fake(schema: GraphWeaver::SchemaLoader.load(File.join(@dir, "pets.graphql"))) }
+        .to raise_error(GraphWeaver::Error, /names none of this app's graphs.*graphql_fake\(graph: :pets\)/m)
     end
   end
 
