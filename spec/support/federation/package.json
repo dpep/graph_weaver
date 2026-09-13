@@ -6,7 +6,7 @@
     "@apollo/composition": "^2.14.4",
     "@apollo/federation-internals": "^2.14.4",
     "@apollo/gateway": "^2.14.4",
-    "@apollo/server": "^4",
+    "@apollo/server": "^5",
     "graphql": "^16"
   }
 }
