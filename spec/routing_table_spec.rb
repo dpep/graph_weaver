@@ -107,6 +107,7 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean) repeatable on FIELD_DEFINITION
     directive @join__graph(name: String!, url: String!) on ENUM_VALUE
     directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE
+    directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
     scalar join__FieldSet
   JOIN
     GraphWeaver::SchemaLoader.routing_table(<<~SDL)
@@ -194,6 +195,33 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
 
     expect(built.interface_objects).to eq({ "Media" => ["b"] })
     expect(built.unsupported).to be_empty
+  end
+
+  # Apollo writes a bare @join__field — no graph: at all — on a concrete
+  # implementer's copy of a field that is really contributed through
+  # @interfaceObject elsewhere. Attributing it to the type's home graph makes
+  # that subgraph answer for a field it never defines.
+  it "routes a field whose @join__field names no subgraph nowhere" do
+    built = supergraph(<<~SDL)
+      type Query @join__type(graph: A) { media: [Media] @join__field(graph: A) }
+      interface Media @join__type(graph: A) @join__type(graph: B, key: "id", isInterfaceObject: true) {
+        id: ID!
+        rating: Float @join__field(graph: B)
+      }
+      type Book implements Media @join__type(graph: A, key: "id") @join__implements(graph: A, interface: "Media") {
+        id: ID!
+        title: String
+        rating: Float @join__field
+      }
+    SDL
+
+    expect(built.owners("Media", "rating")).to eq ["b"]
+    expect(built.owners("Book", "rating")).to be_empty
+    # not an @external reference either — nobody here resolves it
+    expect(built.field("Book", "rating").external).to be_empty
+    # the field is still on the type; it is the routing the supergraph withholds
+    expect(built.declares?("Book", "rating")).to be true
+    expect(built.owners("Book", "title")).to eq ["a"]
   end
 
   # Everything here reads the join spec's default names, and @link lets a

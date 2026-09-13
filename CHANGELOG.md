@@ -1,5 +1,21 @@
 ###  Unreleased
 
+<!-- lane: fedC -->
+- **An `@interfaceObject` no longer breaks the subgraph its interface's *other*
+  implementers live in.** Apollo writes a bare `@join__field` — no `graph:` at
+  all — on a concrete implementer's copy of a field really contributed through
+  `@interfaceObject` elsewhere, and the routing table read that the way it reads
+  no directive at all: "wherever the type lives". So `products` was said to
+  resolve `Bundle.reviews`, which `Products::Schema` never defines — pinning
+  `subgraphs: { "products" => Products::Schema }` raised `ConfigurationError` at
+  `Router.new`, and under auto-detection `products` was reported absent and an
+  unrelated `{ products { name price } }` refused `absent_subgraph`, advice
+  about eager loading and all. The rule is now one sentence: **a field routes to
+  exactly the subgraphs its `@join__field` names**, and only a field with *no*
+  `@join__field` lives wherever its type does. Selecting the implementer's copy
+  directly is refused `no_owner` ("the supergraph places `Bundle.reviews` in no
+  subgraph") instead of being fetched from a subgraph that would not answer it.
+
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's
   connection pool from the url client, where before only `Transport::HTTP.new`

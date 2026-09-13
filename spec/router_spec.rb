@@ -697,7 +697,7 @@ describe GraphWeaver::Testing::Router do
           type Book implements Media @join__type(graph: A, key: "id")
             @join__implements(graph: A, interface: "Media") {
             id: ID!
-            rating: Float
+            rating: Float @join__field
             title: String!
           }
         SDL
@@ -713,6 +713,17 @@ describe GraphWeaver::Testing::Router do
       it "plans everything else, and the router builds at all" do
         expect(media.execute("{ books { title } }").dig("data", "books")).to be_an Array
         expect(media).to have_fetched_subgraphs "a"
+      end
+
+      # Apollo writes a bare @join__field on the implementer's copy of the
+      # field the @interfaceObject contributes. Read as "whoever declares
+      # Book", it fetched Book.rating from a subgraph that never defines it —
+      # and made every other field of that subgraph look absent.
+      it "refuses the implementer's copy of the contributed field, and only it" do
+        expect { media.execute("{ books { rating } }") }
+          .to refuse_to_plan(:no_owner).with_detail(
+            "the supergraph places Book.rating in no subgraph",
+          )
       end
     end
 

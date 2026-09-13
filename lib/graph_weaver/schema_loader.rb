@@ -1017,17 +1017,20 @@ module GraphWeaver::SchemaLoader
       @subgraphs = @names.values.freeze
     end
 
-    # Which subgraphs can resolve Type.field, by name. A field with no
-    # @join__field at all lives wherever its type does — the composer omits
-    # the directive when it has nothing to say, and that omission is the
-    # supergraph spec's way of saying "everywhere".
+    # Which subgraphs can resolve Type.field, by name: exactly the ones its
+    # @join__field names. A field with no @join__field at all lives wherever
+    # its type does — the composer omits the directive when it has nothing to
+    # say, and that omission is the supergraph spec's way of saying
+    # "everywhere".
+    #
+    # One directive naming no subgraph therefore routes to none. Apollo
+    # writes that on an @external/@usedOverridden copy — a reference, not a
+    # resolver — and bare, with no arguments at all, on a concrete
+    # implementer's copy of a field really contributed through
+    # @interfaceObject elsewhere.
     def owners(type_name, field_name)
       field = self.field(type_name, field_name)
-      return declared_in(type_name) if field.nil?
-      return field.graphs if field.graphs.any?
-
-      # declared only as @external/@usedOverridden: a reference, not a resolver
-      field.external.any? ? [] : declared_in(type_name)
+      field.nil? ? declared_in(type_name) : field.graphs
     end
 
     # The routing for Type.field, or nil when the supergraph says nothing
