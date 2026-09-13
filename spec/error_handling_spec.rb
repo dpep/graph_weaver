@@ -334,6 +334,59 @@ describe "error handling" do
     end
   end
 
+  # The walk follows a path the SERVER chose. It used to step with
+  # `respond_to?`, which is true of every Object method — so a segment named
+  # `freeze` froze the caller's result struct and reported an id for a field
+  # that isn't there, `display` printed the struct to stdout, and
+  # `tap`/`send`/`method` raised out of error handling.
+  describe "a report path naming a method rather than a field" do
+    let(:mod) do
+      GraphWeaver.parse(
+        schema: GraphQL::Schema.from_definition(<<~SDL),
+          type Pet { id: ID! name: String }
+          type Person { id: ID! email: String class: Pet }
+          type Query { people: [Person!] }
+        SDL
+        query: "query People { people { id email class { id name } } }",
+        name: "PeopleQuery",
+      )
+    end
+
+    let(:payload) do
+      { "data" => { "people" => [{ "id" => "7", "email" => "a@b.c",
+                                   "class" => { "id" => "42", "name" => "Shelby" } }] } }
+    end
+
+    def report_for(*path)
+      executor = Object.new
+      body = payload.merge("errors" => [{ "message" => "nope", "path" => path }])
+      executor.define_singleton_method(:execute) { |_query, variables:, operation_name: nil| body }
+      mod.execute(client: executor)
+    end
+
+    def ids(resp) = resp.report.values.flat_map { _1["entity_ids"] }
+
+    # every one of these is a method the struct answers and never a field
+    %w[freeze tap send method display clone extend instance_variable_get].each do |name|
+      it "resolves nothing through ##{name}, and leaves the result alone" do
+        resp = report_for("people", 0, name, "name")
+
+        expect { expect(ids(resp)).to be_empty }.not_to output.to_stdout
+        expect(resp.data.people.first).not_to be_frozen
+      end
+    end
+
+    it "still resolves the id of a record the path really reaches" do
+      expect(ids(report_for("people", 0, "email"))).to eq ["7"]
+    end
+
+    # `class` is a column somebody has; codegen emits it as `class_`, so the
+    # walk has to find the prop the emitter renamed
+    it "follows a field whose prop was renamed off a method name" do
+      expect(ids(report_for("people", 0, "class", "name"))).to eq ["42"]
+    end
+  end
+
   describe "machine-readable output (#to_h)" do
     # the envelope is where an API boundary reaches for to_h, and every error
     # class had one while the thing holding them didn't

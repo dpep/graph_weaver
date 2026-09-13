@@ -105,6 +105,16 @@
   rspec-rails' own `require "rspec/rails"`), or `spec/spec_helper.rb` if
   that's all there is, or prints it when the app has neither. Idempotent, so
   a re-run and a line you added by hand both leave it alone.
+- **`#report` no longer calls a method a server's error path names.** The walk
+  that resolves `entity_ids` stepped through the typed data with
+  `respond_to?`, which is true of every `Object` method — so an error path
+  with a segment named `freeze` **froze the caller's result struct** and then
+  reported an id for a field that doesn't exist, `display` printed the struct
+  to stdout, and `tap`/`send`/`method` raised `LocalJumpError`/`ArgumentError`
+  out of error handling. It reads the struct's own props now, so a segment
+  that isn't a field of that struct resolves to nil — and a field whose prop
+  0.7.0 renamed off a method name (`class` → `class_`) resolves for the first
+  time.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
