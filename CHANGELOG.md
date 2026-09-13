@@ -165,6 +165,61 @@
   (`config.after_initialize { GraphWeaver.logger = nil }`) still works and can
   come out. ([logging](docs/logging.md))
 
+<!-- lane: codegen3 -->
+- **`rake graph_weaver:unused` no longer accuses fields the app reads.** Three
+  ways it did, each a wrong answer that `STRICT=1` turned into a red build
+  demanding you delete a field you use. A `PATHS=` naming a directory that
+  isn't there swept nothing and so reported every selection unread — it is
+  refused now, naming the path. The serializer excuse needed the module and
+  the sink on one line, so the ordinary two-line controller
+  (`result = Q.execute!` then `render json: result.person`) was accused; the
+  sweep follows the local now, and says which local it followed. And the
+  graphql-ruby skip matched `class X < GraphQL::Schema::` of any kind, which
+  swallowed `Resolver` and `Mutation` files — in a BFF exactly where the
+  upstream graph is read — so it is narrowed to type kinds and widened to the
+  `< Types::BaseObject` spelling graphql-ruby's own generator emits and it
+  never matched. Also: the coordinate it prints is now the name the query
+  spells (`Person.bornOn`, not the prop `born_on`), `.rake` and `.builder` are
+  swept, a repo with no queries is told that rather than told to generate, and
+  the footer carries the measured rate — on a real app half to two thirds of
+  genuinely unread selections go unreported.
+  ([getting_started](docs/getting_started.md#the-selections-nothing-reads))
+- **A response whose shape drifted names the field and what arrived.** A server
+  that sends an object where a list belongs used to raise
+  *"failed to cast response into Q::Result::Person: Parameter 'data': Expected
+  type T::Hash[String, T.untyped], got T::Array[String]"* — the field named
+  nowhere, the struct named being the parent, and the "got" describing pairs
+  `Hash#map` had made on the way in rather than anything the server sent. It
+  now reads `pets: expected a list, but the server sent an object`, and points
+  into the list (`pets.0: expected an object, but the server sent null`) when
+  an element is the problem.
+- **An input-prop collision points at the declaration you wrote.** The refusal
+  named the colliding *type*, which is usually several hops below the variable
+  you declared, and offered an escape — write it as a literal — that does not
+  exist when the type is reached through a list. It now says which variable
+  reaches what (`$outer reaches Inner through inner`), and when a list is in
+  the way it says plainly that no form of the query generates.
+- **A federation `@key` on a reserved field generates instead of refusing.**
+  `@key(fields: "class")` was refused with nowhere to send you — a subgraph's
+  `@key` field is not yours to rename — and `@key(fields: "hash")` emitted
+  `def self.slot(hash:)` beside `const :hash_`, so reading `slot.hash_` and
+  writing it back raised a bare `ArgumentError`. A key kwarg now takes the
+  same trailing underscore the prop does (`Representations.room(class_: …)`),
+  and still sends `"class"` on the wire. **Regenerate** if a `@key` of yours
+  names such a field. ([federation](docs/federation.md))
+- `GraphWeaver::Codegen.prop_name` is public: the one home for the rule that
+  turns a GraphQL name into a Ruby prop, for the parts of the gem outside
+  generation that have to agree with it.
+- Docs: the v0.7.0 entry below, `generated_modules.md` and `upgrading.md` all
+  said `#to_h` and pattern matching use the renamed prop "in results and input
+  types alike". True of a result; an **input** struct's `#to_h` is the wire
+  hash it would send (`{"class" => …}`) and input structs don't pattern-match
+  at all. Read the v0.7.0 sentence as: *the prop is the field's one Ruby name
+  — `.new`, `.coerce`, a result's `#to_h` and pattern matching, and an
+  `InputError`'s `#path` all use `class_`, while an input struct's `#to_h`
+  stays the wire hash and `#coordinate` still names the schema's
+  `Tricky.class`.*
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the

@@ -138,6 +138,10 @@ bundle exec ruby bin/round-trip ~/github.json      # any SDL or introspection du
 bundle exec ruby bin/round-trip ~/github.json -q ~/queries   # real queries
 ```
 
+A big dump wants chunking by seed (`-c 100 -s 1`, then `-s 101`) rather than one
+large `-c`: the tool is superlinear in the count, and `-c 1000` on PokeAPI was
+killed at 6 GB RSS.
+
 It generates a query, builds a response the *schema* says is legal, and checks
 `from_h` neither raises nor loses a value — a different net from `srb tc`, which
 only proves the generated code agrees with itself.

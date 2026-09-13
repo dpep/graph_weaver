@@ -428,9 +428,12 @@ instead: `class` → `class_`, in results and input types alike. The generated
 source says so on the line above the prop. Only the Ruby name moves: the wire
 keeps the schema's spelling in both directions, so the query, the request and
 the response are untouched, and `result.class` is still Ruby's `class`. The
-prop is the one Ruby name for the field, so `.new`, `.coerce`, `#to_h`,
-pattern matching and an `InputError`'s `#path` all use `class_` (an input
-error's `#coordinate` still names the schema's `Tricky.class`).
+prop is the one Ruby name for the field, so `.new`, `.coerce`, a result's
+`#to_h` and pattern matching, and an `InputError`'s `#path` all use `class_`
+(an input error's `#coordinate` still names the schema's `Tricky.class`). An
+**input** struct's `#to_h` is the exception, and deliberately: it is the wire
+hash you would send — `{"class" => …}` — since that is the only thing a
+caller wants a built input as. Input structs don't pattern-match at all.
 
 ### Abstract types
 

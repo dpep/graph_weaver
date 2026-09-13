@@ -115,9 +115,11 @@ bundle exec rspec            # the renamed tag, the deleted nil, the seed: refus
   the alias and regenerate** if you want the field's own name back. Only the
   Ruby name moves; the wire keeps the schema's spelling in both directions, so
   `result.class` is still Ruby's `class` and `result.class_` is the field. The
-  prop is the field's one Ruby name, so `.coerce({ class_: … })`, `#to_h` and
-  an `InputError`'s `#path` all use it (`#coordinate` still names
-  `Tricky.class`). Input types had no way past the old refusal at all, so a
+  prop is the field's one Ruby name, so `.coerce({ class_: … })`, a result's
+  `#to_h` and pattern matching, and an `InputError`'s `#path` all use it
+  (`#coordinate` still names `Tricky.class`). An **input** struct's `#to_h`
+  is the wire hash it would send, `{"class" => …}`, and input structs don't
+  pattern-match. Input types had no way past the old refusal at all, so a
   schema with a `class` column — a Hasura `bool_exp` has one input field per
   column — generates for the first time. The names that take an underscore are
   a list the gem owns, rather than whatever `T::Struct` answered to in the
