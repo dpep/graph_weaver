@@ -73,6 +73,7 @@ GraphWeaver::Codegen.inline_fragments
 GraphWeaver::Codegen.load_fragments
 GraphWeaver::Codegen.normalize_requires!
 GraphWeaver::Codegen.parse
+GraphWeaver::Codegen.prop_name
 GraphWeaver::Codegen.register_enum
 GraphWeaver::Codegen.register_scalar
 GraphWeaver::Codegen.registry

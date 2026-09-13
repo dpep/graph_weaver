@@ -95,6 +95,17 @@ describe GraphWeaver::Codegen do
     expect(pokemon&.name).to eq "bulbasaur"
   end
 
+  describe ".prop_name" do
+    # The one home for the rule. Readers outside generation — Response#report,
+    # the round-trip harness — reach a renamed prop only through this, and
+    # Inflect.underscore alone silently misses every one of them.
+    it "underscores a name a generated struct answers to, and leaves the rest" do
+      expect(GraphWeaver::Codegen.prop_name("class")).to eq "class_"
+      expect(GraphWeaver::Codegen.prop_name("toJson")).to eq "to_json_"
+      expect(GraphWeaver::Codegen.prop_name("firstName")).to eq "first_name"
+    end
+  end
+
   describe "hostile prop names" do
     def schema_with_input(fields)
       GraphQL::Schema.from_definition(<<~GRAPHQL)

@@ -389,13 +389,14 @@ class GraphWeaver::Codegen
   # moves: the wire name, and everything read from or written to the wire,
   # is untouched.
   #
-  # A lambda rather than a method so the Aliases mixin shares this one copy;
-  # a second spelling of the rule is how the two sides drift apart.
-  PROP_NAME = ->(graphql_name) {
+  # Public because the rule has readers outside generation: Response#report
+  # walks a server error path onto props, and the round-trip harness checks
+  # what came back against them. A second spelling of the rule is how the two
+  # sides drift apart.
+  def self.prop_name(graphql_name)
     prop = GraphWeaver::Inflect.underscore(graphql_name)
     RESERVED_PROPS.include?(prop) ? "#{prop}_" : prop
-  }
-  private_constant :PROP_NAME
+  end
 
   def generate
     begin
@@ -807,7 +808,7 @@ class GraphWeaver::Codegen
     gather_conditional(type, selections).each do |key, occurrences|
       field_nodes = occurrences.map(&:first)
       field_name = field_nodes.first.name
-      prop = PROP_NAME.call(key)
+      prop = GraphWeaver::Codegen.prop_name(key)
       check_output_prop!(type, key, prop, props)
 
       child = if field_name == "__typename"
@@ -1233,7 +1234,7 @@ class GraphWeaver::Codegen
       # through public_send), and `const :in` is legal — which matters, since a
       # schema's field name is not the user's to rename. `Tricky.in` filters are
       # standard Hasura/Gatsby shape.
-      prop = PROP_NAME.call(argument.graphql_name)
+      prop = GraphWeaver::Codegen.prop_name(argument.graphql_name)
       child = type_ref(argument.type) { variable_core(argument.type.unwrap) }
       required = child.non_null? && !argument.default_value?
       node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
