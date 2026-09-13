@@ -19,9 +19,10 @@ class GraphWeaver::Codegen
     #      GraphWeaver.extend_type("Pet", PetHelpers)
     #
     # Or build the mixin inline — the block is module_eval'd into a fresh
-    # module auto-named GraphWeaver::TypeHelpers::<Type>. Handy for quick
-    # decoration; srb tc can't see into block-defined methods, so prefer
-    # a named module where static checking matters:
+    # module named for where it is written and what it extends:
+    # GraphWeaver::TypeHelpers::Pet, or ::Billing::Pet in graph :billing.
+    # Handy for quick decoration; srb tc can't see into block-defined methods,
+    # so prefer a named module where static checking matters:
     #
     #      GraphWeaver.extend_type("Pet") do
     #        def display_name = "#{name} the pet"
@@ -119,19 +120,62 @@ class GraphWeaver::Codegen
     # generated files may still name them.
     def reset_type_helpers!
       type_registry.clear
+      helper_counts.clear
       self
     end
 
-    # a block-built mixin needs a name generated files can reference:
-    # GraphWeaver::TypeHelpers::Pet (suffixed on re-registration)
+    # Which graph's registrations this registry holds — nil for the top-level
+    # one. Block-built helpers are named for it, so two graphs extending the
+    # same type get two constants (see helper_module).
+    attr_accessor :graph_name
+
+    # A block-built mixin needs a name generated files can reference:
+    # GraphWeaver::TypeHelpers::Pet, or ::Billing::Pet in graph :billing (V2,
+    # V3… for a second and third block on the same type in the same place).
+    #
+    # The name is a function of the source and nothing else — where the block
+    # is written and what it extends. It gets baked into generated code, so
+    # naming it after whichever constants happened to exist made it a function
+    # of how many times THIS process had read the registry, and `generate`
+    # wrote a name a plain boot never creates.
     def helper_module(graphql_name, block)
-      base = GraphWeaver::Inflect.camelize(graphql_name.to_s)
-      name = base
-      count = 1
-      name = "#{base}V#{count += 1}" while GraphWeaver::TypeHelpers.const_defined?(name, false)
-      GraphWeaver::TypeHelpers.const_set(name, Module.new(&block))
+      namespace = helper_namespace
+      type = GraphWeaver::Inflect.camelize(graphql_name.to_s)
+      index = (helper_counts[[namespace.name, type]] += 1)
+      name = index == 1 ? type : "#{type}V#{index}"
+      # reused rather than replaced, so re-declaring the same source (a Rails
+      # to_prepare reload) keeps the module already-loaded structs include
+      mod = const_under(namespace, name) { Module.new }
+      mod.module_eval(&block)
+      mod
     end
     private :helper_module
+
+    # Where this registry's block-built helpers live: under a module named for
+    # the graph, so two graphs extending the same type get two constants and
+    # neither has to know the other exists.
+    def helper_namespace
+      return GraphWeaver::TypeHelpers unless graph_name
+
+      const_under(GraphWeaver::TypeHelpers, GraphWeaver::Inflect.camelize(graph_name.to_s)) { Module.new }
+    end
+    private :helper_namespace
+
+    def const_under(namespace, name)
+      return namespace.const_get(name, false) if namespace.const_defined?(name, false)
+
+      namespace.const_set(name, yield)
+    end
+    private :const_under
+
+    # How many block-built helpers this registry has already named for a type.
+    # Per registry, not per process: a graph's registrations are replayed over
+    # a fresh copy of the top-level registry on every read, so the same source
+    # counts the same way every time.
+    def helper_counts
+      @helper_counts ||= Hash.new(0)
+    end
+    private :helper_counts
   end
 end
 

@@ -157,13 +157,15 @@ describe "GraphWeaver.generate!" do
     File.write(File.join(generated, "stale_query.rb"), <<~RUBY)
       module StaleQuery
         class Result
-          include GraphWeaver::TypeHelpers::Ghost
+          include GraphWeaver::TypeHelpers::Departed::Ghost
         end
       end
     RUBY
 
-    expect { GraphWeaver.load_generated!(generated) }
-      .to raise_error(GraphWeaver::Error, /extend_type\("Ghost"\).*rake graph_weaver:generate/m)
+    expect { GraphWeaver.load_generated!(generated) }.to raise_error(
+      GraphWeaver::Error,
+      /includes GraphWeaver::TypeHelpers::Departed.*but nothing registers it — the extend_type block/m,
+    )
   end
 
   it "names the fix when a generated file expects an app constant that is gone" do

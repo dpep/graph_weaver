@@ -133,6 +133,7 @@ class GraphWeaver::Codegen
       @enum_registry = other.enum_registry.dup
       # the entry is a hash of mutable arrays, so each one is copied too
       @type_registry = other.type_registry.transform_values { |e| e.transform_values(&:dup) }
+      @helper_counts = other.send(:helper_counts).dup
     end
   end
 

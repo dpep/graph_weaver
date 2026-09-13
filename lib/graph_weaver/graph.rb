@@ -42,9 +42,26 @@ module GraphWeaver
       return GraphWeaver::Codegen.registry unless @registrations
 
       GraphWeaver::Codegen.registry.dup.tap do |registry|
-        @registrations.each { |name, args, kwargs, block| registry.public_send(name, *args, **kwargs, &block) }
+        registry.graph_name = @name
+        @registrations.each { |registration| replay(registry, registration) }
       end
     end
+
+    # One recorded registration, against this read's copy of the registry.
+    #
+    # A block-form extend_type mints a module whose constant name generated
+    # source spells, and a registration is replayed on every read — so the
+    # block runs once, at the declaration (GraphBuilder.build reads the
+    # registry there), and every read after replays the module it made.
+    def replay(registry, registration)
+      call, args, kwargs, block = registration
+      entry = registry.public_send(call, *args, **kwargs, &block)
+      return unless block && call == :extend_type
+
+      registration[1] = args + [entry[:mixins].last]
+      registration[3] = nil
+    end
+    private :replay
 
     def queries = @queries || GraphWeaver.queries_paths
     def output = @output || GraphWeaver.generated_paths.first

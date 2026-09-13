@@ -741,11 +741,14 @@ module GraphWeaver
 
         # a dropped extend_type leaves this include dangling; say so here,
         # because the raw NameError points at generated code and names no fix
-        helper = e.message[/GraphWeaver::TypeHelpers::(\w+)/, 1]
+        # a block-built helper is named for its graph as well as its type
+        # (TypeHelpers::Billing::Pet), so the constant says where to look
+        # rather than spelling the extend_type back
+        helper = e.message[/GraphWeaver::TypeHelpers::[\w:]+/]
         if helper
-          raise Error, "#{reported} includes GraphWeaver::TypeHelpers::#{helper}, but nothing registers it — " \
-            "the extend_type(#{helper.inspect}) it was generated from is gone. Re-add that registration, " \
-            "or regenerate without it: rake graph_weaver:generate"
+          raise Error, "#{reported} includes #{helper}, but nothing registers it — the extend_type " \
+            "block it was generated from is gone. Re-add that registration, or regenerate without " \
+            "it: rake graph_weaver:generate"
         end
 
         # an app's own mixin or enum class named by extend_type/register_enum

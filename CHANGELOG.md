@@ -33,6 +33,17 @@
 - **`@defer`/`@stream` are refused by name** (`:incremental_delivery`) rather
   than by happening to fail validation — the answer would arrive in more than
   one payload, and the Apollo Router supports `@defer` for real.
+- **Regenerate if you build a type helper from a block inside a
+  `GraphWeaver.graph` block.** Those mixins are named for where the block is
+  written and what it extends — `GraphWeaver::TypeHelpers::Billing::Pet` in
+  `graph :billing`, `GraphWeaver::TypeHelpers::Pet` at the top level — where
+  the name used to be counted off whatever constants already existed. That
+  made it a function of how many times the process had read the graph's
+  registry, so `rake graph_weaver:generate` wrote a name `rails server` never
+  creates: boot failed with "includes GraphWeaver::TypeHelpers::WidgetV3, but
+  nothing registers it" while `verify`, run moments earlier on the same tree,
+  called it up to date. Two graphs extending the same type name now each get
+  their own constant.
 
 ###  v0.7.0  (2026-09-13)
 

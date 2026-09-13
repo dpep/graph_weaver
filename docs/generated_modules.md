@@ -616,6 +616,13 @@ GraphWeaver.extend_type("Pet") do
 end
 ```
 
+The name is where the block is written and what it extends:
+`GraphWeaver::TypeHelpers::Pet` at the top level,
+`GraphWeaver::TypeHelpers::Billing::Pet` inside `GraphWeaver.graph :billing`.
+Generated code spells it, so it depends on your source and nothing else — two
+graphs can extend the same type name, and the name a `generate` bakes in is the
+one a boot creates.
+
 **Neither form is statically checked**, for the same reason: `srb tc` checks a
 mixin's method bodies in the module's own scope, not the including struct's, so
 a helper reading a wire field (`name`, `birthday`) fails with "method does not
