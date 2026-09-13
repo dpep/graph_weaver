@@ -54,6 +54,24 @@ describe "a transport reading the wire" do
       end
     end
 
+    # A router streams @defer/@stream as multipart/mixed when the Accept asks
+    # for it. Refusing is right — this client reads one JSON document — but
+    # "non-GraphQL response" plus the whole payload misdiagnoses a body that is
+    # perfectly well-formed GraphQL, just more than one of it.
+    it "names an incremental-delivery body rather than quoting it back" do
+      payload = "\r\n--graphql\r\ncontent-type: application/json\r\n\r\n" \
+        '{"data":{"x":1},"hasNext":true}' "\r\n--graphql--\r\n"
+      url = answering(http_response(200, payload, "Content-Type" => "multipart/mixed; boundary=graphql"))
+
+      transports.each do |transport|
+        expect { transport.new(url).execute(query) }.to raise_error(
+          GraphWeaver::ServerError,
+          "HTTP 200: this response is incremental delivery (@defer/@stream), " \
+            "which this client doesn't read — POST #{url}",
+        )
+      end
+    end
+
     it "decodes a chunked body" do
       url = serving do |socket|
         socket.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n")

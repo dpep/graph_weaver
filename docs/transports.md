@@ -42,8 +42,9 @@ lazily, and `parse`/`run` bound to both. A `Client` answers the client
 contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
 `subgraphs:`, a cassette recorder.
 
-- `auth:` — a token; "Bearer" is assumed unless the string carries its own
-  scheme (`"Basic dXNlcjpwYXNz..."`)
+- `auth:` — a token, or something answering `#call` that returns one per
+  request; "Bearer" is assumed unless it carries its own scheme
+  (`"Basic dXNlcjpwYXNz..."`)
 - `transport:` — `:http` (the default) or `:faraday`
 - `headers:` — anything else (API keys, custom headers)
 - `retries:` — off by default; a count of the attempts *after* the first
@@ -173,8 +174,8 @@ GraphWeaver::Transport::HTTP.new(url, headers: {
 })
 ```
 
-**A header that expires.** On `Transport::HTTP` a header *value* may be
-anything answering `#call`, resolved per request rather than captured when the
+**A header that expires.** A header *value* may be anything answering `#call`,
+on either transport, resolved per request rather than captured when the
 transport was built — the same way a graph's [`schema`](federation.md) takes a
 lambda. A value (or a call) of `nil` sends no such header; anything else is
 sent as its `to_s`, so a numeric tenant id needs no ceremony:
@@ -186,9 +187,11 @@ GraphWeaver::Transport::HTTP.new(url, headers: {
 })
 ```
 
-On `Transport::Faraday` a callable header raises instead — Faraday resolves
-this in middleware (`conn.request :authorization, "Bearer", -> { Tokens.fetch }`),
-which is the sample above, and keeping one way per transport beats two.
+`auth:` is that header under a shorter name, so it takes the same two things —
+a token, or something answering `#call` that returns one:
+`GraphWeaver.new(url, auth: -> { Tokens.fetch })`. A prebuilt
+`Faraday::Connection` owns its own headers, so a rotating credential there is
+Faraday's middleware (`conn.request :authorization, "Bearer", -> { ... }`).
 
 **Compression and proxies** need no configuration on either transport.
 `net/http` — which both use underneath — asks for `gzip`/`deflate` on every

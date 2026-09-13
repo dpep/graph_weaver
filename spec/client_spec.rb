@@ -27,12 +27,34 @@ describe GraphWeaver::Client do
       expect(@requests.last[:headers]["x-api-key"]).to eq ["k"]
     end
 
+    # auth: is a header like any other, so it takes what a header value takes:
+    # a token, or something answering #call that returns one per request. A
+    # credential that rotates was previously sent to Faraday middleware.
+    it "takes a token that rotates" do
+      issued = 0
+      client = GraphWeaver.new(url, auth: -> { "t#{issued += 1}" })
+
+      2.times { client.run!("query { person(id: 1) { id } }") }
+      sent = @requests.last(2).map { |r| r[:headers]["authorization"].first }
+      expect(sent).to all(match(/\ABearer t\d+\z/))
+      expect(sent.uniq.size).to eq 2 # a fresh token per request, not one captured at build
+
+      GraphWeaver.new(url, auth: -> { "Basic dXNlcg==" }).run!("query { person(id: 1) { id } }")
+      expect(@requests.last[:headers]["authorization"]).to eq ["Basic dXNlcg=="]
+    end
+
+    # the same rule the other header values follow: nothing this time
+    it "sends no Authorization when the token resolves to nil" do
+      GraphWeaver.new(url, auth: -> {}).run!("query { person(id: 1) { id } }")
+      expect(@requests.last[:headers]).not_to have_key "authorization"
+    end
+
     # a header Hash interpolated into "Bearer #{...}" reaches the server as
     # nonsense and comes back a 401 with nothing pointing at the cause
-    it "refuses an auth: that isn't a token" do
-      [{ "X-Api-Key" => "k" }, -> { "t0ken" }, :t0ken].each do |wrong|
+    it "refuses an auth: that is neither" do
+      [{ "X-Api-Key" => "k" }, :t0ken, 42].each do |wrong|
         expect { GraphWeaver.new(url, auth: wrong) }
-          .to raise_error(ArgumentError, /auth: takes a token string/)
+          .to raise_error(ArgumentError, /auth: takes a token string, or something answering #call/)
       end
     end
 

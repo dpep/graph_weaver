@@ -107,11 +107,26 @@ describe GraphWeaver::Transport::Faraday do
     expect(@requests.last[:headers]["authorization"]).to eq ["Bearer t0ken"]
   end
 
-  # Faraday stringifies a header value as it is set, so a callable would go
-  # out as "#<Proc:0x…>" — a broken Authorization nobody would read twice
-  it "refuses a callable header value, naming Faraday's own way to do it" do
-    expect { described_class.new(url, headers: { "Authorization" => -> { "Bearer t0ken" } }) }
-      .to raise_error(ArgumentError, /Authorization.*middleware.*:authorization/m)
+  # Faraday stringifies a connection header as it is set, so a callable there
+  # would go out as "#<Proc:0x…>" — it used to raise and send you to
+  # middleware, which made a rotating token mean something different on each
+  # transport. Resolved per request instead, the way Transport::HTTP does.
+  it "resolves a callable header value on every request" do
+    tokens = %w[one two].each
+    rotating = described_class.new(url, headers: { "Authorization" => -> { "Bearer #{tokens.next}" } })
+
+    2.times { PersonQuery.execute(client: rotating, id: "1") }
+
+    expect(@requests.last(2).map { |r| r[:headers]["authorization"] })
+      .to eq [["Bearer one"], ["Bearer two"]]
+  end
+
+  it "omits a header whose value resolves to nil" do
+    anonymous = described_class.new(url, headers: { "Authorization" => -> {}, "X-Later" => -> { 7 } })
+    PersonQuery.execute(client: anonymous, id: "1")
+
+    expect(@requests.last[:headers]).not_to have_key "authorization"
+    expect(@requests.last[:headers]["x-later"]).to eq ["7"]
   end
 
   it "raises ServerError on a non-2xx response" do

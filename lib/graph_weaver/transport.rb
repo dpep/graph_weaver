@@ -160,8 +160,17 @@ class GraphWeaver::Transport
     unless parsed.is_a?(Hash)
       # a 200 that isn't a GraphQL object — an HTML error page from a proxy, a
       # captive portal, or a bare JSON array/string: the server misbehaved.
-      # An empty body says so rather than trailing off after the colon.
-      quoted = body.to_s.empty? ? "empty response body" : "non-GraphQL response: #{body.to_s[0, 500]}"
+      # An empty body says so rather than trailing off after the colon, and a
+      # well-formed @defer stream is named rather than dumped: it isn't
+      # non-GraphQL, it's more than one GraphQL document.
+      quoted =
+        if incremental?(headers)
+          "this response is incremental delivery (@defer/@stream), which this client doesn't read"
+        elsif body.to_s.empty?
+          "empty response body"
+        else
+          "non-GraphQL response: #{body.to_s[0, 500]}"
+        end
       raise GraphWeaver::ServerError.new(status:, body: quoted, headers: headers || {}, url: safe_url)
     end
 
@@ -190,6 +199,13 @@ class GraphWeaver::Transport
   # UTF-8, and those two are never == to each other.
   BOM = "\xEF\xBB\xBF".b
   private_constant :BOM
+
+  # A multipart/mixed body is one @defer/@stream response arriving in
+  # installments. Folded here because a third-party subclass's headers may
+  # come back in any casing; a subclass that returns none says nothing.
+  private def incremental?(headers)
+    GraphWeaver::Internal::Headers.wrap(headers || {})["content-type"].to_s.start_with?("multipart/mixed")
+  end
 
   # the parsed body, or nil when it isn't JSON (a caller's connection may
   # already parse via middleware — pass that through)

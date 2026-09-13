@@ -190,12 +190,15 @@ class GraphWeaver::Client
   def build_transport(url, auth:, headers:, kind:, open_timeout: nil, read_timeout: nil, pool_size: nil, &middleware)
     headers = headers.dup
     if auth
-      unless auth.is_a?(String)
-        raise ArgumentError, "auth: takes a token string, got #{auth.class} — other headers go in " \
-          "headers:, and a token that rotates goes in the Faraday middleware block"
+      unless auth.is_a?(String) || auth.respond_to?(:call)
+        raise ArgumentError, "auth: takes a token string, or something answering #call that returns " \
+          "one per request, got #{auth.class} — other headers go in headers:"
       end
 
-      headers["Authorization"] ||= auth.include?(" ") ? auth : "Bearer #{auth}"
+      # a callable stays callable: both transports resolve a header value per
+      # request, which is what a token that expires needs
+      headers["Authorization"] ||=
+        auth.respond_to?(:call) ? -> { bearer(auth.call) } : bearer(auth)
     end
 
     # nil means "the transport's default" — both bundled ones agree on it
@@ -214,6 +217,14 @@ class GraphWeaver::Client
 
     GraphWeaver::Internal::Log.log(:info) { "transport: #{transport.class} -> #{transport.safe_url}" }
     transport
+  end
+
+  # "Bearer" is assumed unless the token carries its own scheme; nil is a
+  # token the caller declined to produce, and drops the header.
+  def bearer(token)
+    return if token.nil?
+
+    token.to_s.include?(" ") ? token.to_s : "Bearer #{token}"
   end
 
   # Which bundled transport a url client builds: the explicit

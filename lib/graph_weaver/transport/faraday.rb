@@ -30,6 +30,7 @@ module GraphWeaver
       )
 
       def initialize(url_or_connection, headers: {}, open_timeout: nil, read_timeout: nil, &block)
+        @dynamic = {} # a prebuilt connection owns its headers; nothing is held back
         @connection = case url_or_connection
         when ::Faraday::Connection
           # a prebuilt connection carries its own headers/middleware/
@@ -41,14 +42,12 @@ module GraphWeaver
 
           url_or_connection
         else
-          # Transport::HTTP resolves a callable header per request; Faraday
-          # sets connection headers once, stringifying as it goes, so the same
-          # value would ship as "#<Proc:0x…>". Middleware is Faraday's answer.
-          callable = headers.select { |_, value| value.respond_to?(:call) }.keys
-          unless callable.empty?
-            raise ArgumentError, "headers: #{callable.join(", ")} is callable — Faraday resolves a " \
-              "per-request header in middleware instead: conn.request :authorization, \"Bearer\", -> { ... }"
-          end
+          # Faraday sets connection headers once, stringifying as it goes, so
+          # a callable there would ship as "#<Proc:0x…>". Held back and
+          # resolved per request in #post instead — a rotating token has to
+          # mean the same thing on both bundled transports.
+          @dynamic = headers.select { |_, value| value.respond_to?(:call) }
+          headers = headers.reject { |name, _| @dynamic.key?(name) }
 
           # Faraday appends the default adapter when the block doesn't set
           # one. Our defaults go on the connection so ours is the
@@ -97,6 +96,14 @@ module GraphWeaver
           # never chose one isn't expressing a preference.
           request.headers.delete("User-Agent") if request.headers["User-Agent"] == ::Faraday::Connection::USER_AGENT
           Transport.default_headers.each { |name, value| request.headers[name] ||= value }
+
+          # asked per request, so a token that expires is fetched now; nil
+          # drops the header, which is how an optional one says "not this time"
+          @dynamic.each do |name, value|
+            resolved = value.call
+            resolved.nil? ? request.headers.delete(name) : request.headers[name] = resolved.to_s
+          end
+
           request.body = body
         end
 

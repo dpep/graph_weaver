@@ -30,6 +30,18 @@
   `#to_s`, send the value the server expects.** File uploads still need your
   own transport — graph_weaver doesn't implement the GraphQL multipart
   request spec.
+- **`auth:` takes a token that rotates.** `auth: -> { Tokens.fetch }` is
+  resolved per request, the same as any callable `headers:` value — it used to
+  raise and send you to Faraday's middleware. `Transport::Faraday` resolves a
+  callable header per request now too, instead of refusing one, so a rotating
+  credential means the same thing on both bundled transports. **A spec
+  asserting that refusal will need updating.**
+- **A `multipart/mixed` response is named rather than dumped.** Forcing an
+  incremental-delivery `Accept` used to raise `non-GraphQL response:` followed
+  by the whole multipart payload, which misdiagnoses a body that is perfectly
+  well-formed GraphQL — just more than one document. It now says so:
+  "this response is incremental delivery (@defer/@stream), which this client
+  doesn't read".
 
 - **The local router refuses a `@fromContext` argument on any path.** The
   refusal used to live only in the crossing-aware half of the planner, so a
