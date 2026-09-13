@@ -656,6 +656,12 @@ rather have a real socket:
 run GraphWeaver::Testing::Endpoint.new(router)   # config.ru, or a Puma in a thread
 ```
 
+Answering a `context:` proc means setting the client's context for the length
+of one dispatch, so a client with that seam is served **one request at a
+time** — the identity a request asked for is the identity that request gets,
+whatever else is in flight. A client with no context seam is served
+concurrently.
+
 ### Making the served endpoint fail
 
 The tag adds **one stub per endpoint**, and webmock answers with the *last*

@@ -39,6 +39,15 @@
   complete-looking line. Control characters are stripped, and the code is
   capped, where the payload is built — so the subscriber and the APM get the
   same cleaned tag.
+- **`Testing::Endpoint` no longer crosses two identities served at once.**
+  Answering a `context:` proc assigned the client's context on shared state, so
+  eight concurrent requests each carrying their own `Authorization` saw seven
+  of them served another request's identity — in the one class whose stated
+  purpose is proving that can't happen, and under both of its documented
+  deployments (a Puma in a thread, `graphql: :wire` under a parallel run). A
+  spec asserting user A can't read user B's data was passing for the wrong
+  reason. A client with a settable context is now served one request at a time;
+  one with no context seam is untouched, and still concurrent.
 - **`require "graph_weaver/log_subscriber"` works on its own**, which is what
   the docs tell you to write when you subscribe outside Rails. It raised
   `NameError` unless something had already loaded

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "monitor"
 
 module GraphWeaver
   module Testing
@@ -38,6 +39,14 @@ module GraphWeaver
 
       def initialize(client)
         @client = client
+        # Answering a `context:` proc means assigning the client's context for
+        # the length of one dispatch, which is shared state — so a client with
+        # that seam is served one request at a time. Both documented
+        # deployments are concurrent (a Puma in a thread, `graphql: :wire`
+        # under a parallel run), and this is the class whose stated purpose is
+        # proving one identity can't read another's data. A Monitor rather than
+        # a Mutex: a resolver may re-enter the app.
+        @dispatch = Monitor.new
       end
 
       def call(env)
@@ -69,17 +78,24 @@ module GraphWeaver
 
       # A `context:` proc is answered from the request in hand, so it is
       # resolved here and put back after — one request's identity must not
-      # leak into the next. A client with no context, or a hash one, is
-      # served untouched.
+      # leak into the next, or into a request running beside it. A client with
+      # no context seam is served untouched, and concurrently.
       def with_context(headers)
-        context = @client.context if @client.respond_to?(:context) && @client.respond_to?(:context=)
-        return yield unless context.respond_to?(:call)
+        return yield unless @client.respond_to?(:context) && @client.respond_to?(:context=)
 
-        @client.context = context.call(headers)
-        begin
-          yield
-        ensure
-          @client.context = context
+        # inside the lock: read outside it and a concurrent dispatch answers
+        # with the resolved hash, which isn't callable, so its request is
+        # served with whoever's identity is installed
+        @dispatch.synchronize do
+          context = @client.context
+          next yield unless context.respond_to?(:call)
+
+          @client.context = context.call(headers)
+          begin
+            yield
+          ensure
+            @client.context = context
+          end
         end
       end
 

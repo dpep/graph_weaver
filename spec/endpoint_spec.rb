@@ -140,6 +140,38 @@ describe GraphWeaver::Testing::Endpoint do
       expect(client.calls.map { |call| call[:context] }).to eq [{ caller: "one" }, { caller: "two" }]
     end
 
+    # ...or into a request running beside it. Both documented deployments are
+    # concurrent — a Puma in a thread, `graphql: :wire` under a parallel run —
+    # and a spec asserting user A can't read user B's data is exactly the spec
+    # that would pass here for the wrong reason.
+    it "can't cross two identities served at once" do
+      slow = Class.new do
+        attr_accessor :context
+
+        def execute(_query, variables: {}, operation_name: nil)
+          who = context[:caller]
+          sleep 0.02 # a resolver slow enough for another request to arrive
+          { "data" => { "whoami" => who } }
+        end
+      end.new
+      slow.context = ->(headers) { { caller: headers["X-Caller"] } }
+      app = described_class.new(slow)
+
+      served = 8.times.map do |i|
+        Thread.new do
+          env = {
+            "REQUEST_METHOD" => "POST",
+            "rack.input" => StringIO.new(JSON.generate("query" => "{ whoami }")),
+            "HTTP_X_CALLER" => "user-#{i}",
+          }
+          _status, _headers, body = app.call(env)
+          ["user-#{i}", JSON.parse(body.join).dig("data", "whoami")]
+        end
+      end.map(&:value)
+
+      expect(served).to all(satisfy { |sent, got| sent == got })
+    end
+
     it "leaves a hash context alone" do
       client.context = { current_user: "alice" }
 
