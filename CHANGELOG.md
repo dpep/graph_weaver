@@ -56,6 +56,24 @@
   "TLS options need an https url" and "expected an http(s) url" printed the url
   raw — and both are raised from `#initialize`, i.e. at boot from an
   initializer, so a url carrying `user:password@` reached the log there.
+- **Query file names the ecosystem actually writes now name a module.**
+  `get-hello.graphql` asked for `Get-helloQuery` and `hello.query.graphql` for
+  `Hello.queryQuery`, both refused as not constant names — which is 100% of
+  GitLab's 120-query frontend corpus (it names every file `*.query.graphql`, as
+  Apollo and Relay tooling do) and every kebab-case shop, refused on the first
+  file. **Every run of non-alphanumerics in the name is now a word boundary,
+  after a trailing `.query`/`.mutation`/`.subscription` extension naming the
+  document's own operation is dropped**: `get-hello.graphql` → `GetHelloQuery`,
+  `user.profile.graphql` → `UserProfileQuery` (only the kind extension goes,
+  never the rest), `hello.query.graphql` → `HelloQuery` rather than the doubled
+  `HelloQueryQuery`. A file whose extension names a kind it doesn't hold is
+  refused naming both halves. Nothing that generated before is renamed — a
+  `_query` inside a snake_case name is a word of the name, not this — so there
+  is nothing to do unless you have files that were refused, which now generate.
+- **`generate!` reports every query it refused, not just the first.** A refusal
+  still writes nothing at all, which is the point; but pointing it at an
+  existing query directory meant clearing refusals one file per run. One bad
+  file reads exactly as before — same class, same message.
 
 ###  v0.7.0  (2026-09-13)
 
