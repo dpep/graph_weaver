@@ -155,6 +155,26 @@ GraphWeaver::Testing.configure do |config|
 end
 ```
 
+`list_size` is how long an **unbounded** list is — an Integer exactly that
+many, a Range randomized within it, a Hash per list. A list with a
+`first:`/`last:`/`limit:` argument is that long instead, whatever this says.
+
+**Every list the fabricator reaches reads the same setting, so nested lists
+multiply.** A query selecting `rows { owner { … } tags }` with `tags`
+uncapped fabricates `list_size` rows and `list_size` tags *in each of them* —
+at 1600 that is 2.5M tags, and per-row allocations double with every doubling
+of the number. Three nested lists cube it. Say it per list instead, keyed the
+way a pin is (a `"Type.field"` coordinate or a bare field name), with
+`default:` for the rest:
+
+```ruby
+config.list_size = { "Row.tags" => 3, default: 1000 }
+```
+
+which holds the inner list at 3 however large the outer one grows. Capping the
+nested list in the query (`tags(first: 3)`) does the same thing where the
+query is yours to change.
+
 **Configure at load, or in an `around` — never in a plain `before`.** The tag
 builds this example's clients in a `before` hook of its own, and rspec runs
 that one ahead of yours, so a `before` setting `config.schema`, `config.router`

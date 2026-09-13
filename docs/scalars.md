@@ -15,7 +15,13 @@ becomes a `BigDecimal`, how one goes back on the wire, and the
 `require "bigdecimal"` the generated file needs are all inferred.
 
 Registration is global and codegen-time: `rake graph_weaver:generate` reads the
-same registry an initializer writes, so register before you generate.
+same registry an initializer writes, so register before you generate. A
+registration that goes *missing* later — a reverted initializer line, a bad
+merge — is loud at generate/verify time, which name the files it moves, and
+silent forever after: code regenerated without it casts the field to the plain
+wire type (a `String` where an `Email` was) and nothing raises anywhere.
+[`verify_generated!`](generated_modules.md) in CI is what protects a
+registration; no runtime assertion can.
 
 ## Already registered
 
@@ -68,7 +74,15 @@ stands alone.
 | `DateTime` | `DateTime.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `date` |
 
 For a timestamp, reach for `Time`; Ruby's own `DateTime` is accepted if you
-register it, but never assumed. `BigDecimal(v)` is Ruby's own reader, so
+register it, but never assumed. They don't cost the same per value:
+`DateTime.iso8601` measures about 1.6× `Date.iso8601`, and `Time.parse` — what
+a `Time` registration infers, so what every `DateTime`/`ISO8601DateTime` field
+already casts through — about 7×, since it is the tolerant reader rather than a
+strict one. That is noise beside the `T::Struct` construction around it until
+you're casting thousands of timestamps per response; there,
+`register_scalar("Timestamp", Time, cast: :iso8601)` is about 3× cheaper than
+`Time.parse` and refuses the looser forms, which is the trade.
+`BigDecimal(v)` is Ruby's own reader, so
 it takes what Ruby takes — `"12.5"`, `"1e3"`, a JSON number — and refuses
 `"abc"` or `"$12.50"`, naming the field or the variable.
 

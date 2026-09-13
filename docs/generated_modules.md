@@ -49,6 +49,13 @@ GraphWeaver.generate!(schema:)            # write the modules
 GraphWeaver.verify_generated!(schema:)    # the freshness guard, one line in a spec
 ```
 
+**`verify_generated!` costs what `generate!` costs**, minus the writes — it
+recomputes the whole plan, every file's content, and diffs each against disk,
+whether nothing is stale or everything is. It doesn't get cheaper because only
+one query changed, so it belongs in *one* example per suite run, not in a
+`before` or an assertion per example, where it reads like a cheap check and
+isn't.
+
 `generate!` returns every file the plan produces, but rewrites only the ones
 whose bytes changed; `GraphWeaver.changed_files` is that subset. So
 `rake graph_weaver:generate` prints `wrote` for what moved and `N already up to
@@ -366,6 +373,14 @@ otherwise reject the String before the body could read it. Coercion is what
 stands in its place for the arguments — stricter, and with a better message —
 and the `Result` it returns is a `T::Struct`, so its props are still checked one
 by one.
+
+`T::Configuration.default_checked_level = :never` buys nothing back here. That
+knob governs `sig` dispatch, and the emitted sigs already opt out; the cost that
+remains is `T::Struct`'s own prop validation, which sorbet-runtime declares
+`.checked(:never)` in its own source and runs through a setter built at class
+definition. `from_h` allocates and costs the same either way — measured
+object-for-object identical — so reach for the scalar's cast, not this, when a
+deserialization path is hot.
 
 One kwarg per declared variable, always — so adding a variable to a query
 adds a kwarg and leaves every existing call site alone. Two names are refused at
