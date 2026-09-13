@@ -97,6 +97,20 @@ describe "GraphWeaver.generate!" do
       .to raise_error(GraphWeaver::Error, %r{\A.*/queries/--\.graphql: name: must be a constant name, got "--Query" — it comes from the file name, so rename})
   end
 
+  # an adopter pointing generate! at 250 existing queries clears refusals one
+  # run per file otherwise, and a run writes nothing until all of them are clear
+  it "reports every refusal in the directory, not only the first" do
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    File.write(File.join(queries, "01_home.graphql"), "query { person(id: 1) { name } }")
+    File.write(File.join(queries, "02_away.graphql"), "query { person(id: 1) { nmae } }")
+    File.write(File.join(queries, "ok.graphql"), "query { person(id: 1) { name } }")
+
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
+      .to raise_error(GraphWeaver::Error, /\A2 of 3 queries refused:\n.*01_home\.graphql: name: must be a constant name.*\n.*02_away\.graphql:\n.*Field 'nmae'/m)
+    expect(Dir.children(@dir)).to eq ["queries"]
+  end
+
   # a file that names its own kind and then holds another is a rename gone
   # half-done; either half could be the truth, so it says so instead of picking
   it "refuses a file whose kind extension disagrees with its operation" do

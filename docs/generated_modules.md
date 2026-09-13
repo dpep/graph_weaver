@@ -90,6 +90,12 @@ output directory are safe. A run that finds **no** queries says where it looked
 rather than exiting 0 in silence, and `verify_generated!` fails outright: a
 mistyped `queries_paths` used to leave a CI gate green forever.
 
+**A refusal writes nothing at all** — not even the files that planned cleanly —
+so a failed run leaves the tree exactly as it was. It reports *every* query it
+refused rather than the first, since pointing `generate!` at a query directory
+it has never seen is how adoption starts and one file per run is a slow way
+through it.
+
 In Rails, loading is automatic — the Railtie requires every generated file at
 boot from a `to_prepare` block, after your initializers and after any
 registrations of your own in one (so a helper a file names is already there). Elsewhere it's

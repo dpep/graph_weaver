@@ -849,7 +849,9 @@ module GraphWeaver
       used_unions = []
       shared = Codegen.load_fragments(fragments)
 
-      plan = Internal::Util.query_files(graph.queries).map do |path|
+      refusals = []
+      paths = Internal::Util.query_files(graph.queries)
+      plan = paths.filter_map do |path|
         source = File.read(path)
         name, filename = graph.generated_names(path, source)
         refuse_duplicate!(seen, name, filename, graph, path)
@@ -870,7 +872,13 @@ module GraphWeaver
         found.concat(codegen.untyped_scalars).uniq!
         used_unions |= codegen.used_union_names
         [filename, out]
+      rescue GraphWeaver::Error => e
+        # collected, not raised: nothing is written either way, and an adopter
+        # aiming generate! at an existing query directory wants the list
+        refusals << e
+        nil
       end
+      refuse_all!(refusals, paths.size)
 
       if used_unions.any? || used.values.any?(&:any?)
         refuse_duplicate_types!(seen, graph)
@@ -889,6 +897,19 @@ module GraphWeaver
       plan
     end
     private :generation_plan
+
+    # Every query that refused, in one error. One refusal is re-raised as
+    # itself, so a single bad file reads exactly as it always has — class,
+    # message and all; several become one list, because clearing them a file
+    # per run is the slowest way there is to adopt this.
+    def refuse_all!(refusals, considered)
+      return if refusals.empty?
+      raise refusals.first if refusals.one?
+
+      raise GraphWeaver::Error, "#{refusals.size} of #{considered} queries refused:\n" +
+        refusals.map { |refusal| refusal.message.gsub(/^/, "  ") }.join("\n")
+    end
+    private :refuse_all!
 
     # Two query files landing on one constant, or on one output file. Within a
     # graph the fix is a rename, as it has always been; across two graphs it is
