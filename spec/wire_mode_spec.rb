@@ -43,6 +43,10 @@ module WireDemo
 
   QUERY = "query Order { order { id total buyer } }"
 
+  # the same schema as type information only — what an app that is a pure
+  # client of someone else's API has, with no resolvers anywhere
+  SDL = Schema.to_definition
+
   CLIENT = GraphWeaver.new(ENDPOINT)
   # a client that posts nowhere — what :wire has nothing to serve for
   IN_PROCESS = GraphWeaver::InProcess.new(Schema)
@@ -350,6 +354,59 @@ describe "graphql: :wire" do
     end
   end
 
+  # An app that is a pure client of someone else's API has a dump and no
+  # resolvers anywhere — the shape :wire used to refuse, asking for a
+  # GraphQL::Schema class the app has no reason to own.
+  describe "a graph with no schema class of its own" do
+    around do |example|
+      GraphWeaver.graph(:orders) { schema WireDemo::SDL }
+      app_client!
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    let(:order_query) { GraphWeaver.parse(schema: WireDemo::SDL, query: WireDemo::QUERY) }
+
+    it "serves a fake of that schema, over the transport", graphql: :wire do
+      order = order_query.execute!.order
+
+      expect(order.id).to be_a String # fabricated, and schema-correct
+      expect(exchanges.size).to eq 1  # and it really crossed the wire
+      expect(JSON.parse(exchanges.first.first.body)["query"]).to include "order { id total buyer }"
+    end
+
+    # the whole point of allowing the helper here: pins are one example's
+    # question, and a suite-wide config.overrides can't answer it
+    it "serves what a helper pins, not what it invented", graphql: :wire do
+      graphql_fake("Order.buyer" => "ada")
+
+      expect(order_query.execute!.order.buyer).to eq "ada"
+    end
+
+    it "leaves the app's own client in the slot — that is still the point", graphql: :wire do
+      graphql_fake("Order.buyer" => "ada")
+
+      expect(GraphWeaver.client).to be_a GraphWeaver::Client
+      expect(GraphWeaver.client.transport).to be_a GraphWeaver::Transport::HTTP
+    end
+
+    # the fake answers the server's side, so its record is what the endpoint
+    # was asked — the assertion that used to need a webmock callback
+    it "hands back the fake it serves", graphql: :wire do
+      fake = graphql_fake
+
+      order_query.execute!
+
+      expect(fake.requests.map { |request| request[:operation_name] }).to eq ["Order"]
+    end
+
+    it "still refuses a helper that contradicts an ordinary tag", graphql: :fake do
+      expect { graphql_in_process(WireDemo::Schema) }
+        .to raise_error(GraphWeaver::Error, /tagged graphql: :fake but calls graphql_in_process/)
+    end
+  end
+
   # driven through the integration's own methods, not a tagged example: the
   # tag raises from a before hook, where an expectation can't reach it
   describe "refusals" do
@@ -361,11 +418,13 @@ describe "graphql: :wire" do
       example.run
     end
 
-    it "names webmock and the line to add when it isn't loaded" do
+    # both gems up front: rack was named only by a second refusal, fired
+    # after webmock's was fixed — two round trips through `bundle install`
+    it "names webmock and rack, and the line to add, when webmock isn't loaded" do
       webmock = Object.send(:remove_const, :WebMock)
 
       expect { integration.serve! }
-        .to raise_error(GraphWeaver::Error, /webmock.*require "webmock\/rspec"/m)
+        .to raise_error(GraphWeaver::Error, /webmock and rack.*require "webmock\/rspec"/m)
     ensure
       Object.const_set(:WebMock, webmock)
     end

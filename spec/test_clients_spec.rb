@@ -94,6 +94,52 @@ describe GraphWeaver::Internal::TestClients do
     expect(BoundClient::SPY.requests.size).to eq 1
   end
 
+  # :wire serves whatever a graph IS, in descending faithfulness — the rule
+  # the tag reads, asked here without a server in the way
+  describe "what :wire serves" do
+    around do |example|
+      GraphWeaver::Testing.reset!
+      example.run
+    ensure
+      GraphWeaver::Testing.reset!
+      GraphWeaver.schema_path = nil
+    end
+
+    def wire_client
+      described_class.install(:wire)
+      described_class.client_for(:wire, GraphWeaver.graphs.first)
+    end
+
+    it "serves the router when the graph is in a composed supergraph" do
+      GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
+
+      expect(wire_client).to be_a GraphWeaver::Testing::Router
+    end
+
+    it "serves the live schema class when the graph has one" do
+      GraphWeaver.client = GraphWeaver::InProcess.new(Demo::Schema)
+
+      expect(wire_client).to be_a GraphWeaver::InProcess
+    end
+
+    # the commonest shape of all: a pure client of someone else's API, which
+    # has a dump and no resolvers to serve. It used to be refused, asking for
+    # a GraphQL::Schema class the app has no reason to own.
+    it "serves a fake of the schema when the graph has no class" do
+      GraphWeaver.graph(:pets) { schema Demo::Schema.to_definition }
+
+      expect(wire_client).to be_a GraphWeaver::Testing::FakeClient
+    end
+
+    # the one thing :wire still refuses: nothing to serve and nothing to
+    # fabricate from
+    it "refuses a graph with no schema at all" do
+      GraphWeaver.client = nil
+
+      expect { wire_client }.to raise_error(GraphWeaver::Error, /no schema to run against/)
+    end
+  end
+
   # both doors named: a checked-in file gets its GRAPH back by being
   # regenerated, and a GraphWeaver.parse module generates no file, so
   # "regenerate" on its own was advice it could never take

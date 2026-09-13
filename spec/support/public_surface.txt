@@ -368,6 +368,7 @@ GraphWeaver::Testing::Config#router=
 GraphWeaver::Testing::Config#schema
 GraphWeaver::Testing::Config#schema=
 GraphWeaver::Testing::Config#schema_class!
+GraphWeaver::Testing::Config#schema_class?
 GraphWeaver::Testing::Config#seed
 GraphWeaver::Testing::Config#seed=
 GraphWeaver::Testing::Config#supergraph?

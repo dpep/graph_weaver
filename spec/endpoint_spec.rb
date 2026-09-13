@@ -148,7 +148,7 @@ describe GraphWeaver::Testing::Endpoint do
       expect(client.calls.first[:context]).to eq({ current_user: "alice" })
     end
 
-    # the two clients the :wire tag can put behind the endpoint, so the
+    # the three clients the :wire tag can put behind the endpoint, so the
     # header seam is the same one whichever the app's graph turns out to be
     it "reaches a router's subgraph resolvers" do
       router = GraphWeaver::Testing::Router.new(
@@ -174,6 +174,23 @@ describe GraphWeaver::Testing::Endpoint do
       })
 
       expect(JSON.parse(body.join).dig("data", "me", "username")).to eq "ada"
+    end
+
+    # what :wire serves for an app that is a pure client of someone else's
+    # API: the fabricated values have to survive JSON.generate, which a fake
+    # answering above the wire never had to
+    it "serves a fake's fabricated data as JSON" do
+      fake = GraphWeaver::Testing::FakeClient.new({ "Person.name" => "Ada" }, schema: Demo::Schema)
+      _status, _headers, body = described_class.new(fake).call({
+        "REQUEST_METHOD" => "POST",
+        "rack.input" => StringIO.new(JSON.generate({
+          "query" => '{ person(id: "1") { name birthday } }',
+        })),
+      })
+
+      person = JSON.parse(body.join).dig("data", "person")
+      expect(person["name"]).to eq "Ada"
+      expect(person["birthday"]).to match(/\A\d{4}-\d\d-\d\d\z/) # a Date, on the wire
     end
 
     it "serves a client that has no context at all" do

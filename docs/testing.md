@@ -30,7 +30,7 @@ it "sends the caller tag",    graphql: :wire do … end
 | [`:fake`](#fabricated-data--graphql-fake) | most unit tests — you need *a* well-shaped response | no resolver code runs |
 | [`:in_process`](#real-resolvers--graphql-in_process) | the point of the test is that your resolver logic works | slower; needs a live schema class |
 | [`:router`](#a-federated-graph--graphql-router) | the same, across a federated graph | needs a composed supergraph; [refuses](federation.md#what-it-refuses) shapes it can't plan faithfully |
-| [`:wire`](#over-the-wire--graphql-wire) | the test is about your own transport — headers, middleware, deserialization | needs webmock and an http client |
+| [`:wire`](#over-the-wire--graphql-wire) | the test is about your own transport — headers, middleware, deserialization | needs webmock and rack, and an http client |
 | `:live` | the app's own client is the point, or this one example wants out of `config.default_mode` | whatever your client does — this is the default |
 | [cassettes](cassettes.md) | pinning a real server's exact response | must be re-recorded when the query changes |
 
@@ -380,12 +380,17 @@ schema classes, and what to do about a supergraph only partly local:
 
 ## Over the wire — `graphql: :wire`
 
-Your resolvers, served at the endpoint your own client posts to — with
+Your schema, served at the endpoint your own client posts to — with
 **`GraphWeaver.client` left exactly where it is**. So the request really is
-serialized, posted through your middleware, planned and answered by real
-resolvers, and read back by `from_h` over the server's own bytes. That is the
-half the other three tags skip: they sit *in* the client slot, so the transport
-your app ships — APM tracing, a caller tag, mTLS — never runs.
+serialized, posted through your middleware, answered at the far end, and read
+back by `from_h` over the server's own bytes. That is the half the other three
+tags skip: they sit *in* the client slot, so the transport your app ships —
+APM tracing, a caller tag, mTLS — never runs.
+
+**It needs [webmock](https://github.com/bblimke/webmock) and
+[rack](https://github.com/rack/rack)** in the Gemfile (`group :test`) — webmock
+hooks Net::HTTP, Faraday and HTTPX underneath, and its `to_rack` builds the Rack
+env with rack.
 
 ```ruby
 it "sends the caller tag", graphql: :wire do
@@ -396,13 +401,32 @@ it "sends the caller tag", graphql: :wire do
 end
 ```
 
-What sits behind each endpoint is decided the way the other tags already
-decide it, **per graph**: that graph's
-[router](#a-federated-graph--graphql-router) when it is in a composed
-supergraph, its [live schema class](#real-resolvers--graphql-in_process)
-otherwise — so one federated graph doesn't put its router behind a plain
-graph's url. The tag takes no options and has no helper: what a faked subgraph
-behind the wire fabricates is `config.router = { fake: … }`, suite-wide.
+What sits behind each endpoint is **what that graph is** — decided the way the
+other tags already decide it, **per graph**, in descending faithfulness: that
+graph's [router](#a-federated-graph--graphql-router) when it is in a composed
+supergraph, its [live schema class](#real-resolvers--graphql-in_process) when it
+has one, else a [fake](#fabricated-data--graphql-fake) of its schema. So one
+federated graph doesn't put its router behind a plain graph's url, and an app
+that is a pure *client* of someone else's API — a committed dump and no
+resolvers to serve — gets a schema-correct server without writing one. Only a
+graph with no schema at all is refused.
+
+**A helper says what goes behind the wire.** Under the other tags a
+`graphql_*` helper takes the client slot; under `:wire` it is served instead —
+the client slot has to keep your own client for the transport to run at all —
+so pins read exactly as they do under `:fake`:
+
+```ruby
+it "renders two orders, through our own transport", graphql: :wire do
+  graphql_fake("Reader.orders" => [{ "status" => "PAID" }, {}])
+
+  expect(DashboardQuery.execute!.reader.orders.size).to eq 2
+end
+```
+
+It returns the client it serves, so `fake.requests` is what the *endpoint* was
+asked. `graphql_router(fake: …)` and `graphql_in_process(Reviews::Schema)` say
+the same thing for the other two.
 
 **Every endpoint an example can reach is served**, one per graph: the client
 each [declared graph](getting_started.md#more-than-one-schema) bakes into its
@@ -428,21 +452,26 @@ proc replaces it, and `graphql_context` then says so rather than merging onto
 something that isn't there. (Rack drops a header's capitalization, so `X-CALLER`
 arrives as `X-Caller`.)
 
-**It needs [webmock](https://github.com/bblimke/webmock) enabled** — `require
-"webmock/rspec"` in the spec helper, in either order with
-`graph_weaver/rspec`. Having it in the Gemfile is not enough: `Bundler.require`
-loads webmock without installing its adapters, so `:wire` checks and refuses
-*before* the first request rather than letting it leave the suite. That is what
-makes this a *transport* test rather than a mock of one: webmock hooks
-Net::HTTP, Faraday and HTTPX underneath, so every transport
-[documented here](transports.md) runs unchanged, pooling and all. The tag adds
-one stub per endpoint and takes each back after the example — it never
-disables net connections on your behalf, and never resets stubs it didn't make.
+**And webmock has to be *enabled*** — `require "webmock/rspec"` in the spec
+helper, in either order with `graph_weaver/rspec`. Having it in the Gemfile is
+not enough: `Bundler.require` loads webmock without installing its adapters, so
+`:wire` checks and refuses *before* the first request rather than letting it
+leave the suite. That is what makes this a *transport* test rather than a mock
+of one — every transport [documented here](transports.md) runs unchanged,
+pooling and all. The tag adds one stub per endpoint and takes each back after
+the example — it never disables net connections on your behalf, and never
+resets stubs it didn't make.
 
-The ceiling is the router's: the wire adds a hop, not a capability, so
-everything [it refuses](federation.md#what-it-refuses) is still refused, before
-any resolver runs. Fall back to a [cassette](cassettes.md) or a live gateway for
-a shape it can't plan.
+**The wire adds a hop, not a capability.** Behind a router, everything
+[it refuses](federation.md#what-it-refuses) is still refused, before any
+resolver runs. Behind a fake, what you are testing is your *transport* — the
+request your middleware wrote, the headers it sent, the retry it does on a 500,
+and that `from_h` reads real JSON off a socket rather than a Ruby hash you
+handed it. What it can't tell you is whether your `cast:` agrees with the real
+server: the fabricated bytes are written to match your own
+[scalar registrations](scalars.md), so the round trip agrees with itself. Put
+the live schema class behind the wire for that, or pin a real response with a
+[cassette](cassettes.md).
 
 `GraphWeaver::Testing::Endpoint` is an ordinary Rack app wrapping anything that
 satisfies the [client contract](transports.md) — so mount it yourself if you'd

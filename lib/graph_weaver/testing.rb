@@ -56,7 +56,7 @@ module GraphWeaver
     #      :fake        fabricated, schema-correct data; no resolvers run
     #      :in_process  your resolvers, one live schema class, in-process
     #      :router      your resolvers, across a federated graph
-    #      :wire        your resolvers, served at your client's endpoint so
+    #      :wire        your schema, served at your client's endpoint so
     #                   your real transport runs
     CLIENT_MODES = %i[live fake in_process router wire].freeze
 
@@ -252,6 +252,15 @@ module GraphWeaver
         # is told the two app-wide ways to say it
         raise GraphWeaver::Error, ":in_process runs your resolvers, so it needs the live " \
           "GraphQL::Schema class — and #{schema_class_advice(graph)}"
+      end
+
+      # Whether `graph` has a live schema class at all — what decides, with
+      # #supergraph?, which of the three things :wire serves.
+      def schema_class?(graph = nil)
+        schema_class!(graph)
+        true
+      rescue GraphWeaver::Error
+        false
       end
 
       # The schema everything else derives from: the one you set, else the one

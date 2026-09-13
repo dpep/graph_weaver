@@ -1,6 +1,29 @@
 ###  Unreleased
 
-<!-- lane: dispatch -->
+<!-- lane: wire-fake -->
+- **`graphql: :wire` serves an app that has no schema class of its own** — the
+  commonest shape there is, and the one the README's Countries and GitHub
+  examples are: a pure client of someone else's API, with a committed dump and
+  no resolvers to run. What sits behind each endpoint is what that graph *is*,
+  in descending faithfulness: its router when it is in a composed supergraph,
+  its live schema class when it has one, else **a fake of its schema**. So a
+  transport test needs no hand-written `GraphQL::Schema` shaped like your own
+  query. Only a graph with no schema at all is refused.
+  ([testing](docs/testing.md#over-the-wire--graphql-wire))
+- **A `graphql_*` helper says what goes behind the wire.** Under the other tags
+  a helper takes the client slot; under `:wire` it is served instead — the slot
+  has to keep your own client for the transport to run at all — so
+  `graphql_fake("Reader.orders" => [{ "status" => "PAID" }, {}])` pins one
+  `:wire` example's data exactly as it pins a `:fake` one's, and
+  `graphql_router(fake: …)` says per example what `config.router = { fake: … }`
+  says for the suite. A `:wire` example over a fake proves your transport — the
+  request your middleware wrote, the headers it sent, `from_h` reading real JSON
+  off a socket — but not that your `cast:` agrees with the real server, since
+  the fabricated bytes are written to match your own scalar registrations.
+- **The webmock refusal names rack as well.** `:wire` needs both — webmock's
+  `to_rack` builds the Rack env with rack, and doesn't depend on it — so both
+  are named in one sentence, in the refusal and in the docs, rather than found
+  one `bundle install` at a time.
 - **Every instrumentation event says which graph the request went to.** The
   payload carries `:graph` — the Symbol a module was generated under, `nil` for
   one that names none and for a client called directly — so a multi-graph app

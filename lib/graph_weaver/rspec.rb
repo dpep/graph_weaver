@@ -22,8 +22,8 @@ require_relative "testing"
 #      :fake        fabricated, schema-correct data; no resolvers run
 #      :in_process  your resolvers, one live schema class, in-process
 #      :router      your resolvers, across a federated graph
-#      :wire        your resolvers, served at your client's endpoint, so
-#                   the transport you ship runs
+#      :wire        your schema, served at your client's endpoint, so the
+#                   transport you ship runs
 #
 # `rspec --tag graphql:router` runs one mode's examples.
 #
@@ -50,12 +50,14 @@ require_relative "testing"
 #     it into another graph's. Subgraphs are derived from what each loaded
 #     schema defines; one nothing here serves is absent, and only a query
 #     that reaches its fields is refused.
-#   - :wire serves whichever of those two each graph is — its router when
-#     that graph is in a composed supergraph, its live schema class
-#     otherwise — at the endpoint that graph's own client posts to, leaving
-#     every client in place so the real transport runs. An app whose graphs
-#     all bake a `client:` needs no GraphWeaver.client at all. Needs webmock
-#     (`require "webmock/rspec"`), which hooks Net::HTTP, Faraday and HTTPX.
+#   - :wire serves what each graph IS, at the endpoint that graph's own
+#     client posts to, leaving every client in place so the real transport
+#     runs: its router when that graph is in a composed supergraph, its live
+#     schema class when it has one, else a fake of its schema — which is what
+#     an app that is a pure client of someone else's API has. Only a graph
+#     with no schema at all is refused. An app whose graphs all bake a
+#     `client:` needs no GraphWeaver.client at all. Needs webmock and rack
+#     (`require "webmock/rspec"`); webmock hooks Net::HTTP, Faraday and HTTPX.
 #
 # What it wires up:
 #   - seed: defaults to rspec's --seed, so `rspec --seed 1234` reproduces
@@ -69,7 +71,9 @@ require_relative "testing"
 #
 # A helper — graphql_fake, graphql_in_process, graphql_router — is the
 # stand-in for the modules of the graph its schema names, for this app's only
-# graph when it names none, and refuses when there is none it can reach.
+# graph when it names none, and refuses when there is none it can reach. Under
+# :wire it is what gets SERVED behind that graph's endpoint, rather than what
+# fills the client slot — which is how a :wire example pins its data.
 #
 # A module generated with a baked-in client: is covered too — the mode
 # stands in for that constant (Internal::TestClients).
@@ -158,13 +162,22 @@ module GraphWeaver
       def self.serve!
         webmock!
         wire_targets.map do |url, graph|
-          # through the stand-in table, so graphql_context reaches what is
-          # served here as it reaches every other mode's client
-          client = GraphWeaver::Internal::TestClients.standin(graph)
+          # built here, so a graph with nothing to serve refuses before the
+          # example runs rather than from inside its first request
+          GraphWeaver::Internal::TestClients.standin(graph)
           stub = WebMock::API.stub_request(:post, url)
+          # and read again per request: a graphql_* helper in the example body
+          # runs after this hook, and a pin that never reached the served
+          # endpoint would leave the example green and wrong. Through the
+          # stand-in table either way, so graphql_context reaches what is
+          # served here as it reaches every other mode's client.
+          #
           # to_rack returns the stub's response list, not the stub, so the
           # handle unserve! needs is the one stub_request handed back
-          stub.to_rack(GraphWeaver::Testing::Endpoint.new(client))
+          stub.to_rack(lambda do |env|
+            client = GraphWeaver::Internal::TestClients.standin(graph)
+            GraphWeaver::Testing::Endpoint.new(client).call(env)
+          end)
           stub
         end
       end
@@ -251,9 +264,10 @@ module GraphWeaver
 
       def self.webmock!
         unless defined?(WebMock)
-          raise GraphWeaver::Error, "#{TAG}: :wire serves your resolvers over HTTP, which needs " \
-            "webmock — it hooks Net::HTTP, Faraday and HTTPX, so your own transport runs unchanged. " \
-            "Add it to the Gemfile (group :test) and `require \"webmock/rspec\"` in your spec helper."
+          raise GraphWeaver::Error, "#{TAG}: :wire serves your schema over HTTP, which needs " \
+            "webmock and rack — webmock hooks Net::HTTP, Faraday and HTTPX so your own transport " \
+            "runs unchanged, and its to_rack builds the Rack env with rack. Add both to the " \
+            "Gemfile (group :test) and `require \"webmock/rspec\"` in your spec helper."
         end
         unless webmock_enabled?
           raise GraphWeaver::Error, "#{TAG}: :wire stubs your endpoints with webmock, which is " \
@@ -380,7 +394,9 @@ module GraphWeaver
             "the tag alone already routes each module through its own graph's supergraph, and " \
             "graphql_router has no way to say which graph the fake: is for. Put it in " \
             "GraphWeaver::Testing.config.router = { fake: … } for the suite.")
-          router = GraphWeaver::Internal::TestClients.standin(graphs.first)
+          # :router explicitly: under a :wire tag the table would otherwise
+          # hand back whatever :wire picked for this graph
+          router = GraphWeaver::Internal::TestClients.standin(graphs.first, :router)
           router.fake = fake if fake
           stand_in!(router, graphs)
         end
@@ -389,8 +405,15 @@ module GraphWeaver
         # agree (`graphql: :fake` plus `graphql_fake(overrides:)` is the
         # documented way to pass options) but must not contradict: one of the
         # two is then a mistake, and silently letting the later one win hides
-        # which.
+        # which. :wire is the exception because it is not the same question —
+        # it says a stand-in is served rather than substituted, and the helper
+        # says which stand-in.
         private def claim_mode!(mode)
+          # :wire says WHERE a stand-in runs — served at the endpoint the
+          # client posts to — not which one it is, so a helper under it names
+          # what goes behind the wire and the example stays :wire
+          return if wire?
+
           # only an explicit tag can contradict a helper. config.default_mode
           # is a fallback for examples that said nothing, so a helper is the
           # example finally saying something — not a disagreement.
@@ -420,9 +443,17 @@ module GraphWeaver
         # return value the object the modules actually run against.
         private def stand_in!(client, graphs)
           GraphWeaver::Internal::TestClients.override!(client, graphs)
-          GraphWeaver.client = client if GraphWeaver.graphs.one?
+          # except under :wire, where this is served at the graph's endpoint
+          # instead — the app's own client has to stay in the slot for the
+          # transport under test to run at all
+          GraphWeaver.client = client if GraphWeaver.graphs.one? && !wire?
           client
         end
+
+        # Whether this example serves its stand-ins rather than substituting
+        # them. Read off the mode, not the tag, so config.default_mode = :wire
+        # behaves the same way.
+        private def wire? = defined?(@__graph_weaver_mode) && @__graph_weaver_mode == :wire
 
         # rspec's own --seed already drives the fake (config.seed takes it
         # at suite start), so a per-example seed: is a second answer to one

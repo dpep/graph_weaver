@@ -106,8 +106,11 @@ module GraphWeaver
         # built once per example. :wire reaches it too — its clients sit
         # behind the served endpoints rather than in the client slot, but they
         # are the same objects graphql_context has to reach.
-        def standin(graph)
-          @clients[graph&.name] ||= client_for(@mode, graph)
+        #
+        # `mode` is how a helper under a :wire tag asks for the client its own
+        # name means rather than the one :wire would have picked.
+        def standin(graph, mode = @mode)
+          @clients[graph&.name] ||= client_for(mode, graph)
         end
 
         # The client `mode` runs `graph` against — the one answer to "what
@@ -136,10 +139,22 @@ module GraphWeaver
             router
           when :wire
             # what sits behind the wire is decided the way the other tags
-            # already decide it, per graph — the router when that graph is in
-            # a composed supergraph, its live schema class otherwise
-            client_for(config.supergraph?(graph) ? :router : :in_process, graph)
+            # already decide it, per graph — the most faithful thing that
+            # graph has, in the order the other tags rank them
+            client_for(wire_mode(config, graph), graph)
           end
+        end
+
+        # What :wire serves for `graph`: its router when it is in a composed
+        # supergraph, its live schema class when it has one, else a fake of
+        # its schema — which is what an app that is a pure client of someone
+        # else's API has, and the only mode it could be. A graph with no
+        # schema at all is refused by :fake, which is the honest refusal.
+        def wire_mode(config, graph)
+          return :router if config.supergraph?(graph)
+          return :in_process if config.schema_class?(graph)
+
+          :fake
         end
 
         # The graph a mode builds for when no module named one: this app's
