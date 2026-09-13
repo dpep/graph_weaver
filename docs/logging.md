@@ -73,9 +73,11 @@ GraphWeaver.instrumenter = lambda do |event, payload, &block|
 end
 ```
 
-An instrumenter you set yourself is never replaced. Yours **must** call
-the block and return its value; a failure propagates through it, so the
-hook sees the exception and can record it.
+An instrumenter you set yourself is never replaced — including
+`GraphWeaver.instrumenter = nil` in an initializer, which opts out the
+way `GraphWeaver.logger = nil` does. Yours **must** call the block and
+return its value; a failure propagates through it, so the hook sees the
+exception and can record it.
 
 The one event is `GraphWeaver::EXECUTE_EVENT` (`"execute.graph_weaver"`)
 — one request, start to parsed response, whichever client slot served

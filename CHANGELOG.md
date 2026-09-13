@@ -154,6 +154,16 @@
   stray files and what each declared graph does cover. The fix is to name the
   directory in a graph (`queries`/`output`), declare a graph for it, or delete
   it. An app that declared no graph is unaffected — its settings *are* its graph.
+- **`GraphWeaver.logger = nil` and `GraphWeaver.instrumenter = nil` in an
+  initializer now actually opt out.** Rails gives a railtie's initializer an
+  implicit `after:` of the previous one it declared, so both auto-wires
+  inherited `ignore_generated`'s `after: :load_config_initializers` and ran
+  *after* `config/initializers` — the `if nil?` fallback overwrote the app's
+  nil, and the documented PII opt-out did nothing while queries and variables
+  kept reaching a debug-level `Rails.logger`. They are declared first now, and
+  `before: :load_config_initializers`. The escape hatch an app may have written
+  (`config.after_initialize { GraphWeaver.logger = nil }`) still works and can
+  come out. ([logging](docs/logging.md))
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

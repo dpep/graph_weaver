@@ -405,8 +405,11 @@ describe "GraphWeaver::Railtie" do
   end
 
   it "loads generated modules at boot when the directory exists" do
+    # declaration order, which Rails turns into an implicit `after:` chain —
+    # the two auto-wires lead, because anything declared after
+    # ignore_generated inherits its `after: :load_config_initializers`
     expect(RAILTIE_INITIALIZERS.keys).to eq %w[
-      graph_weaver.ignore_generated graph_weaver.logger graph_weaver.instrumentation
+      graph_weaver.logger graph_weaver.instrumentation graph_weaver.ignore_generated
       graph_weaver.filter_parameters graph_weaver.watch graph_weaver.load_generated
     ]
 
@@ -874,5 +877,85 @@ describe "GraphWeaver::Railtie" do
     expect(GraphWeaver.logger).to be mine
   ensure
     GraphWeaver.logger = nil
+  end
+
+  # Everything above calls the initializer blocks out of a hash and asserts
+  # their declared names in order — Rails' TSort is never involved, and TSort
+  # is the entire mechanism of the bug this exists for: `ignore_generated`
+  # declares `after: :load_config_initializers`, and its siblings in the same
+  # collection used to inherit that position, so `GraphWeaver.logger = nil` in
+  # an initializer was overwritten by the railtie that ran after it.
+  #
+  # So boot a REAL Rails::Application. In a subprocess: `load`ing railtie.rb
+  # against the stand-in above has already made GraphWeaver::Railtie a subclass
+  # of it, and a booted Rails is process-global (Rails.application, the
+  # autoloaders, Zeitwerk) — either would reach every other example here.
+  describe "booted in a real Rails application" do
+    # what the initializer file saw when it ran, and what survived the rest of
+    # boot — one boot answers the ordering and the opt-out together
+    def boot
+      Dir.mktmpdir("graph-weaver-boot") do |root|
+        FileUtils.mkdir_p(File.join(root, "config/initializers"))
+        File.write(File.join(root, "config/initializers/zzz_graph_weaver.rb"), <<~INIT)
+          SAW = { logger: GraphWeaver.logger.class.to_s, instrumenter: !GraphWeaver.instrumenter.nil? }
+          GraphWeaver.logger = nil
+          GraphWeaver.instrumenter = nil
+        INIT
+        script = File.join(root, "boot.rb")
+        File.write(script, BOOT_SCRIPT.sub("ROOT", root.inspect))
+
+        out = IO.popen([RbConfig.ruby, "-I#{File.expand_path("../lib", __dir__)}", script],
+          err: %i[child out], &:read)
+        raise "boot failed:\n#{out}" unless $?.success?
+
+        JSON.parse(out.lines.last)
+      end
+    end
+
+    BOOT_SCRIPT = <<~'RUBY'
+      require "fileutils"
+      require "json"
+      require "logger"
+      require "rails"
+      require "graph_weaver"
+
+      class BootProbe < Rails::Application
+        config.root = ROOT
+        config.eager_load = false
+        config.logger = Logger.new(IO::NULL)
+        config.secret_key_base = "x" * 32
+      end
+      BootProbe.initialize!
+
+      puts JSON.generate(
+        order: Rails.application.initializers.tsort.map { |init| init.name.to_s },
+        saw: SAW,
+        logger: GraphWeaver.logger.inspect,
+        instrumenter: GraphWeaver.instrumenter.inspect,
+        attached: ActiveSupport::LogSubscriber.log_subscribers.map { |sub| sub.class.to_s },
+        listening: ActiveSupport::Notifications.notifier.listening?(GraphWeaver::EXECUTE_EVENT),
+      )
+    RUBY
+
+    it "auto-wires before config/initializers, so the documented opt-out wins" do
+      booted = boot
+      order = booted["order"]
+
+      # the ordering, as Rails' own TSort resolves it
+      expect(order.index("graph_weaver.logger")).to be < order.index("load_config_initializers")
+      expect(order.index("graph_weaver.instrumentation")).to be < order.index("load_config_initializers")
+
+      # the auto-wire an app that configures nothing gets: by the time its own
+      # initializers run, both are already set
+      expect(booted["saw"]).to eq("logger" => "ActiveSupport::BroadcastLogger", "instrumenter" => true)
+      # and the app that says nil keeps nil — docs/logging.md's PII opt-out
+      expect(booted["logger"]).to eq "nil"
+      expect(booted["instrumenter"]).to eq "nil"
+      # the LogSubscriber is attached either way — a nil logger is what
+      # silences it, and ActiveSupport agrees nothing is listening for the
+      # event, which is the opt-out end to end
+      expect(booted["attached"]).to include "GraphWeaver::LogSubscriber"
+      expect(booted["listening"]).to be false
+    end
   end
 end

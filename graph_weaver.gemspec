@@ -42,6 +42,11 @@ Gem::Specification.new do |s|
   s.add_development_dependency "faraday"
   s.add_development_dependency "rack" # WebMock's to_rack needs it; webmock doesn't depend on it
   s.add_development_dependency "rake"
+  # spec/railtie_spec.rb boots a real Rails application: the railtie's bug of
+  # record was Rails' initializer TSort putting graph_weaver.logger after
+  # config/initializers, which a stand-in cannot model. Brings activesupport,
+  # which LogSubscriber is checked against for the same reason.
+  s.add_development_dependency "railties"
   s.add_development_dependency "redcarpet" # yard --markup markdown
   s.add_development_dependency "rspec"
   s.add_development_dependency "simplecov"

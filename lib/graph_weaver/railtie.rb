@@ -76,6 +76,53 @@ class GraphWeaver::Railtie < Rails::Railtie
     require "graph_weaver/tasks"
   end
 
+  # The two auto-wires an app gets for free, and the only two it can turn off
+  # by assigning nil. They are declared FIRST, and `before:
+  # :load_config_initializers`, and both of those are load-bearing:
+  #
+  # Rails gives an initializer an implicit `after:` of the previous one in the
+  # same railtie (Initializable#initializer: `opts[:after] ||=
+  # initializers.last&.name`). Declared after ignore_generated, which is
+  # `after: :load_config_initializers`, these two inherited that position —
+  # they ran AFTER config/initializers, so the `if nil?` fallback overwrote an
+  # app that had just said nil and the documented PII opt-out did nothing,
+  # silently, while queries and variables kept reaching a debug Rails.logger.
+  # Adding the `before:` without moving them is a TSort::Cyclic at boot, since
+  # the implicit `after:` would then point through ignore_generated.
+  #
+  # Rails.logger, unless the app already chose one (set
+  # GraphWeaver.logger = nil in an initializer to silence)
+  initializer "graph_weaver.logger", before: :load_config_initializers do
+    GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
+  end
+
+  # An APM sees every GraphQL call without the app configuring anything:
+  # the ActiveSupport::Notifications adapter from docs/logging.md, plus the
+  # LogSubscriber that turns its event into one line. Measured at ~4.5µs per
+  # execution all told (0.13µs of that ActiveSupport::Notifications itself
+  # with nothing subscribed; the rest is its Event machinery) — 0.05% of a
+  # 10ms round trip, so there is nothing to weigh.
+  #
+  # An instrumenter the app set is never replaced: assigned before this (in
+  # config/application.rb) the nil check leaves it, and config/initializers now
+  # genuinely runs later, so one assigned there wins on its own — including
+  # `GraphWeaver.instrumenter = nil` to opt out.
+  initializer "graph_weaver.instrumentation", before: :load_config_initializers do
+    next unless defined?(ActiveSupport::Notifications)
+
+    if GraphWeaver.instrumenter.nil?
+      GraphWeaver.instrumenter = lambda do |event, payload, &block|
+        ActiveSupport::Notifications.instrument(event, payload, &block)
+      end
+    end
+
+    # ActiveSupport::LogSubscriber is one of ActiveSupport's own eager
+    # autoloads, so naming it is enough — no require of theirs needed
+    require "graph_weaver/log_subscriber"
+    # idempotent — Subscriber.add_event_subscriber skips a pattern it already has
+    GraphWeaver::LogSubscriber.attach_to :graph_weaver
+  end
+
   # generated/person_query.rb defines ::PersonQuery, but Zeitwerk infers
   # Generated::PersonQuery from the path — and app/graphql/generated is
   # inside an autoload root by default, so eager loading raised
@@ -183,38 +230,6 @@ class GraphWeaver::Railtie < Rails::Railtie
         "the graph in config/initializers (schema -> { MyApp::Schema } resolves an autoloaded class when " \
         "generation asks), or name #{short.inspect} in GraphWeaver.generated_paths there."
     end
-  end
-
-  # Rails.logger, unless the app already chose one (set
-  # GraphWeaver.logger = nil in an initializer to silence)
-  initializer "graph_weaver.logger" do
-    GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
-  end
-
-  # An APM sees every GraphQL call without the app configuring anything:
-  # the ActiveSupport::Notifications adapter from docs/logging.md, plus the
-  # LogSubscriber that turns its event into one line. Measured at ~4.5µs per
-  # execution all told (0.13µs of that ActiveSupport::Notifications itself
-  # with nothing subscribed; the rest is its Event machinery) — 0.05% of a
-  # 10ms round trip, so there is nothing to weigh.
-  #
-  # An instrumenter the app set is never replaced: assigned before this (in
-  # config/application.rb) the nil check leaves it, assigned after (in
-  # config/initializers, which run later) it wins on its own.
-  initializer "graph_weaver.instrumentation" do
-    next unless defined?(ActiveSupport::Notifications)
-
-    if GraphWeaver.instrumenter.nil?
-      GraphWeaver.instrumenter = lambda do |event, payload, &block|
-        ActiveSupport::Notifications.instrument(event, payload, &block)
-      end
-    end
-
-    # ActiveSupport::LogSubscriber is one of ActiveSupport's own eager
-    # autoloads, so naming it is enough — no require of theirs needed
-    require "graph_weaver/log_subscriber"
-    # idempotent — Subscriber.add_event_subscriber skips a pattern it already has
-    GraphWeaver::LogSubscriber.attach_to :graph_weaver
   end
 
   # The app already declared what is sensitive, so variables logged at debug
