@@ -87,6 +87,22 @@ module GraphWeaver
       path if path.is_a?(String) && File.exist?(path)
     end
 
+    # What this graph's dump is derived FROM — what `schema:refresh`
+    # rewrites it from and `schema:diff` compares it against. The url the
+    # dump recorded, else the graphql-ruby schema class this process runs.
+    # nil when the dump is its own source: a committed artifact with nothing
+    # behind it to re-read.
+    #
+    # The recorded url wins because it is a fact the file states about
+    # itself, where a live class is an inference from whatever this app
+    # happens to execute against — and refreshing a foreign API's dump from
+    # the app's own schema would overwrite it with the wrong graph.
+    def dump_source
+      path = dump_path
+      url = path && GraphWeaver::SchemaLoader.provenance(path)&.dig("url")
+      url || live_schema
+    end
+
     # The composed supergraph this graph plans against, or nil — the dump it
     # names (for the default graph, the conventional one) when that dump
     # carries the @join__* routing table. A graph whose schema is an API

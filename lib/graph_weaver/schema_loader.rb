@@ -676,11 +676,14 @@ module GraphWeaver::SchemaLoader
   end
 
   # What to call the thing we introspected, for a log line or an error: its
-  # url when it has one, else the class (a schema class, a fake).
+  # url when it has one, else the class (a schema class, a fake). A
+  # graphql-ruby schema class fills the same slot a transport does, and its
+  # own name is what a report has to say — `.class` answers "Class".
   def self.endpoint(transport)
-    (transport.respond_to?(:url) && transport.url) || transport.class
+    return transport.url if transport.respond_to?(:url) && transport.url
+
+    transport.is_a?(Module) ? (transport.name || transport.to_s) : transport.class
   end
-  private_class_method :endpoint
 
   # The conventional schema dump, whatever its format: schema_path or the
   # first sibling extension that exists. nil when none is on disk.
@@ -726,9 +729,11 @@ module GraphWeaver::SchemaLoader
   private_class_method :auth_env
 
   # Re-introspect a dump's source and compare — a {SchemaDiff} naming what
-  # moved, empty when the server still matches what's on disk. transport:
-  # overrides the transport (auth etc); by default one is built from the
-  # dump's recorded url. Wired up as `rake graph_weaver:schema:diff`.
+  # moved, empty when the source still matches what's on disk. transport:
+  # overrides what to ask (auth etc); by default one is built from the
+  # dump's recorded url. A graphql-ruby schema class fills that slot too,
+  # which is how an app that serves its own schema diffs the dump against
+  # the code behind it. Wired up as `rake graph_weaver:schema:diff`.
   def self.diff(path, transport: nil)
     transport ||= source_transport(path)
     fresh = introspect(transport)
@@ -736,22 +741,38 @@ module GraphWeaver::SchemaLoader
     GraphWeaver::SchemaDiff.new(load(path), fresh, source: path, target: endpoint(transport).to_s)
   end
 
-  # Re-introspect and rewrite the local dump, returning [path, url].
+  # Rewrite the local dump from the source behind it, returning
+  # [path, source]. The dump is the contract generation reads; this rewrites
+  # it from whatever the schema actually is — re-introspecting a url, or
+  # rebuilding from schema:, a graphql-ruby class this process runs (the
+  # same duck-typed slot a transport fills, so introspection asks it
+  # directly and nothing touches the network).
+  #
   # url: defaults to the one the dump recorded, so a refresh needs no
   # arguments once a dump exists — and passing one bootstraps the first
   # dump, which is what `rails g graph_weaver:install` does.
+  # path: the dump to rewrite, defaulting to the conventional one — a graph
+  # that names its own dump passes it.
   # auth_env: the ENV var holding the token — defaults to whichever the
   # dump recorded, so `--auth MY_TOKEN` keeps working on every later
   # refresh without being repeated. auth: passes a token directly.
-  def self.refresh!(url: nil, auth_env: nil, auth: nil)
-    path = locate_path
+  def self.refresh!(url: nil, auth_env: nil, auth: nil, schema: nil, path: nil)
+    path ||= locate_path
+
+    # ttl: 0 throughout — an existing dump never counts as fresh, a refresh
+    # always rebuilds. The extension picks the format, so a repo that keeps
+    # SDL keeps SDL.
+    if schema
+      introspect(schema, cache: path || GraphWeaver.schema_path, ttl: 0)
+      return [path || GraphWeaver.schema_path, endpoint(schema)]
+    end
+
     url ||= path && provenance(path)&.dig("url")
     raise GraphWeaver::Error, refresh_hint(path) unless url
 
     path ||= GraphWeaver.schema_path
     auth_env ||= self.auth_env(path)
     auth ||= ENV[auth_env]
-    # ttl: 0 — an existing dump never counts as fresh, a refresh always refetches
     introspect(GraphWeaver.new(url, auth:).transport, cache: path, ttl: 0, auth_env:)
     [path, url]
   end
@@ -759,8 +780,8 @@ module GraphWeaver::SchemaLoader
   def self.refresh_hint(path)
     missing = path ? "#{path} records no source url" : "no schema dump at #{GraphWeaver.schema_path}"
     "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql " \
-      "(a dump taken from a schema class is rebuilt from code, not re-fetched — see " \
-      "docs/getting_started.md#your-apps-own-schema-in-process)"
+      "(if this app serves the schema itself, point GraphWeaver.client at the class and the dump is " \
+      "rebuilt from it — see docs/getting_started.md#your-apps-own-schema-in-process)"
   end
   private_class_method :refresh_hint
 

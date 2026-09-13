@@ -126,6 +126,29 @@ module GraphWeaver
         "no schema dump at #{GraphWeaver.schema_path} — take one: " \
           "rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
       end
+
+      # What the schema tasks work on, one entry per graph: the dump
+      # generation reads and the source behind it.
+      #
+      # One rule — the dump is the contract generation reads; `refresh`
+      # rewrites it from the graph's source, `diff` says how far that source
+      # has drifted from it, whichever the source is. A graph whose schema IS
+      # a live class reads no dump at all, so it has neither.
+      def self.dumps = GraphWeaver.graphs.map { |graph| [graph, graph.dump_path, graph.dump_source] }
+
+      # A graph that generates straight from a schema class has no dump
+      # between the code and the output — so there is nothing here to
+      # refresh or compare, and nothing that can be stale.
+      def self.no_dump_needed(graph, source)
+        whose = heading(graph) || "this app"
+        return "#{whose}: #{no_dump}" unless source
+
+        "#{whose} generates from #{source_name(source)} directly — no dump to keep in step"
+      end
+
+      # How a dump's source reads in a report: a url as itself, a schema
+      # class by name.
+      def self.source_name(source) = source.is_a?(Module) ? GraphWeaver::SchemaLoader.endpoint(source) : source
     end
   end
 end
@@ -235,29 +258,48 @@ namespace :graph_weaver do
   end
 
   namespace :schema do
-    # both re-introspect from the url recorded in the dump
-    # (GRAPHWEAVER_AUTH supplies a token for private APIs)
+    # One rule, per graph: the dump is the contract generation reads;
+    # :refresh rewrites it from the graph's source and :diff says how far
+    # that source has drifted from it — whichever the source is. A url is
+    # re-introspected (GRAPHWEAVER_AUTH supplies a token for private APIs);
+    # a graphql-ruby schema class this process runs answers introspection
+    # itself, so an app that serves its own schema needs no network.
 
-    desc "Fail when the server's schema has drifted from the local dump"
+    desc "Fail when the schema behind the dump has drifted from it"
     task diff: :environment do
-      path = GraphWeaver::SchemaLoader.locate_path or abort GraphWeaver::Internal::Tasks.no_dump
-      diff = GraphWeaver::SchemaLoader.diff(path)
-      dump = GraphWeaver::Internal::Util.relative(path)
-      if diff.empty?
-        puts "#{dump} matches the server"
-      else
+      subjects = GraphWeaver::Internal::Tasks.dumps
+      abort GraphWeaver::Internal::Tasks.no_dump if subjects.none? { |_, path, _| path }
+
+      stale = subjects.filter_map do |graph, path, source|
+        heading = GraphWeaver::Internal::Tasks.heading(graph)
+        puts heading if heading
+        # a graph that names a live class generates straight from it: no
+        # dump between the code and the output, so nothing can be stale
+        next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) unless path
+
+        # a schema class answers introspection itself; left nil, diff builds
+        # the dump's own transport, auth and all
+        diff = GraphWeaver::SchemaLoader.diff(path, transport: (source if source.is_a?(Module)))
+        dump = GraphWeaver::Internal::Util.relative(path)
+        next puts "#{dump} matches #{GraphWeaver::Internal::Tasks.source_name(source)}" if diff.empty?
+
         puts diff.report
-        # abort writes to unbuffered stderr; the summary above went to
-        # block-buffered stdout, so a piped CI log shows it first
-        $stdout.flush
-        abort "#{dump} is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)"
+        dump
+      end
+
+      # abort writes to unbuffered stderr; the summaries above went to
+      # block-buffered stdout, so a piped CI log shows them first
+      $stdout.flush
+      unless stale.empty?
+        abort "#{stale.join(", ")} is stale — the schema behind it has drifted " \
+          "(rake graph_weaver:schema:refresh)"
       end
     rescue GraphWeaver::Error => e
-      # e.g. a dump with no recorded url — same clean exit as :refresh
+      # e.g. a dump that is its own source — same clean exit as :refresh
       abort e.message
     end
 
-    desc "Re-introspect and rewrite the local dump (URL= to bootstrap the first one)"
+    desc "Rewrite the local dump from the schema behind it (URL= to bootstrap the first one)"
     task refresh: :environment do
       # anything else in URL= reaches introspection as a schema *source*, and
       # fails talking about file extensions rather than the flag just typed
@@ -265,8 +307,24 @@ namespace :graph_weaver do
         abort "URL= takes an endpoint: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql"
       end
 
-      path, url = GraphWeaver::SchemaLoader.refresh!(url: ENV["URL"])
-      puts "refreshed #{GraphWeaver::Internal::Util.relative(path)} from #{url}"
+      # URL= names one endpoint, so it bootstraps the conventional dump —
+      # before any graph has a dump to read a source off
+      if ENV["URL"]
+        path, source = GraphWeaver::SchemaLoader.refresh!(url: ENV["URL"])
+        next puts "refreshed #{GraphWeaver::Internal::Util.relative(path)} from #{source}"
+      end
+
+      GraphWeaver::Internal::Tasks.dumps.each do |graph, path, source|
+        heading = GraphWeaver::Internal::Tasks.heading(graph)
+        puts heading if heading
+        # a graph that names a live class generates straight from it — no
+        # dump to write. The default graph names none, so it lands below and
+        # refresh! bootstraps its first dump (or says how).
+        next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) if !path && graph.named_schema?
+
+        written, from = GraphWeaver::SchemaLoader.refresh!(schema: (source if source.is_a?(Module)), path:)
+        puts "refreshed #{GraphWeaver::Internal::Util.relative(written)} from #{from}"
+      end
     rescue GraphWeaver::Error => e
       abort e.message
     end

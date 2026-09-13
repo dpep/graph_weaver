@@ -294,6 +294,19 @@ describe GraphWeaver::SchemaLoader do
       )
     end
 
+    # a graphql-ruby schema class fills the same duck-typed slot a transport
+    # does, so it diffs as one — and a report that called it "Class" named
+    # nothing the reader could act on
+    it "names the schema class a dump is compared against" do
+      path = File.join(@dir, "schema.graphql")
+      described_class.introspect(Demo::Schema, cache: path)
+
+      diff = described_class.diff(path, transport: Demo::Schema)
+
+      expect(diff).to be_empty
+      expect(diff.report).to eq "#{path} vs Demo::Schema: no changes"
+    end
+
     # the introspection succeeded and the write didn't — a bare Errno says
     # neither, and the cache path is the thing to change
     it "names the cache path when the dump can't be written" do
@@ -389,8 +402,44 @@ describe GraphWeaver::SchemaLoader do
 
       expect { described_class.refresh! }.to raise_error(
         GraphWeaver::Error,
-        /records no source url.*URL=.*rebuilt from code, not re-fetched.*getting_started/m,
+        /records no source url.*URL=.*serves the schema itself.*getting_started/m,
       )
+    end
+
+    # the dump is the contract generation reads; for an app that serves its
+    # own schema the source behind it is code in the same repo, so a refresh
+    # rebuilds rather than fetches
+    it "rebuilds the dump from a live schema class" do
+      path, source = described_class.refresh!(schema: Demo::Schema)
+
+      expect(path).to eq GraphWeaver.schema_path
+      expect(source).to eq "Demo::Schema"
+      expect(introspected).to be_empty # nothing over the wire
+      expect(described_class.load(path).types.keys).to include("Person")
+      expect(described_class.provenance(path)).to be_nil # a class has no url to record
+    end
+
+    # a repo that chose SDL for reviewable diffs keeps it: the extension
+    # picks the format, exactly as introspect's cache does
+    it "rewrites the dump in the format it is already in" do
+      GraphWeaver.schema_path = File.join(@dir, "schema.graphql")
+      File.write(GraphWeaver.schema_path, "type Query { old: String }")
+
+      path, = described_class.refresh!(schema: Demo::Schema)
+
+      expect(path).to eq GraphWeaver.schema_path
+      expect(File.read(path)).to include "type Person"
+    end
+
+    # a graph that names its own dump is refreshed too — locate_path only
+    # ever finds the conventional one
+    it "rewrites the dump named by path:" do
+      named = File.join(@dir, "billing.graphql")
+
+      path, = described_class.refresh!(schema: Demo::Schema, path: named)
+
+      expect(path).to eq named
+      expect(File.exist?(GraphWeaver.schema_path)).to be false
     end
   end
 

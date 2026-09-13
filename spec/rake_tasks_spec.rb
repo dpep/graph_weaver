@@ -284,12 +284,15 @@ describe "graph_weaver rake tasks" do
       )
     end
 
-    it "says the dump matches, and exits zero" do
-      write_schema
+    # the dump records where it came from, and naming it beats "the server":
+    # the same line now has an in-process twin naming a schema class
+    it "says the dump matches its source, and exits zero" do
+      write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
       allow(GraphWeaver::SchemaLoader).to receive(:diff).and_return(diff_between("type Query { a: String }", "type Query { a: String }"))
 
-      expect(invoke("schema:diff"))
-        .to have_attributes(status: 0, out: "#{GraphWeaver.schema_path} matches the server\n")
+      expect(invoke("schema:diff")).to have_attributes(
+        status: 0, out: "#{GraphWeaver.schema_path} matches https://api.example.com/graphql\n",
+      )
     end
 
     # the whole point of the task: refreshing and diffing a 3 MB dump to
@@ -317,6 +320,32 @@ describe "graph_weaver rake tasks" do
       expect(result.status).to eq 1
       expect(result.err).to include "records no source url"
       expect(result.err.lines.size).to eq 1
+    end
+
+    # An app that serves its own schema has a source behind its dump too —
+    # code in the same repo. This task used to refuse it unconditionally,
+    # which made the documented CI script permanently red for that topology.
+    context "when the app runs its schema in-process" do
+      before { GraphWeaver.client = GraphWeaver.new(Demo::Schema) }
+
+      after { GraphWeaver.client = nil }
+
+      it "says the dump matches the class, and exits zero" do
+        write_schema
+
+        expect(invoke("schema:diff"))
+          .to have_attributes(status: 0, out: "#{GraphWeaver.schema_path} matches Demo::Schema\n")
+      end
+
+      it "names what the class changed, and the task that repairs it" do
+        write_schema("type Query { gone: String }")
+
+        result = invoke("schema:diff")
+
+        expect(result.status).to eq 1
+        expect(result.out).to include "vs Demo::Schema", "Query.gone", "removed"
+        expect(result.err).to include "is stale", "rake graph_weaver:schema:refresh"
+      end
     end
   end
 
@@ -354,6 +383,32 @@ describe "graph_weaver rake tasks" do
 
       expect(result.status).to eq 1
       expect(result.err).to include "no schema dump at #{GraphWeaver.schema_path}", "URL=https://"
+    end
+
+    context "when the app runs its schema in-process" do
+      before { GraphWeaver.client = GraphWeaver.new(Demo::Schema) }
+
+      after { GraphWeaver.client = nil }
+
+      # the dump is derived from code in this repo, so a refresh rebuilds
+      # rather than fetches — and this is the task the runtime QueryError
+      # hint has always named
+      it "rebuilds the dump from the schema class, with no url anywhere" do
+        write_schema("type Query { gone: String }")
+
+        result = invoke("schema:refresh")
+
+        expect(result).to have_attributes(
+          status: 0, out: "refreshed #{GraphWeaver.schema_path} from Demo::Schema\n",
+        )
+        expect(File.read(GraphWeaver.schema_path)).to include "type Person"
+      end
+
+      # the first dump, before there is one to read a source off
+      it "bootstraps the first dump from the class" do
+        expect(invoke("schema:refresh").status).to eq 0
+        expect(File.exist?(GraphWeaver.schema_path)).to be true
+      end
     end
   end
 

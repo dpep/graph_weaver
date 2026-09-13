@@ -139,6 +139,7 @@ GraphWeaver::Graph (Class)
 GraphWeaver::Graph#client
 GraphWeaver::Graph#described
 GraphWeaver::Graph#dump_path
+GraphWeaver::Graph#dump_source
 GraphWeaver::Graph#generated_names
 GraphWeaver::Graph#live_schema
 GraphWeaver::Graph#name
@@ -276,6 +277,7 @@ GraphWeaver::SchemaDiff::Change.[]
 GraphWeaver::SchemaDiff::Change.members
 GraphWeaver::SchemaLoader (Module)
 GraphWeaver::SchemaLoader.diff
+GraphWeaver::SchemaLoader.endpoint
 GraphWeaver::SchemaLoader.federation_sdl?
 GraphWeaver::SchemaLoader.introspect
 GraphWeaver::SchemaLoader.load
