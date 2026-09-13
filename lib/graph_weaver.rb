@@ -476,8 +476,15 @@ module GraphWeaver
       @unmatched_registrations = []
       @untyped_scalars = []
       seen = new_seen
+      graphs = graphs_for(schema:, queries:, output:, client:, types_module:)
 
-      graphs_for(schema:, queries:, output:, client:, types_module:).each do |graph|
+      # The dump is checked in too, and everything below reads it — so a
+      # stale one is answered before staleness downstream of it, because
+      # refreshing has to come first. Asked only where it can be: a live
+      # class, and one introspection of it.
+      graphs.each { |graph| refuse_stale_dump!(graph) }
+
+      graphs.each do |graph|
         if Internal::Util.query_files(graph.queries).empty?
           # green over nothing is worse than red: a CI gate stays passing
           # forever because someone typed app/graphql/querys
@@ -502,6 +509,33 @@ module GraphWeaver
 
       true
     end
+
+    # A dump that has fallen behind the graphql-ruby class it was built
+    # from. `verify` asks whether what is checked in is current, and for an
+    # app that serves its own schema the dump is an artifact derived from
+    # code in the same repo: it drifts silently, and generating from it
+    # then produces stale Ruby that verify would call fresh.
+    #
+    # Only a live class is asked — it answers introspection in-process, so
+    # this costs one introspection and no network. A dump that records a
+    # url is `schema:diff`'s subject: reaching for it here would put a
+    # network call in every build and in every spec that calls this.
+    def refuse_stale_dump!(graph)
+      path = graph.dump_path
+      source = graph.dump_source
+      return unless path && source.is_a?(Module)
+
+      diff = SchemaLoader.diff(path, transport: source)
+      return if diff.empty?
+
+      breaking = diff.breaking.size
+      raise Error, "the dump is behind the schema#{graph.described} — " \
+        "#{Internal::Util.relative(path)} no longer matches #{SchemaLoader.endpoint(source)} " \
+        "(#{diff.changes.size} #{(diff.changes.size == 1) ? "change" : "changes"}, " \
+        "#{breaking} breaking). Run rake graph_weaver:schema:refresh, then rake " \
+        "graph_weaver:generate — rake graph_weaver:schema:diff names what moved."
+    end
+    private :refuse_stale_dump!
 
     # Whether the file on disk is already what the plan would write — asked
     # before writing it, and before calling it stale. autocrlf rewrites line

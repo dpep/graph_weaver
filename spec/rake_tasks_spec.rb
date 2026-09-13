@@ -265,6 +265,22 @@ describe "graph_weaver rake tasks" do
       expect(result.status).to eq 1
       expect(result.err).to include "person_query.rb", "rake graph_weaver:generate"
     end
+
+    # The one signal an exit-code-only CI gate could not see: generate and
+    # verify both read the dump, so a dump behind the class was invisible to
+    # both while the live resolvers had already moved.
+    it "fails when the dump is behind the schema class the app runs" do
+      write_schema("#{Demo::Schema.to_definition}\ntype Ghost { id: ID! }")
+      invoke("generate")
+      GraphWeaver.client = GraphWeaver.new(Demo::Schema)
+
+      result = invoke("verify")
+
+      expect(result.status).to eq 1
+      expect(result.err).to include "the dump is behind the schema", "rake graph_weaver:schema:refresh"
+    ensure
+      GraphWeaver.client = nil
+    end
   end
 
   describe "graph_weaver:schema:diff" do

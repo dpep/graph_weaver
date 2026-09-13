@@ -471,6 +471,61 @@ describe "GraphWeaver.verify_generated!" do
     end
   end
 
+  # verify's job is "is what's checked in current", and the dump is checked
+  # in too. For an app that serves its own schema the dump is derived from
+  # code in the same repo, so it can fall behind silently — and everything
+  # else here reads it, so regenerating from a stale one produces stale Ruby
+  # that verify would then call fresh.
+  describe "a dump behind the schema class it was built from" do
+    around do |example|
+      Dir.mktmpdir do |dir|
+        @dir = dir
+        GraphWeaver.queries_paths = File.join(dir, "queries")
+        GraphWeaver.generated_paths = File.join(dir, "generated")
+        GraphWeaver.schema_path = File.join(dir, "schema.graphql")
+        FileUtils.mkdir_p(GraphWeaver.queries_paths)
+        File.write(File.join(GraphWeaver.queries_paths, "person.graphql"),
+          "query Person { person(id: \"1\") { name } }\n")
+        File.write(GraphWeaver.schema_path, Demo::Schema.to_definition)
+        GraphWeaver.generate!
+        example.run
+      end
+    ensure
+      GraphWeaver.queries_paths = nil
+      GraphWeaver.generated_paths = nil
+      GraphWeaver.schema_path = nil
+      GraphWeaver.client = nil
+    end
+
+    it "passes while the dump still matches the class" do
+      GraphWeaver.client = GraphWeaver.new(Demo::Schema)
+
+      expect(GraphWeaver.verify_generated!).to be true
+    end
+
+    # a type no query touches: generation is unchanged, so only the dump
+    # itself is stale — the case verify used to call up to date
+    it "fails naming the dump, the class and the repair" do
+      File.write(GraphWeaver.schema_path, "#{Demo::Schema.to_definition}\ntype Ghost { id: ID! }\n")
+      GraphWeaver.client = GraphWeaver.new(Demo::Schema)
+
+      expect { GraphWeaver.verify_generated! }.to raise_error(
+        GraphWeaver::Error,
+        /the dump is behind the schema — .*schema\.graphql no longer matches Demo::Schema \(1 change.*schema:refresh/m,
+      )
+    end
+
+    # a dump introspected from a server is schema:diff's subject: asking here
+    # would put a network call in every build
+    it "leaves a remote dump alone" do
+      File.write(GraphWeaver.schema_path,
+        "# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\n#{Demo::Schema.to_definition}\ntype Ghost { id: ID! }\n")
+      GraphWeaver.client = GraphWeaver.new(Demo::Schema)
+
+      expect(GraphWeaver.verify_generated!).to be true
+    end
+  end
+
   it "ships rake tasks for generate and verify" do
     original = Rake.application
     Rake.application = RakeHarness.application
