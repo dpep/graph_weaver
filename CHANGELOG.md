@@ -144,6 +144,16 @@
   <dir>`** — the sentence its sibling `generate` already says — instead of
   sweeping the whole app to report 0 of 0 and advising a generate that would
   generate nothing.
+- **Generation refuses a directory no declared graph covers.** Declaring a graph
+  replaces the implicit one the top-level settings describe — so an app that
+  declared one beside its existing `app/graphql/queries` was left with a
+  directory nothing read: `generate` skipped its files, `verify` called the tree
+  up to date, `queries:check` said a query containing `nmae` validated, and the
+  modules generated from it before the graph existed kept loading in production.
+  `generate!`, `verify_generated!` and `check_queries` now refuse, naming the
+  stray files and what each declared graph does cover. The fix is to name the
+  directory in a graph (`queries`/`output`), declare a graph for it, or delete
+  it. An app that declared no graph is unaffected — its settings *are* its graph.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
