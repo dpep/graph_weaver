@@ -147,6 +147,7 @@ describe GraphWeaver::Testing do
             def self.name = "Money"
             def self.parse(wire) = new(wire)
             def initialize(amount) = @amount = amount
+            def to_s = @amount # what serialize: :to_s writes back
           end
         end
 
@@ -164,6 +165,26 @@ describe GraphWeaver::Testing do
 
         it "pins every field of that scalar, however deep" do
           expect(person("Money" => "12.00")["orders"]).to eq [{ "total" => "12.00" }, { "total" => "12.00" }]
+        end
+
+        # a pin is what the wire carries, and a registered scalar knows how to
+        # get there — so the object an app reads back is a pin too
+        it "serializes a pin written as the Ruby object" do
+          expect(person("Money" => Money.parse("12.00"))["orders"])
+            .to eq [{ "total" => "12.00" }, { "total" => "12.00" }]
+        end
+
+        # a serialize: Proc builds source, so there is nothing to run against a
+        # value — say that, rather than letting the cast fail two layers down
+        it "refuses an object pin the registration can't serialize" do
+          GraphWeaver.register_scalar("Money", money, cast: :parse, serialize: ->(v) { "#{v}.to_s" })
+
+          expect { person("Money" => Money.parse("12.00")) }.to raise_error(
+            GraphWeaver::Error,
+            'the pin for "Money" is a Money, and a pin is what the wire carries — register_scalar("Money") ' \
+            "has no serialize: that can run against a value (a Proc builds source), so write the pin as the " \
+            "value the server would send",
+          )
         end
 
         # docs/testing.md's three pins, together: the field's beats the type's

@@ -50,6 +50,10 @@ class GraphWeaver::Internal::Values
   # What Codegen.scalar reports for a scalar nobody registered
   UNREGISTERED = "T.untyped"
 
+  # What JSON can hold. Anything else a pin offers is a Ruby object the
+  # registration has to serialize before it can stand in for a response.
+  WIRE = [NilClass, TrueClass, FalseClass, Numeric, String, Symbol, Array, Hash].freeze
+
   # The fallback, for a scalar nobody registered: its prop is T.untyped, so
   # anything holds and a plausible shape beats a placeholder.
   NAMED_SHAPES = {
@@ -92,7 +96,9 @@ class GraphWeaver::Internal::Values
   # alone. at: where the walk is ("reader.orders.0.total"), for that refusal;
   # a walk that doesn't track one leaves it unsaid.
   def scalar(type_name, field_name, coordinate = nil, at: nil)
-    return GraphWeaver::Internal::Overrides.resolve(@pins[type_name], rng) if @pins.key?(type_name)
+    if @pins.key?(type_name)
+      return wire(type_name, GraphWeaver::Internal::Overrides.resolve(@pins[type_name], rng), coordinate)
+    end
 
     registered, shape = resolve(type_name, coordinate)
     prop = underscore(field_name)
@@ -129,6 +135,23 @@ class GraphWeaver::Internal::Values
     when :unregistered then "#{type_name}-#{@sequence += 1}" # nobody registered it: prop is T.untyped
     else unfakeable!(type_name, field_name, registered, coordinate, at)
     end
+  end
+
+  # What the wire would carry for a pinned scalar. A pin may be written as the
+  # Ruby object an app reads back — a Time, a Money — and the registration
+  # says what the server sends for one; a value JSON can already hold stands
+  # as written. Shared with the object-pin door, so both read a pin the same
+  # way.
+  def wire(type_name, value, coordinate = nil)
+    return value if WIRE.any? { |klass| value.is_a?(klass) }
+
+    serialized = @registry.scalar(type_name, coordinate).serialize_value(value)
+    return serialized if WIRE.any? { |klass| serialized.is_a?(klass) }
+
+    article = GraphWeaver::Internal::Util.article(value.class.to_s)
+    raise GraphWeaver::Error, "the pin for #{type_name.inspect} is #{article} #{value.class}, and a pin " \
+      "is what the wire carries — register_scalar(#{type_name.inspect}) has no serialize: that can run " \
+      "against a value (a Proc builds source), so write the pin as the value the server would send"
   end
 
   # same original id => same fake id, so relationships survive anonymization

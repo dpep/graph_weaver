@@ -130,10 +130,10 @@ class GraphWeaver::Testing::FakeClient
   }.freeze
 
   # JSON's own types are already on the wire: at a leaf they skip the
-  # registry's serializer, and at a composite position (a Hash aside, which
-  # is response keys) they pin the field as written — nil is null, the rest
-  # is the corrupt payload the example asked for.
-  WIRE = [NilClass, TrueClass, FalseClass, Numeric, String, Symbol, Array, Hash].freeze
+  # registry's serializer (Values#wire), and at a composite position (a Hash
+  # aside, which is response keys) they pin the field as written — nil is
+  # null, the rest is the corrupt payload the example asked for.
+  WIRE = GraphWeaver::Internal::Values::WIRE
 
   # Methods every Ruby object answers aren't fields: a schema does have a
   # `hash` or a `count`, and a Struct answers both with plausible nonsense
@@ -493,10 +493,7 @@ class GraphWeaver::Testing::FakeClient
     when "NON_NULL" then wire_value(type.of_type, value, coordinate)
     when "LIST"
       value.is_a?(Array) ? value.map { |element| wire_value(type.of_type, element, coordinate) } : value
-    when "SCALAR"
-      return value if wire?(value)
-
-      @registry.scalar(type.graphql_name, coordinate).serialize_value(value)
+    when "SCALAR" then @values.wire(type.graphql_name, value, coordinate)
     when "ENUM" then value.is_a?(T::Enum) ? value.serialize : value
     else value # a composite: pinned_object reads it, one level down
     end

@@ -51,6 +51,12 @@
   `soft_assert_handler`). The generated enums keep `T::Enum` semantics: the
   switch covers your own enums too, which is why it belongs in your boot
   rather than in generated code.
+- A **scalar pin written as the Ruby object** — `overrides: { "Money" =>
+  Money.parse("12.00") }` — is serialized the way the registration says,
+  rather than reaching `from_h` as a `Money` and failing there. Same rule an
+  object pin's fields already followed. Where the registration can't serialize
+  a value (a `serialize:` Proc builds source), the fake now refuses naming the
+  scalar instead of letting the cast fail two layers down.
 - Docs: an `extend_type` mixin CAN carry sigs `srb tc` checks — declare the
   fields it reads as abstract sigs, which the struct's `const`s satisfy. The
   type-helpers section shows the shape.

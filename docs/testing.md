@@ -283,6 +283,13 @@ deep inside `from_h`. A scalar registered as `BigDecimal`, `Time`, `Date`,
 both deserialize into `Money` want a pin each. Suite-wide, the same hash is
 `config.overrides`, and the [cassette anonymizer](cassettes.md) reads it too.
 
+A pin is **what the wire carries** — `"12.00"`, not `Money.parse("12.00")` —
+but the object is accepted wherever the registration can serialize one, which
+is the same rule an object pin's fields already follow. A `serialize:` **Proc**
+builds source rather than converting a value, so a registration spelled that
+way has nothing to run: pin the wire value there, and the fake says so if you
+don't.
+
 Pins lead and options follow — `graphql_fake("Money" => "12.00", values:
 :literal)`. Pins and options are the same keywords, told apart by a lookup: a
 key the fake takes is an option, a key **your schema** knows is a pin, and a
