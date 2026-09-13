@@ -116,6 +116,14 @@ describe GraphWeaver::Client do
       expect(http.instance_variable_get(:@open_timeout)).to eq 10 # untouched default
     end
 
+    it "sizes the HTTP transport's pool, and refuses to pretend Faraday has one" do
+      http = GraphWeaver.new(url, pool_size: 3).transport
+      expect(http.instance_variable_get(:@pool_size)).to eq 3
+
+      expect { GraphWeaver.new(url, transport: :faraday, pool_size: 3) }
+        .to raise_error(ArgumentError, /Faraday's adapter/)
+    end
+
     it "turns retries on with true, or off with false" do
       expect(GraphWeaver.new(url, retries: true).transport).to be_a GraphWeaver::Retry
       expect(GraphWeaver.new(url, retries: false).transport).to be_a GraphWeaver::Transport::HTTP

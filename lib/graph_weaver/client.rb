@@ -45,7 +45,7 @@ class GraphWeaver::Client
   private_constant :CONTEXT_IN_PROCESS, :RETRY_RULE
 
   def initialize(source, auth: nil, headers: {}, transport: nil, cache: nil, ttl: nil,
-    open_timeout: nil, read_timeout: nil, context: nil,
+    open_timeout: nil, read_timeout: nil, pool_size: nil, context: nil,
     retries: false, backoff: nil, base_delay: nil, max_delay: nil, jitter: nil, retry_on: nil,
     retry_if: nil, retry_codes: nil, retry_mutations: nil, sleeper: nil, &middleware)
     check_source!(source)
@@ -58,10 +58,11 @@ class GraphWeaver::Client
     if source.is_a?(String) && source.match?(URL)
       raise ArgumentError, CONTEXT_IN_PROCESS if context
 
-      built = build_transport(source, auth:, headers:, kind: transport, open_timeout:, read_timeout:, &middleware)
+      built = build_transport(source, auth:, headers:, kind: transport, open_timeout:, read_timeout:, pool_size:,
+        &middleware)
       @transport = wrap_retries(built, retries, retry_options)
     else
-      if auth || middleware || retries || open_timeout || read_timeout || !retry_options.empty?
+      if auth || middleware || retries || open_timeout || read_timeout || pool_size || !retry_options.empty?
         raise ArgumentError, "auth:/retries:/timeouts/middleware apply to a url — got a schema source"
       end
       if transport.is_a?(Symbol)
@@ -186,7 +187,7 @@ class GraphWeaver::Client
   # it lets an unrelated gem swap your transport — along with its
   # timeouts and, since Faraday's default net_http adapter reconnects
   # per request, your connection reuse. Same code, same transport.
-  def build_transport(url, auth:, headers:, kind:, open_timeout: nil, read_timeout: nil, &middleware)
+  def build_transport(url, auth:, headers:, kind:, open_timeout: nil, read_timeout: nil, pool_size: nil, &middleware)
     headers = headers.dup
     if auth
       unless auth.is_a?(String)
@@ -202,9 +203,13 @@ class GraphWeaver::Client
 
     transport =
       if transport_kind(kind, middleware) == :faraday
+        # Faraday's adapter owns its connections; a pool ceiling here would be
+        # a number nothing reads, so say so instead of dropping it
+        raise ArgumentError, "pool_size: sizes the bundled HTTP transport's pool — Faraday's adapter " \
+          "manages its own connections, so configure it there" if pool_size
         build_faraday(url, headers:, timeouts:, &middleware)
       else
-        GraphWeaver::Transport::HTTP.new(url, headers:, **timeouts)
+        GraphWeaver::Transport::HTTP.new(url, headers:, pool_size:, **timeouts)
       end
 
     GraphWeaver::Internal::Log.log(:info) { "transport: #{transport.class} -> #{url}" }
