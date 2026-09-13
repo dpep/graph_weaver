@@ -277,6 +277,46 @@
   `@oneOf` inputs and your dump is `.json` — the newly emitted `ONE_OF` will
   start refusing calls that set two fields, which the server was refusing all
   along.
+<!-- lane: seniorA -->
+- **"has no cast" now says which mistake you made.** Two unrelated
+  misconfigurations reached the same refusal: a registered class none of the
+  three probes (`.parse`, `.load`, `Kernel#Type`) matched, and a `type:` given
+  by *name*, which is never probed at all because there is no class in hand.
+  The advice differs — name a `cast:`, versus pass the class — but the sentence
+  didn't. Each now names its own cause: the class form lists the three probes
+  that found nothing, and the string form says it was registered by name and
+  shows the class form to switch to. The string form's no-probing behavior is
+  unchanged and correct; [scalars](docs/scalars.md#registering-a-class-of-your-own)
+  now says so where the string form is introduced.
+- **The `eql?`/`hash` warning covers the commoner first draft.** It fired only
+  for a class that defined `==` and forgot `eql?`, though its own comment
+  described the whole hazard. A value object that overrides *neither* breaks
+  result equality identically — two results parsed from the same bytes are
+  unequal, and neither works as a hash key — and got nothing. One rule now: a
+  registered class that inherits `#eql?` compares by identity, so it warns.
+  `String`, `Integer`, `Float`, `Date`, `Time`, `DateTime` and `BigDecimal` all
+  define `eql?` and stay silent; a `T::Enum` is exempt, its values being
+  singletons; and a class that gets `==` from `Comparable` and stops there is a
+  true positive, not a false one.
+- **[scalars](docs/scalars.md#registering-a-class-of-your-own) leads with the
+  money shapes that work internationally.** The worked `Money` example
+  hardcoded `"USD"` in its cast — correct for the wire shape it assumed (a bare
+  decimal), and silently wrong for any other currency, which comes back
+  mislabelled with no error anywhere. That's the schema's shape, not the
+  library's, so the section now orders the shapes by what they carry: an object
+  scalar (`{"amount","currency"}`), one string carrying both, and an object type
+  `Money { amount currency }` — which needs no `register_scalar` at all, just an
+  `extend_type` — with the bare decimal last and marked single-currency-only.
+  Also new there: register what your cast *returns*, not where the factory
+  lives (`register_scalar("URL", URI)` runs fine and fails `srb tc` at every
+  call site, because Sorbet's `URI` module payload has no `include Kernel` —
+  register `URI::Generic`); pass-through means no invented codec, not an
+  optional cast, since a class JSON can't parse into is still refused when a
+  query reads the field; and a `JSON`-narrowed coordinate opts that field out of
+  `:fake` fabrication as well as hardening its shape. Off rake,
+  [generated modules](docs/generated_modules.md#generating) now names
+  `GraphWeaver.untyped_scalars` as the API for the unregistered-scalar report —
+  the printed one is the rake task's, and `generate!` only logs it.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

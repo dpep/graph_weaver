@@ -53,7 +53,10 @@ GraphWeaver.verify_generated!(schema:)    # the freshness guard, one line in a s
 whose bytes changed; `GraphWeaver.changed_files` is that subset. So
 `rake graph_weaver:generate` prints `wrote` for what moved and `N already up to
 date` for the rest, and a watching dev server has one module to reload instead
-of all of them.
+of all of them. The unregistered-scalar report is the rake task's `puts`, not
+`generate!`'s, so off rake read `GraphWeaver.untyped_scalars` for the unioned
+list — or set [`GraphWeaver.logger`](logging.md), which `generate!` names them
+on at `info` as it goes.
 
 The schema dump is step 0 — codegen reads it, never a live endpoint.
 `cache: true` on a url client writes it on first introspection

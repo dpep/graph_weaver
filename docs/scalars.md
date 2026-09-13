@@ -98,7 +98,9 @@ same values is the whole fix.
 
 A type defining none of those stays pass-through rather than getting wrapped —
 every object has `#to_s`, so inferring a serializer off it would wrap plain
-types too. Override explicitly when you need to:
+types too. That is about not *inventing* a codec, not about the cast being
+optional: a class JSON can't parse into is still refused (below) the moment a
+query reads that field. Override explicitly when you need to:
 
 - a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
   `serialize: :to_json` → `expr.to_json`
@@ -107,13 +109,39 @@ types too. Override explicitly when you need to:
 - `:itself` to force pass-through, opting out of inference (rare)
 
 Not every class is so obliging, and the money gem's `Money` is the honest hard
-case: it defines none of those probes, and the two facts that would settle it
-are ones only your app knows. What the wire carries is one — a `Money` scalar
-is a decimal string on one API and integer cents on the next — and the currency
-is the other, because `Money.from_amount` needs one and the wire sends an
-amount alone. Say both:
+case: it defines none of those probes, so you say how one is built. **A cast can
+only use what the wire carries**, and `Money.from_amount` needs a currency no
+amount of Ruby recovers if the response didn't send one. So the scalar's shape
+decides the registration, and three shapes carry it.
+
+**An object** — `{"amount": "12.50", "currency": "EUR"}`. The cast reads both
+out of it, and `serialize:` writes the same hash back:
 
 ```ruby
+GraphWeaver.register_scalar("Money", Money,
+  cast: ->(v) { "Money.from_amount(BigDecimal(#{v}[\"amount\"]), #{v}[\"currency\"])" },
+  serialize: ->(v) { "{ \"amount\" => #{v}.amount.to_s(\"F\"), \"currency\" => #{v}.currency }" })
+```
+
+**One string carrying both** — `"12.50 EUR"`, split in the cast, with
+`serialize: :to_s` writing it back when that is the spelling `Money#to_s` gives.
+
+**An object type rather than a scalar** — `Money { amount currency }` — which
+needs no `register_scalar` at all: codegen types both fields, and
+[`extend_type`](generated_modules.md#type-helpers) adds the conversion. Ask for
+this shape if you get a vote; the currency is then in the schema, where a reader
+finds it.
+
+```ruby
+GraphWeaver.extend_type("Money") { def to_money = ::Money.from_amount(BigDecimal(amount), currency) }
+```
+
+**A bare decimal string** — `"12.50"` — carries no currency, so the cast has to
+supply one. Reach for this only when the API really is single-currency, and say
+so where the next reader will look:
+
+```ruby
+# single-currency API: a Money in any other currency comes back mislabelled
 GraphWeaver.register_scalar("Money", Money,
   cast: ->(v) { "Money.from_amount(BigDecimal(#{v}), \"USD\")" },
   serialize: :to_s)
@@ -127,9 +155,23 @@ is the inverse, and it's the right one of three near-identical candidates:
 it ignores your app's `default_formatting_rules` — while `#to_d` and its alias
 `#amount` hand back a `BigDecimal`, which reaches the wire as `"0.125e2"`.
 
+**Register what your cast returns, not where the factory method lives.**
+`register_scalar("URL", URI)` looks right and runs fine — `URI.parse` is a
+probe hit — but `URI` is a *module*, and Sorbet's payload for it doesn't
+`include Kernel`, so every call site that touches the prop fails `srb tc` with
+"Method `nil?` does not exist on `URI`". The value is a `URI::Generic`, so
+register that and say where it comes from:
+
+```ruby
+GraphWeaver.register_scalar("URL", URI::Generic, cast: ->(v) { "URI.parse(#{v})" })
+```
+
 The type also accepts a plain string (`"Money"`) when you'd rather not
-reference the class. `requires:` (a string or array) names files emitted as
-`require`s atop the generated source so the cast/type resolve. When the type is
+reference the class — which **skips inference entirely**, since there is no
+class in hand to probe: a string-registered type with no `cast:` of its own has
+none, and the refusal below says so rather than pretending it was probed.
+`requires:` (a string or array) names files emitted as `require`s atop the
+generated source so the cast/type resolve. When the type is
 a real class (so the runtime is loaded), each path is also `require`d at
 registration — a typo fails now, not in the generated file.
 
@@ -160,7 +202,10 @@ The prop becomes `T.nilable(T::Hash[String, T.untyped])`, so `srb tc` sees a
 Hash at every call site, and a response carrying something else is refused
 naming the struct instead of surfacing as a `NoMethodError` three layers on.
 That's a trade rather than a free win: an array the scalar allowed is now a
-hard failure — you asserted the shape, so being right about it is on you.
+hard failure — you asserted the shape, so being right about it is on you. It
+also opts that field out of `:fake` fabrication, for the same reason any
+non-stdlib type is: only you know which hashes the field really carries, so pin
+it (`overrides: { "Settings.meta" => { ... } }`).
 
 Registrations are validated against the schema you generate against, and only
 what that schema can **disprove** fails generation: a name it declares as
@@ -181,11 +226,22 @@ above — `BigDecimal`, `Time`, `Date`, `Integer`, `Float`, `String`,
 A registration whose type is a class **JSON can't parse into**, with nothing to
 build one, is refused where a query reads that scalar back: the prop would be
 unsatisfiable for every response, and finding that out at runtime is worse.
-Generation names the field:
+Generation names the field, and which of the two mistakes you made — a class
+the probes missed:
 
 ```
-register_scalar("Money", Wallet) has no cast, so nothing builds a Wallet
-out of the JSON at Product.price — give it one ...
+register_scalar("Money", Wallet) has no cast, so nothing builds a Wallet out of
+the JSON at Product.price — Wallet defines no .parse and no .load, and Kernel
+has no Wallet conversion function, so there was nothing to infer. Give it a
+cast ...
+```
+
+or a type given by name, which is never probed:
+
+```
+register_scalar("Money", "Wallet") has no cast, so nothing builds a Wallet out
+of the JSON at Product.price — a type: given by name is never probed, since
+there is no class in hand. Pass the class ...
 ```
 
 A registration used only for a variable is untouched: nothing casts it.
