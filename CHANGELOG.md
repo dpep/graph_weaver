@@ -43,6 +43,21 @@
   fails ordinary GraphQL validation gets an `errors` response rather than an
   `Unplannable`, and apollo-federation's `orphan_types`-before-`query` ordering
   trap.
+<!-- lane: transport2 -->
+- **Every transport failure now names the endpoint it failed against.**
+  `TransportError` and `ServerError` carry `#url`, say it in the message
+  (`HTTP 502: <html>… — POST https://api.example.com/graphql`) and in `#to_h` —
+  an app talking to two graphs used to get `HTTP 502` and nothing else, so every
+  investigation started with "which one". The url they name is the one the gem
+  is **willing to say**: a url's userinfo and any query parameter
+  `GraphWeaver.filter_parameters` already filters are folded to `[FILTERED]`, by
+  the same list that scrubs the variables line. That applies everywhere a
+  transport says its url — the boot line, the per-request `debug` lines,
+  `Transport#inspect`, and `payload[:url]` on `execute.graph_weaver`, i.e. your
+  APM — so `https://svc:hunter2@api.example.com/graphql?access_token=…` no
+  longer lands in a log file or a third-party trace store. `Transport#url` is
+  unchanged: it is where requests actually go, and `#safe_url` is the sayable
+  one.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's

@@ -322,6 +322,7 @@ GraphWeaver::ServerError#retry_after
 GraphWeaver::ServerError#status
 GraphWeaver::ServerError#throttled?
 GraphWeaver::ServerError#to_h
+GraphWeaver::ServerError#url
 GraphWeaver::ServerError::REDIRECTS = Array
 GraphWeaver::Testing (Module)
 GraphWeaver::Testing.cassette
@@ -474,6 +475,7 @@ GraphWeaver::Testing::VALUE_STYLES = Array
 GraphWeaver::Transport (Class)
 GraphWeaver::Transport#execute
 GraphWeaver::Transport#inspect
+GraphWeaver::Transport#safe_url
 GraphWeaver::Transport#to_s
 GraphWeaver::Transport#url
 GraphWeaver::Transport::DEFAULT_HEADERS = Hash
@@ -484,5 +486,6 @@ GraphWeaver::Transport::HTTP (Class)
 GraphWeaver::Transport::HTTP.default_pool_size
 GraphWeaver::TransportError (Class)
 GraphWeaver::TransportError#to_h
+GraphWeaver::TransportError#url
 GraphWeaver::TypeHelpers (Module)
 GraphWeaver::VERSION = String

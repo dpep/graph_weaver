@@ -136,6 +136,11 @@ out to subscribers that know none of those rules, so here the rule isn't
 "scrub it", it's that it was never there. Queries and variables stay at
 debug on the logger, where the level gates them.
 
+`:url` is the one thing on the payload that *is* scrubbed, because a url can
+itself be a credential: its userinfo, and any query parameter
+`filter_parameters` filters, are folded to `[FILTERED]` — the same list, the
+same spelling — before the payload, a log line or a `TransportError` says it.
+
 ### One line per operation
 
 In Rails the railtie also attaches `GraphWeaver::LogSubscriber`, which

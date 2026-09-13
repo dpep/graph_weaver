@@ -49,9 +49,23 @@ module GraphWeaver
   class TransportError < Error
     extend T::Sig
 
+    # The endpoint the request never reached, as it is safe to say — userinfo
+    # and secret query parameters folded out (see Internal::Endpoint). nil
+    # when there is no endpoint: a `Testing::Failure` client, a fake.
+    sig { returns(T.nilable(String)) }
+    attr_reader :url
+
+    sig { params(message: T.untyped, url: T.nilable(String)).void }
+    def initialize(message = nil, url: nil)
+      @url = url
+      super("#{message}#{" — POST #{url}" if url}")
+    end
+
     sig { override.returns(T::Hash[String, T.untyped]) }
     def to_h
-      super.merge("cause" => cause&.class&.name)
+      # url only when there is one — a fake client has no endpoint, and a key
+      # spelled nil reads as "we lost it"
+      super.merge("cause" => cause&.class&.name).merge({ "url" => url }.compact)
     end
   end
 
@@ -104,13 +118,22 @@ module GraphWeaver
     sig { returns(T::Hash[String, String]) }
     attr_reader :headers
 
-    sig { params(status: Integer, body: T.untyped, headers: T::Hash[String, String]).void }
-    def initialize(status:, body: nil, headers: {})
+    # The endpoint that answered, as it is safe to say — userinfo and secret
+    # query parameters folded out (see Internal::Endpoint). nil when there is
+    # no endpoint: an in-process schema, a `Testing::Failure` client.
+    sig { returns(T.nilable(String)) }
+    attr_reader :url
+
+    sig do
+      params(status: Integer, body: T.untyped, headers: T::Hash[String, String], url: T.nilable(String)).void
+    end
+    def initialize(status:, body: nil, headers: {}, url: nil)
       @status = status
       @body = body
+      @url = url
       @headers = T.let(GraphWeaver::Internal::Headers.wrap(headers), T::Hash[String, String])
       snippet = body.to_s.empty? ? "" : ": #{body.to_s[0, 500]}"
-      super("HTTP #{status}#{snippet}#{" — #{hint}" if hint}")
+      super("HTTP #{status}#{snippet}#{" — #{hint}" if hint}#{" — POST #{url}" if url}")
     end
 
     # What to do about this status, where the status says it. A redirect is
@@ -156,7 +179,7 @@ module GraphWeaver
     def to_h
       # the raw headers stay off the machine side — Set-Cookie and
       # friends don't belong in a log line; read #headers for those
-      super.merge("status" => status, "retry_after" => retry_after).compact
+      super.merge("status" => status, "retry_after" => retry_after, "url" => url).compact
     end
   end
 

@@ -6,6 +6,7 @@ require "sorbet-runtime"
 
 require_relative "errors"
 require_relative "internal"
+require_relative "internal/endpoint"
 require_relative "version"
 
 # Base class for the bundled network transports — Transport::HTTP
@@ -50,13 +51,21 @@ class GraphWeaver::Transport
   # dumps as provenance (see SchemaLoader.introspect)
   attr_reader :url
 
+  # The same endpoint as this gem is willing to SAY it: a url can carry a
+  # credential in its userinfo or a query parameter, and a log line, an
+  # exception and an APM payload all outlive the request. Memoized, because
+  # every request says it at least twice.
+  def safe_url
+    @safe_url ||= GraphWeaver::Internal::Endpoint.safe(url)
+  end
+
   # operation_name: names the operation to run — sent on the wire as
   # `operationName`, which is what an APM keys its traces, rate limits and
   # slow-query reports on. Generated modules pass their OPERATION_NAME;
   # a raw query string falls back to the name in the document itself.
   def execute(query, variables: {}, operation_name: nil)
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
-    payload = { url:, operation: operation_name, client: self.class }
+    payload = { url: safe_url, operation: operation_name, client: self.class }
 
     GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
       perform(query, variables, operation_name, payload)
@@ -74,7 +83,7 @@ class GraphWeaver::Transport
     # sensitive keys are scrubbed even there (GraphWeaver.filter_parameters)
     GraphWeaver::Internal::Log.log(:debug) do
       filtered = GraphWeaver::Internal::Log.variables_for_log(variables)
-      "POST #{url} #{tag} variables=#{filtered}\n#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
+      "POST #{safe_url} #{tag} variables=#{filtered}\n#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
     # camelCase because it's the graphql-over-http request field, not a
@@ -87,16 +96,16 @@ class GraphWeaver::Transport
     # headers is optional: a third-party subclass returning the
     # documented [status, body] pair simply has none
     status, body, headers = begin
-      GraphWeaver::Internal::Log.log_timed(:debug, "POST #{url} #{tag} completed") do
+      GraphWeaver::Internal::Log.log_timed(:debug, "POST #{safe_url} #{tag} completed") do
         post(encoded)
       end
     rescue *GraphWeaver.transport_errors.to_a => e
       # never got a response — DNS, connection refused/reset, TLS, timeout
-      raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
+      raise GraphWeaver::TransportError.new("#{e.class}: #{e.message}", url: safe_url)
     end
 
     payload[:http_status] = status
-    GraphWeaver::Internal::Log.log(:debug) { "HTTP #{status} #{tag} from #{url} (#{body.to_s.bytesize} bytes)" }
+    GraphWeaver::Internal::Log.log(:debug) { "HTTP #{status} #{tag} from #{safe_url} (#{body.to_s.bytesize} bytes)" }
 
     parsed = parse_body(body)
 
@@ -111,34 +120,43 @@ class GraphWeaver::Transport
       # status stays the signal
       return parsed if parsed.is_a?(Hash) && parsed["errors"].is_a?(Array) && parsed["errors"].any?
 
-      raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {})
+      raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {}, url: safe_url)
     end
 
     unless parsed.is_a?(Hash)
       # a 200 that isn't a GraphQL object — an HTML error page from a proxy, a
-      # captive portal, or a bare JSON array/string: the server misbehaved
-      raise GraphWeaver::ServerError.new(
-        status:, body: "non-GraphQL response: #{body.to_s[0, 500]}", headers: headers || {}
-      )
+      # captive portal, or a bare JSON array/string: the server misbehaved.
+      # An empty body says so rather than trailing off after the colon.
+      quoted = body.to_s.empty? ? "empty response body" : "non-GraphQL response: #{body.to_s[0, 500]}"
+      raise GraphWeaver::ServerError.new(status:, body: quoted, headers: headers || {}, url: safe_url)
     end
 
     parsed
   end
+
+  # A leading UTF-8 BOM, which RFC 8259 §8.1 lets a parser ignore and Ruby's
+  # doesn't. .NET/IIS-fronted endpoints emit one, and the three bytes that
+  # break the parse are invisible in the body an error would quote back.
+  # Compared as bytes: a net/http body arrives ASCII-8BIT, a middleware's
+  # UTF-8, and those two are never == to each other.
+  BOM = "\xEF\xBB\xBF".b
+  private_constant :BOM
 
   # the parsed body, or nil when it isn't JSON (a caller's connection may
   # already parse via middleware — pass that through)
   private def parse_body(body)
     return body unless body.is_a?(String)
 
+    body = T.must(body.byteslice(3..)) if body.byteslice(0, 3)&.b == BOM
     JSON.parse(body)
   rescue JSON::ParserError
     nil
   end
 
-  # never leak Authorization headers through logs/exceptions — a
-  # transport inspects as its class + endpoint, nothing more
+  # never leak credentials through logs/exceptions — a transport inspects as
+  # its class and the endpoint it is safe to say, nothing more
   def inspect
-    "#<#{self.class.name} url=#{url.inspect}>"
+    "#<#{self.class.name} url=#{safe_url.inspect}>"
   end
   alias to_s inspect
 

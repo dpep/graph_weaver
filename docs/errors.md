@@ -45,8 +45,8 @@ subclass says where it failed:
 
 | Class | When |
 |-------|------|
-| `TransportError` | no response came back — DNS, connection refused, TLS, timeout, a socket that died mid-body |
-| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?` |
+| `TransportError` | no response came back — DNS, connection refused, TLS, timeout, a socket that died mid-body — `#url`, `#cause` |
+| `ServerError` | reached it, non-2xx HTTP — `#status`, `#body`, `#headers`, `#retry_after`, `#throttled?`, `#url` |
 | `QueryError` | 200 body with top-level GraphQL errors — `#errors`, `#data`, `#extensions`, `#codes`, `#throttled?` |
 | `CastError` | the response wouldn't cast into the generated structs — `#struct`, `#cause` |
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#kind`, `#path`, `#coordinate`, `#value`, `#details`, `#field`, `#struct` |
@@ -90,6 +90,14 @@ not followed" and the `Location` to repoint the client at — replaying a POST,
 with its `Authorization` header, at a host the server named isn't the
 library's call. A 401 or 403 appends "check `auth:` — the token, and its
 scopes".
+
+**And both network failures name the endpoint**, in the message and on `#url`,
+because an app with more than one graph has more than one answer to "which
+server did this". The url they name is the one the gem is willing to *say*:
+userinfo, and any query parameter
+[`filter_parameters`](logging.md) already filters, are folded to `[FILTERED]`
+before it reaches a message, a log line or your APM. `Transport#url` stays the
+real endpoint; `Transport#safe_url` is the sayable one.
 
 **Everything you pass to `execute` is caller input**, so a value that won't
 convert raises `GraphWeaver::InputError` — top-level scalar variables included.

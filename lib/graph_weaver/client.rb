@@ -212,7 +212,7 @@ class GraphWeaver::Client
         GraphWeaver::Transport::HTTP.new(url, headers:, pool_size:, **timeouts)
       end
 
-    GraphWeaver::Internal::Log.log(:info) { "transport: #{transport.class} -> #{url}" }
+    GraphWeaver::Internal::Log.log(:info) { "transport: #{transport.class} -> #{transport.safe_url}" }
     transport
   end
 
