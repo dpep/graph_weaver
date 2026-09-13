@@ -171,6 +171,31 @@ describe GraphWeaver::Federation::Drift do
     expect(result.checked).to eq %w[widgets depots]
   end
 
+  # Why naming it matters: detection unions every candidate that fits a
+  # subgraph, so a console session that builds the CHANGED schema while the
+  # unmodified class is still loaded asks about both at once and reports clean.
+  it "clears a coordinate any candidate for the subgraph still declares" do
+    result = drift(DriftGraph::Widgets, DriftGraph::WidgetsStale, DriftGraph::Depots)
+
+    expect(result.to_h).to eq CLEAN
+    expect(drift(subgraphs: { "widgets" => DriftGraph::WidgetsStale, "depots" => DriftGraph::Depots })
+      .to_h["stale"]).to eq("Widget.weight" => ["widgets"])
+  end
+
+  # Drift never calls a resolver, so a subgraph published as SDL by a team that
+  # doesn't write Ruby is a first-class citizen here — which is the whole answer
+  # to "what does a non-Ruby subgraph look like to federation:diff".
+  it "compares a resolver-less schema loaded from a subgraph's own SDL" do
+    published = GraphWeaver::SchemaLoader.load(<<~SDL)
+      type Query { widget(sku: String!): Widget }
+      type Widget @key(fields: "sku") { sku: String! name: String! }
+    SDL
+
+    result = drift(DriftGraph::Depots, subgraphs: { "widgets" => published })
+
+    expect(result.to_h["stale"]).to eq("Widget.weight" => ["widgets"])
+  end
+
   it "refuses a subgraph name the supergraph doesn't have" do
     expect { drift(subgraphs: { "ledger" => DriftGraph::Depots }) }
       .to raise_error(GraphWeaver::ConfigurationError, /names ledger, which this supergraph doesn't have/)

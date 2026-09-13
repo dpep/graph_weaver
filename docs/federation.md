@@ -10,6 +10,22 @@ subgraph SDL, or a live router — and recognizes which it got.
 `SchemaLoader.load` (and `Client.new(path_or_sdl)`) accept each as an SDL file
 or an introspection dump.
 
+**Which half is yours** depends on what your app does with the graph, and most
+of them are only one:
+
+- **You call the gateway and compose nothing.** [Generating against a
+  supergraph](#generating-against-a-supergraph) and [the local
+  router](#the-local-router) are the whole document for you. Skip
+  [producing a supergraph](#producing-a-supergraph) and [has the supergraph
+  been recomposed?](#has-the-supergraph-been-recomposed) — those are the
+  composer's.
+- **You publish a subgraph.** Add [generating against a
+  subgraph](#generating-against-a-subgraph) and `federation:diff`, which is
+  what tells you your change needs a recompose.
+- **You own the supergraph.** All of it, plus [in CI](#in-ci): the checks here
+  compare an app to its own artifacts, and the pre-deploy check against the
+  live graph is `rover`'s.
+
 ## Generating for a federated graph
 
 **Queries go through the gateway?** Generate against the supergraph. It is the
@@ -153,8 +169,8 @@ A supergraph is a **superset** of the API schema: it carries elements the public
 API hides, marked `@inaccessible`. You'll meet the directive rolling out a change
 to a **shared type** — add the field to one subgraph marked `@inaccessible` so
 composition doesn't require every subgraph to have it yet, roll it out, then drop
-the directive to publish it. (Apollo contracts also pair `@tag` + `@inaccessible`
-to build filtered API variants.)
+the directive to publish it. Apollo **contracts** use the same directive the
+other way round, and get a section of their own [below](#contracts-and-variants).
 
 Loading strips every `@inaccessible` element and cascades: a
 field/argument/union-member/interface referencing a removed type goes too, and a
@@ -171,6 +187,54 @@ where `@inaccessible` stays a directive and its fields stay queryable. Directive
 that hide nothing keep their field and are ignored: `@requiresScopes` / `@policy`
 / `@authenticated` enforce at runtime, `@tag` / `@requires` / `@provides` /
 `@external` are metadata.
+
+### Contracts and variants
+
+A contract variant is a supergraph built from the same subgraphs with some
+coordinates filtered out: a subgraph marks them `@tag(name: "internal")`, and
+GraphOS builds a second supergraph where everything carrying that tag is
+`@inaccessible`. Nothing special is needed to generate against one — it is a
+supergraph, and the `@inaccessible` subtraction above is exactly what makes it
+the narrower schema its clients see:
+
+```graphql
+# reviews, the subgraph
+type User @key(fields: "id") {
+  id: ID!
+  supportTier: String! @tag(name: "internal")
+}
+```
+
+```graphql
+# the internal variant's supergraph — the tag rides along, nothing is hidden
+supportTier: String! @join__field(graph: REVIEWS)
+# the public variant's supergraph — what the contract build adds
+supportTier: String! @inaccessible @join__field(graph: REVIEWS)
+```
+
+Generate a query selecting `supportTier` against **internal** and it generates;
+against **public**, codegen refuses at the boundary —
+`QueryValidationError` naming `supportTier`, because the load subtracted the
+field before validation saw it. That is the guarantee: a client generated
+against the variant it calls cannot select something the router will reject.
+
+Two things to know, both of which bit this document into existence:
+
+- **`federation:diff` can't tell the variants apart.** It reads the routing
+  table, and `@inaccessible` is a directive the table doesn't carry, so both
+  variants report "matches the schemas here" against the same subgraphs. That
+  is the same [directive blindness](#has-the-supergraph-been-recomposed) as
+  everywhere else, not a contract-specific hole.
+- **Nothing cross-checks the variant you generated against with the endpoint
+  you call.** `verify`, `queries:check` and `generate` take the schema as
+  given; generate against internal, deploy against public, and every check
+  stays green until a live 400. Point each graph at the variant it actually
+  calls, and let the graph declaration be the single place that says so.
+
+One app calling two variants is [two graphs](getting_started.md#more-than-one-schema)
+— each with its own `schema`, `queries`, `output` and a `namespace` if any
+module name would collide. There is no contract-specific spelling; a variant is
+mechanically just another graph.
 
 ### The routing table
 
@@ -300,10 +364,45 @@ code ahead of the supergraph — the new side declaring the field with
 and its type, and only the `@override` marker, which lives in
 apollo-federation's own bookkeeping rather than in the schema this reads, says
 ownership is moving. Recompose and the report catches up; until then it is the
-one drift this check can't see. The check reads the supergraph against the
-**live Ruby classes** and never a subgraph's own SDL, so how a subgraph spells
-its directives — `@key`, `@federation__key`, or a name it imported them under —
-can't affect what it reports.
+one drift this check can't see. The check compares **schema objects**, not SDL
+text, so how a subgraph spells its directives — `@key`, `@federation__key`, or a
+name it imported them under — can't affect what it reports.
+
+**Finish an `@override` migration from the old side.** Once the new owner
+resolves the field, the original owner's copy is dead code that composition
+still reads — so deleting the *new* side's `@override` copy first doesn't remove
+the field from the graph, it hands ownership back to the subgraph you were
+migrating away from, and every check here reports clean because the coordinate
+and its type never moved. Delete the old owner's copy first; the recompose after
+that is what makes the field's removal visible at all.
+
+### Two changes every gate calls clean
+
+`federation:diff` reads coordinates and types; `queries:check` and `generate`
+read what a query *says*. Two ordinary schema changes fall between them, and on
+both, `schema:diff`'s `breaking: true` line is the only warning anyone gets —
+once, in the run that first sees it:
+
+- **A scalar swapped for one that serializes the same way.** `Widget.price`
+  going `String!` → `Currency!` is a breaking row in `schema:diff`. But a client
+  that hasn't regenerated has `const :price, String`, and a `Currency` that
+  still arrives as a JSON string — `"$19.99"` where `"19.99"` used to be —
+  satisfies that prop exactly. Sorbet asks whether it is *a* String, which it
+  is; nothing downstream of that knows the format changed, and `"$19.99".to_f`
+  is `0.0`. Regenerating is what surfaces it, and only if the client
+  [registers the scalar](scalars.md#registering-a-class-of-your-own) rather than
+  leaving it a String.
+- **An enum value removed.** `Status.ACTIVE` disappearing is a breaking row too,
+  and `queries:check` and `generate` are both clean for every query that selects
+  a `status` field without naming `ACTIVE` in the document — validation has
+  nothing to check a value against unless the value is written down. The
+  generated `T::Enum` keeps the constant and keeps deserializing it; the server
+  simply never sends it again. Harmless in itself, and a live signal that the
+  branch handling it is dead.
+
+So a supergraph owner announcing either of these should not expect a client's CI
+to notice. Deprecate first — `schema:diff` reports a deprecation's arrival, and
+that is the one place it shows up, since generated code carries no trace of it.
 
 **A supergraph is routinely only partly local**, so the report names three
 states rather than two: checked, not here (running elsewhere — or the subgraph
@@ -356,6 +455,29 @@ GraphWeaver::Federation::Drift.new(
 "supergraph" => "String!", "here" => ["ID!"]}` — and `#drift?` is what the task
 exits on. `#unplaced` sits
 outside both, being the warning above rather than drift.
+
+**`Drift` never calls a resolver**, so what it accepts in that map is wider than
+what `Testing::Router` needs. A **subgraph SDL** — `rover subgraph fetch`,
+`_service { sdl }`, whatever a non-Ruby team publishes — loads into a
+resolver-less schema that `Drift` compares like any other:
+
+```ruby
+GraphWeaver::Federation::Drift.new(
+  supergraph: "supergraph.graphql",
+  subgraphs: { "accounts" => GraphWeaver::SchemaLoader.load(File.read("accounts.graphql")) },
+).report
+```
+
+That is the real answer to "what does a Python subgraph look like to these
+tasks": to the router it is `:fake` or absent, but to `federation:diff` it is a
+fully compared citizen.
+
+**Name the schema whenever you are diffing a *proposal*.** Detection unions
+every loaded schema that fits a subgraph, so a console session that builds the
+changed SDL while the unmodified `Reviews::Schema` is still loaded reports
+clean — the real class supplies the field the proposal dropped, and both are
+candidates for "reviews". `subgraphs:` naming the one you mean is what makes
+the answer about your proposal.
 
 ## In CI
 

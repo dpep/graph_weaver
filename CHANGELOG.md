@@ -173,6 +173,24 @@
 - Docs: the request body carries no persisted-query id, so a safelist with
   `require_id` refuses it — transports.md shows the `Transport::HTTP` subclass
   that bolts APQ on today.
+- Docs: **federation.md now covers `@tag` and contract variants** — what codegen
+  says against each variant (it refuses at the boundary, which is the
+  guarantee), why `federation:diff` can't tell two variants apart, that nothing
+  cross-checks the variant you generated against with the endpoint you call, and
+  that a variant is mechanically just another `GraphWeaver.graph`.
+- Docs: two schema changes every gate calls clean — a scalar swapped for one
+  that still serializes as the same JSON kind (`String!` → `Currency!`,
+  `"19.99"` → `"$19.99"`), and an enum value removed where no query names it
+  literally. `schema:diff`'s `breaking: true` is the only signal for either.
+- Docs: finish an `@override` migration from the **old** side — deleting the new
+  owner's copy first hands the field back to the subgraph you were migrating
+  away from, and nothing reports it.
+- Docs: `Federation::Drift`'s `subgraphs:` takes a resolver-less schema from
+  `SchemaLoader.load(sdl)`, so a subgraph published as SDL by a team that
+  doesn't write Ruby is fully compared — and detection unions every candidate
+  that fits a subgraph, so diffing a *proposal* has to name it.
+- Docs: federation.md opens with a signpost saying which of its sections belong
+  to a client team, a subgraph team, and the supergraph owner.
 
 ###  v0.7.0  (2026-09-13)
 
