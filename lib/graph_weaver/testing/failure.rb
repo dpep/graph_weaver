@@ -41,24 +41,60 @@ module GraphWeaver
         FailureClient.new { raise GraphWeaver::ServerError.new(status:, body:, headers:) }
       end
 
-      # top-level GraphQL errors: strings, or hashes with message/path/
-      # extensions; data: rides along for partial-failure envelopes
-      def graphql(*errors, data: nil, extensions: {})
-        normalized = errors.flatten.map do |error|
-          error.is_a?(String) ? { "message" => error } : JSON.parse(JSON.generate(error))
+      # The wire fields an error carries, beyond its message. `code:` is the
+      # sugar fail_at: already uses — extensions.code, the one every server
+      # states. Anything else is refused by name: a swallowed keyword leaves a
+      # simulated failure that doesn't simulate what the example asked for.
+      ERROR_FIELDS = %i[code extensions path locations].freeze
+      private_constant :ERROR_FIELDS
+
+      # Top-level GraphQL errors — a **whole-response** failure unless data:
+      # rides along. Each positional is a String (just the message) or a Hash
+      # in the wire error shape; the fields of ONE error may be named beside
+      # its message instead:
+      #
+      #      Failure.graphql("boom")
+      #      Failure.graphql("boom", code: "BAD_USER_INPUT", path: ["adopt"])
+      #      Failure.graphql("min must be at least 1", code: "BAD_USER_INPUT",
+      #        extensions: { "input" => { "kind" => "out_of_range", "min" => 1 } })
+      #      Failure.graphql({ message: "a", path: ["x"] }, { message: "b" }, data: { "x" => nil })
+      def graphql(*errors, data: nil, **fields)
+        unknown = fields.keys - ERROR_FIELDS
+        unless unknown.empty?
+          raise ArgumentError, "Failure.graphql: unknown keyword(s) #{unknown.join(", ")} — " \
+            "expected data:, or #{ERROR_FIELDS.join(", ")} to shape the error"
         end
 
-        response = { "errors" => normalized }
+        errors = errors.flatten
+        unless fields.empty? || errors.one?
+          raise ArgumentError, "Failure.graphql: #{fields.keys.join(", ")} shapes one error, " \
+            "got #{errors.size} — give each its own hash"
+        end
+
+        response = { "errors" => errors.map { |error| wire_error(error, fields) } }
         response["data"] = data if data
-        response["extensions"] = JSON.parse(JSON.generate(extensions)) unless extensions.empty?
         FailureClient.new { response }
       end
+
+      # a String is its message; a Hash is the wire error as written. The
+      # kwargs merge on top, so `code:` and `extensions:` compose.
+      def wire_error(error, fields)
+        wire = error.is_a?(String) ? { "message" => error } : JSON.parse(JSON.generate(error))
+        return wire if fields.empty?
+
+        extensions = JSON.parse(JSON.generate(fields[:extensions] || {}))
+        extensions["code"] = fields[:code].to_s if fields[:code]
+        wire.merge!(JSON.parse(JSON.generate(fields.slice(:path, :locations))))
+        wire["extensions"] = (wire["extensions"] || {}).merge(extensions) unless extensions.empty?
+        wire
+      end
+      private_class_method :wire_error
 
       def throttled
         # a code from the list #throttled? recognizes, not one spelled here —
         # a fake that doesn't trip the predicate it exists to exercise is worse
-        # than no fake. (array-wrapped so the hash can't parse as kwargs)
-        graphql([{ message: "rate limited", extensions: { code: GraphWeaver::GraphQLError::THROTTLE_CODES.first } }])
+        # than no fake
+        graphql("rate limited", code: GraphWeaver::GraphQLError::THROTTLE_CODES.first)
       end
 
       # A validation-shaped rejection — trips schema_stale? and its

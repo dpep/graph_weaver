@@ -500,7 +500,7 @@ PersonQuery.execute(client: Failure.transport, id: "1")            # raises Tran
 PersonQuery.execute(client: Failure.server(status: 502), id: "1")  # raises ServerError
 PersonQuery.execute(client: Failure.throttled, id: "1")            # errors.first.code => "THROTTLED"
 PersonQuery.execute(client: Failure.stale_schema, id: "1")         # schema_stale? => true
-PersonQuery.execute(client: Failure.graphql("boom"), id: "1")      # partial failure
+PersonQuery.execute(client: Failure.graphql("boom"), id: "1")      # errors, and no data
 
 # a throttling server, with the header a backoff reads
 PersonQuery.execute(client: Failure.server(status: 429, headers: { "retry-after" => "2" }), id: "1")
@@ -515,8 +515,35 @@ GraphWeaver::Testing::Sequence.new(Failure.transport, Failure.transport, fake)
 GraphWeaver::Testing::FakeClient.new(schema:, corrupt: "Person.birthday")
 
 # field-level partial failure with real GraphQL null propagation: the error
-# lands with its concrete path and nulls bubble to the nearest nullable spot
+# lands with its concrete path and nulls bubble to the nearest nullable spot.
+# The path is response keys joined by dots, and a list index is a segment of
+# its own — state only the indices you mean, the rest match any position
 GraphWeaver::Testing::FakeClient.new(schema:, fail_at: { path: "person.email", code: "PRIVATE" })
+GraphWeaver::Testing::FakeClient.new(schema:, fail_at: "people.2.pets.name")
+```
+
+`Failure.graphql` is the **whole response** failing — `data` is null unless you
+pass `data:`, which is what makes it a partial one. Shape the error by naming
+its wire fields beside the message (`code:`, `extensions:`, `path:`,
+`locations:` — anything else is refused rather than swallowed), so a rejection
+that follows the [`extensions.input`
+convention](errors.md#what-your-server-can-send) is one call:
+
+```ruby
+# a plain code, the coarse bucket every server states
+Failure.graphql("that input was bad", code: "BAD_USER_INPUT")
+
+# the convention: response.input_errors reads this back as one InputError,
+# kind :out_of_range, details { min: 1 }, on path ["input", "min"]
+Failure.graphql(
+  "min must be at least 1",
+  code: "BAD_USER_INPUT",
+  extensions: { "input" => { "kind" => "out_of_range", "path" => ["input", "min"],
+                             "coordinate" => "RangeInput.min", "value" => 0, "min" => 1 } },
+)
+
+# several errors, and partial data: each carries its own hash
+Failure.graphql({ message: "boom", path: ["person"] }, "and again", data: { "person" => nil })
 ```
 
 ## Capture and replay

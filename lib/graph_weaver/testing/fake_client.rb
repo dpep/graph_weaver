@@ -70,6 +70,11 @@ require_relative "../parsing"
 #      FakeClient.new(schema:, fail_at: "person.pets.name")
 #      FakeClient.new(schema:, fail_at: { path: "person.email", message: "hidden", code: "PRIVATE" })
 #
+# The path is response keys joined by dots, and a list index is a segment
+# of its own — "people.0.pets.1.name". State only the indices you mean;
+# the rest match any position, so "people.pets.name" fails the first
+# element the walk reaches.
+#
 # errors: appends verbatim top-level errors alongside the fake data.
 #
 # Type mismatches: corrupt: names fields ("Type.field") that should
@@ -308,7 +313,37 @@ class GraphWeaver::Testing::FakeClient
   end
 
   def normalize_fail_spec(spec)
-    spec.is_a?(String) ? { "path" => spec } : JSON.parse(JSON.generate(spec))
+    normalized = spec.is_a?(String) ? { "path" => spec } : JSON.parse(JSON.generate(spec))
+    normalized["chain"] = fail_chain(normalized["path"])
+    normalized
+  end
+
+  # A fail_at path as (field, indices) pairs: "people.0.pets.name" is people
+  # at index 0, then pets at any index, then name. An index you state has to
+  # match; one you leave out matches every position, so the plain
+  # "people.pets.name" fails the first element the walk reaches — which is
+  # what it has always done. Silently ignoring an index was the alternative,
+  # and a fail_at that never fires looks exactly like a passing test.
+  def fail_chain(path)
+    unless path.is_a?(String) && !path.empty?
+      raise ArgumentError, "fail_at: expected a response path like \"person.email\", got #{path.inspect}"
+    end
+
+    segments = path.split(".").map { |segment| segment.match?(/\A\d+\z/) ? Integer(segment) : segment }
+    if segments.first.is_a?(Integer)
+      raise ArgumentError, "fail_at: #{path.inspect} starts with a list index — a path starts with a field"
+    end
+
+    path_chain(segments)
+  end
+
+  # the shared fold: a fail_at path and the walk's own @path become the same
+  # shape, so one comparison serves both
+  def path_chain(segments)
+    segments.each_with_object([]) do |segment, chain|
+      field = chain.last
+      field && segment.is_a?(Integer) ? field.last << segment : chain << [segment, []]
+    end
   end
 
   # pins: the response keys an override pinned at this object, merged in as
@@ -516,11 +551,18 @@ class GraphWeaver::Testing::FakeClient
     end
   end
 
-  # first untriggered fail_at spec whose field chain (indices stripped)
-  # matches where we are
+  # first untriggered fail_at spec whose chain matches where we are
   def matching_failure
-    chain = @path.reject { |segment| segment.is_a?(Integer) }.join(".")
-    @fail_at.find { |spec| !spec["triggered"] && spec["path"] == chain }
+    here = path_chain(@path)
+    @fail_at.find { |spec| !spec["triggered"] && at?(spec["chain"], here) }
+  end
+
+  def at?(chain, here)
+    return false unless chain.size == here.size
+
+    chain.zip(here).all? do |(field, indices), (at, positions)|
+      field == at && indices.each_with_index.all? { |index, depth| positions[depth] == index }
+    end
   end
 
   # honor pagination-ish arg semantics: first/last/limit caps the fabricated

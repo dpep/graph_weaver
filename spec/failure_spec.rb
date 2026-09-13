@@ -53,6 +53,35 @@ describe "failure simulation" do
       end
     end
 
+    # Two juniors independently went looking for how to attach a code to a
+    # simulated rejection: `extensions:` beside the message was swallowed (it
+    # meant the RESPONSE's extensions), and `code:` was a bare "unknown
+    # keyword". The kwargs shape one error now, and the hash form still holds
+    # several.
+    it "shapes one error from the keywords beside its message" do
+      executor = failure.graphql(
+        "min must be at least 1",
+        code: "BAD_USER_INPUT", path: ["adopt"],
+        extensions: { "input" => { "kind" => "out_of_range", "min" => 1 } },
+      )
+
+      response = PersonQuery.execute(client: executor, id: "1")
+      error = response.errors.first
+
+      expect(error.code).to eq "BAD_USER_INPUT"
+      expect(error.path).to eq ["adopt"]
+      expect(response.input_errors.map(&:kind)).to eq [:out_of_range]
+      expect(response.input_errors.first.details).to eq({ min: 1 })
+    end
+
+    it "refuses a keyword it would otherwise swallow" do
+      expect { failure.graphql("boom", extenzions: { code: "X" }) }
+        .to raise_error(ArgumentError, /unknown keyword\(s\) extenzions.*expected data:/)
+
+      expect { failure.graphql("a", "b", code: "X") }
+        .to raise_error(ArgumentError, /shapes one error, got 2/)
+    end
+
     it "simulates throttling and schema staleness" do
       throttled = PersonQuery.execute(client: failure.throttled, id: "1")
       expect(throttled).to have_graphql_error(code: "THROTTLED")
@@ -188,6 +217,23 @@ describe "failure simulation" do
       expect(pets.dig("data", "pets").size).to eq 3
       expect(pets.dig("data", "pets").count(nil)).to eq 1
       expect(pets.dig("errors", 0, "path")).to eq ["pets", 0, "name"]
+    end
+
+    # an index in the path used to match nothing at all — no error, no
+    # failure, a green test that exercised none of what it named
+    it "fail_at takes a list index, and refuses one it can't place" do
+      schema = GraphQL::Schema.from_definition("type Query { pets: [Pet] } type Pet { name: String! }")
+      fake = GraphWeaver::Testing::FakeClient.new(schema:, seed: 1, list_size: 3, fail_at: "pets.2.name")
+
+      pets = fake.execute("{ pets { name } }")
+
+      expect(pets.dig("data", "pets").each_index.reject { |i| pets.dig("data", "pets", i) }).to eq [2]
+      expect(pets.dig("errors", 0, "path")).to eq ["pets", 2, "name"]
+
+      expect { GraphWeaver::Testing::FakeClient.new(schema:, fail_at: "0.pets") }
+        .to raise_error(ArgumentError, /starts with a list index/)
+      expect { GraphWeaver::Testing::FakeClient.new(schema:, fail_at: { path: ["pets"] }) }
+        .to raise_error(ArgumentError, /expected a response path/)
     end
 
     it "fail_at bubbles past non-null positions to the nearest nullable ancestor" do
