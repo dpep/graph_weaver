@@ -311,6 +311,49 @@ describe GraphWeaver::Client do
     end
   end
 
+  # A bare graphql-ruby schema class satisfies the execute contract on its own,
+  # so it sat in the client slot instrumented by nothing at all — no APM event,
+  # no log line, not even at debug — while GraphWeaver.new(Schema) around the
+  # same class had both. `client "Billing::Schema"` in a graph block is the
+  # documented spelling that landed there.
+  describe "a bare graphql-ruby schema class in the client slot" do
+    let(:mod) { GraphWeaver.parse(schema: Demo::Schema, query: "query Who { person(id: 1) { name } }") }
+
+    after { GraphWeaver.client = nil }
+
+    def events_for
+      events = []
+      GraphWeaver.instrumenter = ->(event, payload, &block) { events << [event, payload]; block.call }
+      yield
+      events
+    ensure
+      GraphWeaver.instrumenter = nil
+    end
+
+    it "instruments it the way GraphWeaver.new(Schema) does, in every client slot" do
+      per_call = events_for { expect(mod.execute!(client: Demo::Schema).person&.name).to eq "Daniel" }
+      expect(per_call.map(&:first)).to eq [GraphWeaver::EXECUTE_EVENT]
+      expect(per_call.first.last[:schema]).to eq "Demo::Schema"
+
+      mod.client = Demo::Schema
+      expect(events_for { mod.execute! }.size).to eq 1
+      mod.client = nil
+
+      GraphWeaver.client = Demo::Schema
+      expect(events_for { mod.execute! }.size).to eq 1
+    end
+
+    it "logs it the way GraphWeaver.new(Schema) does" do
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: :debug)
+      mod.execute!(client: Demo::Schema)
+
+      expect(io.string).to include "in-process Demo::Schema"
+    ensure
+      GraphWeaver.logger = nil
+    end
+  end
+
   describe "schema caching" do
     it "memoizes, and honors cache: on disk" do
       Dir.mktmpdir do |dir|

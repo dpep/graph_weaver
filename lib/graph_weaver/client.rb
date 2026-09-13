@@ -94,6 +94,27 @@ class GraphWeaver::Client
     @schema_lock = Mutex.new
   end
 
+  # Called by generated code — not semver'd for direct use.
+  #
+  # What actually runs a request, for anything in a client slot. A bare
+  # graphql-ruby schema class satisfies the execute contract on its own, so
+  # `client "Billing::Schema"`, `GraphWeaver.client = MyApp::Schema` and
+  # `execute!(client: MyApp::Schema)` all worked — and every one of them ran
+  # with no instrumentation seam at all: Schema.execute is not ours to
+  # bracket, so there was no APM event and no log line, not even at debug.
+  # One rule, applied wherever a client is read: a schema class gets the same
+  # InProcess wrapper GraphWeaver.new(Schema) builds. Everything else — a
+  # Client, a transport, a Retry, a fake — passes through untouched.
+  #
+  # Not memoized: the wrapper is two ivars beside a whole GraphQL execution,
+  # and in dev the class object is replaced on reload, so anything held onto
+  # would be the stale one.
+  def self.instrumented(client)
+    return client unless client.is_a?(Class) && client <= GraphQL::Schema
+
+    GraphWeaver::InProcess.new(client)
+  end
+
   # The transport queries run through: a url-built transport, an
   # explicit transport:, or the live schema class executing in-process.
   # Clients are self-contained — the app default never leaks in; nil for

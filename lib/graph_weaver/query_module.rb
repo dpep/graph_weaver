@@ -58,10 +58,11 @@ module GraphWeaver
     # The client one execute runs through: the per-call `client:`, else the
     # module's, else the app default. Checked here so a wrong one names the
     # contract and the module, rather than surfacing as a NoMethodError from
-    # inside the call.
+    # inside the call — and put through Client.instrumented, the one place a
+    # bare schema class gets the seam it has no way to carry itself.
     sig { params(override: T.untyped).returns(T.untyped) }
     def client_for(override)
-      target = override || client
+      target = GraphWeaver::Client.instrumented(override || client)
       return target if target.respond_to?(:execute)
 
       # Kernel.raise: this module is extended into another, so sorbet can't

@@ -125,6 +125,17 @@
   the source just given); delete it and re-run to re-introspect, or
   `rake graph_weaver:schema:refresh` to re-fetch in place.
 
+<!-- lane: host3 -->
+- **A bare graphql-ruby schema class in a client slot is instrumented like
+  every other client.** `client "Billing::Schema"` in a graph block,
+  `GraphWeaver.client = MyApp::Schema` and `execute!(client: MyApp::Schema)`
+  all ran with no seam at all — no APM event, no log line, not even at debug —
+  while `GraphWeaver.new(MyApp::Schema)` around the same class had both. So the
+  in-process half of a multi-graph app was invisible on the dashboard, and
+  turning the logger up showed it as a graph that never ran. A schema class is
+  now put through the same `InProcess` wrapper `GraphWeaver.new(Schema)` builds,
+  wherever a client is read. ([logging](docs/logging.md))
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
