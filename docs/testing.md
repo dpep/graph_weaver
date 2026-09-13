@@ -497,6 +497,7 @@ without a server that misbehaves on cue:
 Failure = GraphWeaver::Testing::Failure
 
 PersonQuery.execute(client: Failure.transport, id: "1")            # raises TransportError
+PersonQuery.execute(client: Failure.timeout, id: "1")               # raises TransportError, cause Net::ReadTimeout
 PersonQuery.execute(client: Failure.server(status: 502), id: "1")  # raises ServerError
 PersonQuery.execute(client: Failure.throttled, id: "1")            # errors.first.code => "THROTTLED"
 PersonQuery.execute(client: Failure.stale_schema, id: "1")         # schema_stale? => true

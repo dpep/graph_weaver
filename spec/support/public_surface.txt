@@ -403,6 +403,7 @@ GraphWeaver::Testing::Failure.graphql
 GraphWeaver::Testing::Failure.server
 GraphWeaver::Testing::Failure.stale_schema
 GraphWeaver::Testing::Failure.throttled
+GraphWeaver::Testing::Failure.timeout
 GraphWeaver::Testing::Failure.transport
 GraphWeaver::Testing::FailureClient (Class)
 GraphWeaver::Testing::FailureClient#execute

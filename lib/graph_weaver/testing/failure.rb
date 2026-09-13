@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "net/http" # Net::ReadTimeout, the shape a real read timeout arrives in
 
 module GraphWeaver
   module Testing
@@ -10,6 +11,7 @@ module GraphWeaver
     # server that misbehaves on cue:
     #
     #      PersonQuery.execute(client: Failure.transport, id: "1")   # TransportError
+    #      PersonQuery.execute(client: Failure.timeout, id: "1")      # TransportError, read timeout
     #      PersonQuery.execute(client: Failure.server(status: 502), id: "1")
     #      PersonQuery.execute(client: Failure.throttled, id: "1")    # QueryError, code THROTTLED
     #      PersonQuery.execute(client: Failure.stale_schema, id: "1") # schema_stale? => true
@@ -25,12 +27,31 @@ module GraphWeaver
       # the request never reaches the server — cause preserved, and the
       # message shaped as the bundled transports shape it
       def transport(message = "simulated network failure", cause: SocketError)
+        network_failure(cause, message)
+      end
+
+      # The request went out and no answer came back in time — net/http's own
+      # Net::ReadTimeout as #cause, so a spec says "it timed out" without
+      # naming net/http's classes. Retriable, but a read timeout says nothing
+      # about whether the server applied the request, which is why Retry gives
+      # a mutation one attempt.
+      def timeout(message = "simulated read timeout")
+        network_failure(Net::ReadTimeout, message)
+      end
+
+      # What Transport does with a network-level failure: a TransportError
+      # reading "Class: detail", the original preserved as #cause. The detail
+      # is passed rather than read off the exception — Net::ReadTimeout's own
+      # initialize takes the socket it gave up on, not a message, so a string
+      # handed to `raise` lands in quotes where the socket goes.
+      def network_failure(cause, message)
         FailureClient.new do
-          raise cause, message
+          raise cause
         rescue cause => e
-          raise GraphWeaver::TransportError, "#{e.class}: #{e.message}"
+          raise GraphWeaver::TransportError, "#{e.class}: #{message}"
         end
       end
+      private_class_method :network_failure
 
       # The server answered non-2xx. headers: is where the answer to "wait,
       # then" lives — ServerError#retry_after and #throttled? read it, so a

@@ -19,6 +19,19 @@ describe "failure simulation" do
       end
     end
 
+    # "the request timed out" is the everyday one, and spelling it meant
+    # naming net/http's own class in an app that may not even use net/http
+    it "simulates a read timeout, in the shape a real one arrives in" do
+      expect {
+        PersonQuery.execute(client: failure.timeout, id: "1")
+      }.to raise_error(GraphWeaver::TransportError) do |e|
+        expect(e.cause).to be_a Net::ReadTimeout
+        # registered as a transport error, so a Retry sees it as retriable
+        expect(GraphWeaver.transport_errors).to include Timeout::Error
+        expect(e.message).to eq "Net::ReadTimeout: simulated read timeout"
+      end
+    end
+
     it "simulates non-2xx responses" do
       expect {
         PersonQuery.execute(client: failure.server(status: 502, body: "bad gateway"), id: "1")

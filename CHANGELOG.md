@@ -1,3 +1,65 @@
+###  Unreleased
+
+<!-- lane: junior4 -->
+- **`InputError`'s structured half is spelled the way the schema is.**
+  `#path`, `#field` and `#coordinate` are wire names — `["input", "issuedOn"]`,
+  `"externalId"` — whichever side refused. It could not honestly be otherwise:
+  a server can produce no spelling but its own, so a client-side refusal that
+  used the prop made `errors[e.field]` silently miss every server-detected
+  error, which is what a real Rails form did. The **prop** is what you type in
+  Ruby, and `#message` — the developer's line — names it (`external_id:
+  expected an Int`), so a form is `errors.add(e.field.underscore, …)` and
+  nothing else. An **unknown key** names no field, so the path echoes it
+  exactly as you wrote it and `details[:suggestion]` is the prop to type
+  instead. `filter_parameters` still judges by the prop, since that list is
+  written in Ruby spelling and `api_key` has to keep matching what `apiKey`
+  holds. (This supersedes the reserved-name note that `#path` uses `class_`: a
+  field named `class` generates the prop `class_` and reports `#path`
+  `["class"]`.)
+- **`#details`' format key is `:pattern`.** `:format` is one of
+  `I18n::RESERVED_KEYS`, so [i18n](docs/i18n.md)'s own recipe —
+  `I18n.t(key, field:, value:, **details, default:)` — raised
+  `I18n::ReservedInterpolationKey` the moment an `:invalid_format` error
+  reached it, which is the page's headline kind. A pattern is what a format
+  rule states (a `format:` in `validates:` takes one), and a spec holds
+  `InputError::DETAILS` disjoint from `I18n::RESERVED_KEYS` so the next detail
+  key can't reintroduce the collision. A server stating `extensions.input`
+  sends `"pattern"`, not `"format"`.
+- **`#details[:type]` is the GraphQL type, never a Ruby class.** A String where
+  an input object belongs said `"GraphQLTypes::PokemonV2TypeBoolExp"`, and a
+  `register_scalar("Money", BigDecimal)` field said `"BigDecimal"` — both
+  rendered straight into `"%{field} must be a %{type}."` on somebody's form.
+  Generated input structs now carry the schema's name for themselves and every
+  `Coerce` rule is told the scalar's, so a Money refuses as a `Money` and a
+  `register_scalar("UUID", String)` field as a `UUID`. The messages still name
+  the Ruby you may pass, which is the developer's half. One gap left: the
+  sorbet fallback for a field no coercer covers still reports its Ruby type
+  (`metadata: expected T::Hash[…]`), which needs the field's GraphQL type
+  threaded through codegen's node tree.
+- **The testing fakes refuse rather than silently do nothing.**
+  `fail_at: "pets.0.name"` matched nothing at all — indices were stripped
+  before comparing — so a spec named a list element, injected no failure, and
+  passed. An index is a path segment like any other now: state the ones you
+  mean and the rest match any position, so the plain `"pets.name"` still fails
+  the first element the walk reaches; a path that starts with an index, or
+  isn't a String, is refused. `Failure.graphql("boom", extensions: {…})` put
+  the extensions on the **response**, so the error carried none, and `code:`
+  was a bare "unknown keyword" — the keywords beside a message now shape that
+  error (`code:`, `extensions:`, `path:`, `locations:`), the hash form still
+  holds several, and anything else is refused by name. The response's own
+  `extensions:` went with them; `FakeClient` is where a whole response is
+  shaped. And **`Failure.timeout`** joins `.transport`/`.server`: a
+  `TransportError` whose `#cause` is net/http's `Net::ReadTimeout`, so a spec
+  says "it timed out" without naming net/http's classes.
+- **Docs.** [scalars](docs/scalars.md) says which cross-type values are refused
+  (Ruby **objects** — a timestamp *string* for a `Date` parses and truncates,
+  as graphql-ruby's own `ISO8601Date` does) and when a server's custom scalar
+  earns a `kind` rather than `:refused`. [errors](docs/errors.md) and
+  [i18n](docs/i18n.md) say which spelling a path is in and how it maps to a
+  form field. [testing](docs/testing.md) gains `fail_at`'s path syntax and an
+  `extensions.input` example, and loses the "partial failure" label on a call
+  that fails the whole response.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
