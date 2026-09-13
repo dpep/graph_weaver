@@ -25,11 +25,24 @@ describe "round trip" do
     }
   GRAPHQL
 
+  # The reserved-name rename has nothing else here that exercises it: no schema
+  # above, and no real schema in the repo, has a field whose prop would shadow a
+  # method — so every oracle in this file would agree with a codegen that never
+  # renamed anything. Both halves matter: `class` is a result key AND an input
+  # field, and only the input side can lose a value through the wire name.
+  ROUND_TRIP_RESERVED = GraphQL::Schema.from_definition(<<~GRAPHQL)
+    input RowFilter { class: String, hash: Int, display: Boolean, to_json: String, each: [String!], nested: RowFilter }
+    type Row { id: ID! class: String hash: Int display: Boolean to_json: String each: [String!] nested: Row }
+    type Query { row(filter: RowFilter): Row rows(filter: RowFilter): [Row!] }
+    type Mutation { save(input: RowFilter!): Row }
+  GRAPHQL
+
   ROUND_TRIP_SCHEMAS = {
     "Demo" => Demo::Schema,                      # enums, a union, an interface, a custom + an unregistered scalar
     "Products" => RouterGraph::Products::Schema, # an interface whose members differ
     "Reviews" => RouterGraph::Reviews::Schema,   # unions whose members cross subgraphs
     "Lists" => ROUND_TRIP_LISTS,                 # lists of leaves, a list of lists, lists inside an input
+    "Reserved" => ROUND_TRIP_RESERVED,           # fields whose props take a trailing underscore
   }.freeze
 
   # Shapes worth holding onto by name: each one is a bug this suite has seen,
@@ -88,7 +101,7 @@ describe "round trip" do
 
         generated += 1
         trip = RoundTrip.check(schema:, query:, name: "Case#{i}", rng:)
-        checked += 1 unless trip.refused
+        checked += 1 if trip.checked?
         failures.concat(trip.failures.map { |failure| report(failure, trip, seed) })
       end
 
@@ -141,7 +154,7 @@ describe "round trip" do
         rng = Random.new(seed)
         field, mutation = fields[seed % fields.size]
         trip = RoundTrip.check_hostile_input(schema:, field:, mutation:, name: "HostileInput#{i}", rng:)
-        checked += 1 unless trip.refused
+        checked += 1 if trip.checked?
         trip.failures.map { |failure| report(failure, trip, seed) }
       end
 

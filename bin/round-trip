@@ -72,14 +72,14 @@ schemas =
 # a failure's shape, not its values, is what makes two of them the same bug
 def bucket_key(failure) = failure.detail.to_s.gsub(/\d+/, "N")[0, 120]
 
-total = { trips: 0, refused: 0, skipped: 0, failures: 0 }
+total = { trips: 0, refused: 0, barren: 0, skipped: 0, failures: 0 }
 buckets = Hash.new { |hash, key| hash[key] = [] }
 
 schemas.each do |label, schema|
   GraphWeaver::Codegen.reset_registrations!
   register_scalars!(schema)
 
-  trips = refused = skipped = 0
+  trips = refused = barren = skipped = 0
   queries =
     if options[:queries]
       Dir[File.join(options[:queries], "**/*.graphql")].sort.flat_map { |f| [File.read(f)] * options[:draws] }
@@ -105,6 +105,7 @@ schemas.each do |label, schema|
       else
         RoundTrip.check(schema:, query:, name: "Case#{i}", rng:)
       end
+    next barren += 1 if trip.barren
     next refused += 1 if trip.refused
 
     trips += 1
@@ -127,6 +128,7 @@ schemas.each do |label, schema|
       else
         RoundTrip.check_input(schema:, field:, mutation:, name: "Input#{i}", rng: Random.new(seed))
       end
+    next barren += 1 if trip.barren
     next refused += 1 if trip.refused
 
     inputs += 1
@@ -134,9 +136,10 @@ schemas.each do |label, schema|
   end
 
   puts "#{label}: #{trips} response round trips, #{inputs} input round trips " \
-    "(#{skipped} undraftable, #{refused} refused by codegen)"
+    "(#{skipped} undraftable, #{barren} nothing to exercise, #{refused} refused by codegen)"
   total[:trips] += trips + inputs
   total[:refused] += refused
+  total[:barren] += barren
   total[:skipped] += skipped
 end
 

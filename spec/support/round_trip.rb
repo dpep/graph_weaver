@@ -193,7 +193,7 @@ module RoundTrip
     # See docs/scalars.md, which this table is the executable half of.
     LEGAL = {
       # a JSON string: empty, unicode, and control characters all included
-      "String" => ["wire", "", "héllo ☃", "line\nbreak", " ", ->(r) { "s#{r.rand(1000)}" }],
+      "String" => ["wire", "", "héllo ☃", "line\nbreak", "\0", ->(r) { "s#{r.rand(1000)}" }],
       # spec: ID serializes as a String, whatever the server stores
       "ID" => ["1", "", "gid://app/User/1", ->(r) { "s#{r.rand(1000)}" }],
       # spec: Int is a signed 32-bit integer, so a JSON integer — never 1.0.
@@ -434,6 +434,8 @@ module RoundTrip
     private
 
     def input_object(type, depth)
+      return one_of_object(type, depth) if type.one_of?
+
       ruby = {}
       wire = {}
       type.arguments.each_value do |argument|
@@ -445,10 +447,23 @@ module RoundTrip
 
           r, w = build!(argument.type.of_type, depth - 1)
         end
-        ruby[GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym] = r
+        ruby[GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym] = r
         wire[argument.graphql_name] = w
       end
       [ruby, wire]
+    end
+
+    # @oneOf means exactly one field, non-null. A draw that nulls or omits its
+    # way out is illegal input, not a round trip the generated code could lose
+    # anything on — so pick the one field here rather than have the runtime
+    # refuse a variable the schema never permitted.
+    def one_of_object(type, depth)
+      argument = type.arguments.values.sample(random: @rng)
+      inner = argument.type
+      inner = inner.of_type if inner.kind.name == "NON_NULL"
+      r, w = build!(inner, depth - 1)
+      [{ GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym => r },
+       { argument.graphql_name => w }]
     end
 
     # Some draws hand execute the value as an app actually has it — a String
@@ -497,9 +512,15 @@ module RoundTrip
     end
   end
 
-  # One round trip. `refused` means codegen declined the query up front (a
-  # documented refusal, not a defect); `failures` is empty on a clean trip.
-  Trip = Struct.new(:query, :wire, :result, :failures, :refused, keyword_init: true)
+  # One round trip. `failures` is empty on a clean trip. Two ways a trip can
+  # check nothing, and they are not the same news: `refused` means codegen
+  # declined the query up front (a documented refusal, not a defect), while
+  # `barren` means the draw had nothing to exercise — no leaf to spoil, no
+  # argument to corrupt. Counting them together blames codegen for the shape
+  # of the schema, so ask #checked? rather than either field.
+  Trip = Struct.new(:query, :wire, :result, :failures, :refused, :barren, keyword_init: true) do
+    def checked? = refused.nil? && barren.nil?
+  end
 
   class << self
     # Generate, build a legal response, deserialize it, and check the values
@@ -546,7 +567,7 @@ module RoundTrip
         pool = Responder.illegal(type_name)
         [path, pool] if pool
       end
-      return Trip.new(query:, failures: [], refused: "no spoilable leaf") if targets.empty?
+      return Trip.new(query:, failures: [], barren: "no spoilable leaf") if targets.empty?
 
       path, pool = targets.sample(random: rng)
       spoiled = pool.sample(random: rng)
@@ -603,7 +624,7 @@ module RoundTrip
       return draft if draft.is_a?(Trip)
 
       targets = draft.arguments.flat_map do |argument|
-        prop = GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym
+        prop = GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym
         next [] unless draft.kwargs.key?(prop)
 
         # a variable default makes the kwarg optional, so a nil there means
@@ -612,7 +633,7 @@ module RoundTrip
         type = type.of_type if draft.defaults[argument.graphql_name] && type.kind.name == "NON_NULL"
         corruptible(draft.kwargs[prop], type).map { |path, pool| [argument.graphql_name, prop, path, pool] }
       end
-      return Trip.new(query: draft.query, failures: [], refused: "no corruptible leaf") if targets.empty?
+      return Trip.new(query: draft.query, failures: [], barren: "no corruptible leaf") if targets.empty?
 
       root, prop, path, pool = targets.sample(random: rng)
       spoiled, kind = pool.sample(random: rng)
@@ -644,7 +665,7 @@ module RoundTrip
         end
 
         wire.flat_map do |key, value|
-          prop = GraphWeaver::Inflect.underscore(key).to_sym
+          prop = GraphWeaver::Codegen.prop_name(key).to_sym
           unless object.class.props.key?(prop)
             next [Failure.new(kind: "unmapped", path: path + [key],
               detail: "#{object.class} has no prop for a key the server sent")]
@@ -674,13 +695,13 @@ module RoundTrip
 
     def draft_input(schema:, field:, mutation:, name:, rng:)
       arguments = field.arguments.each_value.to_a
-      return Trip.new(failures: [], refused: "no arguments") if arguments.empty?
+      return Trip.new(failures: [], barren: "no arguments") if arguments.empty?
 
       inputs = Inputs.new(schema, rng)
       # a variable default makes the kwarg optional even where the type is non-null
       defaults = arguments.to_h { |a| [a.graphql_name, rng.rand < 0.4 ? default_literal(a.type) : nil] }
       query = variable_query(schema, field, arguments, defaults, mutation:)
-      return Trip.new(query:, failures: [], refused: "invalid draft") unless schema.validate(query).empty?
+      return Trip.new(query:, failures: [], barren: "invalid draft") unless schema.validate(query).empty?
 
       mod =
         begin
@@ -697,7 +718,7 @@ module RoundTrip
         next if wire == :omit && !required
 
         ruby, wire = inputs.build!(argument.type.of_type) if wire == :omit
-        kwargs[GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym] = ruby
+        kwargs[GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym] = ruby
         expected[argument.graphql_name] = wire
       end
 
@@ -740,7 +761,7 @@ module RoundTrip
       return unless value.is_a?(Hash)
 
       type.arguments.each_value do |argument|
-        key = GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym
+        key = GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym
         next unless value.key?(key)
 
         corruptible(value[key], argument.type, path + [key], out, in_object: true)
@@ -823,7 +844,7 @@ module RoundTrip
       # the response key, or the prop it generates — sorbet's complaints name
       # the latter
       key = path.reverse.find { |step| step.is_a?(String) }
-      named = [key, GraphWeaver::Inflect.underscore(key)].any? { |n| e.message.include?(n) }
+      named = [key, GraphWeaver::Codegen.prop_name(key)].any? { |n| e.message.include?(n) }
       named ? [] : [Failure.new(kind: "unattributed", path:, detail: "refused #{at} without naming it: #{e.message}")]
     rescue StandardError => e
       [Failure.new(kind: "unbranded", path:, detail: "#{e.class} (not GraphWeaver::CastError) for #{at}: #{e.message}")]
