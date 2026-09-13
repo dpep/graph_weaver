@@ -31,6 +31,17 @@ to refresh. A *request* with no recording raises
 `GraphWeaver::Testing::MissingRecording`, naming the variables it was called
 with and the ones recorded for that same query — what usually differs.
 
+**One entry per request.** The request key is the query, its variables and the
+operation name together, and a cassette holds one entry per key: re-recording a
+request *replaces* its entry, and a request the file hasn't seen appends one. So
+however often `GRAPHWEAVER_RECORD=1` runs, no cassette ends up with two entries
+for the same request.
+
+Editing a query changes the key, so the re-record writes a new entry and the old
+one stays behind — a recording of a request nothing sends any more.
+`cassettes:check` counts those ("1 not sent by any query module", below); the
+way to clear them is to delete the cassette and record it afresh.
+
 ## Has a recording gone stale?
 
 A cassette is the one artifact here recorded from *someone else's* server, and

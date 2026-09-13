@@ -45,7 +45,7 @@ initializer that fits:
 | flag | |
 |---|---|
 | `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`. Url only, and omitted entirely for a public API that needs no token. The name is recorded into the dump, so `schema:refresh`/`schema:diff`/`queries:check` read the same one the initializer does |
-| `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh URL=...` does it later |
+| `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh` does it later (`URL=...` to name an endpoint the first time) |
 
 Re-running is safe — every file it writes goes through the usual Rails
 conflict prompt, so an initializer you've edited is never overwritten
@@ -243,11 +243,56 @@ schema: which graphs are configured, and where each generates.)
 
 `verify` compares the committed generated files against what the current
 schema + queries + registrations would produce, so it belongs in every CI
-build. `schema:diff` needs a dump with a recorded source url (introspected
-dumps have one) and `GRAPHWEAVER_AUTH` for private APIs — run it on a
-schedule and repair with `rake graph_weaver:schema:refresh`.
-`federation:diff` needs no network either, so it goes in the same PR run;
+build. `schema:diff` asks whatever the dump came from — a recorded source url
+(with `GRAPHWEAVER_AUTH` for private APIs), or your own schema class when the
+app [serves the schema itself](#your-apps-own-schema-in-process) — and
+`rake graph_weaver:schema:refresh` is the repair either way.
+`federation:diff` needs no network, so it goes in the same PR run;
 see [federation](federation.md#has-the-supergraph-been-recomposed).
+
+Every one of them exits non-zero on a finding, so the gate is a chain. The two
+topologies differ only in what reaches a network:
+
+```sh
+# an API you don't own — the dump records the url it was introspected from
+bundle exec rake graph_weaver:verify          # offline checks first, so a
+bundle exec rake graph_weaver:cassettes:check # network blip can't mask one
+bundle exec rake graph_weaver:queries:check   # re-introspects the recorded url
+bundle exec rake graph_weaver:schema:diff     # …so does this one
+```
+
+```sh
+# your own graphql-ruby schema, in-process — none of this touches a network
+bundle exec rake graph_weaver:schema:diff     # has the class moved past the dump?
+bundle exec rake graph_weaver:queries:check   # do the queries still validate?
+bundle exec rake graph_weaver:verify          # is the checked-in Ruby current?
+bundle exec rake graph_weaver:cassettes:check # do the recordings still cast?
+```
+
+In-process the order is the repair order: refresh the dump, regenerate,
+re-record. As a GitHub Actions job:
+
+```yaml
+# .github/workflows/graphql.yml
+name: graphql
+on: [push]
+jobs:
+  graph_weaver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+      - run: bundle exec rake graph_weaver:verify
+      - run: bundle exec rake graph_weaver:cassettes:check
+      - run: bundle exec rake graph_weaver:queries:check
+      - run: bundle exec rake graph_weaver:schema:diff
+        env:
+          GRAPHWEAVER_AUTH: ${{ secrets.GRAPHWEAVER_AUTH }}
+```
+
+An in-process schema needs no `env:` — it answers introspection itself.
 
 `schema:diff` names what moved, breaking changes first — breaking meaning
 a query written against your dump stops validating, or stops casting:
@@ -411,25 +456,28 @@ matters because one in-process client is normally the whole app's.
 dump at `GraphWeaver.schema_path`, never the live class — that's what
 makes `rake graph_weaver:verify` a deterministic CI check. The generator
 writes the first dump; after that it's an artifact derived from code in
-your own repo, so rebuild it with graphql-ruby's own rake task, ahead of
-`verify` in CI:
-
-```ruby
-# lib/tasks/graphql.rake
-require "graphql/rake_task"
-GraphQL::RakeTask.new(schema_name: "MyApp::Schema", directory: "app/graphql",
-  dependencies: [:environment])
-```
+your own repo, and the same two tasks a remote schema uses keep it in step:
 
 ```sh
-rake graphql:schema:json     # rewrites app/graphql/schema.json
+rake graph_weaver:schema:diff      # what has the class changed since the dump?
+rake graph_weaver:schema:refresh   # rewrite the dump from the class
 rake graph_weaver:generate
 ```
 
-A stale dump makes `verify` fail on a query that is fine. `queries:check` is
-unaffected: running in-process it validates against the live class, not the
-dump. (`schema:diff` and `:refresh` are for servers you *don't* own; a dump
-taken from a schema class records no url, and they say so.)
+Neither touches a network here — your schema class answers introspection
+itself — and `refresh` rewrites the dump in whatever format it already is, so
+a repo that chose `cache: :graphql` keeps SDL. graphql-ruby's own
+`GraphQL::RakeTask` writes the same artifact, but you don't need to wire it
+up: `schema:refresh` writes to the path graph_weaver already reads, and is
+what `schema:diff` and a runtime "the schema may have changed" error both
+name.
+
+`verify` **fails** when the dump has fallen behind the class, rather than
+calling the tree up to date: generating from a dump that old would produce
+Ruby for a schema your resolvers have already left. `queries:check` is
+unaffected either way — running in-process it validates against the live
+class, not the dump — so the two can disagree about the same query while the
+dump is stale, and `schema:refresh` is what settles it.
 
 **Scaffolding the app too?** On a `rails new --skip-active-record`,
 `rails g graphql:install` writes `config.active_record.query_log_tags` lines

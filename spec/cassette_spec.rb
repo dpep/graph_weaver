@@ -113,6 +113,32 @@ describe GraphWeaver::Testing::Cassette do
       expect(File.read(path)).not_to include("key:") # one representation of the request, not two
     end
 
+    # One entry per request key, and the key is the whole request. Re-reading
+    # a cassette that had grown a second entry for one request would replay
+    # whichever came first — and someone who saw two entries after a
+    # re-record reasonably concluded recording appends and deleted the file.
+    it "replaces the entry it re-records, and appends only a new request" do
+      cassette = described_class.new(path)
+      record = ->(variables, name) do
+        cassette.record(PersonQuery::QUERY, variables, { "data" => { "person" => { "name" => name } } },
+          PersonQuery::OPERATION_NAME)
+      end
+      record.call({ "id" => "1" }, "first")
+      record.call({ "id" => "1" }, "second")
+
+      reread = described_class.new(path)
+      expect(reread.size).to eq 1
+      expect(reread.lookup(PersonQuery::QUERY, { "id" => "1" }, PersonQuery::OPERATION_NAME)
+        .dig("response", "data", "person", "name")).to eq "second"
+
+      # other variables, or edited query text, are a different request — the
+      # old entry stays, which is what cassettes:check counts as unsent
+      record.call({ "id" => "2" }, "other")
+      cassette.record("query Person($id: ID!) { person(id: $id) { id } }", { "id" => "1" }, { "data" => {} },
+        PersonQuery::OPERATION_NAME)
+      expect(described_class.new(path).size).to eq 3
+    end
+
     it "keeps every entry when recordings arrive from several threads" do
       cassette = described_class.new(path)
       threads = 20.times.map do |n|
@@ -143,6 +169,18 @@ describe GraphWeaver::Testing::Cassette do
       expect(executor).to be_a GraphWeaver::Testing::Recorder
       executor.execute(PersonQuery::QUERY, variables: { "id" => "1" })
       expect(live.calls).to eq 2 # hit the live executor again
+    end
+
+    # each Testing.cassette call builds its own Cassette, so the rule has to
+    # survive the file being re-read between examples, not just within one
+    it "leaves one entry per request however often record mode runs" do
+      GraphWeaver::Testing.configure { |config| config.record = true }
+      3.times do
+        GraphWeaver::Testing.cassette(path, client: live).execute(PersonQuery::QUERY, variables: { "id" => "1" })
+      end
+
+      expect(live.calls).to eq 3
+      expect(described_class.new(path).size).to eq 1
     end
 
     it "refuses to replay in record mode, rather than serving a stale recording" do
