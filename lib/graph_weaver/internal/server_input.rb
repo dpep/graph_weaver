@@ -57,7 +57,7 @@ module GraphWeaver
       # (spec/input_errors_spec.rb holds these keys to DETAILS.)
       DETAIL_TYPES = {
         "type" => String, "members" => Array, "min" => Numeric,
-        "max" => Numeric, "format" => String, "suggestion" => String,
+        "max" => Numeric, "pattern" => String, "suggestion" => String,
       }.freeze
 
       private_constant :VARIABLE, :COERCE, :NOT_A_MEMBER, :NOT_NULL, :NOT_DEFINED,

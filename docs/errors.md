@@ -286,8 +286,9 @@ it, so there is one key to say it under:
 graph_weaver still understands; `input` is the fine one. Only `kind` is
 required, and it must come from [the table](i18n.md#the-vocabulary) — an
 unrecognized one degrades to `:refused` rather than being passed through, and
-any key outside `type`/`members`/`min`/`max`/`format`/`suggestion` is dropped
-rather than reaching `#details`.
+any key outside `type`/`members`/`min`/`max`/`pattern`/`suggestion` is dropped
+rather than reaching `#details`. None of those six is a name I18n reserves for
+itself, so `I18n.t(key, **details)` can never raise on the splat.
 
 In graphql-ruby this rides on a `Validator` raising `GraphQL::ExecutionError`:
 
@@ -335,7 +336,7 @@ class EmailScalar < GraphQL::Schema::Scalar
 
     raise GraphQL::CoercionError.new(
       "#{value.inspect} is not an email address",
-      extensions: { "input" => { "kind" => "invalid_format", "format" => "name@example.com" } },
+      extensions: { "input" => { "kind" => "invalid_format", "pattern" => "name@example.com" } },
     )
   end
 
@@ -353,7 +354,7 @@ What the client then reads:
 
 # email: "nope" into the scalar above
 { "kind" => "invalid_format", "path" => ["email"], "field" => "email", "value" => "nope",
-  "details" => { "format" => "name@example.com" },
+  "details" => { "pattern" => "name@example.com" },
   "message" => "\"nope\" is not an email address" }
 ```
 

@@ -42,6 +42,15 @@ describe "input errors" do
 
       expect(declared).to match_array GraphWeaver::InputError::DETAILS
     end
+
+    # docs/i18n.md's recipe splats #details straight into I18n.t, so a detail
+    # key I18n reserves raises I18n::ReservedInterpolationKey there rather
+    # than translating — which `:format` did, on the page's own headline kind.
+    it "names no detail key I18n reserves for itself" do
+      require "i18n"
+
+      expect(GraphWeaver::InputError::DETAILS & I18n::RESERVED_KEYS).to be_empty
+    end
   end
 
   describe "client-side: the path is rooted at the variable" do
@@ -338,14 +347,14 @@ describe "input errors" do
       expect { JSON.generate(error.to_h) }.not_to raise_error
     end
 
-    it "carries invalid_format's format the same way" do
+    it "carries invalid_format's pattern the same way" do
       error = error_for(
         "message" => "email is not an email",
-        "extensions" => { "input" => { "kind" => "invalid_format", "format" => "email" } },
+        "extensions" => { "input" => { "kind" => "invalid_format", "pattern" => "email" } },
       )
 
       expect(error.kind).to eq :invalid_format
-      expect(error.details).to eq({ format: "email" })
+      expect(error.details).to eq({ pattern: "email" })
     end
 
     # closing the key set isn't enough: errors.rb promises members stays an
@@ -477,13 +486,13 @@ describe "input errors" do
           "value" => "nope",
           "problems" => [{
             "path" => [], "explanation" => '"nope" is not a valid HexExt color',
-            "extensions" => { "input" => { "kind" => "invalid_format", "format" => "#rrggbb" } },
+            "extensions" => { "input" => { "kind" => "invalid_format", "pattern" => "#rrggbb" } },
           }],
         },
       )
 
       expect(error.kind).to eq :invalid_format
-      expect(error.details[:format]).to eq "#rrggbb"
+      expect(error.details[:pattern]).to eq "#rrggbb"
     end
 
     # ---- graphql-ruby's rule codes (literal arguments; GraphWeaver.run)

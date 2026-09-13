@@ -601,8 +601,10 @@ module GraphWeaver
 
     # The detail keys a kind may carry. Closed, so `I18n.t(..., **details)`
     # never gets a key the app's locale file has no slot for — and so a
-    # server can't smuggle arbitrary data in under extensions.input.
-    DETAILS = T.let(%i[type members min max format suggestion].freeze, T::Array[Symbol])
+    # server can't smuggle arbitrary data in under extensions.input. None of
+    # them may be an I18n::RESERVED_KEYS name (`:format` was, which raised
+    # I18n::ReservedInterpolationKey on that very splat) — held by a spec.
+    DETAILS = T.let(%i[type members min max pattern suggestion].freeze, T::Array[Symbol])
 
     sig { returns(Symbol) }
     attr_reader :kind
