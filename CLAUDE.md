@@ -150,6 +150,11 @@ Order-independence is worth checking rather than assuming — four order-depende
 failures have hidden behind the default `:defined` order, and a *burst* of them
 usually means one shared resource cascading rather than many bugs.
 
+`bundle exec mutant run 'GraphWeaver::Coerce'` (any subject from `.mutant.yml`;
+bare `mutant run` does all of them, and takes hours) asks the sharper question —
+which lines could be changed without a spec noticing. It is minutes per subject,
+so run it on a runtime module you have reworked, not on every commit.
+
 ## Drive it from a throwaway app when the host seam changes
 
 **The suite cannot test the gem's relationship with its host.** It is not a Rails
