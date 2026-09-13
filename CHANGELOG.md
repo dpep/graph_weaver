@@ -37,11 +37,12 @@
   is 4 fetches through a real `@apollo/gateway`, because a `@requires` prefetch
   here is its own call even when it goes to the same subgraph as the plain read
   beside it. An N+1 regression assertion belongs on a bound or on the subgraph
-  set, not on an exact count. Also newly written down: a `@join__` directive the routing table doesn't
-  read refuses `Router.new` for the whole graph (an upgrade-timing event for
-  every team sharing the supergraph), a document that fails ordinary GraphQL
-  validation gets an `errors` response rather than an `Unplannable`, and
-  apollo-federation's `orphan_types`-before-`query` ordering trap.
+  set, not on an exact count. Also newly written down: a `@join__` directive the
+  routing table doesn't read refuses `Router.new` for the whole graph (an
+  upgrade-timing event for every team sharing the supergraph), a document that
+  fails ordinary GraphQL validation gets an `errors` response rather than an
+  `Unplannable`, and apollo-federation's `orphan_types`-before-`query` ordering
+  trap.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's
