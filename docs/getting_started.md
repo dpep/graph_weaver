@@ -179,10 +179,9 @@ works everywhere. See
 
 ## 4. Test against fakes
 
-```ruby
-# spec/support/graph_weaver.rb
-require "graph_weaver/rspec"
-```
+The generator put `require "graph_weaver/rspec"` in your `spec/rails_helper.rb`
+— add it there yourself if rspec arrived after the install, since the tags
+below do nothing without it.
 
 ```ruby
 it "renders the empty state", graphql: :fake do … end   # or tag the describe

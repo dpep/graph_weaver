@@ -96,6 +96,15 @@
   is both the honest default and how you add a token later; `--auth VAR` wires
   it exactly as before. Existing initializers are untouched — this is what the
   *next* install writes.
+- **`rails g graph_weaver:install` wires the rspec require where rspec reads
+  it.** The setup told you to put `require "graph_weaver/rspec"` in
+  `spec/support/graph_weaver.rb` — and rspec-rails ships the `spec/support`
+  glob **commented out**, so for anyone who hadn't uncommented it the require
+  never ran and a `graphql: :fake` example silently went to the real client.
+  The generator now puts the line in `spec/rails_helper.rb` (under
+  rspec-rails' own `require "rspec/rails"`), or `spec/spec_helper.rb` if
+  that's all there is, or prints it when the app has neither. Idempotent, so
+  a re-run and a line you added by hand both leave it alone.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

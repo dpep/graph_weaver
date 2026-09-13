@@ -119,6 +119,31 @@ module GraphWeaver
         end
       end
 
+      # The `graphql:` tags need this require, and it has to be somewhere
+      # rspec actually loads. A spec/support file is not: rspec-rails ships
+      # the spec/support glob commented out, so the require sat there doing
+      # nothing and a tagged example silently ran against the real client.
+      def wire_rspec
+        helper = RSPEC_HELPERS.find { |path| File.exist?(File.join(GraphWeaver.root, path)) }
+
+        unless helper
+          say "\nTesting: add `#{RSPEC_REQUIRE}` to your spec helper for the " \
+            "`graphql:` tags (docs/testing.md)."
+          return
+        end
+
+        body = File.read(File.join(GraphWeaver.root, helper))
+        return if body.match?(REQUIRED_ALREADY) # a re-run, or done by hand
+
+        # after rspec-rails' own require where there is one, at the end
+        # otherwise — either way top-level in a file every spec loads
+        if (anchor = body[RSPEC_RAILS_REQUIRE])
+          insert_into_file helper, "#{RSPEC_REQUIRE}\n", after: anchor
+        else
+          append_to_file helper, "\n#{RSPEC_REQUIRE}\n"
+        end
+      end
+
       # A url is introspected and a schema class dumped; a dump the app
       # already has is left where it is (schema_path points at it instead).
       def fetch_schema
@@ -165,6 +190,15 @@ module GraphWeaver
       private
 
       RUBOCOP_CONFIG = ".rubocop.yml"
+
+      # rails_helper first: rspec-rails writes both, and only rails_helper
+      # has Rails booted by the time the require runs.
+      RSPEC_HELPERS = ["spec/rails_helper.rb", "spec/spec_helper.rb"].freeze
+      RSPEC_REQUIRE = 'require "graph_weaver/rspec"'
+      # the newline is part of the anchor: Thor inserts directly after the
+      # match, so without it the require lands on the end of that line
+      RSPEC_RAILS_REQUIRE = %r{^require ["']rspec/rails["'].*\n}
+      REQUIRED_ALREADY = %r{^\s*require ["']graph_weaver/rspec["']}
 
       def rubocop_config = File.join(GraphWeaver.root, RUBOCOP_CONFIG)
 

@@ -49,6 +49,8 @@ describe "GraphWeaver::Generators::InstallGenerator" do
 
     def append_to_file(*args) = @actions << [:append_to_file, *args]
 
+    def insert_into_file(*args, **opts) = @actions << [:insert_into_file, *args, opts]
+
     def say_status(*args) = @actions << [:say_status, *args]
 
     def say(*args) = @actions << [:say, *args]
@@ -80,6 +82,19 @@ describe "GraphWeaver::Generators::InstallGenerator" do
     stub_const("Thor::Error", Class.new(StandardError))
     allow(GraphWeaver::SchemaLoader).to receive(:refresh!).and_return(["app/graphql/schema.json", URL])
     allow(GraphWeaver::SchemaLoader).to receive(:introspect)
+  end
+
+  # GraphWeaver.root is where the generator reads the app's OWN files — the
+  # rubocop config, the spec helper. An empty app, so no example is answered
+  # by this repo's copy of either.
+  around do |example|
+    Dir.mktmpdir do |app|
+      @app = app
+      GraphWeaver.root = app
+      example.run
+    ensure
+      GraphWeaver.root = nil
+    end
   end
 
   it "scaffolds the conventional layout" do
@@ -252,17 +267,92 @@ describe "GraphWeaver::Generators::InstallGenerator" do
   # Generated code is machine-written and says "do not edit", but plain
   # `rubocop` lints it anyway — Style/Documentation on every struct,
   # Metrics/* on every from_h.
-  describe "the rubocop exclude" do
-    around do |example|
-      Dir.mktmpdir do |app|
-        @app = app
-        GraphWeaver.root = app
-        example.run
-      ensure
-        GraphWeaver.root = nil
+  # A `graphql:` tag does nothing without this require, and the advice used
+  # to be "put it in spec/support/graph_weaver.rb" — which rspec-rails ships
+  # commented out of rails_helper, so it silently never ran.
+  describe "the rspec require" do
+    REQUIRE_LINE = %(require "graph_weaver/rspec")
+
+    before { FileUtils.mkdir_p(File.join(@app, "spec")) }
+
+    def spec_helper(name, body) = File.write(File.join(@app, "spec", name), body)
+
+    # rspec-rails' own rails_helper, trimmed to the lines that matter —
+    # single-quoted, the way it really writes them
+    RAILS_HELPER = <<~RUBY
+      require 'spec_helper'
+      ENV['RAILS_ENV'] ||= 'test'
+      require_relative '../config/environment'
+      require 'rspec/rails'
+
+      RSpec.configure do |config|
+      end
+    RUBY
+
+    def wiring(actions)
+      actions.select { |kind,| %i[insert_into_file append_to_file].include?(kind) }
+    end
+
+    # Thor's semantics, so the assertion is the file the app ends up with —
+    # asserting the anchor alone missed a require landing on the end of the
+    # line it anchored to.
+    def applied(actions, body)
+      wiring(actions).reduce(body) do |text, (kind, _path, content, options)|
+        kind == :append_to_file ? text + content : text.sub(options[:after]) { _1 + content }
       end
     end
 
+    it "goes into rails_helper on its own line, under rspec-rails' own require" do
+      spec_helper("rails_helper.rb", RAILS_HELPER)
+      actions = run_generator
+
+      expect(wiring(actions).map { _1.first(3) })
+        .to eq [[:insert_into_file, "spec/rails_helper.rb", "#{REQUIRE_LINE}\n"]]
+      expect(applied(actions, RAILS_HELPER)).to eq <<~RUBY
+        require 'spec_helper'
+        ENV['RAILS_ENV'] ||= 'test'
+        require_relative '../config/environment'
+        require 'rspec/rails'
+        #{REQUIRE_LINE}
+
+        RSpec.configure do |config|
+        end
+      RUBY
+    end
+
+    # rspec-rails writes both; only rails_helper has Rails booted by then
+    it "prefers rails_helper when both are there" do
+      spec_helper("rails_helper.rb", RAILS_HELPER)
+      spec_helper("spec_helper.rb", "RSpec.configure do |config|\nend\n")
+
+      expect(wiring(run_generator).map { _1[1] }).to eq ["spec/rails_helper.rb"]
+    end
+
+    # rspec's generated spec_helper has no requires at all to sit under
+    it "appends to spec_helper when there is no rails_helper" do
+      body = "RSpec.configure do |config|\nend\n"
+      spec_helper("spec_helper.rb", body)
+      actions = run_generator
+
+      expect(wiring(actions).map { _1.first(2) }).to eq [[:append_to_file, "spec/spec_helper.rb"]]
+      expect(applied(actions, body)).to eq "#{body}\n#{REQUIRE_LINE}\n"
+    end
+
+    it "does nothing on a re-run, whichever quotes the require is in" do
+      spec_helper("rails_helper.rb", "#{RAILS_HELPER}require 'graph_weaver/rspec'\n")
+
+      expect(wiring(run_generator)).to be_empty
+    end
+
+    # an app with no rspec yet — the line still has to reach someone
+    it "names the line when there is no spec helper to put it in" do
+      expect(wiring(run_generator)).to be_empty
+      expect(run_generator.filter_map { |kind, text| text if kind == :say }.join)
+        .to include(REQUIRE_LINE)
+    end
+  end
+
+  describe "the rubocop exclude" do
     def rubocop_config(body) = File.write(File.join(@app, ".rubocop.yml"), body)
 
     def appended(actions)
