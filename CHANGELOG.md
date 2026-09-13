@@ -11,9 +11,9 @@
   (it keeps reading the schema `schema_path` names, and every constant keeps
   its name). getting_started.md's multi-schema section says it too.
 - **`federation:diff` sees a field's type, not just its name.** The check was
-  coordinate presence — `Warehouse.code` going from `String!` to `ID!` under an
-  untouched supergraph reported "matches the schemas here", and CI passed on a
-  composition describing a graph nobody serves. Both types are now compared and
+  coordinate presence — `Warehouse.code` going from `String!` to `ID!` under
+  an untouched supergraph reported "matches the schemas here", and CI passed
+  on a composition describing a graph nobody serves. Both types are compared and
   a disagreement is its own drift kind, **shape**, beside stale and not
   composed in, with both signatures in the message: `Warehouse.code
   (inventory): String! in the supergraph, ID! here`. `Drift#to_h` grows a
