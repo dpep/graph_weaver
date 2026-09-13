@@ -33,10 +33,13 @@ ticks two or three.
 | applies if you… | what changed |
 |---|---|
 | run a Rails app that configures no logger or instrumenter | **you start logging one info line per GraphQL call** — a production log-volume change, [first bullet below](#behavior-that-changed-under-you) |
+| wrap a gateway in `Retry` | **a 5xx/429 that arrives with an errors body retries now** — real traffic, [below](#behavior-that-changed-under-you); `retries: 0` opts out |
 | commit a schema dump introspected through a url carrying a token | **refresh it, and rotate the token if that file was pushed** — the dump recorded the url verbatim |
 | keep a schema dump deliberately behind your own schema class | `verify` fails on it now |
+| check in a composed supergraph as your dump | `schema:refresh` refuses it rather than overwriting it with the API schema — recompose instead |
 | use `@oneOf` input types and commit a `.json` dump | `@oneOf` starts being enforced client-side once you regenerate |
 | call `result.to_json`, or `render json: result` | it is the wire shape now, not `#inspect` or your prop names |
+| send a `File`, `IO` or `Pathname` as a variable | refused at the wire, where `JSON.generate` used to ship its `#to_s` |
 | pin a lowercase type name in `graphql_fake` | it works now; a near-miss *keyword* raises `ArgumentError` |
 | tag specs `graphql: false`, or set `config.default_mode = nil` | both refused — [renames](#renames) |
 | `rescue GraphWeaver::TypeError` or `GraphWeaver::ValidationError` | both constants are gone, with no alias — [renames](#renames) |
@@ -50,8 +53,12 @@ ticks two or three.
 | pass a `DateTime` where the schema says `Date` | refused — pass `.to_date` |
 | register a scalar with your own `cast:`/`serialize:` | the same guard as the built-ins, and a proc that returns a value is refused |
 | have a field named `class`, `hash`, `display`, `to_json`, `each` or `supplied` | the prop takes a trailing underscore |
+| have an entity `@key` that selects through a list | the kwarg is a list now, not one hash — regenerate |
+| build a type helper with `extend_type("Widget") { … }` | its constant is named for its graph and its type — regenerate |
 | adopt `GraphWeaver.graph` | every queries directory then needs one |
 | write `config.graph_weaver.<anything but watch>` | refused at boot |
+| pass `SUPERGRAPH=` to any task but `federation:*` | refused, where it was ignored — a CI step that did it goes red |
+| compare a `Testing::Router` error hash whole in a spec | a subgraph error carries `extensions: {"service" => …}` now |
 | pass `seed:` to `graphql_router(fake: …)` | refused |
 | require `graph_weaver/rspec` from `spec/support/` | check the glob is uncommented — rspec-rails ships it commented out |
 | adopt `graphql: :wire` | it needs `require "webmock/rspec"`, not just the gem |
@@ -64,7 +71,9 @@ grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
 grep -rn "graph_weaver.execute" app lib config spec   # the old event name
 
 # 2. rewrite the dump: it drops a credential the url carried, and picks up
-#    isOneOf. Skip only if your dump is SDL and records no source url.
+#    isOneOf. Skip only if your dump is SDL and records no source url — and
+#    a composed supergraph refuses, since introspection can't rebuild one:
+#    `rover supergraph compose` is what rewrites that.
 rake graph_weaver:schema:refresh
 
 # 3. regenerate — also the graph name in every module, the underscored
@@ -113,6 +122,24 @@ the only one here that shows up in production rather than in your code.
   a graph's `client "Billing::Schema"`) goes through the same wrapper
   `GraphWeaver.new(MyApp::Schema)` always used, so it produces events and log
   lines where it produced none. See [logging](logging.md).
+- **A `Retry` in front of a gateway starts actually retrying.** It read only
+  the failures that *raised*, and Apollo Router answers everything it decides
+  itself with a GraphQL errors body — rate limiting is `503` plus
+  `REQUEST_RATE_LIMITED`, its own faults are `500` plus a code — so the body
+  won over the status and `retries: 3` made one attempt. A response retries now
+  when its status is one a `ServerError` retries on (5xx, 408, 429), or when
+  its error codes are named in `retry_codes:`. A `200` is never retried on
+  status, and a mutation still gets one attempt unless `retry_mutations:
+  true`. **This is real traffic you weren't sending** — if the inert policy was
+  what you wanted, `retries: 0`. `#throttled?` answers
+  `REQUEST_RATE_LIMITED` too.
+- **A task that can't honour `SUPERGRAPH=` refuses instead of ignoring it.**
+  The flag reaches the `federation:*` tasks and nothing else, so
+  `SUPERGRAPH=public.graphql rake graph_weaver:queries:check` reported every
+  query valid against a supergraph missing a field they select — the wrong
+  answer wearing a green tick. **A CI step that passes it to `generate`,
+  `verify` or `queries:check` goes red**; drop the flag, or declare the
+  supergraph on a graph so every run finds it.
 - **`InputError#field` names the input field, not the variable.** It is now
   `#path`'s last *named* segment — the slot that actually held the bad value,
   which is the one a form highlights — where it used to be re-branded on the

@@ -321,8 +321,8 @@ query valid. To check queries against a supergraph, declare it:
 `GraphWeaver.graph(:api) { schema "supergraph.graphql" }`.
 
 It reads the routing table and the subgraph schemas loaded in this process —
-**no network** — so it belongs in the normal PR run, and it exits non-zero on
-drift so CI can gate on it:
+**no network** — and exits non-zero on drift, so CI can gate on it ([in
+CI](#in-ci)):
 
 ```
 supergraph.graphql: 1 stale, 1 shape, 1 not composed in (checked 1 of 3 subgraphs)
@@ -336,7 +336,7 @@ shape — both carry these, with different types (recompose):
 not composed in — a schema here defines these, the supergraph doesn't carry them:
   Product.dimensions (Products::Schema)
 
-not checked — nothing here defines what the supergraph says only these resolve (running elsewhere, or the subgraph is gone):
+not checked — no schema here matches what the supergraph says only these resolve (running elsewhere, or the subgraph is gone):
   shipping (Shipment, Shipment.eta, Order.shipment)
 
 not checked — answered with fabricated data:
@@ -410,9 +410,9 @@ is gone), and [faked](#the-local-router). A clean report that quietly checked on
 subgraph of three would be actively misleading, so the headline counts them and
 the sections name them. Only drift fails the task; absence is a supported
 setup. Checking **none** of them fails too — "checked 0 of 4" attached to exit 0
-is a gate that passes whatever the subgraphs say. (Under Rails it won't come up:
-the `federation:*` tasks eager-load the app, because `config.rake_eager_load`
-defaults to false and detection only sees loaded classes.)
+is a gate that passes whatever the subgraphs say. (It won't come up in a Rails
+app whose subgraphs are here: the `federation:*` tasks eager-load for you — see
+[which schema serves which subgraph](#which-schema-serves-which-subgraph).)
 
 The mirror of all that is a subgraph **retired** from the composition whose Ruby
 class is still loaded. Every check here walks the supergraph's subgraph list, so
@@ -482,9 +482,10 @@ the answer about your proposal.
 ## In CI
 
 `federation:diff` needs no network, so it belongs beside the other checks in the
-normal PR run — the
-[GitHub Actions job](getting_started.md#5-verify-in-ci) has the step, guarded by
-nothing more than "this app is federated".
+normal PR run — the [GitHub Actions job](getting_started.md#5-verify-in-ci) has
+the step. Add it where the subgraph classes live: an app that only *calls* the
+gateway loads none of them, and the task aborts rather than pass having checked
+nothing ([above](#has-the-supergraph-been-recomposed)).
 
 **What that job does not do is look at the schema production is serving**, and
 on a federated graph nothing here can. Every check in it compares the app to
@@ -814,7 +815,7 @@ matching symbol):
 | introspection mixed with data | introspection is answered from the composed API schema and data from the subgraphs, and the two can't be merged. Split them into two operations |
 | the document isn't one operation | pass `operation_name:` naming one of them |
 | not a query or a mutation | the router plans against the composed schema's query and mutation roots; a subscription has neither |
-| a fragment the document never defines | define it, or point the query at the file that does |
+| a fragment the document never defines | define it, or point the query at the file that does — validation rejects it first, so what you actually get back is an `errors` response |
 | a federation construct the routing table doesn't read | an incomplete table makes every answer about this supergraph a guess. The one refusal raised **at construction**, before a single query |
 | nested deeper than the router walks | past the walk's depth limit, which validation would have rejected first |
 
@@ -862,8 +863,8 @@ arrives here with its message and an `extensions: {"service" => …}` stamp; an
 Apollo Router with `include_subgraph_errors` omitted — the default — answers
 `{"message" => "Subgraph errors redacted", "path" => […]}` with the extensions
 emptied. A spec asserting on the message or the stamp therefore passes here and
-against a dev router and fails in staging. Assert on `path` and on your own
-extensions: [testing → production redacts what this router hands
+against a dev router and fails in staging. `path` is what survives, so that is
+what to assert on: [testing → production redacts what this router hands
 you](testing.md#production-redacts-what-this-router-hands-you).
 
 ### Is it worth wiring up? Measure.

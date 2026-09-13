@@ -585,6 +585,95 @@ it short-circuits on `:live`. So `graphql: :router` plus `graphql_fake(graph:
 to a helper that *does* speak for the whole example — one graph, or no
 `graph:`/schema to narrow it.
 
+## A retryable status retries, whether or not a body came with it
+
+**Considered:** letting a GraphQL errors body settle it. A response that parses
+as GraphQL is an *answer*, so whether to send it again is a question about its
+error codes — `retry_codes:` — and the HTTP status is transport business, only
+consulted when nothing came back to read.
+
+**Rejected because** Apollo Router answers everything it decides itself with a
+GraphQL errors body: rate limiting is `503` plus `REQUEST_RATE_LIMITED`, its own
+faults are `500` plus a code. Under that rule every one of them lands on the
+query side of the line, and `Retry` — which only ever saw the failures that
+*raised* — made exactly one attempt. A configured retry policy was inert in
+front of the deployment target [federation](docs/federation.md) is written for,
+and `QueryError#throttled?` was false for a real rate limit.
+
+One rule instead: **a response retries when its status is one a `ServerError`
+retries on (5xx, 408, 429), or when its error codes are named in
+`retry_codes:`.** `RETRIABLE_STATUS` is asked of both halves so they can't
+drift, and the envelope carries the status it arrived on — a Hash to everything
+that reads a GraphQL response, with `Retry` the only caller that asks the extra
+question. A `200` is never retried on status, so a router's partial
+`GATEWAY_TIMEOUT` still takes `retry_codes:` to opt in, and `retry_mutations:`
+still governs mutations.
+
+## A supergraph refusal runs above the plan, not inside a step
+
+**Considered:** scanning at `Router.new`. The directives that make a query
+unplannable — `@fromContext`, `@interfaceObject`, a progressive
+`@override(label:)` — are declared once in the supergraph, so one scan at
+construction is cheaper than one per query and impossible to route around.
+
+**Rejected because** a supergraph is shared. One subgraph adding a labelled
+`@override` would then refuse `Router.new` for every team on the graph,
+including the ones whose queries never reach that field — an upgrade-timing
+event out of a directive that is none of their business. The check is asked per
+query instead: one such directive costs you the queries that touch it and no
+others.
+
+Per query, but **above** `#plan_step`, which is where it used to live. The
+verbatim single-subgraph shortcut never reaches `plan_step`, so a query one
+subgraph answered whole skipped the check entirely — and a subgraph handed a
+subtree whole does *not* fill a `@fromContext` argument itself: only a gateway
+injects one, so the resolver ran with it unset and the router answered a
+plausible wrong number with no error. `check_reachable!` is the one walk every
+plan passes through, whatever plan it gets, and every refusal that must hold
+however a query is planned belongs in it.
+
+## A block-built type helper is named for its source, not for what is loaded
+
+**Considered:** keeping the suffix a `const_defined?` count —
+`TypeHelpers::Widget`, then `WidgetV2`, then `WidgetV3` — which needs no state
+of its own and can't collide with a constant somebody else set.
+
+**Rejected because** the name is baked into generated code, and that count made
+it a function of how many times *this process* had read the registry. A graph
+replays its registrations on every read, so `rake graph_weaver:generate` wrote
+`WidgetV3` while a plain boot only ever creates `WidgetV1`: `rails server` died
+on an include nothing defines, while `verify`, reading the registry the same
+number of times as `generate`, called the tree up to date. Generated output has
+to be a function of the source alone.
+
+One rule instead: **the module is named for where the block is written and what
+it extends** — `TypeHelpers::Pet` at the top level, `TypeHelpers::Billing::Pet`
+in `graph :billing`, with `V2`/`V3` for a second and third block on the same
+type in the same place. The count lives on the registry, which a graph reads
+through a fresh copy every time, so the same source counts the same way in
+every process and after a `to_prepare` reload. Two graphs extending one type
+name each get their own constant, which one flat namespace could not give them.
+
+## `SUPERGRAPH=` is refused where it can't be honoured, not honoured everywhere
+
+**Considered:** making every task read it. Three task descriptions advertise
+`SUPERGRAPH=`, a reader who has just used it on `federation:diff` reasonably
+expects `queries:check` to take it too, and "check my queries against this
+supergraph" is a sensible thing to want.
+
+**Rejected because** the flag has no graph behind it. Honouring it means
+building one unnamed graph over the default paths — which collapses a
+multi-graph app into a single schema, and for `generate`, which prunes every
+generated file its run didn't write, means a stray `SUPERGRAPH=` in a job's env
+deletes the other graphs' modules. Silence was worse still:
+`SUPERGRAPH=public.graphql rake graph_weaver:queries:check` reported every query
+valid against a supergraph missing a field they select, which is the wrong
+answer wearing a green tick.
+
+So a task that reads the schema its graph declares says so, once, through a
+shared `own_schema` prerequisite rather than nine copies of the same guard. To
+check against a supergraph, declare it on a graph.
+
 ## What the locked surface is allowed to contain
 
 **The rule.** A name is public if the docs name it, if generated code calls it,

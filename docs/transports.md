@@ -26,7 +26,9 @@ doesn't needs no faraday) — subclass `GraphWeaver::Transport`,
 which owns the shared flow: encode the request, reclassify network
 failures as `TransportError`, raise `ServerError` on non-2xx, parse the
 body. A subclass only implements `post(body) => [status, body]` — that's
-the whole recipe for bringing your own HTTP client.
+the whole recipe for bringing your own HTTP client. Return the response
+headers as a third element, downcased, and `ServerError#headers` carries
+them; two elements is still a complete answer.
 
 ## One-shot setup: a client
 
@@ -47,10 +49,8 @@ contract itself, so it goes anywhere a transport does — `Retry.new(client)`,
   (`"Basic dXNlcjpwYXNz..."`)
 - `transport:` — `:http` (the default) or `:faraday`
 - `headers:` — anything else (API keys, custom headers)
-- `retries:` — off by default; a count of the attempts *after* the first
-  (`retries: 3` makes up to four), or `true` for `Retry`'s own default of 2.
-  Every other [`Retry`](#retries) option sits beside it (`backoff:`,
-  `retry_codes:`, ...)
+- `retries:` — off by default; every other [`Retry`](#retries) option sits
+  beside it (`backoff:`, `retry_codes:`, ...)
 - `open_timeout:` / `read_timeout:` — seconds, defaulting to 10 and 30 on
   either transport
 - `pool_size:` — how many sockets the bundled HTTP transport keeps open,
@@ -187,8 +187,7 @@ GraphWeaver::Transport::HTTP.new(url, headers: {
 })
 ```
 
-`auth:` is that header under a shorter name, so it takes the same two things —
-a token, or something answering `#call` that returns one:
+`auth:` is that header under a shorter name, so a rotating credential is
 `GraphWeaver.new(url, auth: -> { Tokens.fetch })`. A prebuilt
 `Faraday::Connection` owns its own headers, so a rotating credential there is
 Faraday's middleware (`conn.request :authorization, "Bearer", -> { ... }`).

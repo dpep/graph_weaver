@@ -156,8 +156,9 @@ end
 ```
 
 `list_size` is how long an **unbounded** list is — an Integer exactly that
-many, a Range randomized within it, a Hash per list. A list with a
-`first:`/`last:`/`limit:` argument is that long instead, whatever this says.
+many, a Range randomized within it, or a Hash saying it per list (below). A
+list with a `first:`/`last:`/`limit:` argument is that long instead, whatever
+this says.
 
 **Every list the fabricator reaches reads the same setting, so nested lists
 multiply.** A query selecting `rows { owner { … } tags }` with `tags`
@@ -171,9 +172,8 @@ way a pin is (a `"Type.field"` coordinate or a bare field name), with
 config.list_size = { "Row.tags" => 3, default: 1000 }
 ```
 
-which holds the inner list at 3 however large the outer one grows. Capping the
-nested list in the query (`tags(first: 3)`) does the same thing where the
-query is yours to change.
+which holds the inner list at 3 however large the outer one grows — or cap it
+in the query (`tags(first: 3)`), where the query is yours to change.
 
 **Configure at load, or in an `around` — never in a plain `before`.** The tag
 builds this example's clients in a `before` hook of its own, and rspec runs
@@ -503,10 +503,10 @@ a production router
   {"message" => "Subgraph errors redacted", "path" => ["product", "shippingEstimate"]}
 ```
 
-`path` survives; nothing else about the subgraph does. So assert on `path`, on
-a code or extension **your own** schema sets (those are yours to keep, and the
-router passes them through where it isn't redacting), and on what your app does
-with the failure — not on a subgraph's message and not on the `service` stamp.
+`path` survives; nothing else about the subgraph does — including the
+`extensions.code` your own subgraph set, since it is a subgraph like any other.
+So assert on `path` and on what your app does with the failure, not on a
+message, a code, or the `service` stamp.
 An example that needs the redacted shape gets it from
 [`Failure`](#simulating-failures), which reproduces it exactly:
 
