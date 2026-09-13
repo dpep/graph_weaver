@@ -322,6 +322,17 @@ describe "input errors" do
       expect { JSON.generate(infinite.to_h) }.not_to raise_error
     end
 
+    # only the numbers JSON can't spell are rewritten: a Float that is a
+    # perfectly good JSON number goes back to the app as one, at every depth
+    it "leaves a finite number alone inside a list, and rewrites the one beside it" do
+      error = refusal do
+        GraphWeaver::Coerce.variable("stats", "T", [1.5, Float::INFINITY]) { |v| GraphWeaver::Coerce.integer(v) }
+      end
+
+      expect(error.value).to eq [1.5, "Infinity"]
+      expect(JSON.generate(error.to_h)).to include '"value":[1.5,"Infinity"]'
+    end
+
     it "keeps a non-finite number nested inside a value JSON-generatable too" do
       error = refusal do
         GraphWeaver::Coerce.variable("stats", "T", { "mean" => Float::NAN }) { |v| GraphWeaver::Coerce.integer(v) }
@@ -776,6 +787,18 @@ describe "input errors" do
                           "typeName" => "String!", "argumentName" => "count" },
       )
       expect(mismatch.kind).to eq :type_mismatch
+    end
+
+    # a coded error that echoes the value it rejected hands it over like every
+    # other refusal does — a form has something to put back in the field
+    it "carries the value a coded error echoed back" do
+      error = error_for(
+        "message" => "Argument 'count' on Field 'countThing' has an invalid value (\"lots\"). Expected type 'Int!'.",
+        "extensions" => { "code" => "argumentLiteralsIncompatible", "typeName" => "Field",
+                          "argumentName" => "count", "value" => "lots" },
+      )
+
+      expect(error.value).to eq "lots"
     end
 
     # ---- the floor
