@@ -27,13 +27,17 @@
   supergraph and `Drift#subgraphs` is the names it does have; the task asks
   every graph in the run, so a multi-graph app's second supergraph places its
   own.
-- **`router.trace`'s fetch count is the local router's plan, not a gateway's** —
-  [docs/federation.md](docs/federation.md#the-local-router) now says so. The data
-  is faithful, the cost isn't: a dashboard query a real `@apollo/gateway` does in
-  4 fetches takes 6 here, because the router makes one call per purpose at a
-  level where a gateway merges siblings bound for the same subgraph. An N+1
-  regression assertion belongs on a bound or on the subgraph set, not on an exact
-  count. Also newly written down: a `@join__` directive the routing table doesn't
+- **A `@requires` field and a plain one crossing into the same subgraph now ride
+  one `_entities` call**, as Apollo's do, instead of two — they are split only
+  when a prefetch didn't answer for some node, which is the one case their node
+  sets differ. A dashboard query drops from 6 fetches to 5.
+- **`router.trace`'s fetch count is still the local router's plan, not a
+  gateway's** — [docs/federation.md](docs/federation.md#the-local-router) now
+  says so. The data is faithful, the cost isn't quite: the same dashboard query
+  is 4 fetches through a real `@apollo/gateway`, because a `@requires` prefetch
+  here is its own call even when it goes to the same subgraph as the plain read
+  beside it. An N+1 regression assertion belongs on a bound or on the subgraph
+  set, not on an exact count. Also newly written down: a `@join__` directive the routing table doesn't
   read refuses `Router.new` for the whole graph (an upgrade-timing event for
   every team sharing the supergraph), a document that fails ordinary GraphQL
   validation gets an `errors` response rather than an `Unplannable`, and

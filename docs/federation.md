@@ -346,12 +346,13 @@ query. The rspec tag resets it before each example; outside rspec call
 
 The count is the **local router's plan, not the gateway's**. The data is
 faithful — a real gateway answers byte-identically, or this refuses — but the
-cost isn't: every node at one level rides one `_entities` call, and the router
-still makes one call per *purpose* at that level where a gateway merges siblings
-bound for the same subgraph. A dashboard query a gateway does in 4 fetches takes
-6 here. So assert on a **bound** (`expect(router.trace.size).to be <= 8`) or on
-the **subgraph set** (`router.trace.map { _1[:subgraph] }.uniq`): both move when
-an N+1 appears, and neither pins a number production doesn't have.
+cost isn't quite: everything crossing into one subgraph from one level rides one
+call, and a [`@requires` prefetch](#what-it-plans) is still its own call even
+when it goes to the same subgraph as the plain read beside it, where a gateway
+merges the two. A dashboard query a gateway does in 4 fetches takes 5 here. So
+assert on a **bound** (`expect(router.trace.size).to be <= 8`) or on the
+**subgraph set** (`router.trace.map { _1[:subgraph] }.uniq`): both move when an
+N+1 appears, and neither pins a number production doesn't have.
 
 The router hands back a result hash *above* the wire, so the transport your app
 ships never runs. When that transport is the thing under test — a caller tag, an
@@ -488,7 +489,9 @@ An operation that resolves in **one subgraph** goes over verbatim. One that
 `@key` under a reserved alias, refetches it from the owning subgraph through
 `_entities(representations:)`, and stitches the answer back. Every node at one
 level goes in **one** `_entities` call, so a list of users and all their
-reviews' products is three fetches, not one per row. Root fields that resolve
+reviews' products is three fetches, not one per row — and everything that level
+crosses into one subgraph shares that call, a `@requires` field alongside a
+plain one included. Root fields that resolve
 in different subgraphs get one fetch each. A `@provides` copy is read in place,
 so nothing leaves the subgraph for a field the copy already holds.
 

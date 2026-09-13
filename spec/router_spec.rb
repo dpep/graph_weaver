@@ -206,6 +206,18 @@ describe GraphWeaver::Testing::Router do
         .to contain_exactly("upc", "price", "weight", "__typename")
     end
 
+    # A @requires field and a plain one on the same entity cross into the same
+    # subgraph, and Apollo asks one _entities call for both. Two calls here
+    # made the router's fetch count higher than a gateway's on an ordinary
+    # shape — and `trace` is what a spec asserts an N+1 on.
+    it "asks one fetch for a @requires field and a plain field in the same subgraph" do
+      response = router.execute("{ topProducts(first: 1) { name reviews { body } shippingEstimate } }")
+
+      expect(response.dig("data", "topProducts", 0))
+        .to eq({ "name" => "Table", "reviews" => [{ "body" => "Love it" }], "shippingEstimate" => 50 })
+      expect(router).to have_fetched_subgraphs "products", "reviews"
+    end
+
     # the required fields don't exist, so nothing that needs them can resolve
     it "nulls a @requires field whose first fetch finds no entity" do
       expect(router.execute("{ orphanReviews { product { shippingEstimate } } }"))

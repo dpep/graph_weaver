@@ -442,10 +442,12 @@ module GraphWeaver
         # plan is built once and reused, so only here are the variables known.
         wanted = step.deferrals.select { |d| included?(d.node, variables) }
 
-        # a @requires fetch and a plain one need different node sets, so they
-        # can't share a call even into the same subgraph — which is the split
-        # a real router makes too
-        wanted.group_by { |d| [d.subgraph, d.requires.any?] }.each do |(target, chained), deferrals|
+        # Everything crossing into one subgraph from this level rides one
+        # call, @requires and plain together, as Apollo's does. The exception
+        # is a prefetch that didn't answer for some node: the @requires half
+        # then runs over fewer nodes than the plain half, and two node sets
+        # can't share a fetch.
+        wanted.group_by { |d| [d.subgraph, d.requires.any? && blocked.any?] }.each do |(target, chained), deferrals|
           fetched = chained ? nodes.reject { |(node, _)| blocked.include?(node.object_id) } : nodes
           tree = Internal::Planner.field_tree(deferrals.flat_map(&:representation).uniq)
           representations = fetched.map { |(node, _)| representation(node, tree, step.type_name) }
