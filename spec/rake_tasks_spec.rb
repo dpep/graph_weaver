@@ -785,6 +785,20 @@ describe "graph_weaver rake tasks" do
       expect(result.err).to include "1 selection nothing reads"
     end
 
+    # STRICT=0 read as "set, therefore on" — the one spelling a CI config
+    # reaches for to turn a flag off, answered by turning it on
+    it "reads STRICT as a boolean, so 0/false/no leave it off" do
+      generate_query("unused_strict_off", "name birthday")
+      write_app("app/models/strict_off_greeter.rb", "def greet(result) = result.person.name")
+
+      %w[0 false no off FALSE].each do |off|
+        expect(invoke("unused", STRICT: off).status).to eq 0
+      end
+      %w[1 true yes].each do |on|
+        expect(invoke("unused", STRICT: on).status).to eq 1
+      end
+    end
+
     it "sweeps only the directories PATHS names" do
       generate_query("unused_paths", "name birthday")
       write_app("app/models/paths_greeter.rb", "def greet(result) = result.person.name")
@@ -813,6 +827,19 @@ describe "graph_weaver rake tasks" do
 
       expect(result.status).to eq 0
       expect(result.out).to include "nothing to check", "0 selections, 0 unread"
+    end
+
+    # its sibling says this in these words; unused used to sweep the whole app
+    # to report 0 of 0, then advise `rake graph_weaver:generate` — which
+    # generates nothing, because there is nothing to generate
+    it "says there are no queries, where there are none, like its sibling" do
+      write_schema
+
+      result = invoke("unused")
+
+      expect(result.status).to eq 0
+      expect(result.out).to include "no queries in"
+      expect(result.out).not_to include "nothing to check"
     end
 
     # the caveats are the task: a finding is a prompt to look, and a clean run

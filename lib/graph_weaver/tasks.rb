@@ -45,6 +45,27 @@ module GraphWeaver
         found.empty? ? abort(no_supergraph(task)) : found
       end
 
+      # The spellings a CI config turns a flag off with. STRICT=0 used to be
+      # "set, therefore on" — the one answer nobody means by it.
+      OFF = %w[0 false no off].freeze
+
+      # An ENV flag, as a boolean: unset, empty and the OFF spellings are off,
+      # anything else is on.
+      def self.flag?(name)
+        value = ENV[name].to_s.strip
+        !value.empty? && !OFF.include?(value.downcase)
+      end
+
+      # Every directory the app's graphs read queries from, and whether any
+      # holds one. Two tasks reach an empty app and both should say the same
+      # sentence about it rather than report 0 of 0 and advise a generate that
+      # would generate nothing.
+      def self.query_dirs = GraphWeaver.graphs.flat_map(&:queries).uniq
+
+      def self.no_queries = "no queries in #{query_dirs.join(", ")}"
+
+      def self.queries? = GraphWeaver::Internal::Util.query_files(query_dirs).any?
+
       # A section heading, so a multi-graph app can tell whose report it is
       # reading. Nothing for the default graph: a single-schema app never
       # said the word "graph" and its output shouldn't either.
@@ -148,7 +169,7 @@ namespace :graph_weaver do
     (before - globs.flat_map { |glob| Dir[glob] }).each do |path|
       puts "pruned #{GraphWeaver::Internal::Util.relative(path)}"
     end
-    puts "no queries in #{GraphWeaver.graphs.flat_map(&:queries).uniq.join(", ")}" if written.empty?
+    puts GraphWeaver::Internal::Tasks.no_queries if written.empty?
     GraphWeaver::Internal::Tasks.report_registry
   rescue GraphWeaver::Error => e
     # a typo'd query is a user error — the message names file, position and
@@ -165,6 +186,10 @@ namespace :graph_weaver do
       name = graph.name ? graph.name.inspect : "(the default graph — GraphWeaver's own settings)"
       puts "#{name}  #{Array(graph.queries).join(", ")} -> #{GraphWeaver::Internal::Util.relative(graph.output)}"
       puts "  namespace: #{graph.namespace}" if graph.namespace
+      # which server a graph's modules call — the one thing this task couldn't
+      # say. A graph that bakes none falls back to GraphWeaver.client, which is
+      # an app-wide setting and not this task's subject.
+      puts "  client: #{graph.client}" if graph.client
     end
   end
 
@@ -186,6 +211,11 @@ namespace :graph_weaver do
   task unused: :environment do
     require "graph_weaver/internal/unused"
 
+    # an app with no queries has nothing to over-fetch: sweeping it to report
+    # 0 of 0 and advise `rake graph_weaver:generate` answers a question nobody
+    # asked, where its sibling says the one true thing in one line
+    next puts GraphWeaver::Internal::Tasks.no_queries unless GraphWeaver::Internal::Tasks.queries?
+
     # like cassettes:check, this reads generated modules — they are what says
     # which props a query produced
     GraphWeaver.load_generated!
@@ -196,7 +226,7 @@ namespace :graph_weaver do
     # block-buffered stdout, so a piped CI log shows it first
     $stdout.flush
     count = unused.findings.size
-    if count.positive? && !ENV["STRICT"].to_s.empty?
+    if count.positive? && GraphWeaver::Internal::Tasks.flag?("STRICT")
       abort "#{count} #{(count == 1) ? "selection" : "selections"} nothing reads — drop " \
         "#{(count == 1) ? "it" : "them"} from the query and regenerate (rake graph_weaver:generate)"
     end

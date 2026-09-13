@@ -160,10 +160,13 @@ describe "GraphWeaver.graph" do
 
   # `rake -T` is baked before :environment, so the task list can't name the
   # graphs an initializer declared — this is the task that can.
-  it "lists every graph, and what rake generate covers" do
+  it "lists every graph, the client each one calls, and what rake generate covers" do
     two_graphs
     listed = run_task("graphs")
     expect(listed).to include("pets", "billing", "Pets", "Billing")
+    # which server a graph talks to is the one thing this task didn't say, and
+    # it is what an app checks when a graph's requests go somewhere surprising
+    expect(listed).to include("client: Demo::Schema")
 
     expect(run_task("generate")).to match(/wrote.*pets.*\n(.*\n)*.*billing/)
   end

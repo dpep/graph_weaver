@@ -135,6 +135,15 @@
   turning the logger up showed it as a graph that never ran. A schema class is
   now put through the same `InProcess` wrapper `GraphWeaver.new(Schema)` builds,
   wherever a client is read. ([logging](docs/logging.md))
+- **`rake graph_weaver:graphs` says which client each graph calls.** The one
+  thing the task that answers "what does this app have" didn't print.
+- **`STRICT=0` no longer turns strict on.** `rake graph_weaver:unused` read the
+  flag as set-therefore-on, so the one spelling a CI config uses to turn it off
+  turned it on. `0`, `false`, `no`, `off` and empty are off; anything else is on.
+- **`rake graph_weaver:unused` on an app with no queries says `no queries in
+  <dir>`** — the sentence its sibling `generate` already says — instead of
+  sweeping the whole app to report 0 of 0 and advising a generate that would
+  generate nothing.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
