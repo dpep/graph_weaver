@@ -10,9 +10,13 @@ Gem::Specification.new do |s|
   # CLAUDE.md/PLAN.md/REVIEW.md/NOTES.md/DECISIONS.md are written for whoever
   # works on the gem, not whoever installs it — and REVIEW.md carries examples
   # from before the API it describes was rewritten
-  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' ':!:examples' \
+  # examples/ ships (small plain text) so the README's links to it resolve for
+  # someone who only has the installed gem, not a checkout
+  # CHANGELOG.md doesn't (259 KB, ~16% of the package) — changelog_uri below
+  # points at the GitHub copy instead
+  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' \
                      ':!:CLAUDE.md' ':!:PLAN.md' ':!:REVIEW.md' ':!:NOTES.md' \
-                     ':!:DECISIONS.md' ':!:Makefile' ':!:design'`.split("\n") + [".yardopts"]
+                     ':!:DECISIONS.md' ':!:CHANGELOG.md' ':!:Makefile' ':!:design'`.split("\n") + [".yardopts"]
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"
@@ -22,8 +26,12 @@ Gem::Specification.new do |s|
 
   s.metadata = {
     "bug_tracker_uri" => "#{s.homepage}/issues",
-    "changelog_uri" => "#{s.homepage}/blob/main/CHANGELOG.md",
+    # pinned to the release tag, not main — CHANGELOG.md isn't packaged, and
+    # main drifts ahead of whatever version this metadata shipped with
+    "changelog_uri" => "#{s.homepage}/blob/v#{s.version}/CHANGELOG.md",
     "documentation_uri" => "#{s.homepage}/tree/main/docs",
+    # no separate homepage_uri: identical to s.homepage, and `gem build` warns
+    # that rubygems.org only shows one of two metadata keys with the same uri
     "rubygems_mfa_required" => "true",
     "source_code_uri" => s.homepage,
   }

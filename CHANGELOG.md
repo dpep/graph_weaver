@@ -1,3 +1,17 @@
+###  Unreleased
+
+- **`examples/` now ships in the gem.** It was excluded from `s.files` while
+  the README linked `examples/federation.rb` and promoted the directory by
+  name — both dead links for anyone without a git checkout. It's ~30 KB of
+  plain text, so it ships.
+- **`CHANGELOG.md` no longer ships in the gem** — 259 KB, ~16% of the package,
+  and `changelog_uri` already covers it. That metadata now points at the
+  release tag (`blob/v#{version}`) instead of `main`, since the file isn't in
+  the gem to check against.
+- **Every gemspec `*_uri` link verified live.** `homepage_uri` was considered
+  and left out of `metadata` — identical to `s.homepage`, and `gem build`
+  itself warns rubygems.org only renders one of the two.
+
 ###  v0.7.0  (2026-09-13)
 
 **What you must do.** Every change here is 0.6.1 → 0.7.0, and a typical app
