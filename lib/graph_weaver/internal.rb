@@ -309,7 +309,7 @@ module GraphWeaver
       # whose #to_s is Ruby's debug form, or that is a stream whose bytes
       # JSON can't carry at all, is refused before the body is built.
       def self.check_variables!(variables)
-        variables.each { |name, value| check_variable!(name.to_s, value) }
+        variables&.each { |name, value| check_variable!(name.to_s, value) }
       end
 
       def self.check_variable!(path, value)
