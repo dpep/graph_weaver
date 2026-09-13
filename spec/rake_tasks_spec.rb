@@ -724,6 +724,13 @@ describe "graph_weaver rake tasks" do
     it "says nothing about a graph with no registrations of its own" do
       expect(invoke("graphs").out).not_to include "scalars:"
     end
+
+    # …but replacing one IS app intent, and dropping the built-in NAMES hid it
+    it "lists a built-in scalar an app has replaced" do
+      GraphWeaver.register_scalar("DateTime", String, cast: :itself, serialize: :itself)
+
+      expect(invoke("graphs").out).to include "  scalars: DateTime\n"
+    end
   end
 
   describe "graph_weaver:cassettes:check" do

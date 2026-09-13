@@ -405,8 +405,17 @@ class GraphWeaver::Codegen
       # untyped on purpose: registering it says so, rather than leaving JSON
       # in the "unregistered custom scalars" report every generation
       register_scalar "JSON", "T.untyped"
+      # the objects, not the names: a later register_scalar("DateTime", ...)
+      # replaces the entry, and that is app intent rather than a pre-registration
+      @builtin_entries = scalar_registry.values.freeze
     end
     private :register_builtin_scalars!
+
+    # Whether this name still holds the entry pre-registration put there.
+    def builtin_scalar?(name)
+      entry = scalar_registry[name]
+      @builtin_entries.any? { |builtin| builtin.equal?(entry) }
+    end
   end
 
   # codegen's own record of a registration; users get one back from

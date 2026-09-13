@@ -142,12 +142,14 @@ module GraphWeaver
       end
 
       # What one graph registers, for the graphs task — the answer an app
-      # otherwise reads out of every initializer by hand. The built-in scalars
-      # are pre-registered rather than app intent, so they aren't registrations.
+      # otherwise reads out of every initializer by hand. A pre-registered
+      # built-in isn't app intent; one an app has REPLACED is, which is why
+      # this asks whether the entry is still the library's rather than
+      # dropping the built-in names.
       def self.registrations(graph)
         registry = graph.registry
         {
-          "scalars" => registry.scalar_registry.keys - GraphWeaver::Codegen::BUILTIN_SCALARS,
+          "scalars" => registry.scalar_registry.keys.reject { |name| registry.builtin_scalar?(name) },
           "enums" => registry.enum_registry.keys,
           "extend_type" => registry.type_registry.keys,
         }.filter_map { |kind, names| "  #{kind}: #{names.sort.join(", ")}" if names.any? }
