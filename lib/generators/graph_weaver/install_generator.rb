@@ -148,6 +148,7 @@ module GraphWeaver
       # already has is left where it is (schema_path points at it instead).
       def fetch_schema
         return unless options[:schema] && form != :path
+        return if keep_existing_dump
 
         if form == :url
           # pass the var name, not just the token — it lands in the dump's
@@ -287,6 +288,24 @@ module GraphWeaver
       def schema_path = (form == :path) ? source : GraphWeaver.schema_path
 
       def auth_var = options[:auth] || GraphWeaver::SchemaLoader::DEFAULT_AUTH_ENV
+
+      # The dump is the one file the generator doesn't write through
+      # create_file, so Thor can't prompt on it — declining every conflict on
+      # a re-run still replaced it, and with it the source url it records.
+      # It is never overwritten here: `schema:refresh` is the command for
+      # that, and it re-fetches in place without touching anything else.
+      # True when there is one, having said so.
+      def keep_existing_dump
+        path = GraphWeaver::SchemaLoader.locate_path or return false
+
+        recorded = GraphWeaver::SchemaLoader.provenance(path)&.dig("url")
+        # a re-run naming a different endpoint would otherwise be answered
+        # silently by the dump the old one left
+        from = " (introspected from #{recorded})" if recorded && recorded != source
+        say_status :keep, "#{GraphWeaver::Internal::Util.relative(path)}#{from} — " \
+          "delete it and re-run to re-introspect", :yellow
+        true
+      end
 
       # --auth is what says this API takes a token. Without it the line is
       # shown rather than wired: a public API's initializer shouldn't read an

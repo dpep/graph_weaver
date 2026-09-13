@@ -115,6 +115,15 @@
   that isn't a field of that struct resolves to nil — and a field whose prop
   0.7.0 renamed off a method name (`class` → `class_`) resolves for the first
   time.
+- **`rails g graph_weaver:install` keeps a schema dump you already have.** The
+  dump was the one file the generator didn't write through `create_file`, so
+  Thor never prompted on it: declining every conflict on a re-run still
+  replaced it, and a re-run naming a *different* endpoint silently overwrote
+  the old graph's dump along with the source url it records — while the docs
+  said every file went through the conflict prompt. An existing dump is now
+  left alone and named (with where it was introspected from, when that isn't
+  the source just given); delete it and re-run to re-introspect, or
+  `rake graph_weaver:schema:refresh` to re-fetch in place.
 
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**

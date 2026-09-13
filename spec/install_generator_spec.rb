@@ -267,6 +267,49 @@ describe "GraphWeaver::Generators::InstallGenerator" do
   # Generated code is machine-written and says "do not edit", but plain
   # `rubocop` lints it anyway — Style/Documentation on every struct,
   # Metrics/* on every from_h.
+  # The dump is the one file the generator doesn't write through create_file,
+  # so Thor can't prompt on it — declining every conflict on a re-run still
+  # replaced it, and with it the source url it records, while the docs said
+  # every file went through the conflict prompt.
+  describe "a dump the app already has" do
+    def dump(body)
+      FileUtils.mkdir_p(File.join(@app, "app/graphql"))
+      File.write(File.join(@app, "app/graphql/schema.json"), body)
+    end
+
+    def told(actions) = actions.filter_map { |kind, *rest| rest.join(" ") if kind == :say_status }.join("\n")
+
+    it "is kept, not re-introspected, and named with the way to replace it" do
+      dump("{}")
+      actions = run_generator
+
+      expect(GraphWeaver::SchemaLoader).not_to have_received(:refresh!)
+      expect(told(actions)).to include "app/graphql/schema.json", "delete it and re-run"
+    end
+
+    it "is kept for a schema class too" do
+      stub_const("MyApp::Schema", Class.new { def self.execute(*) = {} })
+      dump("{}")
+      run_generator("MyApp::Schema")
+
+      expect(GraphWeaver::SchemaLoader).not_to have_received(:introspect)
+    end
+
+    # answering a re-run that names a new endpoint with the old dump, silently,
+    # is the worst of the three outcomes
+    it "says where it came from when that isn't the source just given" do
+      dump(JSON.generate("graph_weaver" => { "url" => "https://old.example.com/graphql" }))
+
+      expect(told(run_generator)).to include "introspected from https://old.example.com/graphql"
+    end
+
+    it "still introspects when there is no dump" do
+      run_generator
+
+      expect(GraphWeaver::SchemaLoader).to have_received(:refresh!)
+    end
+  end
+
   # A `graphql:` tag does nothing without this require, and the advice used
   # to be "put it in spec/support/graph_weaver.rb" — which rspec-rails ships
   # commented out of rails_helper, so it silently never ran.
