@@ -1,5 +1,17 @@
 ###  Unreleased
 
+<!-- lane: provenance -->
+- **A schema dump no longer records the credential that introspected it.**
+  The provenance stamp (`schema:refresh` and `cache:`) wrote the transport's
+  url verbatim, so a url carrying userinfo or an `?access_token=` landed in a
+  file that gets committed. It now records the endpoint bare — userinfo and
+  any query parameter `filter_parameters` filters are dropped, the rest kept —
+  and re-introspection still authenticates from the dump's `auth_env`, which
+  is where the token belonged. The loader's log lines and errors say the url
+  the way every transport failure now does, secrets marked `[FILTERED]`.
+  *Action:* a dump written by an earlier version from such a url still holds
+  the token — refresh it once, and rotate the token if the file was pushed.
+
 <!-- lane: fedC -->
 - **An `@interfaceObject` no longer breaks the subgraph its interface's *other*
   implementers live in.** Apollo writes a bare `@join__field` — no `graph:` at

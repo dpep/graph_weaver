@@ -33,6 +33,15 @@ describe "the endpoint a transport names" do
     it "answers a url it can't take apart with nothing at all" do
       expect(described_class.safe("not a url")).to eq "[FILTERED]"
     end
+
+    # for a url that is read back later — a marker there would parse as a host
+    it "strips credentials rather than marking them when the url must stay usable" do
+      expect(described_class.bare("https://svc:hunter2@api.example.com/graphql?access_token=abc&page=2"))
+        .to eq "https://api.example.com/graphql?page=2"
+      expect(described_class.bare("https://api.example.com/graphql?access_token=abc"))
+        .to eq "https://api.example.com/graphql"
+      expect(described_class.bare("https://api.example.com/graphql")).to eq "https://api.example.com/graphql"
+    end
   end
 
   describe "on the error" do

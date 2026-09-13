@@ -34,7 +34,30 @@ module GraphWeaver
           GraphWeaver::FILTERED
         end
 
+        # The endpoint with its credentials REMOVED rather than marked — for a
+        # place the url is read back from, such as a dump's provenance, where
+        # a "[FILTERED]" would be parsed as a host. Nothing is lost that
+        # belonged there: re-introspection authenticates from auth_env.
+        def bare(url)
+          uri = URI(url.to_s)
+          return url.to_s unless uri.userinfo || uri.query
+
+          uri.user = nil
+          uri.password = nil
+          uri.fragment = nil
+          uri.query = uri.query && drop_secrets(uri.query)
+          uri.to_s
+        end
+
         private
+
+        def drop_secrets(query)
+          kept = query.split("&").reject do |pair|
+            name, value = pair.split("=", 2)
+            value && Redact.filtered?(URI.decode_www_form_component(name))
+          end
+          kept.join("&") unless kept.empty?
+        end
 
         # Which query parameters are secret is the same question
         # GraphWeaver.filter_parameters already answers for variables, so a

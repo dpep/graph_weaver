@@ -719,7 +719,7 @@ module GraphWeaver::SchemaLoader
   # graphql-ruby schema class fills the same slot a transport does, and its
   # own name is what a report has to say — `.class` answers "Class".
   def self.endpoint(transport)
-    return transport.url if transport.respond_to?(:url) && transport.url
+    return GraphWeaver::Internal::Endpoint.safe(transport.url) if transport.respond_to?(:url) && transport.url
 
     transport.is_a?(Module) ? (transport.name || transport.to_s) : transport.class
   end
@@ -852,12 +852,13 @@ module GraphWeaver::SchemaLoader
   # re-verified later — a parsable header comment in SDL, a
   # "graph_weaver" sibling key in introspection JSON (from_introspection
   # reads only "data"). nil when the transport has no url (schema
-  # classes, fakes).
+  # classes, fakes). The url is recorded bare: a dump is committed, and
+  # re-introspection authenticates from auth_env, not from the url.
   def self.stamp(transport, auth_env = nil)
     return unless transport.respond_to?(:url) && transport.url
 
     require "time"
-    meta = { "url" => transport.url, "introspected_at" => Time.now.utc.iso8601 }
+    meta = { "url" => GraphWeaver::Internal::Endpoint.bare(transport.url), "introspected_at" => Time.now.utc.iso8601 }
     # only the non-default var is worth recording — auth_env falls back to
     # DEFAULT_AUTH_ENV, so an unannotated dump reads the same either way
     meta["auth_env"] = auth_env if auth_env && auth_env != DEFAULT_AUTH_ENV

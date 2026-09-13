@@ -322,6 +322,23 @@ describe GraphWeaver::SchemaLoader do
       expect(described_class.provenance(plain_path)).to be_nil
     end
 
+    # a dump is committed; the token that introspected it must not be
+    it "records the source url without its credentials" do
+      with_secret = Class.new do
+        def url = "https://svc:hunter2@api.example.com/graphql?access_token=abc&tenant=acme"
+
+        def execute(query, variables:, operation_name: nil)
+          Demo::Schema.execute(query, variables:, operation_name:)
+        end
+      end
+
+      path = File.join(@dir, "secret.json")
+      described_class.introspect(with_secret.new, cache: path)
+      expect(File.read(path)).not_to include("hunter2", "abc")
+      expect(described_class.provenance(path)["url"]).to eq "https://api.example.com/graphql?tenant=acme"
+      expect(described_class.source_transport(path).url).to eq "https://api.example.com/graphql?tenant=acme"
+    end
+
     it "diff re-introspects and names what drifted" do
       path = File.join(@dir, "schema.graphql")
       described_class.introspect(counting_executor, cache: path)
