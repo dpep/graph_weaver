@@ -82,6 +82,15 @@
   which raises `ArgumentError` — so one mistyped option reported as a bug
   somewhere else, and the failure being retried was lost behind it.
 <!-- lane: corpus -->
+- **"Select `__typename`" now says why the ones you did select don't count.**
+  Putting `__typename` in every `... on Type` and nowhere else looks like
+  compliance — it is what Linear's published SDK documents do, and it refuses
+  36 of their 250 operations — and the tag really is on the wire; it is just
+  read *after* the dispatch it would decide, and a member the query never named
+  would carry none at all. The refusal says so when that is the shape in front
+  of it, and keeps the short message otherwise. The rule is unchanged, and
+  [docs/generated_modules.md](docs/generated_modules.md#abstract-types) states
+  it too.
 - **An input type named `Result`, `QUERY` or `Representations` is refused**,
   the way an enum by one of those names already was. Those are the constants
   every generated query module defines, and nothing checked an input struct

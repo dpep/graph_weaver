@@ -1834,6 +1834,46 @@ describe GraphWeaver::Codegen do
     end
   end
 
+  # 36 of 250 published Linear SDK operations are refused for this, and every
+  # one of them selects __typename — once inside each member fragment, never on
+  # the union. "Select __typename" is unhelpful advice to someone looking at
+  # six of them.
+  describe "a union whose members each select __typename" do
+    def refusal(query)
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Action { action: String }
+        type Thought { body: String }
+        union Content = Action | Thought
+        type Query { content: Content }
+      GRAPHQL
+      GraphWeaver::Codegen.generate(schema:, query:, name: "Q")
+      nil
+    rescue StandardError => e
+      e.message
+    end
+
+    it "says why the ones inside the members don't reach the dispatch" do
+      message = refusal(<<~GQL)
+        { content { ... on Action { __typename action } ... on Thought { __typename body } } }
+      GQL
+
+      expect(message).to include("select __typename on Content")
+      expect(message).to match(/each `\.\.\. on Type` .* only after the dispatch it would decide/)
+    end
+
+    # the plain case keeps the plain message: there is no near miss to explain
+    it "keeps the short message when no member selects one either" do
+      message = refusal("{ content { ... on Action { action } ... on Thought { body } } }")
+
+      expect(message).to include("select __typename on Content")
+      expect(message).not_to include("after the dispatch")
+    end
+
+    it "generates once __typename is on the union itself" do
+      expect(refusal("{ content { __typename ... on Action { action } } }")).to be_nil
+    end
+  end
+
   # A query module's own constants — the Result struct, the QUERY heredoc —
   # share one namespace with every input struct and enum it generates. An enum
   # that lands on one is already refused; an input type wasn't, and `class

@@ -1081,16 +1081,33 @@ class GraphWeaver::Codegen
   # about. Dispatch reads __typename, so the query must select it; for
   # interfaces the interface-level fields gather into every member.
   def union_members(type, selections)
-    unless dispatchable_typename?(type, selections)
-      raise ArgumentError,
-        "select __typename on #{type.graphql_name} so the union can dispatch — unaliased and " \
-        "not under @skip/@include, since from_h reads it on every response — or narrow to a " \
-        "single `... on Type` condition (no dispatch needed)"
-    end
+    raise ArgumentError, typename_refusal(type, selections) unless dispatchable_typename?(type, selections)
 
     selected_members(type, selections).sort_by(&:graphql_name).to_h do |possible|
       [possible.graphql_name, object_node(possible, selections, camelize(possible.graphql_name))]
     end
+  end
+
+  # Why a selection can't dispatch. The near miss is worth its own sentence:
+  # putting __typename in every `... on Type` and nowhere else looks like
+  # compliance — it is what Linear's published SDK documents do — and the tag
+  # really is on the wire, but from_h reads it before it knows which member is
+  # live, and a member the query never named would carry none at all.
+  def typename_refusal(type, selections)
+    base = "select __typename on #{type.graphql_name} so the union can dispatch — unaliased and " \
+      "not under @skip/@include, since from_h reads it on every response — or narrow to a " \
+      "single `... on Type` condition (no dispatch needed)"
+    return base unless member_typename?(type, selections)
+
+    "#{base}. The __typename in each `... on Type` here is read only after the dispatch it " \
+      "would decide, so it can't stand in for one on #{type.graphql_name} itself"
+  end
+
+  # Does every member the selection names carry its own unconditional
+  # __typename? Asked only to explain a refusal, never to permit one.
+  def member_typename?(type, selections)
+    members = selected_members(type, selections).to_a
+    members.any? && members.all? { |member| dispatchable_typename?(member, selections) }
   end
 
   # The concrete types a selection names through its type conditions, kept to

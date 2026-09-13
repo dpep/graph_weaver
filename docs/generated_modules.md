@@ -494,7 +494,10 @@ plus a catch-all `Other`, wrapped in a module with
 `Type = T.type_alias { T.any(...) }` and a `from_h` that dispatches on
 `__typename`. Generation therefore *requires* `__typename` in such a selection,
 unaliased and unconditional — the wire response carries no type tag unless you
-ask, and `from_h` reads it on every response.
+ask, and `from_h` reads it on every response. One `__typename` inside each
+`... on Type` does **not** substitute, however many of them there are: the
+dispatch runs before any member's selection applies, and a member the query
+never named would carry none at all.
 
 Size follows the query, not the schema: two `... on` conditions against GitHub's
 `Node` — an interface with a few hundred implementations — emit three structs,
