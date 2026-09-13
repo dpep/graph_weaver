@@ -72,6 +72,25 @@
 - Docs: an `extend_type` mixin CAN carry sigs `srb tc` checks — declare the
   fields it reads as abstract sigs, which the struct's `const`s satisfy. The
   type-helpers section shows the shape.
+- **`list_size:` also takes a Hash, saying how long ONE list is.** Every list
+  the fake reaches reads the same setting, so nested unbounded lists multiply:
+  `rows { owner { … } tags }` at `list_size: 1600` fabricates 1600 rows and
+  1600 tags in each of them, and per-row allocations double with every doubling
+  of the number (1,064 → 12,981 objects per row from 100 → 1600). Key the Hash
+  the way pins are keyed — a `"Type.field"` coordinate or a bare field name,
+  with `default:` for the rest — and the named list stays flat (205 objects per
+  row across the same sweep). `{ "Row.tags" => 3, default: 1000 }`. Integer and
+  Range mean exactly what they did; a key the schema doesn't know is refused
+  with a spellcheck, at the fake's door and at `Testing.configure`. Works the
+  same on `config.list_size`, `graphql_fake(list_size:)` and a router's `fake:`.
+- Docs: four performance questions answered with measurements —
+  [testing](docs/testing.md) on the nested-list multiplication above,
+  [scalars](docs/scalars.md) on what a timestamp cast costs (`Time.parse`, the
+  reader every `DateTime` field already uses, is ~7× `Date.iso8601`; `cast:
+  :iso8601` is ~3× cheaper and stricter), and [generated
+  modules](docs/generated_modules.md) on `verify_generated!` costing a full
+  `generate!` however little changed, and on
+  `T::Configuration.default_checked_level` buying nothing for `from_h`.
 
 ###  v0.7.0  (2026-09-13)
 

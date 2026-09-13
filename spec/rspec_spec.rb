@@ -141,6 +141,16 @@ describe "graph_weaver/rspec" do
         expect(DraftsDemo::QUERY.execute!.drafts.map(&:owner).uniq).to eq %w[ada]
       end
 
+      # the helper forwards to the fake, so the Hash form arrives whole —
+      # including the refusal, which is what makes a typo here loud
+      it "takes a list_size Hash keyed like a pin" do
+        graphql_fake(list_size: { "Query.drafts" => 2 })
+        expect(DraftsDemo::QUERY.execute!.drafts.size).to eq 2
+
+        expect { graphql_fake(list_size: { "Query.draffts" => 2 }) }
+          .to raise_error(GraphWeaver::Error, /list_size: key "Query.draffts".*did you mean 'drafts'\?/)
+      end
+
       # rspec's --seed already drives the fake; a second seed is the one
       # that stops it reproducing the run
       it "refuses a per-example seed, naming rspec's" do
