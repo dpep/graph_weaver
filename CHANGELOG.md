@@ -1,3 +1,12 @@
+###  Unreleased
+
+- **The local router refuses a `@fromContext` argument on any path.** The
+  refusal used to live only in the crossing-aware half of the planner, so a
+  query one subgraph answered whole skipped it — and the resolver was called
+  with the argument unset, which is a plausible wrong answer rather than an
+  error. Every refusal that must hold for a query however it is planned now
+  runs above the single-subgraph shortcut.
+
 ###  v0.7.0  (2026-09-13)
 
 **What you must do.** Every change here is 0.6.1 → 0.7.0, and a typical app

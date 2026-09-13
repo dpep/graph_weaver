@@ -178,7 +178,7 @@ module GraphWeaver
           return plan
         end
 
-        check_interface_objects!(root.graphql_name, selections, fragments) if @interface_objects.any?
+        check_reachable!(root.graphql_name, selections, fragments)
 
         entry = single_subgraph(root.graphql_name, selections, fragments)
         if entry
@@ -223,13 +223,14 @@ module GraphWeaver
 
       private
 
-      # Every type these selections reach, refused if one of them is an
-      # @interfaceObject: a subgraph resolves the whole interface there, so
-      # the supergraph records no per-field routing for it and every fetch
-      # planned against it would be a guess. Asked per query rather than at
-      # construction — one such directive shouldn't cost you the queries
-      # that never touch the type.
-      def check_interface_objects!(type_name, selections, fragments, depth = 0)
+      # Every position this operation reaches, refused if the supergraph says
+      # something about it no plan can honour — whatever plan it gets. It runs
+      # here, above the verbatim shortcut, because that is the only place
+      # every plan passes: a check that lives in {#plan_step} silently skips
+      # the query one subgraph answers whole. Asked per query rather than at
+      # construction — one such directive shouldn't cost you the queries that
+      # never touch it.
+      def check_reachable!(type_name, selections, fragments, depth = 0)
         return if depth > MAX_DEPTH
 
         selections.each do |node|
@@ -237,18 +238,19 @@ module GraphWeaver
           when GraphQL::Language::Nodes::Field
             next if node.name.start_with?("__")
 
+            contextual!(type_name, node)
             child = raw_child_type(type_name, node.name) or next
             interface_object!(child, "#{type_name}.#{node.name} returns #{child}")
-            check_interface_objects!(child, node.selections, fragments, depth + 1)
+            check_reachable!(child, node.selections, fragments, depth + 1)
           when GraphQL::Language::Nodes::InlineFragment
             condition = node.type&.name || type_name
             interface_object!(condition, "this operation selects ... on #{condition}")
-            check_interface_objects!(condition, node.selections, fragments, depth + 1)
+            check_reachable!(condition, node.selections, fragments, depth + 1)
           when GraphQL::Language::Nodes::FragmentSpread
             fragment = fragments[node.name] or next
             condition = fragment.type.name
             interface_object!(condition, "...#{node.name} is on #{condition}")
-            check_interface_objects!(condition, fragment.selections, fragments, depth + 1)
+            check_reachable!(condition, fragment.selections, fragments, depth + 1)
           end
         end
       end
@@ -352,7 +354,6 @@ module GraphWeaver
 
         here = step(subgraph, type_name)
         selections.each do |node|
-          contextual!(type_name, node)
           # a subtree that never leaves this subgraph goes over as written:
           # the boundary rules govern stitching, so they have no business
           # applying to a query that was never going to cross one
@@ -388,9 +389,9 @@ module GraphWeaver
 
       # A @fromContext argument is filled by the GATEWAY, out of a selection on
       # an ancestor — so a fetch this planner writes leaves it unset and the
-      # field resolves from nothing. Asked only of a field the planner routes
-      # itself: a subtree handed to one subgraph whole carries its own context,
-      # which is why the verbatim path never reaches here.
+      # field resolves from nothing. A subgraph's own resolver never fills one
+      # either, so handing it the subtree whole doesn't help: this is asked of
+      # every field the operation reaches, on every path.
       def contextual!(type_name, node)
         names = @table.field(type_name, node.name)&.contextual
         return if names.nil? || names.empty?

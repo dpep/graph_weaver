@@ -759,10 +759,41 @@ describe GraphWeaver::Testing::Router do
           )
       end
 
-      # one subgraph answering the whole thing sets its own context
-      it "runs a query that never leaves the subgraph holding it" do
+      # a query that never reaches the @fromContext field plans normally
+      it "runs a query that doesn't touch the argument" do
         expect(contextual.execute('{ store(id: "1") { country } }').dig("data", "store")).to be_a Hash
         expect(contextual).to have_fetched_subgraphs "catalog"
+      end
+
+      # A subgraph's resolver never fills a @fromContext argument — only a
+      # gateway does — so handing one subgraph the whole subtree doesn't set
+      # the context, it just loses the refusal: the resolver was called with
+      # nil and the router answered with a plausible, wrong number.
+      it "refuses it on the verbatim path too, where one subgraph holds it all" do
+        one = described_class.new(supergraph: <<~SDL, subgraphs: { "shop" => :fake })
+          schema @link(url: "https://specs.apollo.dev/link/v1.0")
+            @link(url: "https://specs.apollo.dev/join/v0.5", for: EXECUTION)
+          { query: Query }
+          directive @join__field(graph: join__Graph, contextArguments: [join__ContextArgument!]) repeatable on FIELD_DEFINITION
+          directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+          directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+          input join__ContextArgument { name: String! type: String! context: String! selection: join__FieldValue! }
+          scalar join__FieldSet
+          scalar join__FieldValue
+          enum join__Graph { SHOP @join__graph(name: "shop", url: "http://shop") }
+          type Query @join__type(graph: SHOP) { product(id: ID!): Product }
+          type Product @join__type(graph: SHOP, key: "id") { id: ID! sizes: [Size!]! }
+          type Size @join__type(graph: SHOP, key: "id") {
+            id: ID!
+            price: Int! @join__field(graph: SHOP, contextArguments: [{context: "shop__productCtx", name: "countryCode", type: "String", selection: " { countryCode }"}])
+          }
+        SDL
+
+        expect { one.execute('{ product(id: "1") { sizes { price } } }') }
+          .to refuse_to_plan(:context_argument).with_detail(
+            'Size.price takes "countryCode" from a @context an ancestor selection sets, and ' \
+            "the router would have to fetch it on its own",
+          )
       end
     end
 
