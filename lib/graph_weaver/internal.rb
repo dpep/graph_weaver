@@ -47,6 +47,9 @@ module GraphWeaver
           DidYouMean::SpellChecker.new(dictionary: dictionary).correct(term).first
         end
 
+        # "a" or "an" for a word an error message is about to name.
+        def article(word) = word.downcase.start_with?(/[aeiou]/) ? "an" : "a"
+
         # The module a .graphql file generates, and the basename of the file
         # it generates into: the camelized file name plus the operation's own
         # word.

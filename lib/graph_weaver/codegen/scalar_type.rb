@@ -170,8 +170,9 @@ class GraphWeaver::Codegen
     # probed and matched nothing. Raised by Codegen#refuse_uncastable!, which
     # owns the question of whether the wire could satisfy the prop at all.
     def uncastable_message(where)
+      article = GraphWeaver::Internal::Util.article(@type)
       head = "register_scalar(#{@graphql_name.inspect}, #{@klass ? @type : @type.inspect}) has no " \
-        "cast, so nothing builds a #{@type} out of the JSON at #{where}"
+        "cast, so nothing builds #{article} #{@type} out of the JSON at #{where}"
       if @klass.nil?
         "#{head} — a type: given by name is never probed, since there is no class in hand. Pass " \
           "the class (register_scalar(#{@graphql_name.inspect}, #{@type})) to infer a cast from " \

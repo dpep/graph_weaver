@@ -109,7 +109,7 @@ class GraphWeaver::Codegen
     end
     private :unmatched
 
-    def article(word) = word.downcase.start_with?(/[aeiou]/) ? "an" : "a"
+    def article(word) = GraphWeaver::Internal::Util.article(word)
     private :article
 
     # Every table back to its starting state — scalars (built-ins restored),
