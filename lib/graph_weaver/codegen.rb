@@ -273,6 +273,12 @@ class GraphWeaver::Codegen
   def reset_walk_state!
     @enums = {}
     @variable_inputs = {}
+    # the variable declaration the input walk descends from, and the field
+    # hops it has taken since — an input collision is about a type the user
+    # usually never named, so the refusal has to point back at what they wrote
+    @input_from = nil
+    @input_list = false
+    @input_hops = []
     @mapped_enums = {}
     @used_unions = []
     # requires the generated file needs (custom scalars, enum mappings,
@@ -389,10 +395,10 @@ class GraphWeaver::Codegen
   # moves: the wire name, and everything read from or written to the wire,
   # is untouched.
   #
-  # Public because the rule has readers outside generation: Response#report
-  # walks a server error path onto props, and the round-trip harness checks
-  # what came back against them. A second spelling of the rule is how the two
-  # sides drift apart.
+  # Public because the rule has readers outside generation: Hints maps a wire
+  # key onto the prop that holds it, and the round-trip harness checks what
+  # came back against them. A second spelling of the rule is how the two sides
+  # drift apart.
   def self.prop_name(graphql_name)
     prop = GraphWeaver::Inflect.underscore(graphql_name)
     RESERVED_PROPS.include?(prop) ? "#{prop}_" : prop
@@ -496,6 +502,9 @@ class GraphWeaver::Codegen
   # optional kwargs default to nil and are omitted from the wire.
   def build_variables(operation)
     variables = operation.variables.map do |var|
+      @input_from = "$#{var.name}"
+      @input_list = ast_list?(var.type)
+      @input_hops = []
       node = ast_type_ref(var.type)
       required = node.non_null? && var.default_value.nil?
       kwarg = underscore(var.name)
@@ -1235,7 +1244,9 @@ class GraphWeaver::Codegen
       # schema's field name is not the user's to rename. `Tricky.in` filters are
       # standard Hasura/Gatsby shape.
       prop = GraphWeaver::Codegen.prop_name(argument.graphql_name)
+      @input_hops.push(InputHop.new(argument.graphql_name, list_type?(argument.type)))
       child = type_ref(argument.type) { variable_core(argument.type.unwrap) }
+      @input_hops.pop
       required = child.non_null? && !argument.default_value?
       node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
     end
@@ -1254,9 +1265,58 @@ class GraphWeaver::Codegen
 
     fields = collision.last.map { |field| field.wire.inspect }.join(" and ")
     raise GraphWeaver::Error,
-      "input fields #{fields} on #{core.graphql_name} both map to the prop '#{collision.first}' — " \
-      "pass #{core.graphql_name} as a literal in the query, with a variable per field, instead of " \
-      "declaring a variable of that type"
+      "input fields #{fields} on #{core.graphql_name} both map to the prop " \
+      "'#{collision.first}' — #{input_collision_advice(core)}"
+  end
+
+  # One hop of the input walk: the field taken, and whether taking it crosses
+  # a list.
+  InputHop = Struct.new(:name, :list)
+  private_constant :InputHop
+
+  def list_type?(type)
+    type = type.of_type if type.kind.name == "NON_NULL"
+    type.kind.name == "LIST"
+  end
+
+  # What to do about an input collision, said in terms of the declaration the
+  # user wrote: the colliding type is usually several hops below it, and
+  # naming the type alone sends them looking for a variable they never
+  # declared. The escape — inline the path as a literal, keeping a variable
+  # per leaf — exists only when no hop crosses a list, since a literal list
+  # can't stand in for a length only the runtime knows.
+  def input_collision_advice(core)
+    from = @input_from || "a variable that reaches it"
+    path = @input_hops.map(&:name).join(".")
+    crossed = @input_hops.find(&:list)
+
+    if crossed || @input_list
+      blocked =
+        if crossed
+          "#{from} reaches #{core.graphql_name} through #{path}, and #{crossed.name} is a list"
+        else
+          "#{from} is declared as a list of #{core.graphql_name}"
+        end
+      return "#{blocked} — a literal list can't stand in for a length only the runtime knows, so " \
+        "no form of this query generates. Keep #{core.graphql_name} out of the variables."
+    end
+
+    if @input_hops.any?
+      return "#{from} reaches #{core.graphql_name} through #{path} — drop #{from} and write that " \
+        "path as a literal in the query, with a variable per field of #{core.graphql_name}"
+    end
+
+    "pass #{core.graphql_name} as a literal in the query, with a variable per field, instead of " \
+      "declaring #{from}"
+  end
+
+  # Does this AST type reference cross a list on its way to the core type?
+  def ast_list?(ast_type)
+    case ast_type
+    when GraphQL::Language::Nodes::ListType then true
+    when GraphQL::Language::Nodes::NonNullType then ast_list?(ast_type.of_type)
+    else false
+    end
   end
 
   # The module-level T::Enum for a schema enum, named for the enum itself —

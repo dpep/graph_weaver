@@ -1794,6 +1794,41 @@ describe GraphWeaver::Codegen do
     it "generates the struct when the props are distinct" do
       expect(generate("nameWithOwner: String owner: String")).to include("const :name_with_owner,")
     end
+
+    # The refusal is right — a variable of a type that reaches the collision
+    # lets the caller set the colliding field at runtime — but the advice has
+    # to be about the declaration the user actually wrote. Naming the type
+    # sends them looking for a variable they never declared.
+    def nested(query)
+      schema = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        input Inner { nameWithOwner: String, name_with_owner: String }
+        input Outer { inner: Inner, ok: String }
+        input Bulk { rows: [Inner!]! }
+        type Query { search(outer: Outer, bulk: Bulk): String }
+      GRAPHQL
+      GraphWeaver::Codegen.generate(schema:, query:, name: "Q")
+    end
+
+    it "names the variable the user declared, not the type it reached" do
+      expect { nested("query Q($outer: Outer) { search(outer: $outer) }") }
+        .to raise_error(GraphWeaver::Error, /\$outer reaches Inner through inner/)
+    end
+
+    it "says plainly that a collision behind a list has no literal form" do
+      expect { nested("query Q($bulk: Bulk) { search(bulk: $bulk) }") }
+        .to raise_error(GraphWeaver::Error, /rows is a list.*no form of this query generates/m)
+    end
+
+    it "says so too when the variable is itself a list of the colliding type" do
+      expect { nested("query Q($rows: [Inner!]!) { search(bulk: { rows: $rows }) }") }
+        .to raise_error(GraphWeaver::Error,
+          /\$rows is declared as a list of Inner.*no form of this query generates/m)
+    end
+
+    it "still names the declaration when the variable is the colliding type itself" do
+      expect { nested("query Q($inner: Inner) { search(outer: { inner: $inner }) }") }
+        .to raise_error(GraphWeaver::Error, /instead of declaring \$inner/)
+    end
   end
 
   it "rejects two variables that underscore to the same kwarg" do
