@@ -173,6 +173,17 @@ On `Transport::Faraday` a callable header raises instead — Faraday resolves
 this in middleware (`conn.request :authorization, "Bearer", -> { Tokens.fetch }`),
 which is the sample above, and keeping one way per transport beats two.
 
+**Compression and proxies** need no configuration on either transport.
+`net/http` — which both use underneath — asks for `gzip`/`deflate` on every
+request and decodes what comes back, and it reads `http_proxy` / `HTTPS_PROXY`
+and `no_proxy` from the environment. A proxy is never used for a loopback
+address, which is Ruby's rule, not ours.
+
+**The endpoint an error names** is the url with its userinfo and any secret
+query parameter folded to `[FILTERED]` — see [errors](errors.md). `#url` on a
+transport stays the real endpoint; `#safe_url` is the one that goes in a log
+line, an exception or an APM payload.
+
 **Request body.** `{"query": ..., "variables": ...}`, plus
 `"operationName"` when the operation has a name — the field Apollo Studio,
 Hasura and most APMs key traces, rate limits and slow-query reports on.

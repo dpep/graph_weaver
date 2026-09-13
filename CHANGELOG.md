@@ -58,6 +58,12 @@
   longer lands in a log file or a third-party trace store. `Transport#url` is
   unchanged: it is where requests actually go, and `#safe_url` is the sayable
   one.
+- **A response behind a UTF-8 BOM now parses.** RFC 8259 §8.1 lets a parser
+  ignore a leading BOM and Ruby's doesn't, so a .NET/IIS-fronted endpoint's
+  answer came back as `non-GraphQL response: {"data":…}` — a body that looks
+  perfectly good, broken by three invisible bytes. And **an empty body says so**
+  (`HTTP 204: empty response body`) rather than trailing off after the colon,
+  which read as a truncated message rather than as the answer it was.
 
 <!-- lane: pool -->
 - **`GraphWeaver.new(url, pool_size: N)`** sizes the bundled HTTP transport's

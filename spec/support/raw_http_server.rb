@@ -7,8 +7,8 @@ require "socket"
 #
 #      url = serving { |socket| socket.write(http_response(500, "<html>")) }
 #
-# The handler runs per request; return truthy to keep the connection open for
-# the next one on the same socket.
+# One request per connection, then the socket closes — which is also the
+# keep-alive socket a real server reaps out from under a pooled client.
 RSpec.shared_context "raw http server" do
   # Every request this server read, as [head, body] — so an example can assert
   # a mutation reached it exactly once.
@@ -44,9 +44,10 @@ RSpec.shared_context "raw http server" do
     loop do
       socket = server.accept
       Thread.new do
-        while (request = read_request(socket))
+        request = read_request(socket)
+        if request
           @raw_requests << request
-          break unless handler.call(socket)
+          handler.call(socket)
         end
       rescue StandardError, IOError
         nil
