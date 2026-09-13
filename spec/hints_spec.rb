@@ -56,6 +56,11 @@ describe GraphWeaver::Hints do
         .to raise_error(GraphWeaver::CastError, /pets\.0: expected an object, but the server sent a string/)
     end
 
+    it "names the index of the element that drifted, not only the first" do
+      expect { cast([{ "name" => "Nibbler" }, "p1"]) }
+        .to raise_error(GraphWeaver::CastError, /pets\.1: expected an object, but the server sent a string/)
+    end
+
     # What arrived, named as JSON names it — sorbet reports the Ruby type of
     # whatever the cast had half-built by then, which is a different thing.
     it "names what arrived in the wire's vocabulary, whatever it was" do
