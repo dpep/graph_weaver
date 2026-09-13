@@ -102,6 +102,13 @@
   constants. No public schema in a 23-schema sweep declares one (SpaceX has an
   *object* named `Result`, which is unaffected — a result class is named for
   the response key, not the type).
+- **The round-trip harness calls `execute` with the kwarg a variable really
+  becomes.** It used `prop_name`, so an argument named `hash` — Linear's
+  `Query.comment(hash:)` — was passed as `hash_:` and `execute` raised
+  `unknown keyword`. The rename exists so a *prop* can't shadow a method its
+  struct answers; an execute kwarg shadows nothing and keeps the schema's
+  spelling. The reserved-name fixture only had such names as input-object
+  fields, where `prop_name` is right; it now takes them as arguments too.
 - **The round-trip harness reads a scalar off the registry, not off its name.**
   Sweeping 23 public schemas turned up two schemas (GitLab's, universe's)
   declaring `scalar Time` and one (Linear's) declaring `DateTimeOrDuration`,

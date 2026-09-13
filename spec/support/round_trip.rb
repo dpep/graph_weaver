@@ -653,7 +653,7 @@ module RoundTrip
       return draft if draft.is_a?(Trip)
 
       targets = draft.arguments.flat_map do |argument|
-        prop = GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym
+        prop = kwarg(argument)
         next [] unless draft.kwargs.key?(prop)
 
         # a variable default makes the kwarg optional, so a nil there means
@@ -723,6 +723,12 @@ module RoundTrip
     # Returns a Trip instead when there was nothing to draft or codegen said no.
     Draft = Struct.new(:query, :mod, :kwargs, :expected, :arguments, :defaults, keyword_init: true)
 
+    # The kwarg a variable of this argument becomes. Plain underscore, NOT
+    # prop_name: the rename exists so a PROP can't shadow a method its struct
+    # answers, and an execute kwarg shadows nothing — `hash:`, which Linear's
+    # Query.comment really takes, stays as it is spelled.
+    def kwarg(argument) = GraphWeaver::Inflect.underscore(argument.graphql_name).to_sym
+
     def draft_input(schema:, field:, mutation:, name:, rng:)
       arguments = field.arguments.each_value.to_a
       return Trip.new(failures: [], barren: "no arguments") if arguments.empty?
@@ -748,7 +754,7 @@ module RoundTrip
         next if wire == :omit && !required
 
         ruby, wire = inputs.build!(argument.type.of_type) if wire == :omit
-        kwargs[GraphWeaver::Codegen.prop_name(argument.graphql_name).to_sym] = ruby
+        kwargs[kwarg(argument)] = ruby
         expected[argument.graphql_name] = wire
       end
 

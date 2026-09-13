@@ -30,10 +30,20 @@ describe "round trip" do
   # method — so every oracle in this file would agree with a codegen that never
   # renamed anything. Both halves matter: `class` is a result key AND an input
   # field, and only the input side can lose a value through the wire name.
+  #
+  # `find`'s arguments are the third place such a name lands, and the one the
+  # rename does NOT reach: a variable becomes an execute KWARG, where `hash:`
+  # is legal Ruby and stays as it is spelled. Linear's `Query.comment(hash:)`
+  # is the real one. (`class` is absent here on purpose — a Ruby keyword is
+  # refused as a kwarg, which is a different rule with its own spec.)
   ROUND_TRIP_RESERVED = GraphQL::Schema.from_definition(<<~GRAPHQL)
     input RowFilter { class: String, hash: Int, display: Boolean, to_json: String, each: [String!], nested: RowFilter }
     type Row { id: ID! class: String hash: Int display: Boolean to_json: String each: [String!] nested: Row }
-    type Query { row(filter: RowFilter): Row rows(filter: RowFilter): [Row!] }
+    type Query {
+      row(filter: RowFilter): Row
+      rows(filter: RowFilter): [Row!]
+      find(hash: Int, display: Boolean, to_json: String, each: [String!]): Row
+    }
     type Mutation { save(input: RowFilter!): Row }
   GRAPHQL
 
