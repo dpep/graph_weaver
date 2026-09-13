@@ -93,6 +93,50 @@
   `extensions.input` example, and loses the "partial failure" label on a call
   that fails the whole response.
 
+<!-- lane: lifecycle -->
+- **`schema:refresh` and `schema:diff` work for a schema you serve yourself.**
+  Both refused unconditionally for a dump built from a graphql-ruby class
+  ("records no source url"), so the documented CI chain — `schema:diff &&
+  queries:check && verify && cassettes:check` — was permanently red for an
+  in-process app, and a runtime `QueryError` on a renamed field advised
+  `schema:refresh`, the one task guaranteed to refuse. One rule now, asked per
+  graph: **the dump is the contract generation reads; `refresh` rewrites it
+  from the graph's source, `diff` says how far that source has drifted from
+  it** — whichever the source is. A url is re-introspected as before; a live
+  schema class fills the same duck-typed slot, so it answers introspection
+  itself and nothing touches a network. Only a graph whose dump IS its source
+  still refuses, because there is nothing behind it to re-read. If you wired up
+  graphql-ruby's `GraphQL::RakeTask` to rebuild the dump for graph_weaver, you
+  can drop it: `schema:refresh` writes the same artifact, in whatever format
+  the dump already is, to the path graph_weaver reads. `schema:diff`'s verdict
+  now names the source it compared against (`… matches Catalog::Schema`,
+  `… matches https://api.example.com/graphql`) rather than "the server".
+  `SchemaLoader.refresh!` takes `schema:` and `path:` for the same reason;
+  `SchemaLoader.endpoint` and `Graph#dump_source` are the two new public names.
+- **`verify` fails when the dump has fallen behind the schema class it was
+  built from.** Its question is "is what's checked in current", and the dump is
+  checked in too — for an app that serves its own schema it is an artifact
+  derived from code in the same repo, and everything downstream reads it, so
+  `generate` and `verify` both called a tree up to date while the live
+  resolvers had already moved. A CI gate that only reads exit codes saw
+  nothing. **Action:** a dump you deliberately keep behind your own schema is
+  now a `verify` failure — refresh it, or name the schema explicitly
+  (`verify_generated!(schema:)`), which asks about no dump at all. The check
+  costs one in-process introspection per graph and never a network call: a
+  dump that records a url stays `schema:diff`'s subject.
+- **A cassette holds one entry per request key, and the docs now say so.** The
+  key is the query, its variables and the operation name together; re-recording
+  a request replaces its entry and a request the file hasn't seen appends one,
+  so `GRAPHWEAVER_RECORD=1` never leaves two entries for one request however
+  often it runs. Unchanged behavior, newly stated and specced: editing a query
+  changes the key, so the old entry stays behind as a recording nothing sends —
+  what `cassettes:check` counts as "not sent by any query module", and what
+  deleting the cassette and recording afresh clears.
+- **Docs.** [getting started](docs/getting_started.md#5-verify-in-ci) gains the
+  runnable CI script it never had — one per topology, plus the GitHub Actions
+  job — and its in-process section stops calling `schema:diff`/`:refresh`
+  inapplicable. [cassettes](docs/cassettes.md) states the recording rule above.
+
 ###  v0.7.0  (2026-09-12)
 - **BREAKING: two error classes renamed, with no alias.**
   `GraphWeaver::TypeError` is now **`GraphWeaver::CastError`** — it means the
