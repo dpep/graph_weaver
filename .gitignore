@@ -1,6 +1,7 @@
 *.gem
 .byebug_history
 coverage
+.mutant/
 .yardoc
 doc/
 examples/github/schema.json

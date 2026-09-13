@@ -1,0 +1,29 @@
+# Mutation testing over the runtime code a user's app executes: run it with
+# `bundle exec mutant run` (see CLAUDE.md). Codegen is deliberately absent —
+# the round-trip property harness is the net for that walk.
+#
+# mutant ships under a proprietary EULA whose Free Project License covers
+# opensource projects on a public repository, which this is.
+usage: opensource
+integration:
+  name: rspec
+includes:
+  - lib
+requires:
+  - graph_weaver
+mutation:
+  # a clean run of the whole suite is ~20s inside a mutation fork, so anything
+  # past this is a mutation that hangs, not one the suite is slow to catch
+  timeout: 120.0
+matcher:
+  subjects:
+    - GraphWeaver::Coerce
+    - GraphWeaver::InputStruct
+    - GraphWeaver::ResultStruct
+    - GraphWeaver::Response
+    - GraphWeaver::Hints
+    - GraphWeaver::Inflect
+    - GraphWeaver::Retry
+    - GraphWeaver::Internal::Redact
+    - GraphWeaver::InputError
+    - GraphWeaver::Internal::ServerInput
