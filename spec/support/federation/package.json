@@ -6,7 +6,10 @@
     "@apollo/composition": "^2.14.4",
     "@apollo/federation-internals": "^2.14.4",
     "@apollo/gateway": "^2.14.4",
-    "@apollo/server": "^4",
+    "@apollo/server": "^5.5.1",
     "graphql": "^16"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
