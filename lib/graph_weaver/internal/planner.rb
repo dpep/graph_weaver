@@ -131,6 +131,9 @@ module GraphWeaver
       # the fields a router answers itself rather than routing
       INTROSPECTION = %w[__schema __type].freeze
 
+      # directives that ask for the answer in instalments
+      INCREMENTAL = %w[defer stream].freeze
+
       # a fragment spread can't cycle (validation rejects that), so this is
       # only ever reached by a document validation didn't see
       MAX_DEPTH = 32
@@ -234,6 +237,7 @@ module GraphWeaver
         return if depth > MAX_DEPTH
 
         selections.each do |node|
+          incremental!(node)
           case node
           when GraphQL::Language::Nodes::Field
             next if node.name.start_with?("__")
@@ -254,6 +258,20 @@ module GraphWeaver
             check_reachable!(condition, fragment.selections, fragments, depth + 1)
           end
         end
+      end
+
+      # @defer/@stream send the rest of the answer in later payloads over a
+      # multipart body; this router answers in one. Refused by name rather
+      # than left to validation: whether the composed schema happens to
+      # declare the directive is graphql-ruby's business, and the Apollo
+      # Router supports @defer for real — so "we don't do this" shouldn't
+      # depend on a schema derivation nobody here controls.
+      def incremental!(node)
+        name = node.directives.map(&:name).find { |d| INCREMENTAL.include?(d) }
+        return unless name
+
+        refuse :incremental_delivery,
+          "this operation carries @#{name}, and the answer would arrive in more than one payload"
       end
 
       def interface_object!(type_name, where)

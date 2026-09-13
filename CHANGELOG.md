@@ -24,6 +24,15 @@
   declared. The `@link` header is now read for every spelling it binds and then
   dropped from the schema, so `link__Import`/`link__Purpose` no longer appear in
   a schema loaded from subgraph SDL.
+- **A subgraph error out of `Testing::Router` now carries
+  `extensions: {"service" => "<subgraph>"}`.** Every real transport stamps
+  which subgraph failed and a client branches on it, so a test asserting on an
+  unstamped error passed here and broke in front of a gateway. The Apollo
+  Router's spelling; a resolver's own `extensions` are left alone. **Update any
+  spec that compares a router error hash whole.**
+- **`@defer`/`@stream` are refused by name** (`:incremental_delivery`) rather
+  than by happening to fail validation — the answer would arrive in more than
+  one payload, and the Apollo Router supports `@defer` for real.
 
 ###  v0.7.0  (2026-09-13)
 

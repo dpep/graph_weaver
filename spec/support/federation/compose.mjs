@@ -20,5 +20,14 @@ if (result.errors?.length) {
 }
 
 const supergraph = result.supergraphSdl;
-const apiSchema = printSchema(Supergraph.build(supergraph).apiSchema());
+
+// composeServices() succeeds on the SECURITY-purpose specs (@authenticated,
+// @requiresScopes, @policy) that Supergraph.build() then throws on — so a
+// graph using one can still be recomposed, with no oracle to diff against.
+let apiSchema = null;
+try {
+  apiSchema = printSchema(Supergraph.build(supergraph).apiSchema());
+} catch (e) {
+  console.error(`no apiSchema oracle: ${e.message}`);
+}
 console.log(JSON.stringify({ supergraph, apiSchema }));

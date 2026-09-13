@@ -50,6 +50,13 @@ module GraphWeaver
             "ancestor, and only the gateway that planned the fetch knows what to put there. Run " \
             "this one against a real router.",
         ],
+        incremental_delivery: [
+          "a response delivered in more than one payload",
+          "@defer/@stream stream the rest of the answer over a multipart body after the first " \
+            "payload, and this router answers in one. Run this one against a real router — the " \
+            "Apollo Router supports @defer behind an Accept header; @apollo/gateway doesn't " \
+            "know the directive at all.",
+        ],
         progressive_override: [
           "a progressive @override still rolling out",
           "federation 2.7's @override(label:) leaves both subgraphs resolving the field and " \
@@ -368,7 +375,7 @@ module GraphWeaver
 
         plan.steps.each do |step|
           result = fetch_step(step, plan.operation, given)
-          Array(result["errors"]).each { |error| errors << rewrite(error) }
+          Array(result["errors"]).each { |error| errors << rewrite(error, step.subgraph) }
           payload = result["data"]
           if payload.nil?
             # the subgraph nulled its whole response, so every field it was
@@ -463,7 +470,7 @@ module GraphWeaver
           if fetched.any?
             result = entities_fetch(target, step.type_name, deferrals.map(&:node), representations, operation, variables)
             entities = result.dig("data", "_entities") || []
-            Array(result["errors"]).each { |error| errors << rewrite(error, fetched) }
+            Array(result["errors"]).each { |error| errors << rewrite(error, target, fetched) }
           end
 
           fetched.each_with_index do |(node, _), index|
@@ -518,7 +525,7 @@ module GraphWeaver
 
           result = entities_fetch(subgraph, step.type_name, selections, representations, operation, variables)
           entities = result.dig("data", "_entities") || []
-          Array(result["errors"]).each { |error| errors << rewrite(error, nodes) }
+          Array(result["errors"]).each { |error| errors << rewrite(error, subgraph, nodes) }
 
           nodes.each_with_index do |(node, _), index|
             entity = entities[index]
@@ -574,13 +581,28 @@ module GraphWeaver
       # is a path into the fetch, and `locations` a position in it. Re-path
       # what can be re-pathed and drop what can't, rather than hand back a
       # line number pointing into a document that doesn't exist.
-      def rewrite(error, nodes = nil)
+      def rewrite(error, subgraph, nodes = nil)
+        error = stamp(error, subgraph)
         path = error["path"]
         return error.except("locations") unless path.is_a?(Array)
 
         stitched = nodes && path.first == "_entities"
         prefix = stitched ? (nodes.dig(path[1], 1) || []) : []
         error.except("locations").merge("path" => prefix + unalias(stitched ? path[2..] : path))
+      end
+
+      # Which subgraph a bubbled error came from. Every real transport stamps
+      # this and a client branches on it to tell a downstream failure from an
+      # ordinary business error, so a test written against an unstamped one
+      # passes here and breaks in front of a gateway. Apollo Router's spelling
+      # (`extensions.service`); the deprecated JS gateway says `serviceName`
+      # and adds a DOWNSTREAM_SERVICE_ERROR code, which isn't ours to invent.
+      # Whatever the subgraph's own resolver set is left alone.
+      def stamp(error, subgraph)
+        extensions = error["extensions"].is_a?(Hash) ? error["extensions"] : {}
+        return error if extensions.key?("service") || extensions.key?("serviceName")
+
+        error.merge("extensions" => extensions.merge("service" => subgraph))
       end
 
       # The @key/@requires fields we inject are ours; an error path naming one

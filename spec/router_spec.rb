@@ -290,12 +290,17 @@ describe GraphWeaver::Testing::Router do
           .to eq({ "data" => nil })
       end
 
+      # and stamps which subgraph it came from, the way every real transport
+      # does — a client branches on that to tell a downstream failure from an
+      # ordinary business error
       it "re-paths a subgraph error out of _entities, without inventing a location" do
         response = router.execute("{ topProducts(first: 4) { name shippingEstimate } }")
 
         expect(response.fetch("data")).to be_nil
-        expect(response.fetch("errors"))
-          .to eq [{ "message" => "carrier unavailable", "path" => ["topProducts", 3, "shippingEstimate"] }]
+        expect(response.fetch("errors")).to eq [{
+          "message" => "carrier unavailable", "path" => ["topProducts", 3, "shippingEstimate"],
+          "extensions" => { "service" => "reviews" },
+        }]
       end
     end
 
@@ -797,6 +802,42 @@ describe GraphWeaver::Testing::Router do
       end
     end
 
+    # A document carrying @defer fails validation today, because the composed
+    # API schema doesn't declare the directive — an accident of graphql-ruby's
+    # schema derivation, not a decision, and the Apollo Router supports @defer
+    # for real. So the refusal is by name, on a supergraph that does declare it.
+    describe "@defer and @stream" do
+      subject(:incremental) do
+        described_class.new(supergraph: <<~SDL, subgraphs: { "a" => :fake })
+          schema @link(url: "https://specs.apollo.dev/link/v1.0")
+            @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+          { query: Query }
+          directive @defer(if: Boolean, label: String) on FRAGMENT_SPREAD | INLINE_FRAGMENT
+          directive @stream(if: Boolean, label: String) on FIELD
+          directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+          directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on OBJECT
+          scalar join__FieldSet
+          enum join__Graph { A @join__graph(name: "a", url: "http://a") }
+          type Query @join__type(graph: A) { me: User notes: [String!]! }
+          type User @join__type(graph: A, key: "id") { id: ID! username: String! }
+        SDL
+      end
+
+      it "refuses @defer by name" do
+        expect { incremental.execute("{ me { username ... on User @defer { id } } }") }
+          .to refuse_to_plan(:incremental_delivery).with_detail(
+            "this operation carries @defer, and the answer would arrive in more than one payload",
+          )
+      end
+
+      it "refuses @stream by name" do
+        expect { incremental.execute("{ notes @stream }") }
+          .to refuse_to_plan(:incremental_delivery).with_detail(
+            "this operation carries @stream, and the answer would arrive in more than one payload",
+          )
+      end
+    end
+
     # Federation 2.7's progressive @override keeps BOTH copies resolvable and
     # writes the rollout rule beside them — composition decides nothing, the
     # gateway does, per request. A local router that just picked one would
@@ -1155,8 +1196,10 @@ describe GraphWeaver::Testing::Router do
         response = partial.execute("{ reviews { body shipment { carrier } } }")
 
         expect(response.dig("data", "reviews", 0, "shipment")).to be_nil
-        expect(response["errors"])
-          .to eq [{ "message" => "simulated failure", "path" => ["reviews", 0, "shipment", "carrier"] }]
+        expect(response["errors"]).to eq [{
+          "message" => "simulated failure", "path" => ["reviews", 0, "shipment", "carrier"],
+          "extensions" => { "service" => "shipping" },
+        }]
       end
 
       it "warns on every faked fetch, since invented data passing quietly is the risk" do

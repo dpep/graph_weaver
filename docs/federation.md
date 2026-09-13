@@ -291,7 +291,10 @@ code ahead of the supergraph — the new side declaring the field with
 and its type, and only the `@override` marker, which lives in
 apollo-federation's own bookkeeping rather than in the schema this reads, says
 ownership is moving. Recompose and the report catches up; until then it is the
-one drift this check can't see.
+one drift this check can't see. The check reads the supergraph against the
+**live Ruby classes** and never a subgraph's own SDL, so how a subgraph spells
+its directives — `@key`, `@federation__key`, or a name it imported them under —
+can't affect what it reports.
 
 **A supergraph is routinely only partly local**, so the report names three
 states rather than two: checked, not here (running elsewhere — or the subgraph
@@ -360,6 +363,12 @@ GraphWeaver.client = GraphWeaver::Testing::Router.new(
   context: { current_user: user },
 )
 ```
+
+`context:` reaches every subgraph, because every subgraph is a Ruby call here.
+Neither real transport does that with a request's **headers** — the gateway and
+the Apollo Router both start a subgraph call with none of the client's, unless
+you configure the forwarding — so don't let a spec conclude an auth header
+arrived somewhere it wouldn't.
 
 In rspec that's the [`graphql: :router`](testing.md#a-federated-graph--graphql-router)
 tag and there is nothing to pass — the tag builds it, once for the suite. It
@@ -575,23 +584,33 @@ would be worse than refusing:
   where the composed schema says non-null, and no subgraph is in a position to
   notice. The router re-applies GraphQL's propagation rules to the merged
   result, so a subtree the real router would have nulled comes back null here.
-- **Error re-pathing.** A subgraph reports `_entities.2.shippingEstimate`; you
-  get `topProducts.2.shippingEstimate`. `locations` are dropped rather than
-  pointing into a query you never wrote. That is for a `GraphQL::ExecutionError`,
-  which is what `errors` carries; a resolver that raises anything else
-  propagates as a Ruby exception out of `execute`, the same way it would from
-  graphql-ruby on its own, and nothing here catches it into a response.
+- **Error re-pathing, and a stamp saying which subgraph failed.** A subgraph
+  reports `_entities.2.shippingEstimate`; you get
+  `topProducts.2.shippingEstimate`, with `extensions.service` naming the
+  subgraph — the Apollo Router's spelling, because it is the current product
+  (the deprecated `@apollo/gateway` says `extensions.serviceName` and adds
+  `code: "DOWNSTREAM_SERVICE_ERROR"`, which isn't a code any subgraph here
+  set). Whatever the resolver put in `extensions` is left alone, including its
+  own `service`. `locations` are dropped rather than pointing into a query you
+  never wrote. That is for a `GraphQL::ExecutionError`, which is what `errors`
+  carries; a resolver that raises anything else propagates as a Ruby exception
+  out of `execute`, the same way it would from graphql-ruby on its own, and
+  nothing here catches it into a response.
 - **`@skip`/`@include` on a stitched field.** A skipped field comes back
   *absent*, not null.
 
 Introspection is answered from the composed API schema, never from a subgraph,
 which would reply with its own slice — the one split a real router also makes.
 
-**One subgraph timing out while its siblings answer has no representation
-here.** A subgraph is a Ruby call, not a socket: `:router` fetches in-process,
-and `:wire` stubs one endpoint in front of the whole router. A subgraph that
-*fails* is expressible — raise from its resolver, or fake it — but partial
-availability is a gateway's property, not this double's.
+**A wire fault at one subgraph has no representation here.** A subgraph is a
+Ruby call, not a socket: `:router` fetches in-process, and `:wire` stubs one
+endpoint in front of the whole router. So a timeout, an HTTP 500, malformed
+JSON, or a bare `errors` with no `data` — anything that is a property of the
+*transport* to one subgraph — is out of reach under `:router`; `:wire` plus
+`Failure` covers those faults for the one stubbed endpoint, which is the whole
+graph rather than any subgraph in it. A subgraph that *fails* is expressible
+— raise from its resolver, or fake it — but partial availability is a
+gateway's property, not this double's.
 
 ### What it refuses
 
@@ -612,6 +631,7 @@ matching symbol):
 | an abstract type the supergraph doesn't break down | bucketing needs the concrete types a subgraph answers a union or interface with, and `@join__unionMember`/`@join__implements` is where a supergraph records that. A composition old enough to carry neither leaves nothing but a guess |
 | an `@interfaceObject` the routing table can't attribute | one subgraph resolves a whole interface's implementations, so the supergraph never says which subgraph answers each of its fields. Per query, not per graph: a query that doesn't reach the type plans as if the directive weren't there |
 | a `@fromContext` argument no fetch here can supply | federation 2.8's `@context`/`@fromContext` fills a field's argument from a selection on an ancestor, and only the gateway that planned the fetch knows what to put there — a subgraph's own resolver never fills one, so this is refused on any path, including the one where a single subgraph answers the whole query. Per query, like `@interfaceObject`: a query that doesn't reach the field plans as if the directive weren't there |
+| a response delivered in more than one payload | `@defer`/`@stream` stream the rest of the answer over a multipart body after the first payload, and this router answers in one. Refused by name rather than left to validation, so the guarantee doesn't rest on whether the composed schema happens to declare the directive |
 | a progressive `@override` still rolling out | federation 2.7's `@override(label:)` leaves *both* subgraphs resolving the field — composition decides nothing, the gateway splits traffic per request by the label's rule. A local router can't evaluate a rollout percentage, so it would answer from one side every time. Finish the rollout (drop the label) and composition drops the losing copy, which plans normally |
 | a `@requires` whose field set names another `@requires` field | the router satisfies a `@requires` with one fetch, so it can't first satisfy that field's own requirement |
 | a nested field set no one fetch can build | a nested field set crosses as one object, so one fetch has to answer the whole of it. Nesting itself is fine — this is the set whose fields are split across subgraphs, so the object would arrive half-built from each |
@@ -655,6 +675,16 @@ merge that doesn't re-propagate hands back a populated tree while the real route
 answers `data: null`. Three outcomes, one of them a defect: match, refuse, or
 answer differently, and the spec fails on the third. `make integration` runs it
 (node required).
+
+**"A real router" is two things, and they disagree.** Everything measured above
+is against `@apollo/gateway` — the deprecated JS gateway, which is what the
+parity spec boots. The Rust Apollo Router, which is the current product,
+differs from it on a subgraph 500's error shape, on malformed JSON from a
+subgraph, on `@defer` (it supports it, behind an `Accept: multipart/mixed`
+header; the gateway doesn't know the directive), and on introspection, which it
+disables by default. So when a refusal says "run this one against a real
+router", run it against the one you deploy — not against the one these numbers
+came from.
 
 ### Is it worth wiring up? Measure.
 
