@@ -219,4 +219,26 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
     expect { GraphWeaver::SchemaLoader.routing_table({ "data" => {} }) }
       .to raise_error(GraphWeaver::Error, /introspection result carries no routing table/)
   end
+
+  # A GraphWeaver::Error logs a warn line as it is BUILT, so asking "is this
+  # composed?" by rescuing the refusal above made every non-federated app warn
+  # once per process about a routing table nobody had asked for.
+  it "answers whether a source carries one without building that refusal" do
+    io = StringIO.new
+    GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+
+    expect(GraphWeaver::SchemaLoader.routing_table?(RouterGraph::SUPERGRAPH)).to be true
+    Dir.mktmpdir do |dir|
+      plain = File.join(dir, "schema.graphql")
+      File.write(plain, "type Query { hi: String }\n")
+
+      expect(GraphWeaver::SchemaLoader.routing_table?(plain)).to be false
+      expect(GraphWeaver::Internal::Util.composed?(plain)).to be false
+    end
+    expect(GraphWeaver::SchemaLoader.routing_table?({ "data" => {} })).to be false
+
+    expect(io.string).to be_empty
+  ensure
+    GraphWeaver.logger = nil
+  end
 end

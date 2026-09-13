@@ -244,9 +244,13 @@ module GraphWeaver
 
         @subgraphs =
           begin
-            (GraphWeaver::SchemaLoader.routing_table(source).subgraphs if form == :path)
+            # asked, not rescued: the refusal writes a warn line as it is
+            # built, and "this isn't a supergraph" is the ordinary answer
+            if form == :path && GraphWeaver::SchemaLoader.routing_table?(source)
+              GraphWeaver::SchemaLoader.routing_table(source).subgraphs
+            end
           rescue StandardError
-            # not a supergraph, or not readable — nothing to say either way
+            # not readable — nothing to say either way
             nil
           end
       end

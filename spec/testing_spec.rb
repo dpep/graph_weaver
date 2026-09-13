@@ -646,7 +646,7 @@ describe GraphWeaver::Testing do
         source = File.join(dir, "supergraph.graphql")
         File.write(source, File.read(supergraph))
         GraphWeaver.graph(:api) { schema source }
-        expect(GraphWeaver::SchemaLoader).to receive(:routing_table).once.and_call_original
+        expect(GraphWeaver::SchemaLoader).to receive(:routing_table?).once.and_call_original
 
         3.times { described_class.config.supergraph?(graph(:api)) }
       end

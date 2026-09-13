@@ -286,6 +286,7 @@ GraphWeaver::SchemaLoader.locate_path
 GraphWeaver::SchemaLoader.provenance
 GraphWeaver::SchemaLoader.refresh!
 GraphWeaver::SchemaLoader.routing_table
+GraphWeaver::SchemaLoader.routing_table?
 GraphWeaver::SchemaLoader.sdl_content?
 GraphWeaver::SchemaLoader.source_transport
 GraphWeaver::SchemaLoader::DEFAULT_AUTH_ENV = String

@@ -166,9 +166,11 @@ module GraphWeaver
           return @composed[key] if @composed.key?(key)
 
           @composed[key] = begin
-            SchemaLoader.routing_table(source)
-            true
+            SchemaLoader.routing_table?(source)
           rescue GraphWeaver::Error
+            # a source that can't even be read is in no supergraph either —
+            # and that Error is worth its warn line, where "not federated"
+            # never was
             false
           end
         end

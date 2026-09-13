@@ -132,6 +132,13 @@
   changes the key, so the old entry stays behind as a recording nothing sends —
   what `cassettes:check` counts as "not sent by any query module", and what
   deleting the cassette and recording afresh clears.
+- **A non-federated app no longer logs a phantom "no routing table here"
+  warning.** `GraphWeaver::Error` writes a warn line as it is *constructed*,
+  and "is this source a composed supergraph?" was asked by calling
+  `SchemaLoader.routing_table` and rescuing its refusal — so every app whose
+  schema is an ordinary one warned, once per process, about a routing table it
+  had never asked for. The question has a predicate now,
+  `SchemaLoader.routing_table?`, and nothing builds an error to answer "no".
 - **Docs.** [getting started](docs/getting_started.md#5-verify-in-ci) gains the
   runnable CI script it never had — one per topology, plus the GitHub Actions
   job — and its in-process section stops calling `schema:diff`/`:refresh`

@@ -889,6 +889,15 @@ module GraphWeaver::SchemaLoader
     RoutingTable.new(sdl)
   end
 
+  # Whether this source carries a routing table — the question
+  # {routing_table} answers by refusing when it doesn't. A predicate rather
+  # than a rescue, because every GraphWeaver::Error writes a warn line as it
+  # is *constructed*: asking by exception made every non-federated app log
+  # "no routing table here" once per process, about a table it never wanted.
+  def self.routing_table?(source)
+    !source.is_a?(Hash) && federation_sdl?(supergraph_sdl(source))
+  end
+
   def self.supergraph_sdl(source)
     if source.is_a?(Hash)
       raise GraphWeaver::Error,
