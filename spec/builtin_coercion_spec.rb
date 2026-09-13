@@ -51,6 +51,15 @@ describe "built-in scalar coercion" do
     mod.execute!(**{ amount: 1.5, count: 3, flag: true, id: "42", label: "x" }.merge(loose)).echo
   end
 
+  # one rule called the way generated code calls it, branded the way a
+  # generated `execute` brands it
+  def refused(&rule)
+    GraphWeaver::Coerce.variable("v", nil, nil, &rule)
+    raise "expected a GraphWeaver::InputError"
+  rescue GraphWeaver::InputError => e
+    e
+  end
+
   it "keeps the kwarg sig as narrow as the schema" do
     source = GraphWeaver::Codegen.generate(schema: BuiltinDemo::Schema, query:, name: "ComputeQuery")
 
@@ -128,6 +137,59 @@ describe "built-in scalar coercion" do
     expect { echo(amount: { a: 1 }) }.to raise_error(GraphWeaver::InputError, /\$amount of Compute: expected a Float/)
   end
 
+  # Generated code passes the schema's own name for the scalar, so a refusal
+  # speaks the schema's vocabulary rather than the Ruby type it maps to —
+  # register_scalar("Money", BigDecimal) refuses a Money. #details[:type] is
+  # the half an app translates for a user, and the sentence is the other half.
+  it "refuses under the schema's name for the scalar, whichever rule ran" do
+    {
+      "BigInt" => [proc { GraphWeaver::Coerce.integer(2.5, "BigInt") }, "got 2.5 — not a whole number"],
+      "Money" => [proc { GraphWeaver::Coerce.float(Float::INFINITY, "Money") }, "got Infinity — not a finite number"],
+      "Stamp" => [proc { GraphWeaver::Coerce.date(5, "Stamp") }, "got 5"],
+      "Moment" => [proc { GraphWeaver::Coerce.time(5, "Moment") }, "got 5"],
+      "Flag" => [proc { GraphWeaver::Coerce.boolean("yes", "Flag") }, %(got "yes" — there is no one right reading)],
+      "Slug" => [proc { GraphWeaver::Coerce.string(5, "Slug") }, "got 5"],
+      "Key" => [proc { GraphWeaver::Coerce.id([], "Key") }, "got []"],
+    }.each do |scalar, (rule, tail)|
+      error = refused(&rule)
+
+      expect(error.message).to start_with "$v: expected a #{scalar}, #{tail}"
+      expect(error.details[:type]).to eq scalar
+    end
+  end
+
+  # the same rules called with no name to use: each one is named for the
+  # GraphQL scalar it implements, which is the honest default
+  it "names the scalar it is the rule for when the caller gives none" do
+    {
+      "Int" => proc { GraphWeaver::Coerce.integer(2.5) },
+      "Float" => proc { GraphWeaver::Coerce.float(Float::NAN) },
+      "Date" => proc { GraphWeaver::Coerce.date(5) },
+      "Time" => proc { GraphWeaver::Coerce.time(5) },
+      "Boolean" => proc { GraphWeaver::Coerce.boolean("yes") },
+      "String" => proc { GraphWeaver::Coerce.string(5) },
+      "ID" => proc { GraphWeaver::Coerce.id([]) },
+    }.each do |scalar, rule|
+      expect(refused(&rule).details[:type]).to eq scalar
+    end
+  end
+
+  # a Rails form field arrives with whatever whitespace the browser sent
+  it "reads a numeric string with whitespace around it" do
+    expect(echo(count: " 3 ", amount: " 1.5 ")).to include "Float:1.5 Integer:3"
+  end
+
+  # DateTime spells its fraction #sec_fraction where Time spells it #subsec,
+  # so a registered Time scalar handed one writes the same wire value rather
+  # than raising NoMethodError on the way out
+  it "serializes a DateTime as a timestamp, fraction and all" do
+    whole = DateTime.new(2024, 1, 15, 12, 30, 45)
+
+    expect(GraphWeaver::Coerce.timestamp(whole)).to eq "2024-01-15T12:30:45+00:00"
+    expect(GraphWeaver::Coerce.timestamp(whole + Rational(1, 2 * 86_400)))
+      .to eq "2024-01-15T12:30:45.500000+00:00"
+  end
+
   # nothing is registered for it, so nothing is known to convert it to
   it "leaves an unregistered scalar untouched" do
     source = GraphWeaver::Codegen.generate(
@@ -155,6 +217,22 @@ describe "built-in scalar coercion" do
         expect(error.field).to eq "metadata"
         expect(error.cause).to be_a ::TypeError
       }
+  end
+
+  # A type: given by name is a type, not a class: `T::Hash[String, T.untyped]`
+  # answers no is_a?, so the guard in front of a cast has to ask whether there
+  # is a class to ask at all — otherwise the coercion raises "class or module
+  # required" at every caller of a scalar registered that way.
+  it "casts for a scalar registered by type name, which names no class" do
+    GraphWeaver.register_scalar(
+      "Metadata", "T::Hash[String, T.untyped]", cast: ->(raw) { "JSON.parse(#{raw})" }, requires: "json",
+    )
+    mod = GraphWeaver.parse(
+      schema: Demo::Schema, client: Demo::Schema,
+      query: "query Pets($where: PetFilter) { findPets(where: $where) { name } }",
+    )
+
+    expect(mod::PetFilter.coerce({ metadata: '{"colour":"brown"}' }).metadata).to eq({ "colour" => "brown" })
   end
 
   it "coerces input-object fields through the same table" do
