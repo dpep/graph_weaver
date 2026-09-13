@@ -25,11 +25,11 @@ describe GraphWeaver::Retry do
     expect(slept.size).to eq 2
   end
 
-  it "carries the operation name down to the client on every attempt" do
+  it "carries the operation name and the variables down to the client on every attempt" do
     seen = []
     counting = Class.new do
       define_method(:execute) do |_query, variables: {}, operation_name: nil|
-        seen << operation_name
+        seen << [operation_name, variables]
         raise GraphWeaver::TransportError, "nope" if seen.size < 2
 
         { "data" => { "search" => [] } }
@@ -37,7 +37,24 @@ describe GraphWeaver::Retry do
     end.new
 
     SearchQuery.execute(client: described_class.new(counting, retries: 1, sleeper:), term: "x")
-    expect(seen).to eq %w[Search Search]
+    expect(seen).to eq [["Search", { "term" => "x" }]] * 2
+  end
+
+  # A retry is invisible otherwise: the caller sees one slow call, and the log
+  # shows an error that apparently didn't stop anything.
+  it "logs which attempt it is retrying, and how long it is waiting" do
+    io = StringIO.new
+    GraphWeaver.logger = Logger.new(io, level: Logger::INFO)
+    executor = described_class.new(
+      sequence(failure.transport, fake), retries: 1, base_delay: 0.125, jitter: false, sleeper:,
+    )
+
+    PersonQuery.execute!(client: executor, id: "1")
+
+    # rounded where the number is built, so the log says 0.13 and not 0.125
+    expect(io.string).to include "retrying PersonQuery in 0.13s (attempt 2 of 2)"
+  ensure
+    GraphWeaver.logger = nil
   end
 
   # the count is attempts-after-the-first everywhere, so 0 means "never retry"
@@ -242,6 +259,28 @@ describe GraphWeaver::Retry do
     exhausted = described_class.new(failure.throttled, retries: 1, retry_codes: ["THROTTLED"], sleeper:)
     response = PersonQuery.execute(client: exhausted, id: "1")
     expect(response).to have_graphql_error(code: "THROTTLED") # last response returned
+  end
+
+  # retry_codes: reads every response, including the ones it has nothing to
+  # say about — a server that answers cleanly, and an error carrying no
+  # extensions at all, both go through the same reader.
+  it "leaves a response alone when its codes aren't the ones listed" do
+    answers = [
+      { "data" => { "person" => nil } },
+      { "data" => nil, "errors" => [{ "message" => "no extensions here" }] },
+      { "data" => nil, "errors" => [{ "message" => "nope", "extensions" => { "code" => "FORBIDDEN" } }] },
+    ]
+    served = Class.new do
+      define_method(:initialize) { |answers| @answers = answers }
+      define_method(:execute) { |_query, variables: {}, operation_name: nil| @answers.shift }
+    end
+
+    answers.each do |answer|
+      executor = described_class.new(served.new([answer]), retries: 2, retry_codes: ["THROTTLED"], sleeper:)
+
+      expect { PersonQuery.execute(client: executor, id: "1") }.not_to raise_error
+      expect(slept).to be_empty # answered once, and taken at its word
+    end
   end
 
   # A retry policy nobody can read is a retry policy nobody trusts, so
