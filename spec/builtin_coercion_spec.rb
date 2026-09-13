@@ -315,4 +315,19 @@ describe "built-in scalar coercion" do
     expect { mod.from_response!("data" => { "id" => 42 }) }
       .to raise_error(GraphWeaver::CastError, /"id" unquoted.*register_scalar\("ID", "T\.untyped"\)/m)
   end
+
+  # "the server is out of spec" is a strong accusation, so only the props
+  # that pass a String straight through may make it: a prop that CASTS
+  # legitimately arrives as some other JSON type, and a Date or an Int
+  # arriving as a number is the wire working as intended.
+  it "accuses the server only over the props a String passes through" do
+    schema = GraphQL::Schema.from_definition("type Q { n: Int }\nschema { query: Q }")
+    mod = GraphWeaver.parse(schema:, query: "query M { n }")
+
+    expect { mod.from_response!("data" => { "n" => true }) }
+      .to raise_error(GraphWeaver::CastError) { |error|
+        expect(error.message).to include "'n'"
+        expect(error.message).not_to include "unquoted"
+      }
+  end
 end
