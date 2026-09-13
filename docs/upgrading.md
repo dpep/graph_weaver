@@ -26,20 +26,27 @@ differently and nothing else — worth reading rather than rubber-stamping.
 
 ## Upgrading from 0.6.1
 
-Mostly mechanical. Every change in the release is one row below; read the left
-column and skip what isn't yours. A typical app ticks two or three.
+Mostly mechanical. Everything that wants your hands, or changes under you, is
+one row below; read the left column and skip what isn't yours. A typical app
+ticks two or three.
 
 | applies if you… | what changed |
 |---|---|
 | run a Rails app that configures no logger or instrumenter | **you start logging one info line per GraphQL call** — a production log-volume change, [first bullet below](#behavior-that-changed-under-you) |
+| commit a schema dump introspected through a url carrying a token | **refresh it, and rotate the token if that file was pushed** — the dump recorded the url verbatim |
+| keep a schema dump deliberately behind your own schema class | `verify` fails on it now |
+| use `@oneOf` input types and commit a `.json` dump | `@oneOf` starts being enforced client-side once you regenerate |
+| call `result.to_json`, or `render json: result` | it is the wire shape now, not `#inspect` or your prop names |
+| pin a lowercase type name in `graphql_fake` | it works now; a near-miss *keyword* raises `ArgumentError` |
 | tag specs `graphql: false`, or set `config.default_mode = nil` | both refused — [renames](#renames) |
 | `rescue GraphWeaver::TypeError` or `GraphWeaver::ValidationError` | both constants are gone, with no alias — [renames](#renames) |
 | subscribe to `"graph_weaver.execute"` | the event is `"execute.graph_weaver"` — [renames](#renames) |
 | index a hash by an `InputError`'s `#field` | it names the input field now, not the variable — **nothing raises** |
+| read an `InputError`'s `#details[:type]` | it is the GraphQL type now, never a Ruby class — **nothing raises** |
 | read `payload[:status]` in an instrumentation subscriber | it is a Symbol; the HTTP status moved to `:http_status` — **nothing raises** |
 | call `respond_to?` on a result struct | it stopped answering true for props that don't exist — **nothing raises** |
 | generate a module with a baked `client:` | a `graphql:` tag now reaches it |
-| set `config.context` from a `before` hook | refused — it is suite setup |
+| set `config.context`, `config.schema` or `config.router` from a `before` hook | all three refused — they are suite setup |
 | pass a `DateTime` where the schema says `Date` | refused — pass `.to_date` |
 | register a scalar with your own `cast:`/`serialize:` | the same guard as the built-ins, and a proc that returns a value is refused |
 | have a field named `class`, `hash`, `display`, `to_json`, `each` or `supplied` | the prop takes a trailing underscore |
@@ -49,27 +56,31 @@ column and skip what isn't yours. A typical app ticks two or three.
 | require `graph_weaver/rspec` from `spec/support/` | check the glob is uncommented — rspec-rails ships it commented out |
 | adopt `graphql: :wire` | it needs `require "webmock/rspec"`, not just the gem |
 
-Then four commands, in order:
+Then five commands, in order:
 
 ```sh
 # 1. the two renames your own code holds
 grep -rn "GraphWeaver::TypeError\|GraphWeaver::ValidationError" app lib spec
 grep -rn "graph_weaver.execute" app lib config spec   # the old event name
 
-# 2. regenerate — also the graph name in every module, the underscored
-#    reserved props, and the client: and cast:/serialize: refusals
+# 2. rewrite the dump: it drops a credential the url carried, and picks up
+#    isOneOf. Skip only if your dump is SDL and records no source url.
+rake graph_weaver:schema:refresh
+
+# 3. regenerate — also the graph name in every module, the underscored
+#    reserved props, as_json, and the client: and cast:/serialize: refusals
 rake graph_weaver:generate
 
-# 3. the renamed tag, the deleted nil, the seed: refusal
+# 4. the renamed tag, the deleted nil, the seed: refusal
 bundle exec rspec
 
-# 4. the gate: red while any checked-in file is still what 0.6.1 wrote
+# 5. the gate: red while any checked-in file is still what 0.6.1 wrote
 rake graph_weaver:verify
 ```
 
 **Two kinds of file answer that first grep, and only one needs your hands.**
 Hits under your generated directory (`app/graphql/generated/` by default) are the
-old names in machine-written code — step 2 rewrites them. Hits anywhere else are
+old names in machine-written code — step 3 rewrites them. Hits anywhere else are
 yours: `CastError` and `QueryValidationError`, renamed by hand.
 
 ### Renames
@@ -137,10 +148,61 @@ the only one here that shows up in production rather than in your code.
   its real endpoint under `graphql: :fake`. **If a spec relied on that**, it now
   runs against the fake — pass `client:` on the call, set `MyQuery.client =`, or
   tag the example `graphql: :live`.
-- **`config.context` is suite setup.** Setting it once an example is running
-  refuses, naming `graphql_context`. From a `before` hook it was read too late
-  and silently never reached a resolver, so the refusal replaces a line that
-  wasn't working; `configure` and an `around` hook are unchanged.
+- **`config.context`, `config.schema` and `config.router` are suite setup.**
+  Setting any of the three once an example is running refuses, naming the
+  per-example helper (`graphql_context`, `graphql_fake(schema:)`,
+  `graphql_router(fake:)`). The tag builds an example's clients in a `before`
+  hook of its own, which rspec runs ahead of any group `before`, so a set there
+  was read too late and silently changed nothing — a `config.context` that
+  never reached a resolver, a `config.schema` the fake never saw. The refusal
+  replaces a line that wasn't working. **Move it to an `around`, or to
+  `GraphWeaver::Testing.configure` in the spec helper**; `configure` and
+  `around` are unchanged.
+- **`result.to_json` is real JSON, and it is the wire shape.** It used to be
+  Ruby's `Object#to_json` — the `#inspect` string, quoted — so a log line or a
+  cache write stored nothing, with no exception and no warning; under Rails
+  `render json: result` instead shipped the *Ruby* prop names, trailing
+  underscores included. Both now produce the response keys, each leaf back
+  through its scalar registration's `serialize:`, so
+  `Result.from_h(JSON.parse(result.to_json)) == result`. `#to_h` is unchanged
+  and still the Ruby view. **Anything that parsed the old output, or diffed a
+  cached copy of it, is reading something different now** — and `as_json` is
+  emitted code, so a struct generated by 0.6.1 raises `GraphWeaver::Error`
+  naming this until you regenerate.
+- **A schema dump introspected through a credentialed url still holds the
+  token.** The provenance stamp wrote the transport's url verbatim, so a url
+  carrying userinfo or an `?access_token=` landed in a file that gets
+  committed. It records the endpoint bare now — userinfo and any query
+  parameter `filter_parameters` filters are dropped — and re-introspection
+  still authenticates from the dump's `auth_env`. **Run `rake
+  graph_weaver:schema:refresh` once, and rotate the token if that file was ever
+  pushed.**
+- **`verify` fails when the dump has fallen behind the schema class it was
+  built from.** For an app that serves its own schema the dump is an artifact
+  derived from code in the same repo, and everything downstream reads it, so
+  `generate` and `verify` both called a tree up to date while the live
+  resolvers had already moved. **A dump you deliberately keep behind your own
+  schema is a red gate now** — `rake graph_weaver:schema:refresh`, or ask about
+  no dump at all with `verify_generated!(schema:)`. It costs one in-process
+  introspection per graph and never a network call.
+- **`@oneOf` starts being enforced if your dump is `.json`.** graphql-ruby's
+  introspection query omits `isOneOf` unless asked, and its loader drops the
+  field even when it is there, so every dump this gem has written said "not
+  @oneOf" for every input object and the enforcing struct was never generated.
+  **Regenerate (`rake graph_weaver:schema:refresh && rake
+  graph_weaver:generate`) and the emitted `ONE_OF` starts refusing calls that
+  set two fields** — which your server was refusing all along, so the failure
+  moves from the wire into `execute`. SDL dumps, inline SDL and a live class
+  were always correct.
+- **A fake pin is told from an option by a schema lookup, not by casing.** The
+  rule was "a dot or a leading capital is a pin", so a lowercase type could not
+  be pinned at all: `graphql_fake("pokemon_v2_pokemon" => …)` against a Hasura
+  API came back as `a fake doesn't take pokemon_v2_pokemon:`. Those pins work
+  now. The other side of it: **a keyword that is a near-miss for a pin
+  (`Persn: "Ada"`) raises `ArgumentError` from the fake** rather than
+  `GraphWeaver::Error` from the override check — the same key written in the
+  leading positional hash is unchanged, and is the spelling for a schema whose
+  vocabulary collides with an option name.
 - **Regenerate**, as ever — generated modules carry a private `GRAPH` naming the
   graph they were generated from, and a [multi-schema](getting_started.md#more-than-one-schema)
   app whose modules predate it refuses rather than guessing which schema a
@@ -148,8 +210,8 @@ the only one here that shows up in production rather than in your code.
   gem now (`from_response(dispatch(variables, client:))`), which is what lets
   an event name the graph; 0.6.1's modules keep working as they are, but `rake
   graph_weaver:verify` reports the tree out of date until you regenerate.
-  Result structs also gained `==`/`eql?`/`hash`, `deconstruct_keys` and
-  `#to_h`, and the emitted guard in front of a `cast:` changed (below).
+  Result structs also gained `==`/`eql?`/`hash`, `deconstruct_keys`, `#to_h`
+  and `#as_json`, and the emitted guard in front of a `cast:` changed (below).
 - **Check that your `require "graph_weaver/rspec"` actually runs.** The old
   setup put it in `spec/support/graph_weaver.rb`, and rspec-rails ships the
   `spec/support` glob **commented out** — so if you never uncommented it, the
@@ -181,8 +243,12 @@ the only one here that shows up in production rather than in your code.
   conversion of Integer into String`) under `kind: :unparseable`; the verdict
   is the library's now and splits the way Ruby does — a `TypeError` from a
   codec reads `expected a Date, got 5` under `kind: :type_mismatch`, an
-  `ArgumentError` keeps the parser's words under `:unparseable`, and
-  `#details[:type]` names the Ruby type for both. **A spec matching the old
+  `ArgumentError` keeps the parser's words under `:unparseable`.
+  **`#details[:type]` is the GraphQL type now, never a Ruby class** — a
+  `register_scalar("Money", BigDecimal)` field reads `"Money"`, not
+  `"BigDecimal"`, and an input object reads its schema name rather than the
+  class generated for it; the *message* still names the Ruby you may pass.
+  **A spec matching the old
   message, or branching on `:unparseable` for a wrong class, needs updating**
   — and the guard is emitted into your generated files, so a checked-in one
   keeps the old behavior until you regenerate.
@@ -194,9 +260,10 @@ the only one here that shows up in production rather than in your code.
   the alias and regenerate** if you want the field's own name back. Only the
   Ruby name moves; the wire keeps the schema's spelling in both directions, so
   `result.class` is still Ruby's `class` and `result.class_` is the field. The
-  prop is the field's one Ruby name, so `.coerce({ class_: … })`, a result's
-  `#to_h` and pattern matching, and an `InputError`'s `#path` all use it
-  (`#coordinate` still names `Tricky.class`). An **input** struct's `#to_h`
+  prop is the field's one Ruby name, so `.coerce({ class_: … })` and a result's
+  `#to_h` and pattern matching all use it. An `InputError`'s structured half is
+  the wire's throughout, so a refusal on that field reports `#path` `["class"]`
+  and `#coordinate` `"Tricky.class"`. An **input** struct's `#to_h`
   is the wire hash it would send, `{"class" => …}`, and input structs don't
   pattern-match. Input types had no way past the old refusal at all, so a
   schema with a `class` column — a Hasura `bool_exp` has one input field per

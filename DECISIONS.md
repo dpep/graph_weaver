@@ -534,6 +534,57 @@ Interpolating would print the defaults as though they were the configuration,
 which is the same trap the generate task's `desc` already sidesteps.
 `rake graph_weaver:graphs` runs after `:environment` and can answer honestly.
 
+## A result's JSON is the wire shape; `to_h` is the Ruby view
+
+**Considered:** one serialization rather than two — `to_json` going through
+`#to_h`, which already exists and already walks the whole nested result. Then
+`render json: result` and `result.to_h` agree, and there is one thing to learn.
+
+**Rejected because** the two outputs go to different places, and only one of
+them can be mistaken for a server's response. `#to_h` is the Ruby view: Symbol
+prop names (`when_` for a field the schema calls `when`), `T::Enum` members,
+whatever a `cast:` built. Serialized, that produces JSON nothing can read
+back — not `Result.from_h`, not another service, not the server it came from —
+and it would land in a cache or a log line looking authoritative. A
+Symbol-keyed Hash can't be mistaken for a response; a JSON string can, so the
+JSON is the one that has to be true.
+
+So a result's JSON is the wire shape: the response keys, each leaf back through
+its scalar registration's `serialize:`, and
+`Result.from_h(JSON.parse(result.to_json)) == result`. `#as_json` is emitted
+beside `from_h` as its mirror and `#to_json` goes through it, so a bare
+`.to_json` and Rails' `render json:` agree. The price is one more emitted
+method per struct and a rule with two halves — paid once, in machine-written
+code, against an artifact that is silently unreadable. The trip is only as
+faithful as each scalar's own `cast:`/`serialize:` pair: a `cast:` with no
+`serialize:` has no wire spelling at all, which is the same reason an input
+can't send one.
+
+## A helper sets the stand-in for one graph; the tag sets the mode
+
+**Considered:** letting a mode helper reinstall the example's mode, and
+refusing the pair when it contradicts the tag — which is what the single-graph
+code did, and reads as consistent: one example, one mode, and a helper that
+disagrees with its own tag is a mistake worth catching.
+
+**Rejected because** with more than one graph an example hasn't got one mode to
+install. `graphql_router(graph: :store)` followed by `graphql_fake(graph:
+:countries)` collapsed to whichever was named last: installing a mode cleared
+the per-graph stand-in table, so the first helper's graph was silently
+re-derived under the second's — the plain graph raising `:router` plans across
+a supergraph, or the federated one answering with fabricated data. And the
+refusal read a helper that names one graph of several as though it spoke for
+the example, which it doesn't. Only `:wire` got this right, because it already
+picked per graph.
+
+One rule instead: **a helper sets the stand-in for the graph it names; the tag
+sets the mode for every graph no helper named.** Only the rspec hook installs a
+mode, a helper writes one table entry, and the lookup reads that entry before
+it short-circuits on `:live`. So `graphql: :router` plus `graphql_fake(graph:
+:countries)` is how you say what it means, and the tag/helper refusal narrows
+to a helper that *does* speak for the whole example — one graph, or no
+`graph:`/schema to narrow it.
+
 ## What the locked surface is allowed to contain
 
 **The rule.** A name is public if the docs name it, if generated code calls it,
