@@ -157,7 +157,10 @@ describe "a transport reading the wire" do
     it "waits as long as Retry-After says whether the 429 raised or came back as an errors body" do
       errors_body = JSON.generate({ "errors" => [{ "message" => "slow down" }] })
       [errors_body, "slow down"].each do |body|
-        url = answering(http_response(429, body, "Retry-After" => "7"))
+        # Connection: close, as a one-request server should say: a retry that
+        # reused the pooled socket raced the raw server's silent close on CI
+        # (EOFError on every Ruby). The race itself has its own spec below.
+        url = answering(http_response(429, body, "Retry-After" => "7", "Connection" => "close"))
         slept = []
         client = GraphWeaver::Retry.new(
           GraphWeaver::Transport::HTTP.new(url), retries: 2, base_delay: 1, jitter: false,
