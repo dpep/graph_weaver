@@ -39,21 +39,15 @@ result.person&.nmae
 ```
 
 `person` is `T.nilable` because the schema says the field is nullable — the `&.`
-isn't defensive, it's the schema talking. A field you misspelled, or never
-selected, is a typecheck error rather than a `NoMethodError` in production.
-Static Sorbet is optional: `sorbet-runtime` is the only Sorbet gem this one
-needs, so if your app doesn't run `srb tc`, that same typo surfaces as a
-`NoMethodError` the first time the line runs instead of in CI — [Sorbet, with or
+isn't defensive, it's the schema talking. Static Sorbet is optional:
+`sorbet-runtime` is the only Sorbet gem this one needs, so in an app that doesn't
+run `srb tc` the same typo surfaces as a `NoMethodError` the first time the line
+runs, rather than in CI — [Sorbet, with or
 without](docs/getting_started.md#sorbet-with-or-without).
 
 ## Start here
 
-```ruby
-# Gemfile
-gem "graph_weaver"
-```
-
-In Rails, setup is one command:
+Add `gem "graph_weaver"` to your Gemfile. In Rails, the rest is one command:
 
 ```sh
 rails g graph_weaver:install https://api.example.com/graphql
@@ -63,41 +57,19 @@ which writes the initializer, the `app/graphql` layout, the editor config and th
 schema dump. **[Getting started](docs/getting_started.md)** walks the production
 setup end to end.
 
-You then rarely type `rake graph_weaver:generate` again: while the dev server is
-up, a `.graphql` edit regenerates and reloads before the next request, the way a
-route change does. Run it when you're ready to commit the Ruby.
-
-A second schema is a second `GraphWeaver.graph` — its own queries, output,
-client, namespace and scalar registrations — and the same one command generates
-and verifies the app: **[more than one
-schema](docs/getting_started.md#more-than-one-schema)**.
-
-Or skip the build step and poke at an API from a console —
-anything holding a schema parses, and the module runs on what parsed it:
-
-```ruby
-api = GraphWeaver.new("https://countries.trevorblades.com/")
-CountryQuery = api.parse("queries/country.graphql")   # a path or a raw string
-CountryQuery.execute!(code: "JP").country&.capital    # => "Tokyo"
-
-api.run!("query { continents { name } }").continents  # or no module at all
-```
-
-The **[examples](examples/)** run that path for real, smallest first: a public API
-in 30 lines, a paginated search, the production path against GitHub, and the
+Or skip the build step and poke at an API from a console: `GraphWeaver.new(url)`
+parses a query into a module on the spot, and `run!` executes one without a module
+at all — [against a real API](docs/real_world.md). The
+**[examples](examples/)** run that path for real, smallest first: a public API in
+30 lines, a paginated search, the production path against GitHub, and the
 federated graph below.
 
 ## Precise types are expensive to fake, so it fakes them for you
 
 Generation makes result types exact, which makes them tedious to build by hand —
 and most generators stop there and leave you the fixtures. GraphWeaver ships the
-fakes. One line in the spec helper:
-
-```ruby
-require "graph_weaver/rspec"
-```
-
-then one tag says what an example runs against:
+fakes. One line in the spec helper (`require "graph_weaver/rspec"`), then one tag
+says what an example runs against:
 
 ```ruby
 it "shows the profile", graphql: :fake do
@@ -113,71 +85,51 @@ No fixture, no stub, no HTTP — and the values are seeded from rspec's own seed
 `--seed 4242` hands back that same person and a failure reproduces.
 
 Random data answers "does this render". When the example is *about* the data, pin
-the fields it's about and let the rest stay fabricated:
+the fields it's about — `graphql_fake("Person.name" => "Ada")`, or a whole type
+off your factory — and everything else in the selection stays fabricated. Pins are
+schema names, checked and spellchecked, so a typo raises rather than leaving the
+example green against random data.
 
-```ruby
-graphql_fake("Person.name" => "Ada", "Person.pets" => [{ "name" => "Shelby" }, {}])
-
-person.name                 # => "Ada"
-person.pets.first.name      # => "Shelby"  — the second pet is still fabricated
-person.pets.size            # => 2         — a pinned list is as long as you write it
-```
-
-Keys are schema names — a field, or a whole type: `"Person" => build(:person)`
-reads the selected fields off your factory's object and fabricates the rest. They
-are checked and spellchecked, so a typo raises instead of leaving the example
-green against random data. The tag also picks a *real* client
-when you want one: `:in_process` runs your resolvers, `:router` runs them across a
-federated graph, and `:wire` serves either at your own endpoint, so the transport
-you ship runs too. Field-level failure simulation and record/replay cassettes with
-anonymization are in [testing](docs/testing.md).
+The tag also picks a *real* client when you want one: `:in_process` runs your
+resolvers, `:router` runs them across a federated graph, and `:wire` serves either
+at your own endpoint, so the transport you ship runs too. Field-level failure
+simulation and record/replay cassettes with anonymization are in
+[testing](docs/testing.md).
 
 ## Federation without a gateway
 
 When your app is both a GraphQL client and a subgraph, the local router plans a
 query across the composed supergraph and runs your **real resolvers** over the
-boundary — no gateway process, no node, no sockets. That's
-[`examples/federation.rb`](examples/federation.rb), the example that needs no
-network. Part of what it prints:
-
-```
-fetches:
-  → accounts  root fields
-  → reviews   _entities × 1 User
-  → products  _entities × 2 Product
-```
-
-The trace is the query plan: every node at a level goes in one `_entities` call,
-so two products cost one fetch. Anything it can't answer *faithfully* it refuses
-at plan time rather than guessing — the example prints one of those too, naming
-the coordinate that stopped it and what to rename. And it's diffed against a real
-`@apollo/gateway` over the same supergraph:
-currently 73 queries identical, 2 refused, 0 wrong
+boundary — no gateway process, no node, no sockets. It prints the plan as it
+fetches, batching every node at a level into one `_entities` call, and anything it
+can't answer *faithfully* it refuses at plan time rather than guessing, naming the
+coordinate that stopped it. It is diffed against a real `@apollo/gateway` over the
+same supergraph: currently 73 queries identical, 2 refused, 0 wrong
 ([`spec/integration/router_parity_spec.rb`](spec/integration/router_parity_spec.rb)).
-See [federation](docs/federation.md).
+[`examples/federation.rb`](examples/federation.rb) runs the whole thing with no
+network; see [federation](docs/federation.md).
 
 ## The schema keeps itself honest
 
 The lifecycle is rake tasks, not a CI pipeline you assemble yourself:
 `schema:refresh` re-introspects the committed dump, `schema:diff` names what
-changed when whatever that dump came from — an endpoint, your own schema class —
-has moved past it, `queries:check` names the queries that drift broke and where,
-`unused` names the selections your app stopped reading, and `verify` fails when
-the checked-in Ruby is stale.
-Generation is deterministic — same schema and queries, byte-identical files — so
-regenerating never shows a diff you didn't earn. See
+changed when whatever that dump came from has moved past it, `queries:check` names
+the queries that drift broke and where, `unused` names the selections your app
+stopped reading, and `verify` fails when the checked-in Ruby is stale. Generation
+is deterministic — same schema and queries, byte-identical files — so regenerating
+never shows a diff you didn't earn. See
 [getting started](docs/getting_started.md#5-verify-in-ci).
 
-**Any release can change what codegen emits**, patch releases included — fixing a
-generated type is a byte change. So `rake graph_weaver:generate` is part of every
-upgrade, and `verify` is what tells you when you've skipped it.
+**Any release can change what codegen emits**, patch releases included. So `rake
+graph_weaver:generate` is part of every upgrade, and `verify` is what tells you
+when you've skipped it.
 
 #### Also in the box
 
-- **Queries and mutations** with typed variable kwargs — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults. Results are generated per selection set; an input object has no selection set, so [its whole closure is](docs/generated_modules.md#an-input-object-generates-its-whole-closure)
-- **Fragments** (inline, named, type conditions), **unions and interfaces** (member structs, `__typename` dispatch), `@skip`/`@include` nullability
-- **Any transport**: in-process execution, a zero-dependency HTTP client, or Faraday with your own middleware — plus a composable `Retry` with backoff and jitter
-- **Structured errors**: a typed envelope that keeps partial data and extensions, an error hierarchy split by failure site, field-level reports with entity ids, and stale-schema detection
+- **Typed variable kwargs** — enums as `T::Enum`s, input objects as `T::Struct`s, required vs optional falling out of nullability and defaults
+- **Fragments**, **unions and interfaces** (member structs, `__typename` dispatch), `@skip`/`@include` nullability
+- **Any transport** — in-process, a zero-dependency HTTP client, or Faraday with your own middleware, plus a composable `Retry`
+- **Structured errors** — an envelope that keeps partial data and extensions, a hierarchy split by failure site, field-level reports, stale-schema detection
 
 #### Dig deeper
 
