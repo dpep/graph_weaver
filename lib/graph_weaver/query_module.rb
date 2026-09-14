@@ -3,6 +3,7 @@
 
 require "sorbet-runtime"
 
+require_relative "internal"
 require_relative "internal/test_clients"
 
 module GraphWeaver
@@ -44,6 +45,13 @@ module GraphWeaver
     # the whole of the call instead of three arguments' worth of it.
     sig { params(variables: T::Hash[String, T.untyped], client: T.untyped).returns(T.untyped) }
     def dispatch(variables, client:)
+      # A value with no JSON form is a bug in the call, not in the client that
+      # would have carried it — so it is refused here, where every mode passes,
+      # rather than in the transport, which :in_process and :fake never reach.
+      # (A transport asks the same question of a raw query string, which never
+      # comes through here.)
+      GraphWeaver::Internal::Wire.check_variables!(variables)
+
       mod = T.unsafe(self)
       # the graph codegen baked in, never one inferred from the client — a
       # wrong label on a request is worse than no label

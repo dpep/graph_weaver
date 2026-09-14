@@ -149,6 +149,15 @@
   `Retry-After: 7` waited 7s with a plain body and 1s, then 2s, with an errors
   body — the configured backoff overriding a limiter that had named a number.
   One rule now, and the parse lives in one place for both.
+- **A variable with no JSON form is refused in every mode, not just over the
+  wire.** The refusal lived in the transport, so a `File` (or an `IO`, a
+  `Pathname`, a plain object) in an `Upload!` variable was named and stopped
+  over HTTP and silently accepted under `graphql: :in_process` and
+  `graphql: :fake` — the modes `docs/testing.md` recommends for resolver
+  tests, and so the modes where a suite would have "proved" an upload works.
+  It now runs where every mode passes, in the dispatch a generated module
+  makes, before any client is chosen; same class, same sentence, wherever the
+  call was headed.
 
 ###  v0.7.0  (2026-09-13)
 

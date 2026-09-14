@@ -223,7 +223,10 @@ multipart request
 spec](https://github.com/jaydenseric/graphql-multipart-request-spec), so an
 `Upload!` argument needs your own transport or a separate upload endpoint —
 registering a scalar can't help, because multipart restructures the whole
-request rather than one value.
+request rather than one value. The refusal is the *call's*, not the
+transport's, so `graphql: :in_process` and `graphql: :fake` refuse the same
+value with the same sentence — a suite can't prove an upload works in a mode
+that would never have sent it.
 
 **No persisted-query id goes with it**, so a gateway safelist configured with
 `require_id` refuses every request this client makes; automatic persisted
