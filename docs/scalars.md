@@ -205,7 +205,7 @@ stays `T.untyped`, but where *you* know one field's shape, say it there —
 `register_scalar("Settings.meta", "T::Hash[String, T.untyped]")`. `srb tc` then
 sees a Hash at every call site, and a response carrying something else is refused
 naming the struct rather than surfacing as a `NoMethodError` three layers on.
-That's a trade: an array the scalar allowed is now a hard failure, and the field
+That's a trade: an array the scalar allowed becomes a hard failure, and the field
 opts out of `:fake` fabrication, so pin it
 (`overrides: { "Settings.meta" => { ... } }`).
 

@@ -422,7 +422,7 @@ The resolver then calls `Platform::ProductsQuery.execute!` instead of
 `GraphWeaver.client`, which buys three things. The target is named where someone
 deploying can see it (`rake graph_weaver:graphs` prints it, and `ENV.fetch` fails at
 boot rather than at the first request). A helper stands in for one graph at a time,
-so a spec has to say `graphql_router(graph: :reviews)` — it can no longer cover the
+so a spec has to say `graphql_router(graph: :reviews)`, and can't cover the
 loopback by accident. And with two graphs `GraphWeaver.client` under a mode refuses
 by name rather than reaching a real endpoint, so a stray call is loud.
 
