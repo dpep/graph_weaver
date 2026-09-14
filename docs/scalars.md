@@ -86,6 +86,12 @@ you're casting thousands of timestamps per response; there,
 it takes what Ruby takes — `"12.5"`, `"1e3"`, a JSON number — and refuses
 `"abc"` or `"$12.50"`, naming the field or the variable.
 
+**A trailing zero doesn't survive the round trip.** A `BigDecimal` holds the
+*number*, so `"10.00"` in comes back `"10.0"` — `to_s("F")` writes the value,
+not the spelling. Numerically identical, textually different, which matters
+only where the bytes are: diffing a request body, or hashing one for a
+signature. Keep the string the user typed if that is what you need to compare.
+
 ## Registering a class of your own
 
 Pass the class and the cast/serialize are **inferred** from it, by probing the

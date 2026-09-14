@@ -173,6 +173,17 @@
   that follows the convention. *Action:* an example that meant to fabricate
   failures pins the field (`{ "userErrors" => [{ "message" => "..." }] }`),
   which is how the failure path was written anyway.
+- **Docs: a partial answer only survives as far as the nearest nullable
+  field.** `docs/errors.md` promised the created order on `QueryError#data`
+  when a mutation "failed on the way out", with no caveat — but with the
+  conventional `ChargePayload { order: Order!, receiptUrl: String! }`, a
+  resolver that raises on `receiptUrl` propagates the null to the root and
+  `#data` is `nil`. The caveat now says which field to make nullable (the one
+  that can fail — making the *payload* field nullable doesn't help) and what to
+  do instead.
+- **Docs: `docs/scalars.md` says a trailing zero doesn't survive a
+  `BigDecimal`.** `"10.00"` comes back `"10.0"` — the same number, different
+  bytes, which matters where a request body is diffed or signed.
 
 ###  v0.7.0  (2026-09-13)
 

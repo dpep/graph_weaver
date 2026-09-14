@@ -31,6 +31,19 @@ so a mutation that created the order and then failed on the way out still
 raises, with the data hanging off `QueryError#data`. Reach for `execute` when
 a partial answer is one you can use.
 
+**A partial answer only survives as far as the nearest nullable field.** That
+is GraphQL's null propagation, not this client, and the conventional Relay
+payload is exactly where it bites: given
+`ChargePayload { order: Order!, receiptUrl: String! }`, a resolver that raises
+on `receiptUrl` *after the order was charged* nulls `receiptUrl`, which is
+non-null, so the null climbs to the payload, and on to the root —
+`response.data` and `QueryError#data` are both `nil`, and the order you just
+created is nowhere in the response. Making the **payload field** nullable
+doesn't help: the null stops at `{"charge" => nil}` and the order was inside
+it. Two things do — make the field *that can fail* nullable (`receiptUrl:
+String`), which leaves `order` on `data` beside the error; or accept that the
+write's outcome is not in the response and read the order back.
+
 The envelope is a single generic `GraphWeaver::Response[Result]` — `response.data`
 stays fully typed to *this* query's result, no per-query wrapper class.
 
