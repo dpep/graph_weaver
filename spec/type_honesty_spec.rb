@@ -6,11 +6,20 @@ require "tmpdir"
 # srb tc proves the generated code is self-consistent, never that it matches
 # the schema. These pin the three places it didn't.
 describe "generated types tell the truth about the schema" do
+  # generated with no named graph, so the app default is where they post
+  around do |example|
+    prior = GraphWeaver.client
+    GraphWeaver.client = Demo::Schema
+    example.run
+  ensure
+    GraphWeaver.client = prior
+  end
+
   def generate(query)
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "q.graphql"), query)
       out = File.join(dir, "generated")
-      GraphWeaver.generate!(schema: Demo::Schema, queries: dir, output: out, client: Demo::Schema)
+      GraphWeaver.generate!(schema: Demo::Schema, queries: dir, output: out)
       File.read(Dir[File.join(out, "*.rb")].reject { |f| f.include?("types") }.first)
     end
   end

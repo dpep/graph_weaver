@@ -48,7 +48,6 @@ describe "introspection" do
         schema: rebuilt,
         queries: File.expand_path("queries", __dir__),
         output: File.expand_path("generated", __dir__),
-        client: "Demo::Schema",
       ),
     ).to be true
   end

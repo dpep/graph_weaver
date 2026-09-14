@@ -175,10 +175,6 @@ module SearchQuery
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
-  # the baked default client, resolved on first use
-  DEFAULT_CLIENT = T.let(-> { Demo::Schema }, T.proc.returns(T.untyped))
-  private_constant :DEFAULT_CLIENT
-
   # .checked(:never): an untyped value (a Rails param) reaches the coercion
   # below instead of being rejected by sorbet-runtime's argument check.
   sig { params(term: String, client: T.untyped).returns(GraphWeaver::Response[Result]).checked(:never) }

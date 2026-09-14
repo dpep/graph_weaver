@@ -273,9 +273,9 @@ namespace :graph_weaver do
       puts "#{name}  #{Array(graph.queries).join(", ")} -> #{GraphWeaver::Internal::Util.relative(graph.output)}"
       puts "  namespace: #{graph.namespace}" if graph.namespace
       # which server a graph's modules call — the one thing this task couldn't
-      # say. A graph that bakes none falls back to GraphWeaver.client, which is
+      # say. A graph that names none falls back to GraphWeaver.client, which is
       # an app-wide setting and not this task's subject.
-      puts "  client: #{graph.client}" if graph.client
+      puts "  client: #{graph.client_url || graph.client}" if graph.client
       # a registration is scoped to one graph, and nothing else says which
       GraphWeaver::Internal::Tasks.registrations(graph).each { |line| puts line }
     end

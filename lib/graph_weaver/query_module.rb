@@ -17,8 +17,8 @@ module GraphWeaver
   # those are the point.
   #
   # Resolution order, per the docs: per call → per module (`MyQuery.client =`)
-  # → a test mode's stand-in (Internal::TestClients) → the module's baked
-  # DEFAULT_CLIENT → `GraphWeaver.client`.
+  # → a test mode's stand-in (Internal::TestClients) → the client the
+  # module's graph names → `GraphWeaver.client`.
   module QueryModule
     extend T::Sig
 
@@ -26,7 +26,7 @@ module GraphWeaver
     attr_writer :client
 
     # the default client (a GraphWeaver::Client or any transport) for
-    # execute: per-module override, else the baked default, else the app one
+    # execute: per-module override, else the graph's, else the app one
     sig { returns(T.untyped) }
     def client
       @client || default_client
@@ -55,9 +55,7 @@ module GraphWeaver
       mod = T.unsafe(self)
       # the graph codegen baked in, never one inferred from the client — a
       # wrong label on a request is worse than no label
-      graph = mod.const_defined?(:GRAPH, false) ? mod.const_get(:GRAPH) : nil
-
-      GraphWeaver::Internal::Log.with_graph(graph) do
+      GraphWeaver::Internal::Log.with_graph(graph_name) do
         client_for(client).execute(mod.const_get(:QUERY), variables:,
           operation_name: mod.const_get(:OPERATION_NAME))
       end
@@ -79,20 +77,28 @@ module GraphWeaver
         "#{self}: client must respond to #execute(query, variables:), got #{target.class}"
     end
 
-    # Codegen's `client:` constant, emitted as a DEFAULT_CLIENT lambda so the
-    # constant it names is resolved on first use rather than at load — a
-    # generated file may load before the initializer that builds the client.
+    # A module knows which graph it belongs to, and the graph knows how to
+    # reach it: the client that graph names, else the app default. Read at
+    # call time, so renaming the constant a graph names is an initializer
+    # edit rather than a regeneration of every module.
     #
-    # A test mode stands in for it: what codegen baked in is exactly what a
-    # `graphql:` tag means to replace, so a bound module is covered by the
-    # tag like every other one.
+    # A test mode stands in ahead of it: the graph's client is exactly what a
+    # `graphql:` tag means to replace, so a tagged example reaches a module
+    # whose graph names a client like every other one.
     sig { returns(T.untyped) }
     def default_client
-      mod = T.unsafe(self)
-      stand_in = GraphWeaver::Internal::TestClients.for(mod)
+      stand_in = GraphWeaver::Internal::TestClients.for(T.unsafe(self))
       return stand_in if stand_in
 
-      mod.const_defined?(:DEFAULT_CLIENT, false) ? mod.const_get(:DEFAULT_CLIENT).call : GraphWeaver.client!
+      GraphWeaver::Internal::Util.graph_named(graph_name)&.client || GraphWeaver.client!
+    end
+
+    # The graph codegen baked in, by name — nil for a module generated before
+    # graphs existed, or by a GraphWeaver.parse that named none.
+    sig { returns(T.untyped) }
+    def graph_name
+      mod = T.unsafe(self)
+      mod.const_defined?(:GRAPH, false) ? mod.const_get(:GRAPH) : nil
     end
   end
 end

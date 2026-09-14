@@ -461,17 +461,11 @@ class GraphWeaver::Codegen
       out << "  extend GraphWeaver::QueryModule"
       if @graph_name
         out << ""
-        out << "  # the graph this module was generated from — what a test mode builds"
-        out << "  # its stand-in client from"
+        out << "  # the graph this module was generated from — whose client it runs"
+        out << "  # against, and what a test mode builds its stand-in from"
         out << "  GRAPH = T.let(#{@graph_name.inspect}, Symbol)"
-        out << "  private_constant :GRAPH"
-      end
-      if @client_const
-        out << ""
-        out << "  # the baked default client, resolved on first use"
-        out << "  DEFAULT_CLIENT = T.let(-> { #{@client_const} }, T.proc.returns(T.untyped))"
         # QueryModule reads it with const_get, which privacy doesn't block
-        out << "  private_constant :DEFAULT_CLIENT"
+        out << "  private_constant :GRAPH"
       end
       out << ""
 

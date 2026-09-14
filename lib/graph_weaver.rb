@@ -66,7 +66,7 @@ module GraphWeaver
     # Anything satisfying the execute contract — a Client, a schema class,
     # a transport, a fake (testing's graphql: tag swaps one in per
     # example). Generated modules resolve per call -> per module
-    # (MyQuery.client=) -> baked constant -> here.
+    # (MyQuery.client=) -> the client their graph names -> here.
     attr_accessor :client
 
     # the default client, when one is required
@@ -389,7 +389,7 @@ module GraphWeaver
     # (see #changed_files). Generated files the plan no longer produces are deleted
     # (see #orphaned), so renaming or dropping a .graphql leaves nothing
     # behind. Pair with a freshness spec (docs/generated_modules.md).
-    def generate!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
+    def generate!(schema: nil, queries: nil, output: nil, types_module: nil)
       @changed_files = []
       @unmatched_registrations = []
       @untyped_scalars_by_graph = {}
@@ -399,7 +399,7 @@ module GraphWeaver
       # tree exactly as it was — the railtie's watch mode regenerates on a
       # request and promises a failed save changes nothing, and that promise
       # was true within a graph and false across them.
-      planned = graphs_for(schema:, queries:, output:, client:, types_module:).map do |graph|
+      planned = graphs_for(schema:, queries:, output:, types_module:).map do |graph|
         if Internal::Util.query_files(graph.queries).empty?
           # a brand-new app legitimately has none; a mistyped queries_paths looks
           # exactly the same, and prints nothing either way
@@ -488,11 +488,11 @@ module GraphWeaver
     #      it "generated queries are current" do
     #        GraphWeaver.verify_generated!
     #      end
-    def verify_generated!(schema: nil, queries: nil, output: nil, client: nil, types_module: nil)
+    def verify_generated!(schema: nil, queries: nil, output: nil, types_module: nil)
       @unmatched_registrations = []
       @untyped_scalars_by_graph = {}
       seen = new_seen
-      graphs = graphs_for(schema:, queries:, output:, client:, types_module:)
+      graphs = graphs_for(schema:, queries:, output:, types_module:)
 
       # The dump is checked in too, and everything below reads it — so a
       # stale one is answered before staleness downstream of it, because
@@ -860,7 +860,6 @@ module GraphWeaver
           schema:,
           query: Codegen.inline_fragments(source, shared, path),
           name:,
-          client: graph.client,
           graph_name: graph.name,
           types_namespace: graph.types_module,
           hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
@@ -1082,8 +1081,9 @@ module GraphWeaver
     # name derived from the file name and the operation — see #module_name) or
     # a raw query string (name derived from the operation name, falling back to
     # "Query" for anonymous operations — collisions are impossible since each
-    # parse gets its own container). Pass name: to override, client: to bake
-    # the module's default client/transport.
+    # parse gets its own container). Pass name: to override, client: to set
+    # the module's own client — a parsed module generates no file, so it has
+    # no graph to read one off.
     #
     # graph: names the graph this module belongs to, which is what a test mode
     # runs it against in an app with more than one — the same thing generation

@@ -59,15 +59,10 @@ class GraphWeaver::Codegen
 
   attr_reader :name
 
-  # A client is anything responding to `execute(query, variables:)`
-  # whose result `to_h`s into {"data" => ..., "errors" => ...} — a
-  # GraphWeaver::Client, a transport, a schema class, a fake.
-  #
-  # client: (a constant, or its name as a string) becomes the generated
-  # module's baked default; when omitted, generated code falls back to
-  # the app default (GraphWeaver.client=). graph_name: is the graph the
-  # module belongs to, baked in so a test mode can build its stand-in from
-  # the right schema. name: is the module the file
+  # graph_name: is the graph the module belongs to, baked in because it is
+  # the one thing a module can't be told at call time: it decides which
+  # client the module runs against (GraphWeaver::QueryModule) and which
+  # schema a test mode fabricates from. name: is the module the file
   # defines, defaulting to the operation's own name; default_name: is
   # parse's container-scoped fallback (file generation stays strict — a
   # checked-in file deserves a deliberate name). types_namespace: is the shared-types workflow (see
@@ -78,7 +73,7 @@ class GraphWeaver::Codegen
   # whole-union field spread as one of them resolves to a canonical type in the
   # shared module (see used_union_names). path: is the file the query was read
   # from, named alongside line and column in validation errors.
-  def initialize(schema:, query:, name: nil, client: nil, default_name: nil,
+  def initialize(schema:, query:, name: nil, default_name: nil,
     types_namespace: nil, hoistable_unions: nil, path: nil, module_name: nil,
     graph_name: nil, registry: GraphWeaver::Codegen.registry)
     renamed!(module_name)
@@ -96,28 +91,10 @@ class GraphWeaver::Codegen
     @used_unions = []
     # scalars this generation had no registration for (see report_untyped_scalars)
     @untyped_scalars = []
-    @client_const = CLIENT_CONST.call(client)
-    # the graph this module belongs to, baked in beside the client: a test
-    # mode builds its stand-in from the module's own schema, and only the
-    # module can say whose that is (GraphWeaver::Internal::TestClients).
-    # A Symbol, as GraphWeaver.graph makes it — the name is the identity.
+    # the graph this module belongs to: its client and, under a test mode,
+    # its stand-in are both read off it, and only the module can say whose
+    # it is. A Symbol, as GraphWeaver.graph makes it — the name is the identity.
     @graph_name = graph_name&.to_sym
-
-    if client && @client_const.nil?
-      # a live object can't be spelled in generated source — parse can
-      # set one via the module's writer, but file generation cannot
-      raise ArgumentError, "client: must be a named constant or String (got #{client.inspect}) — " \
-        "put the object in a constant and name it, client: \"MyApi::CLIENT\"; pass live objects to parse"
-    end
-    # The String is written into the module verbatim, so anything that isn't a
-    # constant path emits source that doesn't parse. A url is the way to get
-    # here — it is where the endpoint is spelled everywhere else — so the fix
-    # names the value that was passed.
-    if @client_const && !@client_const.match?(CONSTANT_NAME)
-      raise ArgumentError, "client: #{@client_const.inspect} isn't a constant — generated source " \
-        "spells this name, so it has to be one: CLIENT = GraphWeaver.new(#{@client_const.inspect}), " \
-        "then client \"CLIENT\""
-    end
   end
 
   # 0.5 spelled it module_name:, in two of the three doors. One knob, one
@@ -129,21 +106,9 @@ class GraphWeaver::Codegen
   end
   private :renamed!
 
-  # The constant name a client can be referenced by in generated
-  # source — nil when it can't be (live objects, anonymous modules).
-  # A lambda rather than a method: both `parse` and `initialize` need it,
-  # from the class and from an instance.
-  CLIENT_CONST = lambda do |client|
-    case client
-    when String then client
-    when Module then client.name
-    end
-  end
-  private_constant :CLIENT_CONST
-
   # one-step shorthand
-  def self.generate(schema:, query:, name: nil, client: nil, path: nil, module_name: nil)
-    new(schema:, query:, name:, client:, path:, module_name:).generate
+  def self.generate(schema:, query:, name: nil, path: nil, module_name: nil)
+    new(schema:, query:, name:, path:, module_name:).generate
   end
 
   # Development convenience: generate + eval in one step, no build
@@ -152,10 +117,7 @@ class GraphWeaver::Codegen
   # Evaluates into an anonymous container, so no global constants leak;
   # client: additionally accepts a live object (set via .client=).
   def self.parse(schema:, query:, name: nil, client: nil, path: nil, module_name: nil, graph_name: nil)
-    client_const = CLIENT_CONST.call(client)
-
-    codegen = new(schema:, query:, name:, client: client_const, path:, module_name:, graph_name:,
-      default_name: "Query")
+    codegen = new(schema:, query:, name:, path:, module_name:, graph_name:, default_name: "Query")
     source = codegen.generate
 
     container = Module.new
@@ -167,9 +129,9 @@ class GraphWeaver::Codegen
     container.module_eval(source, "(graph_weaver)", 1)
     mod = container.const_get(codegen.name)
     GraphWeaver::Internal::Log.log(:debug) { "parsed #{codegen.name} (dynamic module, #{source.bytesize} bytes)" }
-    # live objects (or anonymous modules) can't be referenced from
-    # generated source — set them via the module's writer instead
-    mod.client = client if client && client_const.nil?
+    # a parsed module generates no file, so it has no graph to read a client
+    # off — client: is its module-level one, whatever kind of object it is
+    mod.client = client if client
     mod
   end
 

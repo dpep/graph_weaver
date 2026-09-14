@@ -9,6 +9,17 @@ require_relative "generated/person_query"
 require_relative "generated/search_query"
 
 describe GraphWeaver::Codegen do
+  # The checked-in fixtures come from the inline generate! door, so they belong
+  # to no named graph — which makes their client the app default, as it is for
+  # an app that declared no graph.
+  around do |example|
+    prior = GraphWeaver.client
+    GraphWeaver.client = Demo::Schema
+    example.run
+  ensure
+    GraphWeaver.client = prior
+  end
+
   it "keeps the checked-in generated files up to date" do
     root = File.expand_path("..", __dir__)
 
@@ -17,7 +28,6 @@ describe GraphWeaver::Codegen do
         schema: Demo::Schema,
         queries: File.join(root, "spec/queries"),
         output: File.join(root, "spec/generated"),
-        client: Demo::Schema,
       ),
     ).to be true
   end
@@ -64,16 +74,6 @@ describe GraphWeaver::Codegen do
       expect(mod::QUERY).to include(%("""\nGRAPHQL\n"""))
       expect(mod.execute.errors?).to be false
     end
-  end
-
-  it "rejects live executor objects when generating files" do
-    expect {
-      described_class.generate(
-        schema: Demo::Schema,
-        client: GraphWeaver::Transport::HTTP.new("http://example.com"),
-        query: "query People { people { name } }",
-      )
-    }.to raise_error(ArgumentError, /named constant/)
   end
 
   it "camelizes snake_case schema type names (Hasura-style) into valid constants" do
@@ -400,12 +400,7 @@ describe GraphWeaver::Codegen do
   end
 
   it "rejects queries that do not validate against the schema" do
-    codegen = described_class.new(
-      schema: Demo::Schema,
-      client: Demo::Schema,
-      query: "{ nope }",
-      name: "Bad",
-    )
+    codegen = described_class.new(schema: Demo::Schema, query: "{ nope }", name: "Bad")
 
     expect { codegen.generate }.to raise_error(GraphWeaver::QueryValidationError, /invalid query/)
   end
@@ -458,7 +453,6 @@ describe GraphWeaver::Codegen do
     # which privacy doesn't block — so the plumbing stays plumbing instead of
     # becoming two more names a generated module appears to offer.
     it "keeps the plumbing constants private and still reads them" do
-      expect { PersonQuery::DEFAULT_CLIENT }.to raise_error(NameError, /private constant/)
       expect { AdoptMutation::AdoptionInput::FIELDS }.to raise_error(NameError, /private constant/)
 
       expect(PersonQuery.client).to eq Demo::Schema
@@ -712,7 +706,6 @@ describe GraphWeaver::Codegen do
     it "requires __typename when the selection varies by concrete type" do
       codegen = described_class.new(
         schema: Demo::Schema,
-        client: Demo::Schema,
         query: 'query { search(term: "x") { ... on Pet { species } ... on Person { email } } }',
         name: "Bad",
       )
@@ -1309,14 +1302,10 @@ describe GraphWeaver::Codegen do
     end
 
     it "falls back to GraphWeaver.client, raising when unconfigured" do
-      expect { mod.execute }.to raise_error(GraphWeaver::Error, /no client configured/)
+      expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
 
-      begin
-        GraphWeaver.client = Demo::Schema
-        expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
-      ensure
-        GraphWeaver.client = nil
-      end
+      GraphWeaver.client = nil
+      expect { mod.execute }.to raise_error(GraphWeaver::Error, /no client configured/)
     end
 
     it "supports per-module override" do
@@ -1325,8 +1314,10 @@ describe GraphWeaver::Codegen do
       expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
     end
 
-    it "prefers a per-call and then a per-module client over the baked constant" do
-      baked = GraphWeaver.parse(
+    # parse has no graph to read a client off — a parsed module generates no
+    # file — so client: is the module's own, and a per-call one still wins
+    it "prefers a per-call client over the one parse set on the module" do
+      bound = GraphWeaver.parse(
         schema: Demo::Schema,
         client: Demo::Schema,
         query: "query People { people { name } }",
@@ -1335,23 +1326,12 @@ describe GraphWeaver::Codegen do
         def execute(*, **) = { "data" => { "people" => [{ "name" => "Fake" }] } }
       end.new
 
-      expect(baked.client).to eq Demo::Schema
-      expect(baked.execute.data!.people.map(&:name)).to eq ["Daniel"]
+      expect(bound.client).to eq Demo::Schema
+      expect(bound.execute.data!.people.map(&:name)).to eq ["Daniel"]
 
-      baked.client = fake
-      expect(baked.execute.data!.people.map(&:name)).to eq ["Fake"]
-      expect(baked.execute(client: Demo::Schema).data!.people.map(&:name)).to eq ["Daniel"]
-    end
-
-    it "resolves the baked constant on first use, not when the module loads" do
-      # a generated file may load before the initializer that builds its client
-      late = GraphWeaver.parse(
-        schema: Demo::Schema,
-        client: "NotYetDefined::Client",
-        query: "query People { people { name } }",
-      )
-
-      expect { late.client }.to raise_error(NameError, /NotYetDefined/)
+      bound.client = fake
+      expect(bound.execute.data!.people.map(&:name)).to eq ["Fake"]
+      expect(bound.execute(client: Demo::Schema).data!.people.map(&:name)).to eq ["Daniel"]
     end
   end
 

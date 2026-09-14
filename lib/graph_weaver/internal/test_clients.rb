@@ -8,13 +8,12 @@ module GraphWeaver
     # a `graphql_*` helper writes to.
     #
     # A tag used to work by swapping GraphWeaver.client, which is the LAST
-    # place a module looks: one generated with `client:` reads its baked
-    # DEFAULT_CLIENT first and never got there, so the tag quietly didn't
-    # apply. The mode installs itself here instead, and QueryModule asks
-    # before it reads that constant — so a tag reaches every module the
-    # example runs, bound or not.
+    # place a module looks: one whose graph names a client of its own reads
+    # that first and never got there, so the tag quietly didn't apply. The
+    # mode installs itself here instead, and QueryModule asks before it reads
+    # the graph — so a tag reaches every module the example runs.
     #
-    # Keyed by the graph a module was generated from (its baked GRAPH), since
+    # Keyed by the graph a module was generated from (its GRAPH), since
     # the honest answer varies: :fake for a billing module has to fabricate
     # billing's shapes, not the other schema's. A helper names its graphs the
     # same way and lands in the same table, so what an example says applies to
@@ -254,11 +253,8 @@ module GraphWeaver
         # generated before its graph was declared, or by an older release —
         # and guessing would fake one schema's shapes at another's module.
         def graph_for!(mod)
-          graphs = GraphWeaver.graphs
-          return graphs.first if graphs.one?
-
           name = mod.const_defined?(:GRAPH, false) ? mod.const_get(:GRAPH) : nil
-          found = graphs.find { |graph| graph.name == name }
+          found = Util.graph_named(name)
           return found if found
 
           # Two doors produce a module, so the fix has two spellings: a file
@@ -268,7 +264,7 @@ module GraphWeaver
           raise GraphWeaver::Error, "#{mod} doesn't say which of this app's graphs " \
             "(#{declared_names}) it was generated from, so #{@mode.inspect} has nothing to run " \
             "it against — regenerate it (rake graph_weaver:generate), or, if it came from " \
-            "GraphWeaver.parse, say which there (graph: #{graphs.first.name.inspect})."
+            "GraphWeaver.parse, say which there (graph: #{GraphWeaver.graphs.first.name.inspect})."
         end
       end
     end

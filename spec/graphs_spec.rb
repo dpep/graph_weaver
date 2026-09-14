@@ -150,12 +150,52 @@ describe "GraphWeaver.graph" do
     expect(defined?(Billing::PersonQuery)).to eq "constant"
   end
 
-  it "bakes each graph's client into its own modules" do
+  # a module says which graph it belongs to and nothing about transport — the
+  # graph is where the client lives, so renaming one regenerates nothing
+  it "gives each graph's modules its own graph and no client of their own" do
     two_graphs
     GraphWeaver.generate!
 
-    expect(File.read(File.join(output(:pets), "person_query.rb"))).to include("Demo::Schema")
-    expect(File.read(File.join(output(:billing), "person_query.rb"))).not_to include("DEFAULT_CLIENT")
+    pets = File.read(File.join(output(:pets), "person_query.rb"))
+    billing = File.read(File.join(output(:billing), "person_query.rb"))
+
+    expect(pets).to include("GRAPH = T.let(:pets, Symbol)")
+    expect(billing).to include("GRAPH = T.let(:billing, Symbol)")
+    expect(pets).not_to include("Demo::Schema")
+  end
+
+  # the point of the move: each graph's modules reach that graph's client,
+  # resolved when they execute rather than spelled into their source
+  # namespaces of their own, and no enum to define twice — see the :fake
+  # example below for why
+  it "runs each graph's modules against that graph's own client" do
+    write_query(:owned_pets, "contact", "query { person(id: 1) { name } }\n")
+    write_query(:owned_billing, "statement", "query { invoice(id: 1) { id } }\n")
+    invoices = Class.new do
+      def execute(_query, **) = { "data" => { "invoice" => { "id" => "7" } } }
+    end.new
+    dir, billing = @dir, billing_schema
+    GraphWeaver.graph :owned_pets do
+      schema Demo::Schema
+      client Demo::Schema
+      queries File.join(dir, "owned_pets/queries")
+      output File.join(dir, "owned_pets/generated")
+      namespace "OwnedPets"
+    end
+    GraphWeaver.graph :owned_billing do
+      schema billing
+      client invoices
+      queries File.join(dir, "owned_billing/queries")
+      output File.join(dir, "owned_billing/generated")
+      namespace "OwnedBilling"
+    end
+    GraphWeaver.generate!
+    GraphWeaver.load_generated!
+
+    # one graph names the demo schema, the other the fake above — neither
+    # module says anything about either, and GraphWeaver.client is unset
+    expect(OwnedPets::ContactQuery.execute!.person.name).to eq "Daniel"
+    expect(OwnedBilling::StatementQuery.execute!.invoice.id).to eq "7"
   end
 
   # An app that is a pure client of two remote APIs owns no schema class, so
@@ -217,7 +257,7 @@ describe "GraphWeaver.graph" do
       end
 
       expect { poke.dump_source }.to raise_error(GraphWeaver::Error,
-        /graph :poke bakes client "NO_SUCH_CLIENT".*nothing defines that constant/m)
+        /the client in graph :poke names "NO_SUCH_CLIENT" and nothing defines that constant/m)
     end
   end
 

@@ -16,7 +16,7 @@ describe "GraphWeaver.graph block" do
       schema "billing.graphql"
       queries "app/graphql/billing"
       output "app/graphql/generated/billing"
-      client "Billing::CLIENT"
+      client Demo::Schema
       namespace "Billing"
       types_module "Billing::Types"
     end
@@ -25,7 +25,7 @@ describe "GraphWeaver.graph block" do
     expect(graph.named_schema?).to be true
     expect(graph.queries).to eq "app/graphql/billing"
     expect(graph.output).to eq "app/graphql/generated/billing"
-    expect(graph.client).to eq "Billing::CLIENT"
+    expect(graph.client).to eq Demo::Schema
     expect(graph.namespace).to eq "Billing"
     expect(graph.types_module).to eq "Billing::Types"
   end
@@ -73,17 +73,15 @@ describe "GraphWeaver.graph block" do
       .to raise_error(ArgumentError, /Symbol or a String/)
   end
 
-  # client, namespace and types_module are all spelled in generated source, so
-  # the constant itself says what its name says
+  # namespace and types_module are spelled in generated source as a module
+  # definition, so the constant itself says what its name says
   it "takes a constant where a constant's name goes" do
     graph = declared do
       schema Demo::Schema
-      client Demo::Schema
       namespace Demo
       types_module Demo::Schema
     end
 
-    expect(graph.client).to eq "Demo::Schema"
     expect(graph.namespace).to eq "Demo"
     expect(graph.types_module).to eq "Demo::Schema"
   end
@@ -93,16 +91,34 @@ describe "GraphWeaver.graph block" do
       .to raise_error(ArgumentError, /namespace needs a constant/)
   end
 
-  # a live client can't be written into a generated file; the constant holding
-  # it can, and that refusal already says so
-  it "still refuses a live client object" do
+  # nothing spells a client in generated source any more, so a live object is
+  # as good a client as the constant holding one
+  it "takes a live client object" do
+    live = GraphWeaver::InProcess.new(Demo::Schema)
     graph = declared do
       schema Demo::Schema
-      client GraphWeaver::InProcess.new(Demo::Schema)
+      client live
     end
 
-    expect { GraphWeaver::Codegen.new(schema: Demo::Schema, query: "{ __typename }", client: graph.client) }
-      .to raise_error(ArgumentError, /named constant or String/)
+    expect(graph.client).to equal live
+  end
+
+  # a graph is declared in an initializer, where the constant holding the
+  # client may not be defined yet — so a name is resolved when a module asks,
+  # not when the block runs
+  it "resolves a client named by a constant on first use, not at declaration" do
+    graph = declared do
+      schema Demo::Schema
+      client "NotYetDefined::CLIENT"
+    end
+
+    expect { graph.client }.to raise_error(
+      GraphWeaver::Error,
+      /the client in graph :billing names "NotYetDefined::CLIENT" and nothing defines that constant/,
+    )
+
+    stub_const("NotYetDefined::CLIENT", Demo::Schema)
+    expect(graph.client).to eq Demo::Schema
   end
 
   # the block runs where it is written, so a registration that can't work says
@@ -140,7 +156,8 @@ describe "GraphWeaver.graph block" do
       .to raise_error(ArgumentError, /\Atypes_module "::Billing::Types": drop the leading `::`/)
 
     # client is a reference, not a definition, so ::Foo::CLIENT means what it says
-    expect(declared { client "::Billing::CLIENT" }.client).to eq "::Billing::CLIENT"
+    stub_const("Billing::CLIENT", Demo::Schema)
+    expect(declared { client "::Billing::CLIENT" }.client).to eq Demo::Schema
   end
 
   # the lambda form is what a Rails initializer has to use, and a lambda

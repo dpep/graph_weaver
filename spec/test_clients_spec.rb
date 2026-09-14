@@ -1,9 +1,9 @@
 # typed: ignore — exercises eval-defined constants
 require "graph_weaver/testing"
 
-# A module generated with `client:` — the one thing a `graphql:` tag couldn't
-# reach. The baked constant sits above GraphWeaver.client, which is the slot
-# the tag swapped, so the example ran against the real thing.
+# A module whose GRAPH names a client — the one thing a `graphql:` tag
+# couldn't reach. The graph's client sits above GraphWeaver.client, which is
+# the slot the tag swapped, so the example ran against the real thing.
 module BoundClient
   # records rather than calls anything: under a mode it must see nothing
   class Spy
@@ -25,11 +25,11 @@ module BoundClient
 end
 
 describe GraphWeaver::Internal::TestClients do
-  # generated the way a checked-in file is — a baked DEFAULT_CLIENT naming a
-  # constant, not the live object `parse(client:)` sets on the module itself
+  # generated the way a checked-in file is: it names its graph and nothing
+  # about transport, and the graph is what names the spy
   let(:bound) do
-    GraphWeaver::Codegen.parse(schema: Demo::Schema, query: BoundClient::QUERY,
-      client: "BoundClient::SPY")
+    GraphWeaver.graph(:spied) { schema Demo::Schema; client "BoundClient::SPY" }
+    GraphWeaver::Codegen.parse(schema: Demo::Schema, query: BoundClient::QUERY, graph_name: :spied)
   end
   let(:fake) { GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema) }
 
@@ -43,20 +43,22 @@ describe GraphWeaver::Internal::TestClients do
     BoundClient::SPY.requests.clear
   end
 
-  it "runs a bound module against the mode's client, not the one baked in" do
+  it "runs a bound module against the mode's client, not its graph's" do
     GraphWeaver.client = fake
     described_class.install(:fake)
     # what the rspec hook installs: the mode's own client for this app's one
-    # graph, which is also what GraphWeaver.client then reads back as
+    # graph, which is also what GraphWeaver.client then reads back as.
+    # `bound` first, since declaring the graph is what makes it that one.
+    module_ = bound
     installed = described_class.standin(GraphWeaver.graphs.first)
 
-    expect(bound.execute!(id: "1").person.name).to be_a String
+    expect(module_.execute!(id: "1").person.name).to be_a String
     expect(BoundClient::SPY.requests).to be_empty
     expect(fake.requests).to be_empty
     expect(installed.requests.size).to eq 1
   end
 
-  it "leaves the baked client alone with no mode installed" do
+  it "leaves the graph's client alone with no mode installed" do
     GraphWeaver.client = fake
 
     bound.execute!(id: "1")
@@ -64,7 +66,7 @@ describe GraphWeaver::Internal::TestClients do
     expect(fake.requests).to be_empty
   end
 
-  it "leaves the baked client alone again after the example" do
+  it "leaves the graph's client alone again after the example" do
     GraphWeaver.client = fake
     described_class.install(:fake)
     described_class.reset!
@@ -84,7 +86,7 @@ describe GraphWeaver::Internal::TestClients do
   end
 
   # a module's own `client =` is the example talking; the mode stands in for
-  # what CODEGEN decided, not for what the example just said
+  # what the GRAPH says, not for what the example just said
   it "yields to a client the example set on the module" do
     GraphWeaver.client = fake
     described_class.install(:fake)
@@ -154,11 +156,12 @@ describe GraphWeaver::Internal::TestClients do
   # regenerated, and a GraphWeaver.parse module generates no file, so
   # "regenerate" on its own was advice it could never take
   it "refuses to guess which graph a module that doesn't say belongs to" do
+    silent = GraphWeaver::Codegen.parse(schema: Demo::Schema, query: BoundClient::QUERY)
     GraphWeaver.graph(:pets) { schema Demo::Schema }
     GraphWeaver.graph(:billing) { schema Demo::Schema }
     described_class.install(:fake)
 
-    expect { bound.execute!(id: "1") }.to raise_error(
+    expect { silent.execute!(id: "1") }.to raise_error(
       GraphWeaver::Error,
       /which of this app's graphs \(:pets, :billing\).*rake graph_weaver:generate.*GraphWeaver\.parse, say which there \(graph: :pets\)/m,
     )

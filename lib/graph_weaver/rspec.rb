@@ -255,13 +255,12 @@ module GraphWeaver
       def self.unserve!(stub) = WebMock::StubRegistry.instance.request_stubs.delete(stub)
 
       # Every endpoint an example's modules can post to, each with the graph
-      # whose resolvers belong behind it: the client each graph bakes into its
-      # modules, or GraphWeaver.client for a graph baking none. One graph per
-      # endpoint — an app whose graphs all bake clients needs no app default
-      # at all.
+      # whose resolvers belong behind it: the client each graph names, or
+      # GraphWeaver.client for a graph naming none. One graph per endpoint —
+      # an app whose graphs all name clients needs no app default at all.
       def self.wire_targets
         targets = GraphWeaver.graphs.filter_map do |graph|
-          client = baked_client(graph) || GraphWeaver.client
+          client = graph.client || GraphWeaver.client
           [endpoint!(client, graph), graph] if client
         end
         refuse_shared_endpoint!(targets)
@@ -283,22 +282,8 @@ module GraphWeaver
         raise GraphWeaver::Error, "#{TAG}: :wire serves one schema at each endpoint, and graphs " \
           "#{names} post to the same one (#{url}) — whichever were served there would answer the " \
           "others' queries, as fields its schema doesn't define. Give each graph a client of its " \
-          "own (client: in the graph block), or tag the example #{TAG}: :in_process or " \
+          "own (`client` in the graph block), or tag the example #{TAG}: :in_process or " \
           "#{TAG}: :router, which run above the wire."
-      end
-
-      # The client a graph's generated modules call. `client:` holds a
-      # constant or its name — codegen writes it into source — so a name is
-      # resolved here the way the generated DEFAULT_CLIENT lambda resolves it.
-      def self.baked_client(graph)
-        named = graph.client
-        return named unless named.is_a?(String)
-
-        Object.const_get(named)
-      rescue NameError
-        raise GraphWeaver::Error, "#{TAG}: graph #{graph.name.inspect} bakes client: " \
-          "#{named.inspect} into its modules and nothing defines that constant, so :wire can't " \
-          "find the endpoint they post to."
       end
 
       # The endpoint a client posts to: a transport, a Retry around one, or a
@@ -321,7 +306,7 @@ module GraphWeaver
         return "GraphWeaver.client isn't set" unless client
         return "GraphWeaver.client is #{client.class}, which posts to none" unless graph&.name
 
-        "graph #{graph.name.inspect} bakes client: #{client.class}, which posts to none"
+        "graph #{graph.name.inspect} names client #{client.class}, which posts to none"
       end
 
       def self.webmock!
@@ -353,7 +338,7 @@ module GraphWeaver
         !WebMock::HttpLibAdapters::NetHttpAdapter::OriginalNetHTTP.equal?(Net::HTTP)
       end
 
-      private_class_method :wire_targets, :refuse_shared_endpoint!, :baked_client, :whose_client,
+      private_class_method :wire_targets, :refuse_shared_endpoint!, :whose_client,
         :webmock!, :webmock_enabled?, :disclose!, :served, :unnamed_schemas, :loaded_schemas
 
       # Included into every example group, so graphql_context is there

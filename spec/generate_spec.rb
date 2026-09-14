@@ -6,13 +6,22 @@ describe "GraphWeaver.generate!" do
     Dir.mktmpdir { |dir| @dir = dir; example.run }
   end
 
+  # the modules these generate belong to no named graph, so the app default is
+  # where they post
+  around do |example|
+    prior = GraphWeaver.client
+    GraphWeaver.client = Demo::Schema
+    example.run
+  ensure
+    GraphWeaver.client = prior
+  end
+
   it "generates every query in a directory into explicit output paths" do
     root = File.expand_path("..", __dir__)
     written = GraphWeaver.generate!(
       schema: Demo::Schema,
       queries: File.join(root, "spec/queries"),
       output: @dir,
-      client: Demo::Schema,
     )
 
     expect(written.map { |path| path.delete_prefix("#{@dir}/") }).to eq %w[
@@ -26,7 +35,7 @@ describe "GraphWeaver.generate!" do
 
   it "leaves an unchanged file alone on a second run" do
     root = File.expand_path("..", __dir__)
-    args = { schema: Demo::Schema, queries: File.join(root, "spec/queries"), output: @dir, client: Demo::Schema }
+    args = { schema: Demo::Schema, queries: File.join(root, "spec/queries"), output: @dir }
     written = GraphWeaver.generate!(**args)
     before = written.to_h { |path| [path, File.mtime(path)] }
 
@@ -141,7 +150,6 @@ describe "GraphWeaver.generate!" do
       schema: Demo::Schema,
       queries: File.join(root, "spec/queries"),
       output:,
-      client: Demo::Schema,
     )
 
     # a public constant that moved when you renamed a directory was a rule you
@@ -156,7 +164,6 @@ describe "GraphWeaver.generate!" do
       schema: Demo::Schema,
       queries: File.join(root, "spec/queries"),
       output: @dir,
-      client: Demo::Schema,
       types_module: "GithubTypes",
     )
 
@@ -173,7 +180,7 @@ describe "GraphWeaver.generate!" do
     FileUtils.mkdir_p(queries)
     File.write(File.join(queries, "glob_people.graphql"), "query { people { name } }")
     GraphWeaver.generate!(
-      schema: Demo::Schema, queries:, output: File.join(@dir, "github/generated"), client: Demo::Schema,
+      schema: Demo::Schema, queries:, output: File.join(@dir, "github/generated"),
     )
 
     begin
@@ -256,7 +263,7 @@ describe "GraphWeaver.generate!" do
     output = File.join(@dir, "support/graphql/generated")
     FileUtils.mkdir_p(queries)
     File.write(File.join(queries, "appended_people.graphql"), "query { people { name } }")
-    GraphWeaver.generate!(schema: Demo::Schema, queries:, output:, client: Demo::Schema)
+    GraphWeaver.generate!(schema: Demo::Schema, queries:, output:)
 
     begin
       GraphWeaver.generated_paths << output
@@ -280,7 +287,7 @@ describe "GraphWeaver.generate!" do
       GraphWeaver.queries_paths = queries
       GraphWeaver.generated_paths = output
 
-      written = GraphWeaver.generate!(schema: Demo::Schema, client: Demo::Schema)
+      written = GraphWeaver.generate!(schema: Demo::Schema)
       expect(written).to eq [File.join(output, "loaded_people_query.rb")]
 
       # and load_generated! requires them — the factory_bot-style one-liner
@@ -394,7 +401,7 @@ describe "GraphWeaver.generate!" do
     let(:queries) { File.join(@dir, "queries") }
     let(:output) { File.join(@dir, "generated") }
 
-    def generate! = GraphWeaver.generate!(schema: Demo::Schema, queries:, output:, client: Demo::Schema)
+    def generate! = GraphWeaver.generate!(schema: Demo::Schema, queries:, output:)
 
     def generated = Dir[File.join(output, "*.rb")].map { |path| File.basename(path) }.sort
 
@@ -443,7 +450,7 @@ describe "module naming by operation" do
 
   it "names mutations …Mutation and queries …Query at every site" do
     output = File.join(@dir, "generated")
-    written = GraphWeaver.generate!(schema: Demo::Schema, queries: @dir, output:, client: Demo::Schema)
+    written = GraphWeaver.generate!(schema: Demo::Schema, queries: @dir, output:)
     expect(written.map { |path| File.basename(path) }).to eq %w[adopt_mutation.rb person_query.rb]
     expect(File.read(File.join(output, "adopt_mutation.rb"))).to include "module AdoptMutation"
 
@@ -484,7 +491,6 @@ describe "GraphWeaver.verify_generated!" do
         schema: Demo::Schema,
         queries: File.join(root, "spec/queries"),
         output: File.join(root, "spec/generated"),
-        client: Demo::Schema,
       ),
     ).to be true
   end
@@ -503,7 +509,6 @@ describe "GraphWeaver.verify_generated!" do
           schema: Demo::Schema,
           queries: File.join(root, "spec/queries"),
           output: dir,
-          client: Demo::Schema,
         ),
       ).to be true
     end
@@ -519,7 +524,6 @@ describe "GraphWeaver.verify_generated!" do
           schema: Demo::Schema,
           queries: File.join(root, "spec/queries"),
           output: dir,
-          client: Demo::Schema,
         )
       }.to raise_error(GraphWeaver::Error, /stale.*person_query\.rb/m)
     end
@@ -530,7 +534,7 @@ describe "GraphWeaver.verify_generated!" do
   it "leaves a regenerated file whole until the new one replaces it" do
     Dir.mktmpdir do |dir|
       queries = File.join(root, "spec/queries")
-      GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir, client: Demo::Schema)
+      GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir)
       # an identical file isn't rewritten at all, so give every one of them a diff
       Dir[File.join(dir, "**/*.rb")].each { |path| File.write(path, "#{File.read(path)}# stale\n") }
       before = Dir[File.join(dir, "**/*.rb")].to_h { |path| [path, File.read(path)] }
@@ -541,7 +545,7 @@ describe "GraphWeaver.verify_generated!" do
         seen[target] = File.read(target)
         original.call(tmp, target)
       end
-      GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir, client: Demo::Schema)
+      GraphWeaver.generate!(schema: Demo::Schema, queries:, output: dir)
 
       expect(seen.keys).to match_array before.keys
       expect(seen).to eq before
@@ -560,7 +564,6 @@ describe "GraphWeaver.verify_generated!" do
           schema: Demo::Schema,
           queries: File.join(root, "spec/queries"),
           output: dir,
-          client: Demo::Schema,
         )
       }.to raise_error(GraphWeaver::Error, /stale.*gone_query\.rb/m)
     end
@@ -653,7 +656,7 @@ describe "query directory scanning" do
 
   it "generates from nested queries and .gql files" do
     output = File.join(@dir, "generated")
-    written = GraphWeaver.generate!(schema: Demo::Schema, queries:, output:, client: Demo::Schema)
+    written = GraphWeaver.generate!(schema: Demo::Schema, queries:, output:)
 
     # flat output: a directory organizes the queries, it doesn't namespace them
     expect(written.map { |path| File.basename(path) }).to eq %w[pets_query.rb owners_query.rb]
@@ -680,7 +683,7 @@ describe "query directory scanning" do
   it "refuses two files that generate the same module, naming both" do
     write("pets.graphql", "query { people { name } }")
 
-    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir, client: Demo::Schema) }
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
       .to raise_error(GraphWeaver::Error, %r{PetsQuery.*queries/admin/pets\.graphql.*queries/pets\.graphql}m)
   end
 end

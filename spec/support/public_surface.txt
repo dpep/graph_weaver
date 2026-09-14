@@ -147,6 +147,7 @@ GraphWeaver::Federation::Drift::STALE = String
 GraphWeaver::Federation::Drift::UNCOMPOSED = String
 GraphWeaver::Graph (Class)
 GraphWeaver::Graph#client
+GraphWeaver::Graph#client_url
 GraphWeaver::Graph#described
 GraphWeaver::Graph#dump_path
 GraphWeaver::Graph#dump_source

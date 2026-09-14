@@ -141,6 +141,21 @@ module GraphWeaver
           schema && GraphWeaver.graphs.find { |candidate| candidate.live_schema.equal?(schema) }
         end
 
+        # The declared graph `name` names, or nil — how a generated module
+        # finds the graph whose client it runs against, and whose schema a
+        # test mode fabricates from.
+        #
+        # One graph in an app is the answer whatever a module calls it: a
+        # module generated before its graph was named, or by an older release,
+        # still belongs to the only graph there is. With several, guessing
+        # would send one schema's query to another's endpoint.
+        def graph_named(name)
+          graphs = GraphWeaver.graphs
+          return graphs.first if graphs.one?
+
+          graphs.find { |graph| graph.name == name }
+        end
+
         # Where generated modules are READ from: the configured patterns, plus
         # any graph writing somewhere they don't already cover. generated_paths'
         # default glob (app/graphql/*/generated) covers the conventional layout,

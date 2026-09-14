@@ -19,7 +19,6 @@ describe GraphWeaver::SchemaLoader do
         schema:,
         queries: File.join(root, "spec/queries"),
         output: File.join(root, "spec/generated"),
-        client: "Demo::Schema",
       ),
     ).to be true
   end

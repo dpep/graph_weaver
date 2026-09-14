@@ -65,7 +65,24 @@ module GraphWeaver
 
     def queries = @queries || GraphWeaver.queries_paths
     def output = @output || GraphWeaver.generated_paths.first
-    def client = @client
+
+    # The client this graph's modules call: the object `client` named, or the
+    # constant its name spells. nil when the graph names none — its modules
+    # go to GraphWeaver.client, like every other module.
+    #
+    # Resolved here, at call time, rather than spelled into generated source:
+    # renaming the constant is then an initializer edit and not a regeneration
+    # of every module, and a graph can name a live object.
+    def client
+      return @client unless @client.is_a?(String)
+
+      Object.const_get(@client)
+    rescue NameError
+      raise GraphWeaver::Error, "the client#{described} names #{@client.inspect} and nothing " \
+        "defines that constant, so its modules have no server to reach. Define it where the graph " \
+        "block can see it (config/initializers), or name the object itself: client " \
+        "GraphWeaver.new(\"https://api.example.com/graphql\")"
+    end
 
     # Every constant this graph generates lives under `namespace:` — the query
     # modules and the shared types module alike. Two schemas that each have a
@@ -133,26 +150,16 @@ module GraphWeaver
       url || live_schema
     end
 
-    # The url this graph's modules post to, or nil. `client:` holds a constant
-    # or its name — codegen spells it into source — so a name is resolved here
-    # the way the generated DEFAULT_CLIENT lambda resolves it; a graph baking
-    # none posts to the app default, which is where its modules go too.
+    # The url this graph's modules post to, or nil — the graph's own client,
+    # else the app default, which is where its modules go too. What
+    # `schema:refresh` bootstraps a missing dump from, and what `rake
+    # graph_weaver:graphs` reports; a client with no url (a schema class
+    # running in-process) has none to report.
     def client_url
-      client = @client.is_a?(String) ? resolve_client! : @client
-      client ||= GraphWeaver.client
-      target = (client.transport if client.respond_to?(:transport)) || client
+      target = client || GraphWeaver.client
+      target = (target.transport if target.respond_to?(:transport)) || target
       target.url if target.respond_to?(:url)
     end
-    private :client_url
-
-    def resolve_client!
-      Object.const_get(@client)
-    rescue NameError
-      raise GraphWeaver::Error, "graph #{name.inspect} bakes client #{@client.inspect} into its " \
-        "modules and nothing defines that constant, so there is no endpoint to introspect " \
-        "#{named_dump_path} from"
-    end
-    private :resolve_client!
 
     # The composed supergraph this graph plans against, or nil — the dump it
     # names (for the default graph, the conventional one) when that dump
@@ -222,13 +229,12 @@ module GraphWeaver
       # The same three calls an app already writes at the top level, scoped here
       # to this graph alone.
       REGISTRATIONS = %i[register_scalar register_enum extend_type].freeze
-      # These three end up spelled in generated source, so each takes the
-      # constant or its name and stores the name.
-      CONSTANT_SETTINGS = %i[client namespace types_module].freeze
-      # …and these two are spelled as a `module` DEFINITION rather than a
-      # reference, which is why a root anchor is refused on them below.
+      # These two are spelled in generated source, as a `module` DEFINITION,
+      # so each takes the constant or its name and stores the name — and a
+      # root anchor is refused on them below. `client` isn't spelled anywhere:
+      # the graph resolves it at call time, so it takes the object.
       MODULE_SETTINGS = %i[namespace types_module].freeze
-      private_constant :CONSTANT_SETTINGS, :MODULE_SETTINGS
+      private_constant :MODULE_SETTINGS
 
       attr_reader :settings, :registrations
 
@@ -283,17 +289,18 @@ module GraphWeaver
       def respond_to_missing?(name, _private = false) = false
 
       # A Module where a constant's name goes says the same thing, and is what
-      # `client Billing::CLIENT` reads like. Anything else passes through:
-      # a schema is a path, SDL, a class, a Client, or a callable.
+      # `namespace Billing` reads like. Anything else passes through: a schema
+      # is a path, SDL, a class, a Client, or a callable, and a client is
+      # whatever object answers #execute.
       # On the singleton so the define_method setters above can reach it — srb
       # reads a define_method block's self as the class.
       def self.constant_name(setting, value)
-        return value unless CONSTANT_SETTINGS.include?(setting)
+        return value unless MODULE_SETTINGS.include?(setting)
 
         # Generated modules are defined at the top level, where a root anchor
         # says nothing — and `module ::A::B` is not a name const_get can spell,
         # so it used to surface as a verdict on the .graphql file's name.
-        if MODULE_SETTINGS.include?(setting) && value.is_a?(String) && value.start_with?("::")
+        if value.is_a?(String) && value.start_with?("::")
           raise ArgumentError, "#{setting} #{value.inspect}: drop the leading `::` — #{setting} " \
             "names a module generated source defines, and it defines it at the top level either way"
         end
