@@ -142,7 +142,10 @@ module GraphWeaver
       def report
         return "#{@source} names no subgraphs" if @table.subgraphs.empty?
 
-        [headline, *section(STALE, @stale), *shape_section, *section(UNCOMPOSED, @uncomposed),
+        # the scope caveat rides with the verdict that overclaims without it;
+        # a drift report is already telling you to recompose
+        [headline, *(NOT_COMPARED unless drift? || vacuous?),
+          *section(STALE, @stale), *shape_section, *section(UNCOMPOSED, @uncomposed),
           *skipped_section, *faked_section].join("\n")
       end
       alias to_s report
@@ -153,6 +156,12 @@ module GraphWeaver
       end
 
       private
+
+      # A pass says the supergraph still describes the fields these schemas
+      # have — not that the next composition would succeed. Both categories
+      # below are composition's business, and this reads neither.
+      NOT_COMPARED = "not compared: @key (added, removed, or made unresolvable), and one field " \
+        "two subgraphs define without @shareable — recompose to catch those"
 
       STALE = "stale — the supergraph carries these, no schema here defines them (recompose):"
       SHAPE = "shape — both carry these, with different types (recompose):"
@@ -298,7 +307,7 @@ module GraphWeaver
         verdict =
           if counts.any? then counts.join(", ")
           elsif vacuous? then "compared against nothing here"
-          else "matches the schemas here"
+          else "matches the schemas here, field for field and type for type"
           end
         "#{@source}: #{verdict} " \
           "(checked #{@checked.size} of #{@table.subgraphs.size} subgraphs)"

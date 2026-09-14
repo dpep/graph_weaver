@@ -110,6 +110,17 @@ simply don't compose: no error from graphql-ruby, none from apollo-federation,
 and the first sign is a supergraph missing fields you wrote. Name every such
 type in `orphan_types`, before `query`.
 
+That gem also writes its directives **un-imported** — `@federation__key`,
+`@federation__provides` — rather than importing the short names through
+`@link`, and `@apollo/composition` (2.14.4) has an assertion that only knows
+the short spelling. Composition is fine while the schema is; get a `fields:`
+argument wrong — a field that isn't there, a `@provides` target that isn't
+`@external` — and instead of "Cannot query field `nosuchfield` on type `User`"
+you get `Error: Unexpected element: federation__key` and a JS stack, from one
+subgraph with one `@key`. Only the diagnosis is lost: the schema really is
+wrong, and adding `@link(import: ["@key", "@provides"])` to that subgraph gets
+the real message back.
+
 **Everyone else's.** From the team that runs it: a file they publish, `rover
 subgraph fetch` against their endpoint, or your schema registry.
 
@@ -356,7 +367,28 @@ so one candidate schema agreeing settles it.
 `Warehouse.code` going from `String!` to `ID!` under a committed composition is
 the shape row above; the `@key` it is part of, a field's arguments, its
 directives, and everything a type says about itself beyond its fields are not
-read, and a change to any of them still reports clean. The one asymmetry worth
+read, and a change to any of them still reports clean.
+
+Two ordinary subgraph edits land in that gap, and both break the *next*
+composition while the report stays green. A **`@key` added, removed or turned
+`resolvable: false`** is a directive, so nothing here reads it — the last of
+those makes recomposition impossible ("none of the @key defined on type
+Warehouse in subgraph reviews are resolvable") and still reports clean. A
+**field one subgraph adds that another already owns, neither marked
+`@shareable`**, is invisible for a subtler reason: the coordinate is already in
+the supergraph, so "not composed in" doesn't fire, and its original owner still
+declares it, so neither does "stale". So **`federation:diff` answers "did you
+forget to recompose the schema you have", never "would the next recompose
+succeed"** — the second question needs the JS composer, which is a network and
+npm dependency this deliberately doesn't take. A clean report says so on its
+own line rather than leaving you to infer it:
+
+```
+supergraph.graphql: matches the schemas here, field for field and type for type (checked 3 of 3 subgraphs)
+not compared: @key (added, removed, or made unresolvable), and one field two subgraphs define without @shareable — recompose to catch those
+```
+
+The one asymmetry worth
 knowing is an `@override` migration: a supergraph
 published *ahead* of the code is caught (the old side's field is `stale`), but
 code ahead of the supergraph — the new side declaring the field with
@@ -416,8 +448,8 @@ app whose subgraphs are here: the `federation:*` tasks eager-load for you — se
 
 The mirror of all that is a subgraph **retired** from the composition whose Ruby
 class is still loaded. Every check here walks the supergraph's subgraph list, so
-that one sat on the only side nothing looked at, and the report read "matches
-the schemas here (checked 3 of 3 subgraphs)". It is now named, on stderr:
+that one sat on the only side nothing looked at, and the report read as a clean
+"checked 3 of 3 subgraphs". It is now named, on stderr:
 
 ```
 not placed — no subgraph of any supergraph read here is:
@@ -519,6 +551,59 @@ app finds out: a query the served supergraph rejects comes back with
 ([errors → stale schemas](errors.md#stale-schemas)). That is detection at the
 point of damage, which is exactly why the two `rover` commands belong in the
 same job as the five tasks.
+
+## A subgraph that calls its own graph
+
+A subgraph resolver that reaches for the composed graph — a cross-cutting
+report, a field easier to answer through the gateway than by hand — is an
+ordinary thing to write and the one shape **every** tier below is blind to,
+because each of them intercepts exactly that call. Under `:in_process` the
+client points back at the subgraph under test, so the loopback runs against a
+schema with none of those root fields and comes back with errors the resolver
+quietly ignores. Under `:router` it re-enters the router it is already inside
+and plans fine. Under `:wire` it is a second POST to the endpoint WebMock has
+stubbed. All three answer; none of them is the address production will use. One
+app was green in all three while the gateway hostname its client named only
+ever resolved *because* a stub answered it — the first real request raised
+`Socket::ResolutionError` inside the resolver, which the gateway reported as
+that subgraph failing.
+
+So give the call its own graph, with its own client, distinct from the one the
+app uses to reach the gateway from outside:
+
+```ruby
+# config/initializers/graph_weaver.rb
+PLATFORM = GraphWeaver.new(ENV.fetch("PLATFORM_GRAPHQL_URL"))
+
+GraphWeaver.graph :reviews do
+  schema    -> { Reviews::Schema }
+  queries   "app/graphql/reviews/queries"
+  output    "app/graphql/reviews/generated"
+  client    "Reviews::Schema"
+  namespace "Reviews"
+end
+
+# the composed graph as this process reaches it — a real, resolvable address
+GraphWeaver.graph :platform do
+  schema    "app/graphql/supergraph.graphql"
+  queries   "app/graphql/platform/queries"
+  output    "app/graphql/platform/generated"
+  client    "PLATFORM"
+  namespace "Platform"
+end
+```
+
+The resolver then calls `Platform::ProductsQuery.execute!` instead of
+`GraphWeaver.client`, which buys three things. The target is named where
+someone deploying can see it (`rake graph_weaver:graphs` prints it, and
+`ENV.fetch` fails at boot rather than at the first request). A helper stands in
+for one graph at a time, so a spec has to say `graphql_router(graph: :reviews)`
+— it can no longer cover the loopback by accident. And with two graphs
+`GraphWeaver.client` under a mode refuses by name rather than reaching a real
+endpoint, so a stray call is loud.
+
+What none of that gives you is proof the url resolves. That is a smoke request
+against a running gateway, and it is the only thing that will.
 
 ## The local router
 
@@ -1005,3 +1090,18 @@ for, so it builds nothing. Key fields typed as scalars get their registered Ruby
 type; anything else (a nested selection) is an open `Hash` the runtime narrows.
 Every shape above is a named example in
 [`spec/federation_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/federation_spec.rb).
+
+**Off-label: checking what arrives.** These builders are the client side, but a
+subgraph that generates against its *own* SDL gets a typed gate it can run over
+a raw incoming representation before `resolve_reference` sees one — the
+refusals above name the entity and the field, which is more than a bad
+representation usually earns. Two things to know before leaning on it. A
+**single-`@key` entity's builder takes required kwargs**, so splatting a raw
+hash that is short a field or carries a spare one raises Ruby's own
+`ArgumentError` (`missing keyword: :region`, `unknown keyword: :extra`) rather
+than an `InputError` — which of the two you rescue depends on how many `@key`s
+the entity happens to have. And where **two key sets overlap**, the first fully
+supplied one wins silently: given `@key(fields: "id") @key(fields: "id
+serial")`, `part(id: "p1", serial: "s1")` sends `{"__typename" => "Part", "id"
+=> "p1"}` and nothing says the second key was dropped. A footnote, not a
+feature.

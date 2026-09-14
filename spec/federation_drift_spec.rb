@@ -50,7 +50,37 @@ describe GraphWeaver::Federation::Drift do
     expect(result.to_h).to eq CLEAN
     expect(result.drift?).to be false
     expect(result.checked).to eq %w[widgets depots]
-    expect(result.report).to include "matches the schemas here (checked 2 of 2 subgraphs)"
+    expect(result.report).to include "matches the schemas here, field for field and type for " \
+      "type (checked 2 of 2 subgraphs)"
+  end
+
+  # The pass is the verdict that overclaims: a @key change and a same-name
+  # collision both compose differently and report clean here, so the line
+  # that says "matches" also says what "matches" covered.
+  it "says what a clean report didn't compare, and doesn't repeat it over drift" do
+    expect(drift(DriftGraph::Widgets, DriftGraph::Depots).report)
+      .to include "not compared: @key", "without @shareable"
+    expect(drift(DriftGraph::WidgetsAhead, DriftGraph::Depots).report).not_to include "not compared:"
+  end
+
+  # Both are ordinary subgraph evolutions that break the NEXT composition,
+  # and the check is field-coordinate presence and type, so neither moves it.
+  it "reports clean for a @key the supergraph doesn't have, and for a colliding field" do
+    unkeyed = GraphQL::Schema.from_definition(<<~SDL)
+      directive @key(fields: String!) repeatable on OBJECT
+      type Query { widget(sku: String!): Widget }
+      type Widget @key(fields: "name") { sku: String! name: String! weight: Int! }
+    SDL
+    expect(drift(unkeyed, DriftGraph::Depots).drift?).to be false
+
+    # depots grows a Widget.name of its own — a coordinate the supergraph
+    # already carries, from widgets, and neither copy is @shareable
+    colliding = GraphQL::Schema.from_definition(<<~SDL)
+      type Query { depot(id: ID!): Depot }
+      type Depot { id: ID! location: String! }
+      type Widget { sku: String! name: String! }
+    SDL
+    expect(drift(DriftGraph::Widgets, colliding).drift?).to be false
   end
 
   # `stale` asks the supergraph's side of this; every check here walks its

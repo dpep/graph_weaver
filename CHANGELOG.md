@@ -1,4 +1,13 @@
 ###  Unreleased
+- **`federation:diff`'s pass says what it compared, and what it didn't.**
+  "matches the schemas here" over a check that reads field coordinates and
+  types reads as "the graph is fine", and two ordinary subgraph edits break the
+  next composition while it stays green: a `@key` added, removed or turned
+  `resolvable: false`, and a field one subgraph adds that another already owns
+  without `@shareable`. The verdict now names its own scope, and a clean report
+  carries a `not compared:` line for the two. `docs/federation.md` says why
+  each is invisible — the check answers "did you forget to recompose", never
+  "would the next recompose succeed".
 - **A scalar's `@specifiedBy` url reaches an introspected dump.** The loader
   read `specifiedByURL` off a dump all along; the introspection query never
   asked for it, the same omission `isOneOf` had. Asked now, with the same

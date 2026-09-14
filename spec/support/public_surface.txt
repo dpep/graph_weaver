@@ -141,6 +141,7 @@ GraphWeaver::Federation::Drift#to_s
 GraphWeaver::Federation::Drift#uncomposed
 GraphWeaver::Federation::Drift#unplaced
 GraphWeaver::Federation::Drift#vacuous?
+GraphWeaver::Federation::Drift::NOT_COMPARED = String
 GraphWeaver::Federation::Drift::SHAPE = String
 GraphWeaver::Federation::Drift::STALE = String
 GraphWeaver::Federation::Drift::UNCOMPOSED = String
