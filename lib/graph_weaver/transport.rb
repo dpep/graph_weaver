@@ -141,10 +141,13 @@ class GraphWeaver::Transport
     end
 
     payload[:http_status] = status
+    # folded once: a third-party subclass's headers may come back in any
+    # casing, and a subclass that returns none says nothing
+    fields = GraphWeaver::Internal::Headers.wrap(headers || {})
     # the content type, not the body: it is what tells a proxy's HTML page
     # from a router's JSON without quoting bytes a server chose
     GraphWeaver::Internal::Log.log(:debug) do
-      type = GraphWeaver::Internal::Redact.tag(GraphWeaver::Internal::Headers.wrap(headers || {})["content-type"])
+      type = GraphWeaver::Internal::Redact.tag(fields["content-type"])
       "HTTP #{status} #{tag} from #{safe_url} (#{body.to_s.bytesize} bytes#{", #{type}" if type})"
     end
 
@@ -160,7 +163,7 @@ class GraphWeaver::Transport
       # `"errors": null` (or []) isn't a structured error response, so the
       # status stays the signal
       if parsed.is_a?(Hash) && parsed["errors"].is_a?(Array) && parsed["errors"].any?
-        return Envelope.new(parsed, status)
+        return Envelope.new(parsed, status, fields.retry_after)
       end
 
       refuse!(status, body, headers)
@@ -172,7 +175,7 @@ class GraphWeaver::Transport
       # A well-formed @defer stream is named rather than lumped in: it isn't
       # non-GraphQL, it's more than one GraphQL document.
       detail =
-        if incremental?(headers)
+        if incremental?(fields)
           "this response is incremental delivery (@defer/@stream), which this client doesn't read"
         elsif body.to_s.empty?
           "empty response body"
@@ -182,7 +185,7 @@ class GraphWeaver::Transport
       refuse!(status, body, headers, detail:)
     end
 
-    Envelope.new(parsed, status)
+    Envelope.new(parsed, status, fields.retry_after)
   end
 
   # The response wasn't one we can read. A body is never quoted — not into the
@@ -194,16 +197,20 @@ class GraphWeaver::Transport
     raise GraphWeaver::ServerError.new(status:, body: body.to_s, headers: headers || {}, url: safe_url, detail:)
   end
 
-  # The parsed envelope, plus the HTTP status it came back on — a Hash to
-  # everything that reads a GraphQL response, and to the one caller that
-  # needs more. Retry asks: a router answers rate limiting with a 503 AND
-  # an errors body, so the body alone can't say whether to come back.
+  # The parsed envelope, plus what the HTTP response said around it — a Hash
+  # to everything that reads a GraphQL response, and more to the one caller
+  # that needs it. Retry asks both: a router answers rate limiting with a 503
+  # or 429 AND an errors body, so the body alone can't say whether to come
+  # back, and Retry-After says when. The seconds, not the headers — that is
+  # the whole of what Retry asks, and every other header stays where a
+  # ServerError already carries it.
   class Envelope < Hash
-    attr_reader :http_status
+    attr_reader :http_status, :retry_after
 
-    def initialize(parsed, http_status)
+    def initialize(parsed, http_status, retry_after = nil)
       super()
       @http_status = http_status
+      @retry_after = retry_after
       update(parsed)
     end
   end
@@ -218,10 +225,9 @@ class GraphWeaver::Transport
   private_constant :BOM
 
   # A multipart/mixed body is one @defer/@stream response arriving in
-  # installments. Folded here because a third-party subclass's headers may
-  # come back in any casing; a subclass that returns none says nothing.
-  private def incremental?(headers)
-    GraphWeaver::Internal::Headers.wrap(headers || {})["content-type"].to_s.start_with?("multipart/mixed")
+  # installments.
+  private def incremental?(fields)
+    fields["content-type"].to_s.start_with?("multipart/mixed")
   end
 
   # the parsed body, or nil when it isn't JSON (a caller's connection may

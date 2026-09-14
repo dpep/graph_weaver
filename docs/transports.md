@@ -376,7 +376,9 @@ rendered. Reconcile; don't assume.
 (seconds or an HTTP-date), that's the wait — the server is the only
 party that knows when its window reopens. It's clamped to `max_delay:` so a
 "come back in an hour" can't park a thread for an hour, and not
-jittered, since it's an instruction rather than a guess.
+jittered, since it's an instruction rather than a guess. However the rate
+limit arrived: raised as a `ServerError`, or returned as a response, which is
+what a router that answers 429/503 *with* a GraphQL errors body sends.
 
 `ServerError` carries the response `#headers`, so the rate-limit budget and
 request id are in hand without monkey-patching a transport. Look one up in

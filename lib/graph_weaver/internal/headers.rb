@@ -1,6 +1,8 @@
 # typed: true
 # frozen_string_literal: true
 
+require "time" # Time.httpdate, for Retry-After
+
 module GraphWeaver
   module Internal
     # Response headers, as ServerError carries them. HTTP field names are
@@ -40,6 +42,23 @@ module GraphWeaver
       def dig(name, *rest)
         value = self[name]
         rest.empty? ? value : value&.dig(*rest)
+      end
+
+      # Seconds to wait per the server's Retry-After, which is either a delay
+      # in seconds or an HTTP-date. nil when absent or unparseable; a date
+      # already past clamps to 0. See RFC 9110 §10.2.3.
+      #
+      # Here rather than on ServerError because a rate limit reaches a caller
+      # two ways — raised, and returned as the envelope a 4xx/5xx WITH a
+      # GraphQL errors body makes — and both have to read the one rule.
+      def retry_after
+        value = self["retry-after"]&.strip
+        return if value.nil? || value.empty?
+        return value.to_f if value.match?(/\A\d+(\.\d+)?\z/)
+
+        [Time.httpdate(value) - Time.now, 0.0].max
+      rescue ArgumentError
+        nil
       end
 
       def key?(name) = super(Headers.fold(name))

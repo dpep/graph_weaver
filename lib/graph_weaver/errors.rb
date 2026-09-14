@@ -167,19 +167,12 @@ module GraphWeaver
       end
     end
 
-    # Seconds to wait per the server's Retry-After, which is either a
-    # delay in seconds or an HTTP-date. nil when absent or unparseable;
-    # negative dates (already past) clamp to 0. See RFC 9110 §10.2.3.
+    # Seconds to wait per the server's Retry-After, or nil. Parsed off the
+    # headers, which is also where a returned envelope reads it — so one rule
+    # answers a rate limit however it arrived.
     sig { returns(T.nilable(Float)) }
     def retry_after
-      value = headers["retry-after"]&.strip
-      return if value.nil? || value.empty?
-      return value.to_f if value.match?(/\A\d+(\.\d+)?\z/)
-
-      seconds = Time.httpdate(value) - Time.now
-      [seconds, 0.0].max
-    rescue ArgumentError
-      nil
+      GraphWeaver::Internal::Headers.wrap(headers).retry_after
     end
 
     # True when the server said "you're going too fast" — 429, or the

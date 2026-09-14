@@ -149,6 +149,31 @@ describe "a transport reading the wire" do
         expect(error.retry_after).to be_within(2).of(expected)
       end
     end
+
+    # A router answers rate limiting with a status AND a GraphQL errors body,
+    # which comes back as a response rather than a raise. Whichever way the
+    # 429 arrived, the server's own number is the wait — a backoff that
+    # ignores it is guessing against a limiter that isn't.
+    it "waits as long as Retry-After says whether the 429 raised or came back as an errors body" do
+      errors_body = JSON.generate({ "errors" => [{ "message" => "slow down" }] })
+      [errors_body, "slow down"].each do |body|
+        url = answering(http_response(429, body, "Retry-After" => "7"))
+        slept = []
+        client = GraphWeaver::Retry.new(
+          GraphWeaver::Transport::HTTP.new(url), retries: 2, base_delay: 1, jitter: false,
+          sleeper: ->(seconds) { slept << seconds },
+        )
+
+        # the errors body comes back as a response; the plain one raises
+        begin
+          client.execute(query)
+        rescue GraphWeaver::ServerError
+          nil
+        end
+
+        expect(slept).to eq [7.0, 7.0]
+      end
+    end
   end
 
   # JSON.generate renders anything it doesn't know as the value's #to_s — right

@@ -38,7 +38,8 @@ require_relative "transport"
 #     default — pass the codes your API uses for transient failures)
 #
 # A server that answers with Retry-After sets the delay itself (clamped
-# to max_delay:); otherwise the configured backoff decides.
+# to max_delay:) — whether that answer raised or came back as a response
+# carrying GraphQL errors; otherwise the configured backoff decides.
 #
 # Exhausting the retries re-raises the last error (or returns the last
 # code-matched response).
@@ -105,10 +106,10 @@ class GraphWeaver::Retry
   def execute(query, variables: {}, operation_name: nil)
     attempts = mutation?(query) ? 1 : @retries + 1
     attempt = 0
-    failure = T.let(nil, T.nilable(Exception))
 
     loop do
       attempt += 1
+      failure = nil
       begin
         # each attempt is its own EXECUTE_EVENT; :retries says which one,
         # so "slow" and "slow after two 502s" don't read the same in an APM
@@ -116,6 +117,8 @@ class GraphWeaver::Retry
           @client.execute(query, variables:, operation_name:)
         end
         return response unless attempt < attempts && retryable_response?(response)
+
+        failure = response
       rescue *@retry_on => e
         if attempt >= attempts || !@retry_if.call(e)
           GraphWeaver::Internal::Log.log(:warn) { MUTATION_HINT } if attempts == 1 && @retries.positive?
@@ -132,7 +135,6 @@ class GraphWeaver::Retry
         "retrying #{operation_name || "query"} in #{seconds.round(2)}s (attempt #{attempt + 1} of #{attempts})"
       end
       @sleeper.call(seconds)
-      failure = nil
     end
   end
 
@@ -163,11 +165,13 @@ class GraphWeaver::Retry
   end
 
   def delay(attempt, failure)
-    # A Retry-After wins over our backoff: the server is the only party
-    # that knows when its window reopens, and it isn't guessing. Still
-    # clamped to max_delay:, so "come back in an hour" can't park a thread for
-    # an hour — and not jittered, since it's an instruction, not a guess.
-    after = failure.retry_after if failure.is_a?(GraphWeaver::ServerError)
+    # A Retry-After wins over our backoff, however the failure arrived — a
+    # raised ServerError, or the envelope a rate limit that came back with an
+    # errors body makes. The server is the only party that knows when its
+    # window reopens, and it isn't guessing. Still clamped to max_delay:, so
+    # "come back in an hour" can't park a thread for an hour — and not
+    # jittered, since it's an instruction, not a guess.
+    after = failure.retry_after if failure.respond_to?(:retry_after)
     return [after, @max_delay].min.to_f if after
 
     # floored at 0: a custom backoff: is the caller's arithmetic, and a

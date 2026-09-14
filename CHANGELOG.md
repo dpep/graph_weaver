@@ -141,6 +141,14 @@
   *Action:* widen the pattern if you grep or parse for the old shape.
   `docs/logging.md` gains a short table of what is process-global and who owns
   each one.
+- **A server's `Retry-After` now wins over the backoff however the failure
+  arrived.** A rate limit reaches a caller two ways: raised as a `ServerError`,
+  or *returned* — which is what a router answering 429/503 **with** a GraphQL
+  errors body sends, and the shape `docs/errors.md` uses as its motivating
+  example. Only the raised half read the header, so an identical 429 with
+  `Retry-After: 7` waited 7s with a plain body and 1s, then 2s, with an errors
+  body — the configured backoff overriding a limiter that had named a number.
+  One rule now, and the parse lives in one place for both.
 
 ###  v0.7.0  (2026-09-13)
 
