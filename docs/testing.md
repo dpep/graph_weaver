@@ -36,8 +36,8 @@ it "sends the caller tag",    graphql: :wire do … end
 There is nothing else to set up: each mode works out what to run against per
 graph, and [refuses rather than guessing](#nothing-to-configure). The tag
 installs a stand-in per graph, and every generated module of that graph runs
-against it — including one generated *with* a baked `client:`, since that
-constant is exactly what the tag means to replace. `rspec --tag graphql:router`
+against it — including one whose graph names a `client` of its own, since that
+is exactly what the tag means to replace. `rspec --tag graphql:router`
 runs one mode's examples.
 
 **Every example has exactly one mode.** An untagged one takes
@@ -340,10 +340,10 @@ suite. The tag adds one stub per endpoint and takes each back after the example 
 it never disables net connections on your behalf, and never resets stubs it
 didn't make.
 
-**Every endpoint an example can reach is served**, one per graph: the client each
-[declared graph](getting_started.md#more-than-one-schema) bakes into its modules
-with `client:`, or `GraphWeaver.client` for a graph that bakes none — so a
-billing module posts to billing's url and is answered by billing's schema. What
+**Every endpoint an example can reach is served**, one per graph: the `client`
+each [declared graph](getting_started.md#more-than-one-schema) names, or
+`GraphWeaver.client` for a graph naming none — so a billing module posts to
+billing's url and is answered by billing's schema. What
 sits behind each is **what that graph is**, in descending faithfulness: that
 graph's [router](#a-federated-graph--graphql-router) when it is in a composed
 supergraph, its [live schema class](#real-resolvers--graphql-in_process) when it
@@ -352,8 +352,8 @@ that is a pure *client* of someone else's API gets a schema-correct server
 without writing one. A graph with no schema at all is refused, **by `:wire`'s own
 name** — the one fallback the other tags have and this one can't use is your
 client's own schema, since reading it means introspecting the endpoint `:wire`
-has just stubbed. Commit a dump, or set `config.schema`. A graph whose baked
-client posts nowhere is refused by name too.
+has just stubbed. Commit a dump, or set `config.schema`. A graph whose `client`
+posts nowhere is refused by name too.
 
 **It says which, on the logger** — the choice is the one thing this tag makes for
 you, and it is invisible from inside the example. One line per endpoint, at

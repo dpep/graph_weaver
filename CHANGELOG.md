@@ -1,3 +1,44 @@
+###  Unreleased
+
+**What you must do.**
+
+- **Drop `client:` from a `generate!`, `verify_generated!`, `Codegen.new` or
+  `Codegen.generate` call** — the kwarg is gone, and the call raises `unknown
+  keyword: :client` until you do. Say it once on the graph instead
+  (`client` in a `GraphWeaver.graph` block), or set the app default
+  (`GraphWeaver.client =`) for modules belonging to no declared graph.
+- **Regenerate** (`rake graph_weaver:generate`): generated files no longer
+  carry a `DEFAULT_CLIENT`.
+- **Read `Graph#client` as the object, not its name**, if anything of yours
+  asks a graph for its client — it resolves a constant name now and answers
+  the client itself.
+
+- **A module knows its graph; the graph knows its client.** Codegen used to
+  copy the constant *name* from a graph's `client` declaration into every
+  module it generated, as a private `DEFAULT_CLIENT` lambda resolved by
+  `const_get` at call time. A module already carries its `GRAPH`, so it now
+  says which graph it belongs to and nothing at all about transport, and the
+  graph resolves the client when a module executes. What that deletes: the
+  two generation-time refusals `client:` needed (it had to be a named constant
+  or a String, and the String had to parse as a constant path), the third copy
+  of the name-to-constant resolution (`:wire`'s endpoint lookup and
+  `schema:refresh`'s bootstrap each had their own), and the regeneration of
+  every module when the constant holding a client is renamed — which is now an
+  initializer edit and nothing else. Resolution goes from five layers to four:
+  per call → per module → a test mode's stand-in → the client the module's
+  graph names → `GraphWeaver.client`.
+- **`client` in a graph block takes a live object.** Nothing spells it in
+  generated source any more, so `client GraphWeaver.new(url, auth: …)` is as
+  good as the constant holding one; a String naming a constant still works and
+  is still resolved on first use, which is what an initializer whose client is
+  built later than the graph block needs.
+- **`rake graph_weaver:graphs` prints each graph's endpoint** rather than the
+  name of the constant holding its client.
+- **`GraphWeaver.parse(client:)` is the parsed module's own client**, always. A
+  parsed module generates no file, so it has no graph to read one off — and the
+  old rule ("baked when the object can be named, set on the module when it
+  can't") had an exception in it.
+
 ###  v0.7.1  (2026-09-13)
 
 **What you must do.** All of these are 0.7.0 → 0.7.1, and a typical app ticks

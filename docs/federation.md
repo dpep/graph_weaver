@@ -406,14 +406,12 @@ client distinct from the one the app uses to reach the gateway from outside:
 
 ```ruby
 # config/initializers/graph_weaver.rb — beside GraphWeaver.graph :reviews,
-# whose client is "Reviews::Schema"
-PLATFORM = GraphWeaver.new(ENV.fetch("PLATFORM_GRAPHQL_URL"))
-
+# whose client is Reviews::Schema
 GraphWeaver.graph :platform do
   schema    "app/graphql/supergraph.graphql"
   queries   "app/graphql/platform/queries"
   output    "app/graphql/platform/generated"
-  client    "PLATFORM"
+  client    GraphWeaver.new(ENV.fetch("PLATFORM_GRAPHQL_URL"))
   namespace "Platform"
 end
 ```

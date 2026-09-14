@@ -878,3 +878,42 @@ call sites.
 
 Kept as the branch `experiment/stub-graphql` for the record. The two object-pin
 bugs it turned up are fixed on main.
+
+## A module knows its graph; the graph knows its client
+
+**Considered:** keeping the client a *generation-time* decision — codegen
+copying the constant name out of a graph's `client` declaration into every
+module it writes, as a `DEFAULT_CLIENT` lambda resolved by `const_get` at call
+time. It puts the answer in the file you are reading, and it needs no lookup at
+execute time.
+
+**Rejected because** a module already carries its `GRAPH`, so the baked name was
+a second copy of something the graph already knew — and every copy had to be
+kept honest. Concretely it cost: two generation-time refusals (`client:` had to
+be a named constant or a String, and the String had to parse as a constant
+path), three separate name-to-constant resolvers (the emitted lambda, `:wire`'s
+endpoint lookup, `schema:refresh`'s dump bootstrap), and a regeneration of every
+module in the app when the constant holding a client is renamed. It also forced
+`generate!`, `verify_generated!` and `Codegen` to carry a `client:` option whose
+only job was to be written down.
+
+One sentence now covers it: *a module knows which graph it belongs to, and the
+graph knows how to reach it.* `Graph#client` resolves when a module executes,
+which is also what lets `client` take a live object — nothing spells it in
+source any more — and lets a String naming a constant stay lazy for the
+initializer whose client is built after the graph block.
+
+**What it cost:** generated source no longer says where its requests go; you
+read that off the graph declaration. That is the same indirection `namespace`
+and `queries` already have, and the one place it mattered — "which server does
+this graph talk to" — is answered by `rake graph_weaver:graphs`, which now
+prints the endpoint rather than the constant's name.
+
+**Kept:** the per-module `MyQuery.client =` slot, which the five-layer order
+also had. It is not redundant with the graph: `client.parse(query)` and
+`load_queries!` bind a *parsed* module to the object that parsed it, and a
+parsed module generates no file and so has no graph to read a client off. That
+is also why `GraphWeaver.parse(client:)` sets the module's own client rather
+than pretending to be a graph declaration — and dropping the old "baked when
+the object can be named, set on the module when it can't" split removed the
+exception from that rule.

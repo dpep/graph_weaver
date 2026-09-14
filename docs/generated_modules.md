@@ -543,21 +543,18 @@ bodies. Every form above, and every error it raises, is a named example in
 
 A client is anything satisfying the [execute contract](transports.md) — a
 `GraphWeaver::Client`, a transport, a `Retry`, a live schema class, a fake.
-Resolution is per call (`client:`) → per module → baked constant →
-`GraphWeaver.client`; the canonical list is in
-[transports](transports.md#client-resolution). Generate *without* a baked
-constant when you want modules to follow the app default (`GraphWeaver.client =`
-in an initializer). A baked one is no reason a module escapes
+A module knows which graph it belongs to, and the graph knows how to reach it:
+resolution is per call (`client:`) → per module → the client its
+[graph](getting_started.md#more-than-one-schema) names → `GraphWeaver.client`;
+the canonical list is in [transports](transports.md#client-resolution). A graph
+naming its own client is no reason a module escapes
 [testing's `graphql:` tag](testing.md), which is exactly the instruction to
-replace the client generation chose; what the *example* says still wins.
+replace it; what the *example* says still wins.
 
 `client`/`client=` live in the gem (`GraphWeaver::QueryModule`, extended by every
-generated module). A baked constant is emitted as a private `DEFAULT_CLIENT`,
-resolved on first use so a module can load before the initializer that builds its
-client. A module generated from a
-[declared graph](getting_started.md#more-than-one-schema) also carries a private
-`GRAPH` naming it — so with two graphs, `graphql: :fake` fabricates each module's
-own schema instead of having to be told which one you meant, and it is the
+generated module). A generated file says nothing about transport — only a private
+`GRAPH` naming its graph, which is also how `graphql: :fake` fabricates each
+module's own schema with two graphs in play, and the
 `:graph` on every [instrumentation event](logging.md#the-payload) the module's
 `execute` produces.
 
@@ -690,8 +687,8 @@ you — a script that generates its own modules sets all four:
 2. `generated_paths` — where it writes, and where `load_generated!` reads. Point
    them at the same directory or generation is invisible.
 3. the call above, before the first `execute` — nothing else requires the files.
-4. `GraphWeaver.client =` — a module generated without a baked
-   [`client:`](#clients) has none of its own.
+4. `GraphWeaver.client =` — a module belonging to no declared graph has no
+   other [client](#clients) to reach for.
 
 Miss (3) and the script gets a `NameError` for its own module; miss (4) and it
 gets `PersonQuery: client must respond to #execute(query, variables:), got
@@ -725,7 +722,8 @@ generation would use.
 
 In an app with [more than one graph](getting_started.md#more-than-one-schema), a
 parsed module belongs to one of them — that is what a `graphql:` tag runs it
-against, the same thing generation bakes into a file. It is read off the schema
+against and whose `client` it reaches for, the same thing generation writes into
+a file. It is read off the schema
 you parsed against when a graph runs that class in-process; say it outright
 otherwise:
 

@@ -52,8 +52,8 @@ would drop the source url it records; delete it and re-run to re-introspect.
 What it wrote:
 
 - **`config/initializers/graph_weaver.rb`.** `GraphWeaver.client =` is the
-  load-bearing line: generated modules without a baked transport resolve to it
-  at execute time (the full
+  load-bearing line: generated modules belonging to no declared graph resolve to
+  it at execute time (the full
   [resolution order](transports.md#client-resolution)). Custom
   scalars/enums/type helpers register here too — the rake tasks bake them into
   generated source, so they have to run first ([scalars](scalars.md)):
@@ -428,7 +428,7 @@ plus `register_scalar`, `register_enum` and `extend_type`).
 | `schema` | a graphql-ruby schema class, a [`Client`](transports.md), a path to a dump, SDL, or a lambda returning one |
 | `queries` | a directory, or a list of them — the `.graphql` files this graph generates from |
 | `output` | one directory — where this graph's generated Ruby is written |
-| `client` | a constant, or its name — what this graph's modules execute against |
+| `client` | what this graph's modules execute against — a client, or the name of the constant holding one |
 | `namespace` | a constant, or its name — what every constant this graph generates nests under |
 | `types_module` | a constant name for the shared types module (default: `GraphQLTypes`, under `namespace`) |
 
@@ -447,14 +447,14 @@ GraphWeaver.graph :app do
 end
 ```
 
-**`client` names a constant, not a url** — its value is spelled into every module
-this graph generates and resolved the first time one of them executes, so it has
-to be something generated source can write down. Build the client wherever you
-like (`GITHUB = GraphWeaver.new(url, auth: …)`) and put the constant holding it
-here. A graph with no `client` generates modules that fall back to
-`GraphWeaver.client`, the app default. `schema "x"` sets and a bare `schema`
-reads back; there is no `schema = "x"` form, since the block is `instance_eval`'d
-and that would be a local variable that silently does nothing.
+**`client` is where this graph's endpoint lives** — its modules say which graph
+they belong to and nothing about transport, so they read it when they execute.
+A graph with no `client` falls back to `GraphWeaver.client`, the app default.
+Name the object (`client GraphWeaver.new(url, auth: …)`) or, when the constant
+holding it is defined later than the graph block, its name (`client "GITHUB"`),
+which is resolved on first use. `schema "x"` sets and a bare `schema` reads
+back; there is no `schema = "x"` form, since the block is `instance_eval`'d and
+that would be a local variable that silently does nothing.
 
 **`namespace` nests everything that graph generates** — `person.graphql` becomes
 `Billing::PersonQuery` ([naming](generated_modules.md#naming)). Constants are

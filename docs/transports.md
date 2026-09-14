@@ -37,8 +37,8 @@ applied (exposed as `client.transport`), the schema introspected lazily, and
 
 They combine, so the whole thing is still one call —
 `GraphWeaver.new(url, transport: :faraday, retries: 2) { |conn| conn.response :logger }`.
-To wire generated modules that don't bake a client, make it the app's default:
-`GraphWeaver.client = github`.
+To wire generated modules belonging to no declared graph, make it the app's
+default: `GraphWeaver.client = github`.
 
 ## What fills the client slot
 
@@ -202,6 +202,7 @@ APM payload gets ([errors](errors.md)).
 
 ## Client resolution
 
+A module knows which graph it belongs to, and the graph knows how to reach it.
 The canonical order — how a generated module finds its client (each slot takes a
 `Client` or any bare transport/fake):
 
@@ -210,11 +211,10 @@ The canonical order — how a generated module finds its client (each slot takes
 2. per module: `MyQuery.client = something`
 3. a test mode's stand-in: under `graphql: :fake` / `:in_process` / `:router`,
    built from the graph this module was generated from
-4. baked constant: `Codegen.generate(..., client: "MyApi::CLIENT")` — the
-   constant's *name*, not the object, because generated source spells it
+4. the client its [graph](getting_started.md#more-than-one-schema) names
 5. the app default: `GraphWeaver.client=`
 
-The mode replaces what codegen baked in, not what your example said — 1 and 2
+The mode replaces what the graph says, not what your example said — 1 and 2
 still win. Nothing set anywhere raises, naming the two you'd usually reach for:
 `no client configured — set GraphWeaver.client= or pass a client`.
 
