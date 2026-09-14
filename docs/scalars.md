@@ -146,6 +146,20 @@ GraphWeaver.register_scalar("Money", Money,
 **One string carrying both** — `"12.50 EUR"`, split in the cast, with
 `serialize: :to_s` writing it back when that is the spelling `Money#to_s` gives.
 
+**One `serialize:` serves both directions**, which matters when the server's
+don't match. It writes the outbound variable *and* a result's
+[`as_json`](generated_modules.md#anatomy) — that pairing is what makes
+`from_h(JSON.parse(x.to_json)) == x` hold. A scalar that sends an object and
+accepts a string can't have both: `cast:` reads the object, `serialize:` writes
+`"12.50 EUR"`, and `as_json` writes the string the cast can't read, so the JSON
+round trip raises a `CastError` coming back. The wire itself is fine in both
+directions; it is that round trip alone, and it is the bound until a
+`to_wire:`/`as_json:` split earns its keep. The same asymmetry decides the
+[`:fake` pin](testing.md#pins): a pin stands in for a *result*, so pin what the
+server **sends** — `{"amount" => "12.50", "currency" => "EUR"}` — not the
+string your `serialize:` writes. Pin the string and the fabrication succeeds
+and `from_h` fails a call later with "can't convert nil into BigDecimal".
+
 **An object type rather than a scalar** — `Money { amount currency }` — which
 needs no `register_scalar` at all: codegen types both fields, and
 [`extend_type`](generated_modules.md#type-helpers) adds the conversion. Ask for
@@ -174,6 +188,14 @@ is the inverse, and it's the right one of three near-identical candidates:
 `Money#to_s` writes a plain `"12.50"` — no symbol, no thousands separator, and
 it ignores your app's `default_formatting_rules` — while `#to_d` and its alias
 `#amount` hand back a `BigDecimal`, which reaches the wire as `"0.125e2"`.
+
+A registration this plausible can also be flatly wrong. The *format* a `Money`
+string has to match lives in the server's `coerce_input`, and no schema carries
+it, so nothing before a real request says whether the server wants `"12.50"`,
+`"12.50 USD"` or the object — it generates clean either way, and a `:fake`
+suite never asks. [Send one for real](#what-no-check-can-see) and a server that
+disagrees says so itself: `"12.5" is not a valid Money — expected "12.50 USD"`,
+arriving `:refused` with that wording.
 
 **Register what your cast returns, not where the factory method lives.**
 `register_scalar("URL", URI)` looks right and runs fine — `URI.parse` is a
@@ -414,6 +436,43 @@ graph_weaver:generate` and `:verify` print them once for the run, and a
 A scalar that is *meant* to be untyped belongs in the registry too —
 `GraphWeaver.register_scalar("Json", "T.untyped")` says so once, and it leaves
 the report. `JSON` is registered that way already.
+
+## What no check can see
+
+A custom scalar has two definitions that have to agree: the server's
+`coerce_input`/`coerce_result`, and your `register_scalar`. **No schema carries
+the first one.** A scalar's SDL is its name, a description and a `@specifiedBy`
+url — the coercers are Ruby method bodies that never reach a dump — so a server
+switching `coerce_result` from a decimal string to a JSON number, same scalar,
+same name, moves nothing `verify`, `schema:diff` or `generate` reads. All three
+stay green. Then `BigDecimal` accepts the Float without complaint:
+
+```ruby
+BigDecimal(BigDecimal("123456789.123456789").to_f).to_s("F")   # => "123456789.1234567"
+```
+
+No `CastError`, no warning — just totals quietly wrong past the seventh
+significant figure, which is the precision a string-valued `Decimal` exists to
+protect in the first place.
+
+The check is a request that runs the real coercers: one `graphql: :in_process`
+example per registered scalar, round-tripping a value through the schema class.
+
+```ruby
+it "round-trips a Money through the real server", graphql: :in_process do
+  price = Money.from_amount(BigDecimal("12.50"), "EUR")
+  expect(EchoPriceQuery.execute!(price:).echo_price).to eq price
+end
+```
+
+Four lines, and it fails the moment either side moves. **`graphql: :fake`
+cannot stand in for it**: a fake fabricates from your *client* registration
+alone, so it hands back a value the real server would never send and accepts
+one the real server would reject — a lowercase currency, a format the
+`coerce_input` regex refuses. It is shape-correct, never rule-correct.
+`:in_process` is the tier that runs the rules, and a
+[cassette](cassettes.md) recorded against it carries them to a suite that
+can't boot the schema class.
 
 ## Enums: map onto your own T::Enum
 
