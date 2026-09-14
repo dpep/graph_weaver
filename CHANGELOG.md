@@ -1,40 +1,31 @@
-###  Unreleased
-- **`federation:diff`'s pass says what it compared, and what it didn't.**
-  "matches the schemas here" over a check that reads field coordinates and
-  types reads as "the graph is fine", and two ordinary subgraph edits break the
-  next composition while it stays green: a `@key` added, removed or turned
-  `resolvable: false`, and a field one subgraph adds that another already owns
-  without `@shareable`. The verdict now names its own scope, and a clean report
-  carries a `not compared:` line for the two. `docs/federation.md` says why
-  each is invisible — the check answers "did you forget to recompose", never
-  "would the next recompose succeed".
-- **A scalar's `@specifiedBy` url reaches an introspected dump.** The loader
-  read `specifiedByURL` off a dump all along; the introspection query never
-  asked for it, the same omission `isOneOf` had. Asked now, with the same
-  fallback for a server that predates the field.
-- **The union-dispatch refusal is a `GraphWeaver::Error` that names its file.**
-  It was a bare `ArgumentError` with no path, so under `rake` it aborted with a
-  backtrace naming no query, and it escaped the run's refusal list. Found on
-  GitLab's query corpus. *Action:* a spec rescuing `ArgumentError` for it
-  rescues `GraphWeaver::Error` now.
-- **`examples/` now ships in the gem.** It was excluded from `s.files` while
-  the README linked `examples/federation.rb` and promoted the directory by
-  name — both dead links for anyone without a git checkout. It's ~30 KB of
-  plain text, so it ships.
-- **`CHANGELOG.md` no longer ships in the gem** — 259 KB, ~16% of the package,
-  and `changelog_uri` already covers it. That metadata now points at the
-  release tag (`blob/v#{version}`) instead of `main`, since the file isn't in
-  the gem to check against.
-- **Every gemspec `*_uri` link verified live.** `homepage_uri` was considered
-  and left out of `metadata` — identical to `s.homepage`, and `gem build`
-  itself warns rubygems.org only renders one of the two.
-- **A credential in a url is scrubbed whatever `filter_parameters` says.**
-  Emptying or narrowing the list is a decision about how much the log says;
-  it used to also switch off `?access_token=` redaction in every debug line,
-  every `ServerError`/`TransportError` message, the APM `:url` and
-  `Transport#inspect` — while the url's userinfo stayed redacted, which was the
-  tell that one knob meant two things. A url's query parameters are now held to
-  the default names as well as yours, the way the userinfo already was.
+###  v0.7.1  (2026-09-13)
+
+**What you must do.** All of these are 0.7.0 → 0.7.1, and a typical app ticks
+none of them. [upgrading](docs/upgrading.md#upgrading-from-070) has the same
+list with what each one applies to.
+
+- **Read `payload[:http_status]`** wherever an alert or a dashboard read
+  `payload[:code]` for a status. `:code` is a GraphQL error code or nothing
+  now, never a number.
+- **Pin `userErrors`** in any `graphql: :fake` example that meant to fabricate
+  failures — `{ "userErrors" => [{ "message" => "…" }] }`. A list field whose
+  name ends in `errors` comes back `[]` otherwise.
+- **Widen a `[req N]` pattern** if you grep or parse the debug log: the tag is
+  `[req <pid>-N]` now.
+- **Name a multi-graph app's second schema cache** with `cache: "<path>"` if
+  you'd rather say which file is which — `cache: true` gives it one of its own
+  now, `schema-<url digest>.json`, instead of sharing the first graph's.
+- **Gitignore `*.yml.lock`** under your cassette directory, unless you want the
+  empty lock sidecar in the repo.
+- **Rescue `GraphWeaver::Error`** wherever a spec rescued `ArgumentError` for
+  the union-dispatch refusal.
+- **Include `GraphWeaver::ContextSeam`** in a client of your own that carries a
+  bare `attr_accessor :context` and sits behind `Testing::Endpoint`. Nothing to
+  do otherwise.
+- **Read `CHANGELOG.md` from the release tag** if something of yours read it
+  out of the installed gem: it isn't packaged any more, and `changelog_uri`
+  points at `blob/v<version>`.
+
 - **A `ServerError` message no longer carries the response body.** A non-2xx
   body was spliced into `#message`, and `Error#initialize` writes every message
   to the log at `warn` — the level production runs at. The commonest non-2xx
@@ -57,23 +48,105 @@
   complete-looking line. Control characters are stripped, and the code is
   capped, where the payload is built — so the subscriber and the APM get the
   same cleaned tag.
-- **`Testing::Endpoint` no longer crosses two identities served at once.**
+- **A url is folded wherever it appears, whatever `filter_parameters` says.**
+  Emptying or narrowing that list is a decision about how much the log says; it
+  used to also switch off `?access_token=` redaction in every debug line, every
+  `ServerError`/`TransportError` message, the APM `:url` and
+  `Transport#inspect` — while the url's userinfo stayed redacted, which was the
+  tell that one knob meant two things. A url's query parameters are now held to
+  the default names as well as yours, the way the userinfo already was. Two
+  messages that printed a url raw are folded too: `Transport::HTTP.new`'s "TLS
+  options need an https url" and "expected an http(s) url", both raised from
+  `#initialize` — at boot, from an initializer, where a `user:password@` url
+  reached the log.
+- **`Testing::Endpoint` and `graphql: :wire` no longer cross two identities.**
   Answering a `context:` proc assigned the client's context on shared state, so
   eight concurrent requests each carrying their own `Authorization` saw seven
   of them served another request's identity — in the one class whose stated
-  purpose is proving that can't happen, and under both of its documented
-  deployments (a Puma in a thread, `graphql: :wire` under a parallel run). A
-  spec asserting user A can't read user B's data was passing for the wrong
-  reason. A client with a settable context is now served one request at a time;
-  one with no context seam is untouched, and still concurrent.
-- **`require "graph_weaver/log_subscriber"` works on its own**, which is what
-  the docs tell you to write when you subscribe outside Rails. It raised
-  `NameError` unless something had already loaded
-  `active_support/log_subscriber`.
-- **`Transport::HTTP.new` says a rejected url the way everything else does.**
-  "TLS options need an https url" and "expected an http(s) url" printed the url
-  raw — and both are raised from `#initialize`, i.e. at boot from an
-  initializer, so a url carrying `user:password@` reached the log there.
+  purpose is proving that can't happen. A spec asserting user A can't read user
+  B's data was passing for the wrong reason. The lock first went on the
+  Endpoint, which wasn't far enough: `graphql: :wire` builds a fresh Endpoint
+  per request over a client memoized per example, so each request held its own
+  lock over one shared `context` and 6 of 8 concurrent requests were still
+  crossed (32 of 64 with two endpoints over one client). One rule now: whoever
+  owns the mutable field owns the lock. `InProcess` and `Testing::Router`
+  include the new **`GraphWeaver::ContextSeam`**, which carries `#context`,
+  `#context=` and the lock; a client of your own gets the header seam by
+  including it too, or by answering `with_request_context(headers) { }`.
+  Callability is settled where the context is written, so a plain-hash
+  `context:` — which the first guard's `respond_to?(:context=)` locked anyway,
+  costing 64 requests through one endpoint 3.8s against a 0.47s floor — is
+  concurrent again at 0.47s, and `docs/testing.md`'s two sentences are true
+  without qualification.
+- **Recording one cassette from several processes no longer loses entries.**
+  `Cassette#record` rewrote the whole file from a snapshot taken when the
+  object was built, so under `parallel_tests` the last process to rename won
+  outright: four processes recording five entries each left five on disk, all
+  four green, no warning — surfacing days later as a `MissingRecording` in a
+  different process. A recorder now re-reads and rewrites under an advisory
+  `flock`, and all twenty survive. The lock is a `<cassette>.yml.lock`
+  sidecar, since `save` renames a fresh file into place and a lock on the
+  replaced inode would guard nothing.
+- **`cache: true` is no longer one file for every client in the process.** It
+  resolved to `GraphWeaver.schema_path` whatever graph or endpoint the client
+  served, so a multi-graph app's two clients read and overwrote one dump and
+  each was silently served the other's schema — cold and concurrent, which one
+  was a coin flip. A dump already records the url it came from, so that is now
+  the rule: **`cache: true` is the conventional dump unless the dump there came
+  from a different endpoint**, and a client that can't use it caches under
+  `schema-<url digest>.json` beside it. A dump recording no url is nobody's in
+  particular and stays a hit, so a hand-written or older committed dump reads
+  as before.
+- **A cold `Client#schema` against a hung upstream no longer serializes the
+  worker.** The introspection round trip runs under a lock and memoized
+  nothing on failure, so every queued thread paid its own `read_timeout` in
+  turn: 8 threads at the 30s default is four minutes of occupied worker, and
+  the next wave paid it again — measured at exactly 8.0× with 8 threads, 4.0×
+  with 4. A failed introspection is now answered to the threads behind it for
+  one second, which collapses a wave to a single round trip (8.0× → 1.0×) and
+  makes the wave after it free. Not a circuit breaker: nothing counts failures
+  or stays open, and an upstream that comes back is tried on the next request.
+- **A server's `Retry-After` now wins over the backoff however the failure
+  arrived.** A rate limit reaches a caller two ways: raised as a `ServerError`,
+  or *returned* — which is what a router answering 429/503 **with** a GraphQL
+  errors body sends, and the shape `docs/errors.md` uses as its motivating
+  example. Only the raised half read the header, so an identical 429 with
+  `Retry-After: 7` waited 7s with a plain body and 1s, then 2s, with an errors
+  body — the configured backoff overriding a limiter that had named a number.
+  One rule now, and the parse lives in one place for both.
+- **A variable with no JSON form is refused in every mode, not just over the
+  wire.** The refusal lived in the transport, so a `File` (or an `IO`, a
+  `Pathname`, a plain object) in an `Upload!` variable was named and stopped
+  over HTTP and silently accepted under `graphql: :in_process` and
+  `graphql: :fake` — the modes `docs/testing.md` recommends for resolver
+  tests, and so the modes where a suite would have "proved" an upload works.
+  It now runs where every mode passes, in the dispatch a generated module
+  makes, before any client is chosen; same class, same sentence, wherever the
+  call was headed.
+- **`graphql: :fake` fabricates an empty `userErrors`.** One rule: a list field
+  whose name ends in `errors` comes back `[]` unless you pin it. The
+  Relay/Shopify payload (`placeOrder { order userErrors }`) is the ecosystem's
+  mutation shape, and the fake was returning a fabricated order *and* a
+  fabricated non-empty `userErrors` — a response no server can send, which made
+  the natural happy-path assertion flaky in every mutation test in every app
+  that follows the convention.
+- **The payload's `:code` is a GraphQL error code or nothing — never an HTTP
+  status.** It held a `ServerError`'s status on a `:failed`, so one APM tag
+  carried two dimensions (`code:THROTTLED` and `code:429`) and grouped neither.
+  The number was already on `:http_status`; the Rails log line is unchanged.
+- **The debug request tag carries the pid: `[req 4123-3 Operation]`.** It was
+  `[req 3 Operation]`, counted in a module ivar that a Puma cluster's workers
+  inherit at fork — so every worker continued the master's sequence and
+  grepping an aggregated log for `[req 4]` returned two unrelated requests.
+  The count now restarts in a new process and the tag names the process.
+  `docs/logging.md` gains a short table of what is process-global and who owns
+  each one.
+- **The `execute.graph_weaver` payload says `:kind`** — `:query`, `:mutation`
+  or `:subscription`. Nothing on it said whether a request was a write, so a
+  "checkout write failure rate" could only be guessed at from the operation's
+  *name*, while the library was already reading the answer off the document to
+  decide whether `Retry` may repeat it. Same reading, now on the payload;
+  `docs/logging.md` has the row.
 - **Query file names the ecosystem actually writes now name a module.**
   `get-hello.graphql` asked for `Get-helloQuery` and `hello.query.graphql` for
   `Hello.queryQuery`, both refused as not constant names — which is 100% of
@@ -92,96 +165,37 @@
   still writes nothing at all, which is the point; but pointing it at an
   existing query directory meant clearing refusals one file per run. One bad
   file reads exactly as before — same class, same message.
-- **The identity lock moved onto the client, so it reaches `graphql: :wire`.**
-  It sat on `Testing::Endpoint`, and `graphql: :wire` builds a fresh Endpoint
-  per request over a client memoized per example — so each request held its own
-  lock over one shared `context`, and 6 of 8 concurrent requests in one `:wire`
-  example were served another request's identity. So were 32 of 64 when two
-  endpoints were mounted over one client. One rule now: whoever owns the
-  mutable field owns the lock. `InProcess` and `Testing::Router` include the
-  new **`GraphWeaver::ContextSeam`**, which carries `#context`, `#context=` and
-  the lock; a client of your own gets the header seam by including it too, or
-  by answering `with_request_context(headers) { }`. *Action:* none, unless you
-  wrote a client with a bare `attr_accessor :context` and mounted it behind
-  `Testing::Endpoint` — include `GraphWeaver::ContextSeam` in it.
-- **A client whose `context:` is a plain hash is served concurrently again.**
-  The old guard asked `respond_to?(:context=)`, which every wrapper answers
-  yes, and held the lock even for a context nobody writes: 64 requests through
-  one endpoint took 3.8s against a 0.47s floor, 8× for nothing. Callability is
-  settled where the context is written, so the lock is entered only when a proc
-  is being resolved — the same 64 requests now take 0.47s. `docs/testing.md`'s
-  two sentences are true without qualification.
-- **Recording one cassette from several processes no longer loses entries.**
-  `Cassette#record` rewrote the whole file from a snapshot taken when the
-  object was built, so under `parallel_tests` the last process to rename won
-  outright: four processes recording five entries each left five on disk, all
-  four green, no warning — surfacing days later as a `MissingRecording` in a
-  different process. A recorder now re-reads and rewrites under an advisory
-  `flock`, and all twenty survive. The lock is a `<cassette>.yml.lock`
-  sidecar, since `save` renames a fresh file into place and a lock on the
-  replaced inode would guard nothing. *Action:* gitignore `*.yml.lock` under
-  your cassette directory if you don't want the empty file in the repo.
-- **`cache: true` is no longer one file for every client in the process.** It
-  resolved to `GraphWeaver.schema_path` whatever graph or endpoint the client
-  served, so a multi-graph app's two clients read and overwrote one dump and
-  each was silently served the other's schema — cold and concurrent, which one
-  was a coin flip. A dump already records the url it came from, so that is now
-  the rule: **`cache: true` is the conventional dump unless the dump there came
-  from a different endpoint**, and a client that can't use it caches under
-  `schema-<url digest>.json` beside it. A dump recording no url is nobody's in
-  particular and stays a hit, so a hand-written or older committed dump reads
-  as before. *Action:* none for a single-client app. A multi-graph app gets a
-  second file it didn't have; name it yourself with `cache: "<path>"` if you'd
-  rather say which is which.
-- **A cold `Client#schema` against a hung upstream no longer serializes the
-  worker.** The introspection round trip runs under a lock and memoized
-  nothing on failure, so every queued thread paid its own `read_timeout` in
-  turn: 8 threads at the 30s default is four minutes of occupied worker, and
-  the next wave paid it again — measured at exactly 8.0× with 8 threads, 4.0×
-  with 4. A failed introspection is now answered to the threads behind it for
-  one second, which collapses a wave to a single round trip (8.0× → 1.0×) and
-  makes the wave after it free. Not a circuit breaker: nothing counts failures
-  or stays open, and an upstream that comes back is tried on the next request.
-- **The debug request tag carries the pid: `[req 4123-3 Operation]`.** It was
-  `[req 3 Operation]`, counted in a module ivar that a Puma cluster's workers
-  inherit at fork — so every worker continued the master's sequence and
-  grepping an aggregated log for `[req 4]` returned two unrelated requests.
-  The count now restarts in a new process and the tag names the process.
-  *Action:* widen the pattern if you grep or parse for the old shape.
-  `docs/logging.md` gains a short table of what is process-global and who owns
-  each one.
-- **A server's `Retry-After` now wins over the backoff however the failure
-  arrived.** A rate limit reaches a caller two ways: raised as a `ServerError`,
-  or *returned* — which is what a router answering 429/503 **with** a GraphQL
-  errors body sends, and the shape `docs/errors.md` uses as its motivating
-  example. Only the raised half read the header, so an identical 429 with
-  `Retry-After: 7` waited 7s with a plain body and 1s, then 2s, with an errors
-  body — the configured backoff overriding a limiter that had named a number.
-  One rule now, and the parse lives in one place for both.
-- **A variable with no JSON form is refused in every mode, not just over the
-  wire.** The refusal lived in the transport, so a `File` (or an `IO`, a
-  `Pathname`, a plain object) in an `Upload!` variable was named and stopped
-  over HTTP and silently accepted under `graphql: :in_process` and
-  `graphql: :fake` — the modes `docs/testing.md` recommends for resolver
-  tests, and so the modes where a suite would have "proved" an upload works.
-  It now runs where every mode passes, in the dispatch a generated module
-  makes, before any client is chosen; same class, same sentence, wherever the
-  call was headed.
-- **The `execute.graph_weaver` payload says `:kind`** — `:query`, `:mutation`
-  or `:subscription`. Nothing on it said whether a request was a write, so a
-  "checkout write failure rate" could only be guessed at from the operation's
-  *name*, while the library was already reading the answer off the document to
-  decide whether `Retry` may repeat it. Same reading, now on the payload;
-  `docs/logging.md` has the row.
-- **`graphql: :fake` fabricates an empty `userErrors`.** One rule: a list field
-  whose name ends in `errors` comes back `[]` unless you pin it. The
-  Relay/Shopify payload (`placeOrder { order userErrors }`) is the ecosystem's
-  mutation shape, and the fake was returning a fabricated order *and* a
-  fabricated non-empty `userErrors` — a response no server can send, which made
-  the natural happy-path assertion flaky in every mutation test in every app
-  that follows the convention. *Action:* an example that meant to fabricate
-  failures pins the field (`{ "userErrors" => [{ "message" => "..." }] }`),
-  which is how the failure path was written anyway.
+- **The union-dispatch refusal is a `GraphWeaver::Error` that names its file.**
+  It was a bare `ArgumentError` with no path, so under `rake` it aborted with a
+  backtrace naming no query, and it escaped the run's refusal list. Found on
+  GitLab's query corpus.
+- **`federation:diff`'s pass says what it compared, and what it didn't.**
+  "matches the schemas here" over a check that reads field coordinates and
+  types reads as "the graph is fine", and two ordinary subgraph edits break the
+  next composition while it stays green: a `@key` added, removed or turned
+  `resolvable: false`, and a field one subgraph adds that another already owns
+  without `@shareable`. The verdict now names its own scope, and a clean report
+  carries a `not compared:` line for the two. `docs/federation.md` says why
+  each is invisible — the check answers "did you forget to recompose", never
+  "would the next recompose succeed".
+- **A scalar's `@specifiedBy` url reaches an introspected dump.** The loader
+  read `specifiedByURL` off a dump all along; the introspection query never
+  asked for it, the same omission `isOneOf` had. Asked now, with the same
+  fallback for a server that predates the field.
+- **`require "graph_weaver/log_subscriber"` works on its own**, which is what
+  the docs tell you to write when you subscribe outside Rails. It raised
+  `NameError` unless something had already loaded
+  `active_support/log_subscriber`.
+- **The gem ships `examples/` and no longer ships `CHANGELOG.md`.** The
+  examples were excluded from `s.files` while the README linked
+  `examples/federation.rb` and promoted the directory by name — both dead links
+  for anyone without a git checkout, and ~30 KB of plain text to fix it. The
+  changelog was 259 KB, ~16% of the package, and `changelog_uri` already covers
+  it; that metadata now points at the release tag (`blob/v#{version}`) rather
+  than `main`, since the file isn't in the gem to check against. Every gemspec
+  `*_uri` link is verified live. `homepage_uri` was considered and left out —
+  identical to `s.homepage`, and `gem build` itself warns that rubygems.org
+  renders only one of the two.
 - **Docs: a partial answer only survives as far as the nearest nullable
   field.** `docs/errors.md` promised the created order on `QueryError#data`
   when a mutation "failed on the way out", with no caveat — but with the
@@ -190,14 +204,6 @@
   `#data` is `nil`. The caveat now says which field to make nullable (the one
   that can fail — making the *payload* field nullable doesn't help) and what to
   do instead.
-- **Docs: `docs/scalars.md` says a trailing zero doesn't survive a
-  `BigDecimal`.** `"10.00"` comes back `"10.0"` — the same number, different
-  bytes, which matters where a request body is diffed or signed.
-- **The payload's `:code` is a GraphQL error code or nothing — never an HTTP
-  status.** It held a `ServerError`'s status on a `:failed`, so one APM tag
-  carried two dimensions (`code:THROTTLED` and `code:429`) and grouped neither.
-  The number was already on `:http_status`. *Action:* an alert reading `:code`
-  for a status reads `:http_status` instead; the Rails log line is unchanged.
 - **Docs: both tracing snippets mark the span errored on `:errors`.** A
   response carrying GraphQL errors returns normally, so nothing raises and a
   span left to itself is `UNSET` — an SLO copy-pasted off span status missed
@@ -205,6 +211,25 @@
   `:status`/`:code` are the alerting signal, adds the traceparent-out recipe (a
   `headers:` callable resolves inside the span), notes that a retry's wall clock
   is recoverable from the sibling spans, and carries two adapter footnotes.
+- **Docs: what no check can see about a custom scalar.** A scalar's SDL is its
+  name, so a server-only `coerce_result` change — a decimal string to a JSON
+  number — passes `verify`, `schema:diff` and `generate`, and then
+  `BigDecimal(a_float)` quietly loses digits past the seventh significant
+  figure. `docs/scalars.md` gains the four-line `:in_process` round trip that
+  catches it, says why `:fake` can't (shape-correct, never rule-correct), and
+  names two bounds beside the money shapes: one `serialize:` feeds both the
+  outbound variable and `as_json`, so an asymmetric scalar can't round-trip
+  through JSON and wants the result-direction shape as its pin; and `"10.00"`
+  comes back from a `BigDecimal` as `"10.0"` — the same number, different
+  bytes, which matters where a body is diffed or signed.
+- **Docs: three more things a green federated suite can't see.**
+  `docs/federation.md` covers a subgraph resolver that calls its own composed
+  graph (every test mode intercepts exactly that call, so nothing in the suite
+  touches the address production will use), `@apollo/composition`'s
+  `Unexpected element: federation__key` assertion crash on
+  apollo-federation-ruby's un-imported directive spelling, and the two gotchas
+  in reusing the generated `Representations` builders to check an incoming
+  `_entities` payload.
 
 ###  v0.7.0  (2026-09-13)
 
