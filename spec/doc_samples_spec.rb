@@ -32,9 +32,7 @@ module DocSamples
       ["rescue GraphWeaver::InputError => e", "a rescue clause, shown without its action"],
     ],
     "docs/federation.md" => [
-      ['subgraphs: { "accounts" => Accounts::Schema }', "one setting, shown without its constructor"],
       ['subgraphs: { "shipping" => :fake }   # any other absent', "one setting, shown without its constructor"],
-      ['graphql_router(fake: { "Shipment.carrier" => "UPS" })', "... for the body of the example"],
     ],
     "docs/generated_modules.md" => [
       ['QUERY = "..."', "a sketch of generated source — bodiless defs, ... for what they emit"],
