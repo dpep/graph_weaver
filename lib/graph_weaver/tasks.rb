@@ -275,7 +275,15 @@ namespace :graph_weaver do
       # which server a graph's modules call — the one thing this task couldn't
       # say. A graph that names none falls back to GraphWeaver.client, which is
       # an app-wide setting and not this task's subject.
-      puts "  client: #{graph.client_url || graph.client}" if graph.client
+      #
+      # Reported rather than raised: this is the task you run to find out why a
+      # graph is wrong, so a client whose constant is missing is the answer,
+      # not a reason to stop listing the others.
+      begin
+        puts "  client: #{graph.client_url || graph.client}" if graph.client
+      rescue GraphWeaver::Error => e
+        puts "  client: #{e.message}"
+      end
       # a registration is scoped to one graph, and nothing else says which
       GraphWeaver::Internal::Tasks.registrations(graph).each { |line| puts line }
     end

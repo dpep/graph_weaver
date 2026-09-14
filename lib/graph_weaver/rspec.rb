@@ -301,12 +301,16 @@ module GraphWeaver
           "#{TAG}: :in_process or #{TAG}: :router — they run above the wire."
       end
 
-      # which client posts to nothing — the app's, or one graph's
+      # which client posts to nothing — the app's, or one graph's. A schema
+      # class in a client slot is named by ITS name: `client.class` is the
+      # word "Class", which names nothing anyone wrote.
       def self.whose_client(client, graph)
         return "GraphWeaver.client isn't set" unless client
-        return "GraphWeaver.client is #{client.class}, which posts to none" unless graph&.name
 
-        "graph #{graph.name.inspect} names client #{client.class}, which posts to none"
+        named = client.is_a?(Module) ? client : client.class
+        return "GraphWeaver.client is #{named}, which posts to none" unless graph&.name
+
+        "graph #{graph.name.inspect} names client #{named}, which posts to none"
       end
 
       def self.webmock!

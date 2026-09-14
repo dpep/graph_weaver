@@ -595,6 +595,18 @@ describe "graphql: :wire" do
         .to raise_error(GraphWeaver::Error, /GraphWeaver::InProcess.*nothing to serve/m)
     end
 
+    # `client.class` on a schema class is the word "Class", which names
+    # nothing the app wrote — and a graph naming one directly is the shape a
+    # pure in-process graph has
+    it "names a bare schema class by its own name, not Class" do
+      GraphWeaver.graph(:orders) { schema WireDemo::Schema; client WireDemo::Schema }
+
+      expect { integration.serve! }
+        .to raise_error(GraphWeaver::Error, /graph :orders names client WireDemo::Schema, which posts to none/)
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
     it "says GraphWeaver.client isn't set when it isn't" do
       GraphWeaver.client = nil
 

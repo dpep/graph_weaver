@@ -762,6 +762,41 @@ describe "graph_weaver rake tasks" do
       GraphWeaver.reset_graphs!
     end
 
+    # the endpoint, not the name of the constant holding the client — which is
+    # what an app checks when a graph's requests go somewhere surprising
+    it "says which server each graph's modules call" do
+      root = @root
+      stub_const("TaskRemote", GraphWeaver.new("https://remote.example/graphql"))
+      GraphWeaver.graph(:remote) do
+        queries File.join(root, "queries")
+        output File.join(root, "generated")
+        client "TaskRemote"
+      end
+
+      expect(invoke("graphs").out).to include "  client: https://remote.example/graphql\n"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    # this is the task you run to find out why a graph is wrong, so the missing
+    # constant is the answer — not a reason to stop listing the graphs after it
+    it "reports a client constant nothing defines, and keeps listing" do
+      root = @root
+      GraphWeaver.graph(:broken) do
+        queries File.join(root, "queries")
+        output File.join(root, "generated")
+        client "NoSuchTaskClient"
+      end
+      GraphWeaver.graph(:after) { queries File.join(root, "queries") }
+
+      result = invoke("graphs")
+      expect(result).to have_attributes(status: 0)
+      expect(result.out).to include %(client: the client in graph :broken names "NoSuchTaskClient")
+      expect(result.out).to include ":after"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
     # the built-in scalars are pre-registered rather than app intent, so a
     # graph that registered nothing says nothing
     it "says nothing about a graph with no registrations of its own" do
