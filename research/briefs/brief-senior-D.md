@@ -1,0 +1,11 @@
+# Senior D: custom scalars, second angle
+
+Read /tmp/claude/graph_weaver/brief-senior2-common.md. Prior pass: senior A, report at /tmp/claude/graph_weaver/senior-log-A.md (registration, casting, the Money shapes, value-object equality — all fixed since; don't redo). App dir `senior-app-D`, log `senior-log-D.md`.
+
+Your angle is scalars on the way OUT and at the SEAMS. Build a graphql-ruby schema in-process (your app's own) with custom scalars: `DateTime`, `Date`, `BigDecimal`-backed `Decimal`, a `Money` object scalar, a `URL`, a `JSON` blob, a `Duration` (ISO-8601), an enum-like string scalar, and one scalar that is a *list* in a nested input. Register each per docs/scalars.md. Then drive:
+- Scalars as mutation *arguments* and inside deeply nested input objects and lists of inputs: does `serialize:` run at every depth, does a wrong Ruby type produce an `InputError` naming the path, what happens with `nil` in a nullable scalar slot vs a non-null one.
+- The same queries through every mode: live in-process, `graphql: :fake` (what does the fake fabricate for each registered scalar, does a pin of a scalar value round-trip through the cast), `:in_process`, `:wire` (does the value survive JSON serialization on both directions), and a cassette recorded then replayed (BigDecimal precision, sub-second timestamps, timezone).
+- Results serialized outward: `to_h`, `to_json`, `YAML.dump` and `Marshal` of a result struct holding each scalar; `deconstruct_keys` in a pattern match on a scalar-typed prop; equality of two results holding equal-but-not-identical scalar objects.
+- A custom scalar as a federation `@key` field and as a `@requires` field set member (compose a tiny two-subgraph supergraph with `rover` or the repo's `spec/support/federation/compose.mjs`; skip if it costs more than 20 minutes).
+- Precision and edge values: `BigDecimal("0.1")` vs `0.1`, a `DateTime` at a DST boundary, a negative `Duration`, a `Date` before 1970, a `Money` with zero and negative amounts, a `URL` with unicode, a `JSON` scalar holding `null`, `[]`, `{}`, and a string that looks like JSON.
+- A scalar registered *after* generation (does `verify` catch the drift), and one registered under two names.

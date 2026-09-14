@@ -1,0 +1,11 @@
+# Senior E: input validation and errors, second angle
+
+Read /tmp/claude/graph_weaver/brief-senior2-common.md. Prior pass: senior B, report at /tmp/claude/graph_weaver/senior-log-B.md (client-side InputError kinds, the server conventions, path vs field, VALUE_LIMIT — all shipped; don't redo). App dir `senior-app-E`, log `senior-log-E.md`.
+
+Your angle is the SERVER side and the whole path to a user's screen. Build a graphql-ruby schema in-process with real validation: `validates:` on arguments and input object fields (length, format, inclusion, numericality, a custom validator), a `@oneOf` input, nested input lists three deep, a mutation returning a `userErrors { field message code }` payload the Relay/Shopify way, and a resolver that raises `GraphQL::ExecutionError` with `extensions`. Then:
+- Drive every failure shape from a Rails controller and a request spec: what reaches `response.input_errors`, `response.errors`, and what raises. Compare with the `extensions.input` convention docs/errors.md describes — implement that convention in your schema on a second mutation and compare the two experiences side by side.
+- Against LIVE Hasura (PokeAPI, https://beta.pokeapi.co/graphql/v1beta): wrong-typed `where:` values, an unknown column, a bad enum in `order_by`, a `limit` that isn't an Int — what arms fire, and does `path` land on the argument.
+- i18n end to end per docs/i18n.md: a real `config/locales/en.yml` and `fr.yml`, a form with a nested input, an error rendered next to the field it belongs to in a view, with `I18n.locale = :fr`. Does the doc's key scheme survive a nested list path? What does a `details[:type]` of `Int` look like in French?
+- Client-side vs server-side ordering: an input that is wrong both ways (bad type on one field, a validates: failure on another) — which wins, is the answer the same in every mode, and does `:fake` ever produce an `InputError` that live would not.
+- `execute!` vs `execute` on each failure; `Failure.graphql(code:, extensions:)` in the harness reproducing each server shape exactly (the harness must be able to fake every arm the live server produced; report any it can't).
+- Error text hygiene: every message you saw, does it leak a variable value, a token, or the query text; and every message a non-GraphQL Rails developer would not understand.

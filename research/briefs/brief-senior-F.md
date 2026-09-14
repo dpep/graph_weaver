@@ -1,0 +1,12 @@
+# Senior F: federation, second angle
+
+Read /tmp/claude/graph_weaver/brief-senior2-common.md. Prior pass: senior C, report is the final message of /private/tmp/claude-501/-Users-dpepper-code-lib-ruby-graph-weaver/bb134e57-46b8-4797-a396-c7f5afad21be/tasks/ad89c14e307f5f1f7.output (`tail -c 20000`) and /tmp/claude/graph_weaver/senior-log-C.md. Its app is at /tmp/claude/graph_weaver/senior-app-C-fix (four subgraphs, composed supergraph, the @interfaceObject shape restored) — copy it to `senior-app-F` and repoint the Gemfile rather than starting over; the findings there (interfaceObject misattribution, retired subgraph, fetch count) are fixed on main, verify that in passing, don't re-derive. Log `senior-log-F.md`.
+
+Your angle is federation OVER TIME and AT THE BOUNDARIES, not the planner matrix.
+- `:wire` and cassettes against the supergraph: every query from C's matrix through `graphql: :wire`; record a cassette against the local router, replay it, then change a subgraph resolver and confirm the replay is what the cassette says and a re-record shows the diff. A cassette recorded in `:router` replayed in `:live` mode and vice versa.
+- An `@override` migration mid-flight: move a field from one subgraph to another with `@override`, compose, and drive the query at each of the three states (before, both declare, after) — does the router honor the override, does `federation:diff` say the right thing at each state, does generated code change.
+- `@provides` and `@shareable` fields: is the provided copy actually used (trace should show fewer fetches), and a wrong `@provides` (subgraph claims it, resolver returns nil) — what happens.
+- Subgraph `context:`: a `current_user` that must reach a downstream subgraph's resolver; `graphql_context` per example; a subgraph that reads a header the router doesn't forward.
+- Lifecycle tasks over a change: add a fifth subgraph, recompose, run `federation:*` tasks and `schema:diff` at each step; change a `@key` field's type; rename a subgraph in the composition; delete a field a query uses.
+- Mixed app: this federated graph beside a plain remote graph (Countries) in one app, both used in one request spec with the mode helpers and `graph:`; a query module of each in one controller action; the log/instrumentation line for each.
+- Errors crossing the seam: a subgraph resolver raising, a subgraph returning a partial error on an entity, a subgraph timing out under `Failure.timeout` while another answers — what the merged `errors` look like and whether `path` is right.

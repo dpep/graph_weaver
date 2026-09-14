@@ -1,0 +1,12 @@
+# Lane: the packaged gem — examples, the gem page, metadata
+
+Read /tmp/claude/graph_weaver/brief-common.md for toolchain, gate, trailers. Baseline: main at the sha in your launch message (worktree off it). 0.7.1 work: CHANGELOG gets a `###  Unreleased` heading above `###  v0.7.0  (2026-09-13)` with your bullets in one contiguous block (a security lane adds its own under the same heading; keep both on rebase). Don't touch version.rb. Source: junior 15's log `/tmp/claude/graph_weaver/junior-log-15.md` and senior N's supply-chain section (`/tmp/claude/graph_weaver/senior-log-N.md`).
+
+1. **`examples/` is excluded from the gem** (gemspec `s.files` via `git ls-files` with `':!:examples'`) while README.md says "the examples run that path for real, smallest first" and links `examples/federation.rb`. Decide: ship the directory (check its size and that nothing in it needs a token or a dev dependency to be *read* — running is another matter) or reword the README to say they live in the repo with an absolute GitHub link. Prefer shipping if it is small text; say the size in the report.
+2. **RubyGems.org renders no README**, only the summary line. Add gemspec `metadata` — `homepage_uri`, `source_code_uri`, `changelog_uri` (to the CHANGELOG on GitHub at the tag), `documentation_uri` (docs/ on GitHub), `bug_tracker_uri` — whichever are missing, and make the gemspec `description` (which the gem page does render, check `spec/gemspec_spec.rb` pins it against the README) carry the one paragraph a reader needs to decide to click through. Every link must resolve (`curl -sI`).
+3. **`CHANGELOG.md` is 259 KB, 16% of the package.** Decide whether the gem should ship it at all (many gems do, for `changelog_uri` it is not needed) — say why either way; if you drop it from `files`, `changelog_uri` must point at GitHub.
+4. Build the gem (`bundle exec gem build graph_weaver.gemspec`, then delete the `.gem`), `gem contents`-style list from the built package (`tar -O -xf graph_weaver-*.gem data.tar.gz | tar -tz`), and paste the diff of the file list before and after.
+
+Ownership: `graph_weaver.gemspec`, `README.md`, `spec/gemspec_spec.rb`, `CHANGELOG.md` (your block), `docs/getting_started.md` only if the README change needs a matching sentence. Not yours: `lib/**`, other docs.
+
+Gate: brief-common's (rspec random seed, `srb tc`, `bin/generate` clean). Report: what ships now that didn't and vice versa, the metadata added with each URL verified, shas, `git status` clean.

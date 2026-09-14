@@ -1,0 +1,17 @@
+# Lane: harness — A2, A3, A5, A8, A9, A10, C3, C4, C5, plus one hunch
+
+Read /tmp/claude/graph_weaver/brief-hunt-common.md first.
+
+You are the staff engineer who owns the rspec harness and `Internal::TestClients`. The standard is the one the library states: refuse rather than guess, and a helper either applies or raises. Findings, in the order to take them:
+
+- **A2 + A3** (one root cause): `TestClients.install` resets `@clients`/`@context` even when the mode is already installed, so a second helper in one example clears the first's stand-in and a `graphql_context` set before a helper is dropped. Fix at the seam: installing an already-installed mode keeps the table; a *different* mode contradicts and is already refused by `claim_mode!`. Specs: two helpers in one example both apply; context-then-helper reaches the resolver.
+- **A5**: in a multi-graph app under a non-`:live` mode, `GraphWeaver.client` is left pointing at the real endpoint, so a stray `GraphWeaver.client.execute` or an unbound `parse` module makes a live call from a `:fake` example. Put a refusing client in the slot that raises naming the graphs and the modes' rule. Spec: the repro's real endpoint is hit 0 times and the refusal names both graphs.
+- **A8**: `Config#schema` memoizes the located dump for the life of the config and nothing but `Testing.reset!` clears it, so `schema_path=`/`root=` changes are invisible to `:fake`. Key the memo on the resolved path or drop it (`locate` is a file read — measure before keeping a cache).
+- **A9**: `Internal::Util.composed?` caches per path for the process life. Key on path + mtime + size, or clear from `reset_graphs!`; keep the "parse once per :wire example" property the memo exists for (its spec in `spec/testing_spec.rb`).
+- **A10**: `docs/testing.md` lines ~41-43 and ~59-63 still describe the 0.6.x mechanism (assignment wins; generate without `client:`). Rewrite those two passages: a mode's stand-in outranks `GraphWeaver.client=`; the escapes are a per-call `client:`, `MyQuery.client =`, or `graphql: :live`.
+- **C3**: under `:wire` with a `context:` proc, `graphql_context` refuses by telling you to tag `:wire`. Branch the message: under `:wire` say the proc is answered from the request's headers and point at setting the header on the client's transport (`GraphWeaver.new(url, headers: …)`; a header value may be a proc as of a1bd5ec).
+- **C4**: two graphs baking the same `client:` — `wire_targets` uniq's by url and serves only the first schema. Refuse, naming both graphs and the url.
+- **C5**: `unserve!` raises when a group `after { WebMock.reset! }` already removed the stub. Make it tolerant of an already-removed stub, and only that.
+- **Hunch (verify, then fix or record)**: a router shared by two graphs is `reset!` by whichever module runs next, wiping `#trace` and `fake` pins mid-example. Write the spec; if it reproduces, reset once per example rather than per module.
+
+Ownership: `lib/graph_weaver/rspec.rb`, `lib/graph_weaver/testing.rb`, `lib/graph_weaver/testing/**`, `lib/graph_weaver/internal/test_clients.rb`, `lib/graph_weaver/internal.rb` (Util only — another lane may report a change to `Internal::RequestKey`; apply it if they do), `spec/rspec_spec.rb`, `spec/wire_mode_spec.rb`, `spec/testing_spec.rb`, `spec/test_clients_spec.rb`, `spec/graphs_spec.rb`, `spec/endpoint_spec.rb`, `docs/testing.md`. Not yours: `lib/graph_weaver.rb`, `lib/graph_weaver/graph.rb`, `codegen/**`, `transport/**`, `coerce.rb`, other docs.

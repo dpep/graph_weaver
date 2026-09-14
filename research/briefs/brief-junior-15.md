@@ -1,0 +1,9 @@
+# Junior 15: the packaged gem, from nothing
+
+Read /tmp/claude/graph_weaver/brief-round5-common.md. App dir `junior-app-15`, log `junior-log-15.md`. You are a Rails developer who found graph_weaver on RubyGems this morning. You have the gem page, the README it renders, and nothing else — no checkout, no earlier logs (skip the earlier logs entirely; the common brief's rule about not re-reporting doesn't apply to you, report everything you hit).
+
+`rails new`, add `gem "graph_weaver"` (whatever version bundler resolves — note which), and follow the README and the docs the gem page links to. Two graphs: the public Countries API (https://countries.trevorblades.com/graphql) and PokeAPI (https://beta.pokeapi.co/graphql/v1beta). Install generator, a query with a variable on each, generate, request specs with the fake, one live, `verify`, `queries:check`, `unused`, a production boot with `rails zeitwerk:check`, and `rake -T graph_weaver` read top to bottom.
+
+What you're really checking, though you don't know it: does the packaged gem carry everything the docs promise — generators, rake tasks, the rspec helper, the generator templates, `graph_weaver/testing`, `graph_weaver/log_subscriber`, the docs the README links to (do the links resolve from the gem page, or only from the repo?), and `gem contents graph_weaver` listed against what a `require` needs. Every `LoadError`, every rake task the README names that `rake -T` doesn't show, every link that 404s, every generator option the docs mention that the generator doesn't have. Also `bundle exec yard`-free: does `ri GraphWeaver` or the gem's own rdoc render anything useful.
+
+Log every friction with timestamps; final message per the common brief plus: minutes to first green fake spec, the list of things the gem page/README promised that the package didn't deliver, and whether you'd have stayed.

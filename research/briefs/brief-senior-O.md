@@ -1,0 +1,9 @@
+# Senior O: the corpus rerun
+
+Read /tmp/claude/graph_weaver/brief-round5-common.md. Log `senior-log-O.md`, app dir `senior-app-O` (a plain Ruby project with the published gem is enough; a Rails app only if a finding needs one). The first corpus sweep is /tmp/claude/graph_weaver/corpus-report.md with its fetch scripts, sweep driver, operation splitter and collision census under /tmp/claude/graph_weaver/corpus/ — reuse them, repoint at the installed gem. Codegen changed in three lanes since (input types named after constants refused, `as_json` emitted per struct, `@key` list-ness, type-helper naming, the union `__typename` message), and the round-trip harness gained an `as_json` property in the spec but not in `bin/round-trip`.
+
+- Re-fetch what still introspects (the report lists which did), re-run the same sweep at the same seeds plus three new ones, and diff against the report's results per schema. Anything that was clean and isn't, or was a bug and still is, is a finding.
+- Add the outbound direction to the sweep by hand for this run: for each generated response, `from_h(JSON.parse(x.to_json)) == x`; the lane that added `as_json` measured only the three fixtures plus the cached dumps — run it on the full corpus.
+- The reserved-name census again with the new prop rule, and the enum case-collision census (72 on GitLab last time) — has anything changed, and count any input-type name that now refuses under the constant rule.
+- Real queries again (Linear's 250, GitLab's 58, GitHub's) through the installed gem's `rake`-free `GraphWeaver.parse` path AND through `rake graph_weaver:generate` in a scratch app, since the packaged gem's task loading is what no one has exercised.
+Report the per-schema table as before, with a "changed since last sweep" column, and the outbound round-trip results.

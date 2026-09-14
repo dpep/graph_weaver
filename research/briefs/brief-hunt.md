@@ -1,0 +1,19 @@
+# Brief: hunt — what is still wrong with graph_weaver 0.7.0
+
+Read /tmp/claude/graph_weaver/brief-common.md for toolchain; baseline is main **e898484** (1268 examples, surface 452, CI green on Ruby 3.3/3.4/4 and Apollo parity 73/2/0). Read CLAUDE.md, DECISIONS.md, and CHANGELOG `v0.7.0` so you know what just changed — that is where bugs are. Read-only in the repo except for scratch specs you delete before finishing; commit nothing. Scratch: /tmp/claude/graph_weaver/hunt-*.
+
+## Who you are
+
+The skeptic who assumes the last three weeks of hardening created as many bugs as it fixed, and proves it. You rank by user harm: a silent wrong answer beats a crash beats a bad message beats a paper cut. Your deliverable is a ranked report with runnable repros; you do not fix. A finding without a repro is a hunch and goes in a separate short list.
+
+## Where to dig (spend most of your time on the first three)
+
+1. **The new seams, adversarially.** `graphql: :wire` (`Testing::Endpoint`, `serve!`/`unserve!`, the per-graph stubs, the webmock-enabled check) — concurrency, an example that raises mid-request, two examples in one group with different modes, `:wire` plus a suite's own `to_rack`, a transport with a base path or query string on the url, HTTPS vs HTTP, a Faraday connection built with `url:` vs a string. `Internal::TestClients` — override precedence, `reset!` ordering with rspec's `around` hooks, a module bound to a client via `MyQuery.client =` inside a `before(:all)`. The block DSL (`Internal::GraphBuilder`) — `schema` given a Pathname, a `Client`, a Proc returning nil, a re-declaration mid-suite, `namespace` given a nested constant string with a leading `::`, `output` relative vs absolute vs Pathname, `types_module` colliding with `namespace`. Per-graph `:router`/`:in_process`, `Config#supergraph!` memo invalidation when a graph is re-declared with a different schema.
+2. **Property and fuzz.** `bin/round-trip -c 5000` on the fixtures and on `examples/github/schema.json`; `--hostile`; then extend the generator locally to reach shapes it doesn't (deeply nested input objects with nulls at every level, lists of lists, unions inside interfaces inside fragments, `@skip`/`@include` on fragment spreads, variables with defaults that are input objects, enum values that are Ruby keywords or constants, field names that are Ruby keywords or `T::Struct` methods — `class`, `object_id`, `hash`, `to_h`, `serialize`, `method`, `send`). Anything that generates code that doesn't parse, or parses and misbehaves, is a top finding.
+3. **Coercion and scalars at the edges.** The `Coerce` table with `Float::INFINITY`, `NaN`, `-0.0`, `"1e400"`, integers past 2^53 for `Int` vs `BigInt`, `Date` given a `Time`, `Time` given an `ActiveSupport::TimeWithZone`-alike, `BigDecimal("Infinity")`, a `Money` custom class whose `parse` raises something that isn't `ArgumentError`. Serialize side: does every registered stdlib type survive `execute` → wire → `from_h` → `to_h` byte-identically?
+4. **Threads and reloading.** `Transport::HTTP` pool under 32 threads with a server that closes connections; `GraphWeaver.reset_graphs!` while another thread executes; Rails reloader watch mode re-declaring graphs from `to_prepare` twice.
+5. **Everything the docs promise.** Every fenced Ruby sample in docs/ — does it run? (`spec/doc_samples_spec.rb` may exist; if so, what does it NOT cover?)
+
+## Report
+
+`/tmp/claude/graph_weaver/hunt-report.md` and the same text in your final message. Ranked: for each, one-line claim, harm class, repro (file + command + exact output), what you think the fix is in one sentence, and which files it touches (so the fixes can be partitioned). Then the hunch list. Then two lines on what you tried that turned up nothing — that's evidence too. Gate nothing; you are not committing.
