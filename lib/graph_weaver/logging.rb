@@ -53,7 +53,7 @@ module GraphWeaver
     #
     # It must call the block and return its value. The only event today is
     # EXECUTE_EVENT; its payload is the contract in docs/logging.md —
-    # :operation, :client, :status, :duration_ms, :graph always;
+    # :operation, :client, :kind, :status, :duration_ms, :graph always;
     # :url/:http_status over the wire, :schema in-process, :error/:code on a
     # failure, :retries when a Retry wrapped it. Never the query text or the
     # variables: the payload fans out to subscribers that know none of the

@@ -52,7 +52,8 @@ class GraphWeaver::InProcess
 
   def execute(query, variables: {}, operation_name: nil)
     operation_name ||= GraphWeaver::Internal::Wire.operation_name(query)
-    payload = { url: nil, schema: schema_label, operation: operation_name, client: self.class }
+    payload = { url: nil, schema: schema_label, operation: operation_name, client: self.class,
+                kind: GraphWeaver::Internal::Wire.kind(query) }
 
     GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
       perform(query, variables, operation_name)

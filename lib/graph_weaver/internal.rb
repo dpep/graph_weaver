@@ -383,7 +383,8 @@ module GraphWeaver
       # every request, and the only way to be wrong (a field literally named
       # `mutation` opening a line) errs toward not retrying.
       MUTATION_PATTERN = /^[ \t]*mutation\b/
-      private_constant :MUTATION_PATTERN
+      SUBSCRIPTION_PATTERN = /^[ \t]*subscription\b/
+      private_constant :MUTATION_PATTERN, :SUBSCRIPTION_PATTERN
 
       REQUEST_MUTEX = Mutex.new
       private_constant :REQUEST_MUTEX
@@ -397,6 +398,16 @@ module GraphWeaver
         def operation_name(query) = query[OPERATION_NAME_PATTERN, 1]
 
         def mutation?(query) = MUTATION_PATTERN.match?(query)
+
+        # What this document runs, for the instrumentation payload — :query
+        # for the shorthand `{ ... }` document too, which is what it is.
+        # Built on mutation? rather than beside it, so an APM's write-failure
+        # rate and the decision not to retry can't come to disagree.
+        def kind(query)
+          return :mutation if mutation?(query)
+
+          SUBSCRIPTION_PATTERN.match?(query) ? :subscription : :query
+        end
 
         # one error in the shape a GraphQL response carries them
         def graphql_error(message, code)

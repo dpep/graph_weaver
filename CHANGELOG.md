@@ -158,6 +158,12 @@
   It now runs where every mode passes, in the dispatch a generated module
   makes, before any client is chosen; same class, same sentence, wherever the
   call was headed.
+- **The `execute.graph_weaver` payload says `:kind`** — `:query`, `:mutation`
+  or `:subscription`. Nothing on it said whether a request was a write, so a
+  "checkout write failure rate" could only be guessed at from the operation's
+  *name*, while the library was already reading the answer off the document to
+  decide whether `Retry` may repeat it. Same reading, now on the payload;
+  `docs/logging.md` has the row.
 
 ###  v0.7.0  (2026-09-13)
 

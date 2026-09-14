@@ -123,7 +123,7 @@ it, so a single subscriber covers both sides of the seam:
 ```ruby
 ActiveSupport::Notifications.subscribe(GraphWeaver::EXECUTE_EVENT) do |*, payload|
   StatsD.timing("graphql.#{payload[:operation] || "anonymous"}", payload[:duration_ms],
-    tags: ["status:#{payload[:status]}", "code:#{payload[:code]}"])
+    tags: ["status:#{payload[:status]}", "kind:#{payload[:kind]}", "code:#{payload[:code]}"])
 end
 ```
 
@@ -139,6 +139,7 @@ reports the failure instead of raising it.
 |-----|------|--|
 | `:operation` | always | the operation name sent with the request, nil for an anonymous document — what a trace keys on (a generated module always has one) |
 | `:client` | always | the class that ran it: `GraphWeaver::Transport::HTTP`, `GraphWeaver::InProcess`, your own |
+| `:kind` | always | `:query`, `:mutation` or `:subscription` — what the document runs, so a write failure rate is a payload question rather than a guess at the operation's name. The shorthand `{ ... }` document is a `:query`. The same reading decides whether [`Retry`](transports.md#retries) may repeat the request |
 | `:status` | always | `:ok`, `:errors` (a response carrying GraphQL errors), or `:failed` (it raised) |
 | `:duration_ms` | always | start to parsed response, for **this attempt** — under a [`Retry`](transports.md#retries) the backoff sleep between attempts is in none of them, so no event reports the wall clock the caller waited |
 | `:url` | over the wire | the endpoint; nil in-process |

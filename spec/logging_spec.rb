@@ -235,6 +235,22 @@ describe "GraphWeaver.instrumenter" do
     expect(events.map { |_, p| p[:retries] }).to eq [0, 1, 2]
   end
 
+  # A "checkout write failure rate" needs to know which requests were writes,
+  # and the operation NAME can't be asked — it is whatever the query is called.
+  # Read off the document by the same check that decides not to retry.
+  it "says whether the request was a query, a mutation or a subscription" do
+    over_the_wire = GraphWeaver::Transport::HTTP.new(url)
+    in_process = GraphWeaver::InProcess.new(Demo::Schema)
+
+    over_the_wire.execute("query Read { people { name } }")
+    in_process.execute("query Read { people { name } }")
+    over_the_wire.execute("mutation Write { addPet(name: \"x\", species: DOG) { id } }")
+    in_process.execute("mutation Write { addPet(name: \"x\", species: DOG) { id } }")
+    in_process.execute("{ people { name } }") # the shorthand document is a query
+
+    expect(events.map { |_, p| p[:kind] }).to eq %i[query query mutation mutation query]
+  end
+
   # a request nobody dispatched has no graph, and the client can't be asked
   # for one — see query_module_spec for the label a dispatch puts on
   it "carries a nil graph for a request no generated module made" do
@@ -259,7 +275,7 @@ describe "GraphWeaver.instrumenter" do
       "query Pinned($id: ID!) { person(id: $id) { name } }", variables: { "id" => "1" }
     )
 
-    expect(payload.keys).to match_array %i[url operation client status http_status duration_ms graph]
+    expect(payload.keys).to match_array %i[url operation client kind status http_status duration_ms graph]
     expect(payload.values.join).not_to include("person", "id")
   end
 
