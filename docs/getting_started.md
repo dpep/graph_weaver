@@ -2,15 +2,10 @@
 
 The setup that ships, end to end: queries live as `.graphql` files, generation
 writes `# typed: strict` Ruby you check in, and CI fails when anything drifts.
-Follow it once when you add the gem to an app. (Exploring an API from a console
-instead? Start with [dynamic mode](real_world.md) — no build step.)
-
-Rails is assumed below; the [non-Rails note](#not-rails) at the bottom
-covers the differences. Still deciding whether to adopt at all?
-[Alternatives](alternatives.md) compares the field, this gem included.
-No Sorbet in your app? None needed: `sorbet-runtime` comes with the gem and the
-generated code checks itself at runtime — running `srb tc` on top is your call,
-and [Sorbet, with or without](#sorbet-with-or-without) says what that buys.
+Follow it once when you add the gem to an app. Rails is assumed;
+[not Rails?](#not-rails) covers the differences. Exploring an API from a console
+instead? Start with [dynamic mode](real_world.md) — no build step. No Sorbet in
+your app? None needed — [Sorbet, with or without](#sorbet-with-or-without).
 
 ## 1. Install
 
@@ -35,9 +30,8 @@ rails g graph_weaver:install https://api.example.com/graphql
   introspect  app/graphql/schema.json from https://api.example.com/graphql
 ```
 
-The argument is whatever you'd pass to `GraphWeaver.new` — the generator
-takes the same three source forms the library does, and writes the
-initializer that fits:
+The argument is whatever you'd pass to `GraphWeaver.new` — the same three source
+forms the library takes — and the generator writes the initializer that fits:
 
 | source | |
 |---|---|
@@ -47,43 +41,35 @@ initializer that fits:
 
 | flag | |
 |---|---|
-| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`. Url only, and omitted entirely for a public API that needs no token. The name is recorded into the dump, so `schema:refresh`/`schema:diff`/`queries:check` read the same one the initializer does |
+| `--auth` | name of the ENV var holding the auth token — default `GRAPHWEAVER_AUTH`, url only, omitted for a public API. The name is recorded into the dump, so `schema:refresh`/`schema:diff`/`queries:check` read the same one the initializer does |
 | `--no-schema` | skip writing the dump; `rake graph_weaver:schema:refresh` does it later (`URL=...` to name an endpoint the first time) |
 
-Re-running is safe — every file it writes goes through the usual Rails
-conflict prompt, so an initializer you've edited is never overwritten
-silently. The schema dump is the one file that isn't Thor's to diff, so it is
-**kept** rather than prompted for — replacing it would drop the source url it
-records, which `schema:diff`/`:refresh` read:
-
-```
-        keep  app/graphql/schema.json — delete it and re-run to re-introspect
-```
+Re-running is safe: every file goes through the usual Rails conflict prompt, so
+an initializer you've edited is never overwritten silently. The schema dump is
+the exception — it is **kept** rather than prompted for, since replacing it
+would drop the source url it records; delete it and re-run to re-introspect.
 
 What it wrote:
 
 - **`config/initializers/graph_weaver.rb`.** `GraphWeaver.client =` is the
-  load-bearing line: generated modules without a baked transport resolve to
-  it at execute time (the full
+  load-bearing line: generated modules without a baked transport resolve to it
+  at execute time (the full
   [resolution order](transports.md#client-resolution)). Custom
-  scalars/enums/type helpers register here too — the rake tasks bake them
-  into generated source, so they have to run first ([scalars](scalars.md)):
+  scalars/enums/type helpers register here too — the rake tasks bake them into
+  generated source, so they have to run first ([scalars](scalars.md)):
 
   ```ruby
   GraphWeaver.register_scalar("Money", Money)   # a scalar the registry can't know
   ```
 
-  Every setting also takes the block form the file's neighbours use —
-  `GraphWeaver.configure { |config| … }`, where `config` is `GraphWeaver`
-  itself, so the two spellings are one call.
+  Every setting also takes the block form — `GraphWeaver.configure { |config| … }`,
+  where `config` is `GraphWeaver` itself, so the two spellings are one call.
 
-  A registration that names one of your own constants — a `T::Enum` for
+  A registration that names one of your **own** constants — a `T::Enum` for
   `register_enum`, a mixin for [`extend_type`](generated_modules.md#type-helpers)
-  — goes in a `to_prepare` block, the same place the in-process client goes and
-  for the same reason:
-  autoloading is set up after `config/initializers` run. Generation depends on
-  `:environment`, which runs `to_prepare` too, so the registration is in place
-  before it emits.
+  — goes in a `to_prepare` block instead, because autoloading is set up after
+  `config/initializers` run. Generation depends on `:environment`, which runs
+  `to_prepare` too, so the registration is still in place before it emits:
 
   ```ruby
   Rails.application.config.to_prepare do
@@ -91,48 +77,34 @@ What it wrote:
     GraphWeaver.extend_type("Pet", PetHelpers)
   end
   ```
-
-  A custom `GraphQL::Schema::Validator` ([the `extensions.input`
-  recipe](errors.md#what-your-server-can-send)) is installed by *symbol*, so
-  nothing references its constant and Zeitwerk never autoloads it — name it in
-  the same `to_prepare` block, above the schema, or the schema raises
-  `unknown validation: :your_rule` on whichever file boots first.
-
 - **`app/graphql/schema.json`.** The schema dump codegen reads
   (`GraphWeaver.schema_path`) — never written by hand, always committed.
-  `cache: true` in the initializer reuses it; delete the file to
-  re-introspect. Prefer PR-reviewable diffs? `cache: :graphql` writes SDL
-  instead; both generate identical code. (`cache:`/`ttl:` apply only to url
-  clients — a schema source never introspects, so passing them raises.)
-
-  A dump records the url it came from, so **`cache: true` is that dump unless
-  it came from a different endpoint** — a second client at a second origin
-  caches under `app/graphql/schema-<digest>.json` instead of reading and
-  overwriting the first client's. Name the file yourself
-  (`cache: "app/graphql/billing.json"`) when you'd rather say which is which.
-- **`graphql.config.yml`.** Five lines of YAML that give VS Code and
-  RubyMine schema autocomplete, hover docs, and validation as you type in
-  `.graphql` files — no JS project, no `npm install`. Details and the honest
-  limits in [editors](editors.md).
+  `cache: true` in the initializer reuses it; delete the file to re-introspect.
+  Prefer PR-reviewable diffs? `cache: :graphql` writes SDL instead; both
+  generate identical code. (`cache:`/`ttl:` apply only to url clients — a schema
+  source never introspects, so passing them raises.) A dump records the url it
+  came from, so a second client at a second origin caches under
+  `app/graphql/schema-<digest>.json` rather than overwriting the first's; name
+  the file yourself (`cache: "app/graphql/billing.json"`) to say which is which.
+- **`graphql.config.yml`.** Five lines of YAML that give VS Code and RubyMine
+  schema autocomplete, hover docs, and validation as you type in `.graphql`
+  files — no JS project, no `npm install`. See [editors](editors.md).
 - **`app/graphql/queries/`, `app/graphql/fragments/`, `app/graphql/generated/`.**
   Where you write queries, where shared fragments live, and where generation
   writes Ruby.
 - **`.rubocop.yml`**, if you have one. Generated code is machine-written and
-  marked "do not edit," so the output directory is added to `AllCops: Exclude:`
-  — otherwise `Style/Documentation`, `Style/ClassAndModuleChildren` and
-  `Metrics/*` fire on every generated file. An `AllCops:` you already have is
-  left alone (a second one would replace it, not merge); the generator prints
-  the line to add.
+  marked "do not edit," so the output directory is added to `AllCops: Exclude:`.
+  An `AllCops:` you already have is left alone (a second one would replace it,
+  not merge); the generator prints the line to add.
 
-Rake needs no wiring either: in Rails the `graph_weaver:*` tasks register
-themselves (a Railtie) and depend on `:environment`, so your initializer —
-and its registrations — runs first. The generated modules load at boot from
-a `to_prepare` block, so a helper or enum you registered in one is already
-in place when the file that names it loads.
+Rake needs no wiring: in Rails the `graph_weaver:*` tasks register themselves and
+depend on `:environment`, so your initializer runs first. The generated modules
+load at boot from a `to_prepare` block, so a helper or enum you registered is
+already in place when the file that names it loads.
 
-Everything above describes **one** schema, which is the usual case. An app
-with a second one declares each as a graph — [more than one
-schema](#more-than-one-schema), at the end; skip it until you have two.
+All of that describes **one** schema, which is the usual case; an app with a
+second one declares each as a graph ([more than one
+schema](#more-than-one-schema)).
 
 ## 3. Write a query, generate, commit
 
@@ -163,19 +135,16 @@ where the schema calls the type `Country`. The corners are in
 [generated modules](generated_modules.md#naming).
 
 **Not sure what the API offers?** `app/graphql/schema.json` is the whole schema
-as plain JSON — types, fields, descriptions — already in your repo. And
-`graphql.config.yml` is there too, so VS Code and RubyMine validate the
-`.graphql` files as you type, with autocomplete and hover docs off that same
-dump — see [editors](editors.md).
+as plain JSON — types, fields, descriptions — already in your repo, and
+[your editor reads it](editors.md) as you type the query.
 
 **In development you don't type that command again.** While the server is
-running, a `.graphql` edit — or a refreshed schema dump — regenerates before
-the next request, the way a route or a locale change takes effect. A query that
-doesn't compile is logged with its file and position while the modules already
-loaded keep serving, so a file saved mid-edit doesn't take the server down.
-Development only, and `config.graph_weaver.watch = false` turns it off. The
-generated files are still what ships: commit them, and keep `rake
-graph_weaver:verify` in CI.
+running, a `.graphql` edit — or a refreshed schema dump — regenerates before the
+next request, the way a route change takes effect; a query that doesn't compile
+is logged with its file and position while the modules already loaded keep
+serving, so a file saved mid-edit doesn't take the server down. Development
+only, and `config.graph_weaver.watch = false` turns it off. The generated files
+are still what ships: commit them, and keep `rake graph_weaver:verify` in CI.
 
 ### Shared fragments
 
@@ -195,31 +164,16 @@ Fragment files hold only fragments (no operations), and names are unique across
 them. Point elsewhere with `GraphWeaver.fragments_paths` (an appendable list,
 default `app/graphql/fragments`).
 
-One payoff worth knowing about: when a shared fragment *is* the whole selection
-on a union field, its type is hoisted once into `GraphQLTypes` and every query
-that spreads it gets the same Ruby type — so one exhaustive `case … T.absurd`
-works everywhere. See
-[abstract types](generated_modules.md#abstract-types).
+One payoff: when a shared fragment *is* the whole selection on a union field,
+its type is hoisted once into `GraphQLTypes` and every query that spreads it
+gets the same Ruby type — so one exhaustive `case … T.absurd` works everywhere.
+See [abstract types](generated_modules.md#abstract-types).
 
 ## 4. Test against fakes
 
 The generator put `require "graph_weaver/rspec"` in your `spec/rails_helper.rb`
-— add it there yourself if rspec arrived after the install, since the tags
-below do nothing without it.
-
-```ruby
-it "renders the empty state", graphql: :fake do … end   # or tag the describe
-```
-
-The tag installs a seeded, schema-correct `FakeClient` for that example — and
-**nothing leaves the process**: no server, no HTTP at all, so no webmock and
-no VCR. `rspec --seed 1234` reproduces the fake data along with test order.
-The schema it fabricates from is derived (the committed dump, or your
-client's), so there is nothing to configure. Tag `graphql: :in_process`
-instead and the same example runs against your real resolvers.
-
-A request spec is the usual shape: tag it, pin the value the assertion is
-about, and everything else in the selection is still fabricated.
+— add it there yourself if rspec arrived after the install, since the tags below
+do nothing without it.
 
 ```ruby
 # spec/requests/people_spec.rb
@@ -234,13 +188,17 @@ RSpec.describe "People", type: :request do
 end
 ```
 
-Pins, simulating failures, and the federated `graphql: :router` are in
+The tag installs a seeded, schema-correct `FakeClient` for that example, and
+**nothing leaves the process**: no server, no HTTP, so no webmock and no VCR.
+`rspec --seed 1234` reproduces the fake data along with test order. Pin the value
+the assertion is about and everything else in the selection is still fabricated.
+Tag `graphql: :in_process` instead and the same example runs against your real
+resolvers. Pins, simulating failures, and the federated `graphql: :router` are in
 [testing](testing.md).
 
-A fresh `rails g rspec:install` leaves the `spec/support` glob commented
-out in `spec/rails_helper.rb`, so uncomment it — or put the require in
-`rails_helper.rb` itself. Nothing warns you that a support file went
-unread.
+A fresh `rails g rspec:install` leaves the `spec/support` glob commented out in
+`spec/rails_helper.rb`, so uncomment it — or put the require in
+`rails_helper.rb` itself. Nothing warns you that a support file went unread.
 
 ## 5. Verify in CI
 
@@ -254,22 +212,17 @@ Five questions, five tasks — the last only on a federated graph:
 | does the app still read what it selects? | `rake graph_weaver:unused` | no |
 | did a subgraph change without a recompose? | `rake graph_weaver:federation:diff` | no |
 
-(`rake graph_weaver:graphs` answers a sixth, when an app has more than one
-schema: which graphs are configured, where each generates, and what each
-registers — the one place those registrations are listed, since a registration
-belongs to one graph.)
+Every one of them exits non-zero on a finding, so the gate is a chain.
+`verify` compares the committed generated files against what the current schema
++ queries + registrations would produce, so it belongs in every CI build.
+`schema:diff` asks whatever the dump came from — a recorded source url (with
+`GRAPHWEAVER_AUTH` for private APIs), or your own schema class when the app
+[serves the schema itself](#your-apps-own-schema-in-process) — and
+`rake graph_weaver:schema:refresh` is the repair either way. On an app with more
+than one schema, `rake graph_weaver:graphs` lists which graphs are configured,
+where each generates, and what each registers.
 
-`verify` compares the committed generated files against what the current
-schema + queries + registrations would produce, so it belongs in every CI
-build. `schema:diff` asks whatever the dump came from — a recorded source url
-(with `GRAPHWEAVER_AUTH` for private APIs), or your own schema class when the
-app [serves the schema itself](#your-apps-own-schema-in-process) — and
-`rake graph_weaver:schema:refresh` is the repair either way.
-`federation:diff` needs no network, so it goes in the same PR run;
-see [federation](federation.md#has-the-supergraph-been-recomposed).
-
-Every one of them exits non-zero on a finding, so the gate is a chain. The two
-topologies differ only in what reaches a network:
+The two topologies differ only in what reaches a network:
 
 ```sh
 # an API you don't own — the dump records the url it was introspected from
@@ -288,55 +241,20 @@ bundle exec rake graph_weaver:cassettes:check # do the recordings still cast?
 ```
 
 In-process the order is the repair order: refresh the dump, regenerate,
-re-record. As a GitHub Actions job:
-
-```yaml
-# .github/workflows/graphql.yml
-name: graphql
-on: [push]
-jobs:
-  graph_weaver:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
-      - run: bundle exec rake graph_weaver:verify
-      - run: bundle exec rake graph_weaver:cassettes:check
-      - run: bundle exec rake graph_weaver:queries:check
-      - run: bundle exec rake graph_weaver:schema:diff
-        env:
-          GRAPHWEAVER_AUTH: ${{ secrets.GRAPHWEAVER_AUTH }}
-      # federated apps only — needs no network, so it runs beside the rest
-      - run: bundle exec rake graph_weaver:federation:diff
-```
-
-An in-process schema needs no `env:` — it answers introspection itself.
+re-record. In GitHub Actions each line is one `- run:` step; the remote chain
+wants `GRAPHWEAVER_AUTH: ${{ secrets.GRAPHWEAVER_AUTH }}` in the `env:` of the
+two steps that re-introspect, and an in-process schema needs no `env:` at all,
+since it answers introspection itself. A federated app adds `rake
+graph_weaver:federation:diff` to either chain — it needs no network.
 
 **On a federated graph, none of the five looks at the schema production is
-serving.** `verify`, `queries:check`, `unused` and `federation:diff` compare the
-app to artifacts checked in beside it, and `schema:diff` reads a live source
-only where the dump records one — a composed supergraph doesn't, because no
-endpoint serves it. Hot-reload a router onto a supergraph that dropped a field
-your queries select and all five still exit 0 while every one of those requests
-fails; the first detector is a user's failed request, answered by the runtime
-[drift message](errors.md#stale-schemas). The pre-deploy check against the
-live graph is Apollo's, not this gem's — run it in the same job:
-
-```sh
-rover subgraph check my-graph@prod --name products --schema products.graphql
-rover supergraph fetch my-graph@prod   # then recompose and diff what you get back
-```
-
-`rover subgraph check` asks GraphOS whether publishing this subgraph would break
-the composition or a client's registered operations; `rover supergraph fetch`
-hands you what the router is actually running, which is the artifact
-`federation:diff` should have been pointed at all along. See
+serving**, because no endpoint serves a composed supergraph. The pre-deploy
+check against the live graph is Apollo's, not this gem's — run `rover subgraph
+check` and `rover supergraph fetch` in the same job. See
 [federation → in CI](federation.md#in-ci).
 
-`schema:diff` names what moved, breaking changes first — breaking meaning
-a query written against your dump stops validating, or stops casting:
+`schema:diff` names what moved, breaking changes first — breaking meaning a
+query written against your dump stops validating, or stops casting:
 
 ```
 app/graphql/schema.json vs https://api.example.com/graphql: 8 changes, 5 breaking
@@ -356,21 +274,17 @@ other:
 app/graphql/schema.json is stale — the server's schema has drifted (rake graph_weaver:schema:refresh)
 ```
 
-Nullability is judged from your side, which is why the two above point
-opposite ways: `Person.pets` losing its `!` hands a generated struct the
-nil it declared it wouldn't get, while `AdoptionInput.nickname` gaining
-one rejects a query that omits it. Any drift exits non-zero — whether a
-change matters is yours to judge.
+Nullability is judged from your side, which is why the two above point opposite
+ways: `Person.pets` losing its `!` hands a generated struct the nil it declared
+it wouldn't get, while `AdoptionInput.nickname` gaining one rejects a query that
+omits it. Any drift exits non-zero — whether a change matters is yours to judge.
+`GraphWeaver::SchemaLoader.diff(path)` is the same summary as an object
+(`#breaking`, `#compatible`, `#to_h`, `#empty?`).
 
-`GraphWeaver::SchemaLoader.diff(path)` is the same summary as an object —
-`#breaking`, `#compatible`, `#to_h`, and `#empty?` for the plain "has it
-drifted" question.
-
-`queries:check` answers the question that actually matters when the schema
-*has* moved: **which of your queries no longer validate, and why.** It
-re-introspects the recorded url (without rewriting the dump) and validates
-every `.graphql` file against the schema as it is right now, naming each
-error's line and column, and exits non-zero:
+`queries:check` answers the question that matters when the schema *has* moved:
+**which of your queries no longer validate, and why.** It re-introspects the
+recorded url (without rewriting the dump) and validates every `.graphql` file
+against the schema as it is right now, naming each error's line and column:
 
 ```
 app/graphql/queries/person.graphql
@@ -379,90 +293,50 @@ app/graphql/queries/person.graphql
 1 invalid query
 ```
 
-The Ruby behind it returns the same thing as data, so you can wire it into
-whatever you already have (a spec, a Slack ping, an issue):
-
-```ruby
-GraphWeaver.check_queries
-# => { "app/graphql/queries/person.graphql" =>
-#      [{ "message" => "Field 'nmae' doesn't exist on type 'Person' (Did you mean `name`?)",
-#         "line" => 4, "column" => 5 }] }
-```
-
-Empty means everything validates. Pass `schema:` a *loaded* schema (not a path)
-and nothing touches the network — handy for checking a proposed subgraph before
-it's live:
-
-```ruby
-GraphWeaver.check_queries(schema: GraphWeaver::SchemaLoader.load("proposed.graphql"))
-```
-
-Left off, it re-introspects the url the dump records — and when that dump is a
-composed supergraph, each error also names the subgraphs behind the type it
-points at ([federation](federation.md#the-routing-table)).
+`GraphWeaver.check_queries` returns the same findings as data — a hash of file
+to `message`/`line`/`column`, empty when everything validates — so you can wire
+it into a spec, a Slack ping, an issue. Pass it `schema:` a *loaded* schema (not
+a path) and nothing touches the network, which is how you check your queries
+against a proposed subgraph before it's live.
 
 ### The selections nothing reads
 
 `rake graph_weaver:unused` asks the one question the others can't: not "is the
 Ruby fresh" but "does the app still use what the query asks for". A field
 someone stopped rendering stays in the `.graphql` forever — the query keeps
-validating, the struct keeps casting, and the server keeps paying to resolve
-it. graphql-client catches that at runtime by masking the data a caller didn't
-declare; the structs are checked in here, so it can be recovered without
-running anything:
+validating, the struct keeps casting, and the server keeps paying to resolve it.
 
 ```
 app/graphql/queries/products.graphql: Products.sku — selected, never read (Catalog::ProductsQuery::Result::Products#sku)
-app/graphql/queries/products.graphql: Products.blurb — selected, never read (Catalog::ProductsQuery::Result::Products#blurb)
 
 13 selections, 2 unread — 2 queries, 58 files swept under .
 ```
 
 Each line names the query file, the selection to go and delete, and the
-generated prop behind it. It reads the generated structs for the props a
-query produced, then sweeps your `.rb`, `.rake`, `.builder`, `.erb`, `.slim`,
-`.haml` and `.jbuilder` **once** for every name they could be read by —
-`.sku`, `sku:`, `:sku`, `"sku"`. `PATHS=app,lib` narrows the sweep, and a
-`PATHS=` naming a directory that isn't there is refused rather than swept as
-nothing. Everything under a directory named `generated`, plus `vendor`,
-`node_modules`, `tmp` and `log`, is skipped either way, as is any file
-defining a graphql-ruby **type** — `< GraphQL::Schema::Object` or the
-`< Types::BaseObject` the generator writes — since a `field :sku` there is
-your *server* offering a field, not this app reading one back. A `Resolver` or
-a `Mutation` is swept like any other code: that is where a BFF reads the graph
-it consumes. Nothing is edited and the exit is 0; `STRICT=1` exits 1 when
-anything is unread, for teams who want the gate.
-
-A line handing a query module straight to a serializer — `render json:`,
-`to_h`, `to_json`, `as_json`, `serialize`, `deconstruct_keys` — reads every
-prop at once, so that module is excused and the line is quoted, because
-matching a serializer by name is the softest thing here and a wrong excuse
-should be obvious:
-
-```
-Accounts::MeQuery: every prop counted as read — handed whole to a serializer at app/controllers/accounts_controller.rb:3
-  render json: Accounts::MeQuery.execute!.me
-```
-
-A local counts too, which is what makes the ordinary two-line controller work
-— `result = Accounts::MeQuery.execute!` on one line, `render json: result.me`
-on the next — and the excuse names the local it followed.
+generated prop behind it. It reads the generated structs for the props a query
+produced, then sweeps your `.rb`, `.rake`, `.builder`, `.erb`, `.slim`, `.haml`
+and `.jbuilder` for every name they could be read by — `.sku`, `sku:`, `:sku`,
+`"sku"`. `PATHS=app,lib` narrows the sweep (a `PATHS=` naming a directory that
+isn't there is refused rather than swept as nothing); anything under a directory
+named `generated`, plus `vendor`, `node_modules`, `tmp` and `log`, is skipped,
+as is any file defining a graphql-ruby **type** — a `field :sku` there is your
+*server* offering a field, not this app reading one back. A module handed whole
+to a serializer (`render json:`, `to_h`, `as_json`, a local and all) counts every
+prop as read, and the report quotes the line it followed. Nothing is edited and
+the exit is 0; `STRICT=1` exits 1 when anything is unread.
 
 **It is a lint, not a proof**, and the task's own footer says so. It matches
-names as text, so a prop called `name` counts as read the moment anything at
-all says `.name`; and it can't see a prop reached by `public_send` or a read
-in a file type it doesn't sweep. The example above is the best case, not the
-typical one: measured against real corpora, **half to two thirds of genuinely
-unread selections go unreported**, the share rising with the size of the app,
-because common prop names collide with ordinary words somewhere in it.
-Silence is the safe direction here. Treat a finding as a prompt to go and
-look, and a clean run as nothing more than the absence of an obvious one —
-which is why it exits 0 unless you ask it not to.
+names as text, so a prop called `name` counts as read the moment anything says
+`.name`, and it can't see a prop reached by `public_send`. Measured against real
+corpora, **half to two thirds of genuinely unread selections go unreported**,
+the share rising with the size of the app. Silence is the safe direction: treat
+a finding as a prompt to go and look, and a clean run as nothing more than the
+absence of an obvious one.
 
 ## Your app's own schema, in-process
 
-An app that *serves* GraphQL with graphql-ruby can have the same typed
-access to its own API — same generated structs, no socket, no HTTP:
+An app that *serves* GraphQL with graphql-ruby can have the same typed access to
+its own API — same generated structs, no socket, no HTTP:
 
 ```sh
 rails g graph_weaver:install MyApp::Schema
@@ -476,13 +350,13 @@ Rails.application.config.to_prepare do
 end
 ```
 
-`to_prepare`, not a bare assignment: the schema class is autoloaded, so it
-isn't resolvable while initializers run, and a dev reload replaces it with
-a new class object that a captured one would go stale against.
+`to_prepare`, not a bare assignment: the schema class is autoloaded, so it isn't
+resolvable while initializers run, and a dev reload replaces it with a new class
+object that a captured one would go stale against.
 
 **Context is per request, not per app.** A resolver reading
-`context[:current_user]` gets nil from the app default — build a client
-where you know the request and pass it per call:
+`context[:current_user]` gets nil from the app default — build a client where
+you know the request and pass it per call:
 
 ```ruby
 client = GraphWeaver.new(MyApp::Schema, context: { current_user: })
@@ -490,14 +364,14 @@ PetQuery.execute!(client:, id: "1").pet.owner   # => the context's user
 ```
 
 Each query gets its own copy of that hash, so a resolver writing
-`context[:loader] =` can't hand what it wrote to the next request — which
-matters because one in-process client is normally the whole app's.
+`context[:loader] =` can't hand what it wrote to the next request.
 
-**Keep the dump in step with the schema.** Codegen reads the committed
-dump at `GraphWeaver.schema_path`, never the live class — that's what
-makes `rake graph_weaver:verify` a deterministic CI check. The generator
-writes the first dump; after that it's an artifact derived from code in
-your own repo, and the same two tasks a remote schema uses keep it in step:
+**Keep the dump in step with the schema.** Codegen reads the committed dump at
+`GraphWeaver.schema_path`, never the live class — that's what makes `rake
+graph_weaver:verify` a deterministic CI check, and why it **fails** when the
+dump has fallen behind the class rather than calling the tree up to date. The
+same two tasks a remote schema uses keep it in step, and neither touches a
+network here:
 
 ```sh
 rake graph_weaver:schema:diff      # what has the class changed since the dump?
@@ -505,26 +379,16 @@ rake graph_weaver:schema:refresh   # rewrite the dump from the class
 rake graph_weaver:generate
 ```
 
-Neither touches a network here — your schema class answers introspection
-itself — and `refresh` rewrites the dump in whatever format it already is, so
-a repo that chose `cache: :graphql` keeps SDL. graphql-ruby's own
-`GraphQL::RakeTask` writes the same artifact, but you don't need to wire it
-up: `schema:refresh` writes to the path graph_weaver already reads, and is
-what `schema:diff` and a runtime "the schema may have changed" error both
-name.
-
-`verify` **fails** when the dump has fallen behind the class, rather than
-calling the tree up to date: generating from a dump that old would produce
-Ruby for a schema your resolvers have already left. `queries:check` is
-unaffected either way — running in-process it validates against the live
-class, not the dump — so the two can disagree about the same query while the
-dump is stale, and `schema:refresh` is what settles it.
+`refresh` rewrites the dump in whatever format it already is, so a repo that
+chose `cache: :graphql` keeps SDL. `queries:check` validates against the live
+class rather than the dump, so the two can disagree about one query while the
+dump is stale; `schema:refresh` settles it.
 
 **Scaffolding the app too?** On a `rails new --skip-active-record`,
 `rails g graphql:install` writes `config.active_record.query_log_tags` lines
-into `config/application.rb` that an app without ActiveRecord can't boot
-with — a graphql-ruby bug. Run it as
-`rails g graphql:install --skip-query-logs`, or delete the lines it wrote.
+into `config/application.rb` that an app without ActiveRecord can't boot with —
+a graphql-ruby bug. Run it as `rails g graphql:install --skip-query-logs`, or
+delete the lines it wrote.
 
 ## A schema dump you already have
 
@@ -532,14 +396,14 @@ with — a graphql-ruby bug. Run it as
 rails g graph_weaver:install db/schema.graphql
 ```
 
-Sets `GraphWeaver.schema_path` to that file rather than writing a second
-copy, and introspects nothing. A dump has no resolvers, so it can't
-execute — set `GraphWeaver.client` to whatever serves the API.
+Sets `GraphWeaver.schema_path` to that file rather than writing a second copy,
+and introspects nothing. A dump has no resolvers, so it can't execute — set
+`GraphWeaver.client` to whatever serves the API.
 
 ## More than one schema
 
-The five steps above describe one graph — a schema, its queries, its output.
-An app with a second schema declares each one:
+The five steps above describe one graph — a schema, its queries, its output. An
+app with a second schema declares each one:
 
 ```ruby
 # config/initializers/graph_weaver.rb
@@ -551,40 +415,13 @@ GraphWeaver.graph :billing do
   namespace "Billing"
   register_scalar "Money", BigDecimal
 end
-
-GraphWeaver.graph :github do
-  schema    "db/github.json"
-  queries   "app/graphql/github/queries"
-  output    "app/graphql/github/generated"
-  client    "GITHUB"
-  namespace "GitHub"
-end
 ```
-
-**Declaring graph two means declaring graph one.** A declared graph *replaces*
-the implicit one the top-level settings describe, so the moment any graph is
-named, the `app/graphql/queries` and `app/graphql/generated` an existing app was
-already using belong to no graph — nothing generates or prunes them, and
-`generate` refuses the whole app rather than leave them there silently. Wrap
-them in a graph of their own, its directories and nothing else:
-
-```ruby
-GraphWeaver.graph :app do
-  queries "app/graphql/queries"
-  output  "app/graphql/generated"
-end
-```
-
-No `schema`, so it keeps reading the one `schema_path` names; no `namespace`,
-so every constant keeps the name it has. Nothing about the existing queries or
-generated files changes.
 
 One `rake graph_weaver:generate` does the app, one `rake graph_weaver:verify`
-gates it, and `rake graph_weaver:graphs` lists what is configured. Everything a
-graph knows is said inside the block — six settings, and the same three
-registrations you write at the top level. Each setting falls back to the
-matching top-level one, so a graph says only what differs, and anything else
-the block calls is refused naming the nine it takes.
+gates it, and `rake graph_weaver:graphs` lists what is configured. Each setting
+falls back to the matching top-level one, so a graph says only what differs, and
+anything else the block calls is refused naming the nine it takes (these six,
+plus `register_scalar`, `register_enum` and `extend_type`).
 
 | setting | takes |
 |---|---|
@@ -595,132 +432,72 @@ the block calls is refused naming the nine it takes.
 | `namespace` | a constant, or its name — what every constant this graph generates nests under |
 | `types_module` | a constant name for the shared types module (default: `GraphQLTypes`, under `namespace`) |
 
-**`client` names a constant, not a url.** Its value is spelled into every module
-this graph generates and resolved the first time one of them executes — so it
-has to be something generated source can write down, and a url is not. Build
-the client wherever you like and put the constant holding it here:
+**Declaring graph two means declaring graph one.** A declared graph *replaces*
+the implicit one the top-level settings describe, so the moment any graph is
+named, the `app/graphql/queries` and `app/graphql/generated` an existing app was
+already using belong to no graph — and `generate` refuses the whole app rather
+than leave them there silently. Wrap them in a graph of their own, its
+directories and nothing else: no `schema`, so it keeps reading the one
+`schema_path` names, and no `namespace`, so every constant keeps the name it has.
 
 ```ruby
-GITHUB = GraphWeaver.new("https://api.github.com/graphql", auth: ENV["GITHUB_TOKEN"])
-```
-
-Resolving at first use rather than at declaration is what lets an initializer
-name `Billing::Schema` before Zeitwerk has loaded it, and what lets a dev reload
-swap the class object underneath. A graph with no `client` generates modules
-that fall back to `GraphWeaver.client`, the app default.
-
-`schema "x"` sets and a bare `schema` reads back. There is no `schema = "x"`
-form: the block is `instance_eval`'d, so that would be a local variable that
-silently does nothing — the same reason graphql-ruby writes `field :name`.
-
-### Two remote APIs, and no schema of your own
-
-An app that is a pure client of someone else's GraphQL owns no schema class at
-all, so every graph's schema is a dump — and the dumps have to come from
-somewhere. Name the file you want and the client that can fetch it, and
-`schema:refresh` writes it:
-
-```ruby
-# config/initializers/graph_weaver.rb
-COUNTRIES = GraphWeaver.new("https://countries.trevorblades.com/")
-POKE      = GraphWeaver.new("https://beta.pokeapi.co/graphql/v1beta")
-
-GraphWeaver.graph :countries do
-  schema    "app/graphql/countries/schema.json"
-  queries   "app/graphql/countries/queries"
-  output    "app/graphql/countries/generated"
-  client    "COUNTRIES"
-  namespace "Countries"
-end
-
-GraphWeaver.graph :poke do
-  schema    "app/graphql/poke/schema.json"
-  queries   "app/graphql/poke/queries"
-  output    "app/graphql/poke/generated"
-  client    "POKE"
-  namespace "Poke"
+GraphWeaver.graph :app do
+  queries "app/graphql/queries"
+  output  "app/graphql/generated"
 end
 ```
 
-```sh
-rake graph_weaver:schema:refresh   # introspects each graph's client into its schema
-rake graph_weaver:generate
-```
+**`client` names a constant, not a url** — its value is spelled into every module
+this graph generates and resolved the first time one of them executes, so it has
+to be something generated source can write down. Build the client wherever you
+like (`GITHUB = GraphWeaver.new(url, auth: …)`) and put the constant holding it
+here. A graph with no `client` generates modules that fall back to
+`GraphWeaver.client`, the app default. `schema "x"` sets and a bare `schema`
+reads back; there is no `schema = "x"` form, since the block is `instance_eval`'d
+and that would be a local variable that silently does nothing.
 
-A graph whose dump isn't there yet is introspected from the url its own client
-posts to, and the dump records that url — so every later `schema:refresh` and
-`schema:diff` re-reads the right server without being told again. `URL=` is for
-the app that has one dump and no graphs; it names a single endpoint, and here
-each graph has its own.
+**`namespace` nests everything that graph generates** — `person.graphql` becomes
+`Billing::PersonQuery` ([naming](generated_modules.md#naming)). Constants are
+global, so two schemas that both have a `person.graphql` would otherwise fight
+over one name; without a namespace the collision is refused at generation,
+naming both files. **The block's registrations reach that graph alone**, laid
+over the top-level ones — so `Money` is checked against the schema it was
+registered for, and against no other.
+
+An app that is a pure client of someone else's GraphQL owns no schema class, so
+every graph's `schema` is a dump. Give each the file you want and a `client`
+that can fetch it: `rake graph_weaver:schema:refresh` introspects each graph's
+client into its own dump, recording the url so every later `schema:refresh` and
+`schema:diff` re-reads the right server. (`URL=` is for the app that has one
+dump and no graphs.)
 
 In specs, `graph:` is how an example says which graph a helper stands in for —
 `graphql_fake(graph: :poke, "pokemon_v2_pokemon.name" => "pikachu")`. See
-[testing.md](testing.md).
+[testing](testing.md).
 
 **In Rails, declare graphs in the initializer itself, and name an autoloaded
-schema class with a lambda** — `schema -> { Billing::Schema }` — as above.
+schema class with a lambda** — `schema -> { Billing::Schema }`, as above.
 Zeitwerk is set up *after* `config/initializers` run, so a bare
 `Billing::Schema` there raises `uninitialized constant`; the lambda is resolved
-when generation asks, and resolved again after a dev reload has replaced the
-class object. (`client` and `namespace` take the constant or its name, since
-either way it is baked into generated source as a name.)
+when generation asks, and again after a dev reload has replaced the class
+object.
 
-**The block runs where you write it**, registrations included — so a
-registration naming one of your own constants is in exactly the position a
-top-level one is, and has the same answer: declare that graph from a
-`to_prepare` block, as [above](#2-run-the-generator).
-
-```ruby
-Rails.application.config.to_prepare do
-  GraphWeaver.graph :billing do
-    schema    Billing::Schema
-    queries   "app/graphql/billing/queries"
-    output    "app/graphql/billing/generated"
-    namespace "Billing"
-    register_enum "Species", PetKind
-  end
-end
-```
-
-Re-running is safe — the name is the identity, so the second declaration
-replaces the first — and watch mode sees the graph either way.
-
-One constraint: `to_prepare` runs after Rails has set Zeitwerk up, and Zeitwerk
-reads its ignore list only then, so an `output` declared there can't be hidden
-from autoloading. Under the conventional `app/graphql/*/generated` it already
-is; anywhere else is refused at boot, naming the two fixes — declare the graph
-in `config/initializers` with `schema -> { Billing::Schema }`, or add the
-directory to `GraphWeaver.generated_paths` there.
-
-Two things are worth knowing:
-
-- **`namespace` nests everything that graph generates** — `person.graphql`
-  becomes `Billing::PersonQuery`, and its shared types module becomes
-  `Billing::GraphQLTypes`. Constants are global, so two schemas that both have a
-  `person.graphql`, or that both hoist an enum, would otherwise fight over one
-  name. Without a namespace the collision is refused at generation, naming both
-  files.
-- **The block's registrations reach that graph alone**, laid over the top-level
-  ones. That is what makes the build quiet: `Money` is checked against the
-  schema it was registered for, and against no other. The top-level layer is
-  read when generation asks, not when the graph is declared, so a
-  `register_scalar` in another initializer reaches every graph whichever
-  initializer Rails happened to run first.
-
-Declaring any graph replaces the implicit one the settings describe — an app
-either has graphs or has settings, never a silent third thing. The name is the
-identity, so re-declaring `:billing` replaces it rather than adding a second
-one; a `to_prepare` block that re-runs on every reload is safe.
+A block **runs where you write it**, registrations included, so a graph whose
+registrations name your own constants is declared from a `to_prepare` block for
+the reason [above](#2-run-the-generator) — safely, since the name is the
+identity and the second declaration replaces the first. One constraint there:
+Zeitwerk reads its ignore list before `to_prepare` runs, so an `output` declared
+in one can't be hidden from autoloading. Under the conventional
+`app/graphql/*/generated` it already is; anywhere else is refused at boot,
+naming the two fixes.
 
 ## Sorbet, with or without
 
 `sorbet-runtime` is a hard dependency, so generated `T::Struct`s and sigs
-enforce at runtime in every app — no Sorbet setup required on your end.
-The *static* layer (`srb tc` flagging a typo'd field before anything
-runs) applies only when your app runs Sorbet, and only to checked-in
-generated files — dynamic `parse` is invisible to `srb tc`. Everything
-works without Sorbet; codegen plus Sorbet is what moves type errors from
-runtime to CI.
+enforce at runtime in every app — no Sorbet setup required on your end. The
+*static* layer (`srb tc` flagging a typo'd field before anything runs) applies
+only when your app runs Sorbet, and only to checked-in generated files — dynamic
+`parse` is invisible to `srb tc`.
 
 A misspelled field is caught either way — by `srb tc` before it runs, or by
 `NoMethodError` the first time it does. Nullability is the gap:
@@ -730,14 +507,14 @@ may be none of your dev data and plenty of production's.
 
 If your app globally injects `T::Sig` (`class Module; include T::Sig`), the
 per-struct `extend T::Sig` in generated files is redundant — rubocop's
-`Sorbet/RedundantExtendTSig` flags it. GraphWeaver auto-detects that at
-generation time and skips the `extend`; override with
-`GraphWeaver.extend_t_sig = true`/`false`.
+`Sorbet/RedundantExtendTSig` flags it. GraphWeaver detects that at generation
+time and skips the `extend`; override with `GraphWeaver.extend_t_sig =
+true`/`false`.
 
 ## Not Rails?
 
-There's no generator, but what it writes is short — a few lines wherever
-your app boots, two directories, and the schema dump:
+There's no generator, but what it writes is short — a few lines wherever your
+app boots, two directories, and the schema dump:
 
 ```ruby
 GraphWeaver.client = GraphWeaver.new(
@@ -754,12 +531,12 @@ rake graph_weaver:schema:refresh URL=https://api.example.com/graphql
 ```
 
 Those paths are the Rails convention, not a requirement: put the files where
-your project already puts things and say so with `GraphWeaver.queries_paths`
-and `GraphWeaver.generated_paths`.
+your project already puts things and say so with `GraphWeaver.queries_paths` and
+`GraphWeaver.generated_paths`.
 
-Add `require "graph_weaver/tasks"` to your Rakefile for the rake tasks —
-and, since there's no `:environment` hook to run your registrations,
-require the file that does them from the Rakefile too.
+Add `require "graph_weaver/tasks"` to your Rakefile for the rake tasks — and,
+since there's no `:environment` hook to run your registrations, require the file
+that does them from the Rakefile too.
 
 **Or skip rake too.** The tasks are a thin wrapper over public calls, so a
 script of your own does the same work — and `cache: true` writes the dump on
@@ -774,8 +551,8 @@ GraphWeaver.generate!(schema:)    # => every file the plan produces
 GraphWeaver.changed_files         # => only the ones whose bytes moved
 ```
 
-Pruning, the shared types module, and `verify_generated!` — the freshness
-guard `rake graph_weaver:verify` runs — are in
+Pruning, the shared types module, and `verify_generated!` — the freshness guard
+`rake graph_weaver:verify` runs — are in
 [generated modules](generated_modules.md#generating).
 
 `graphql.config.yml` is copy/paste from [editors](editors.md).
