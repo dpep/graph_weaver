@@ -1,33 +1,34 @@
 # Custom scalars
 
-Teach the generator how a GraphQL custom scalar deserializes into a rich
-Ruby object (and serializes back when used as a variable). A field typed
-`Decimal` then generates `const :price, T.nilable(BigDecimal)` and casts with
-`BigDecimal(...)` inline — no runtime reflection:
+Teach the generator how a GraphQL custom scalar deserializes into a rich Ruby
+object, and serializes back when used as a variable. Three registrations cover
+almost every app:
 
 ```ruby
-GraphWeaver.register_scalar("Decimal", BigDecimal)
+GraphWeaver.register_scalar("Decimal", BigDecimal)   # a stdlib class
+GraphWeaver.register_scalar("Money", Money)          # a value object of your own
+GraphWeaver.register_enum("Species", PetKind)        # a schema enum onto your T::Enum
 ```
 
-Two arguments: the scalar's name in your schema, and the Ruby type it means.
-The second is the only part the library can't work out — how a wire value
-becomes a `BigDecimal`, how one goes back on the wire, and the
-`require "bigdecimal"` the generated file needs are all inferred.
+`register_scalar` takes the scalar's name in your schema and the Ruby type it
+means. The type is the only part the library can't work out: a field typed
+`Decimal` then generates `const :price, T.nilable(BigDecimal)` and casts with
+`BigDecimal(...)` inline — no runtime reflection — and the wire spelling and the
+`require "bigdecimal"` the generated file needs come with it.
 
 Registration is global and codegen-time: `rake graph_weaver:generate` reads the
 same registry an initializer writes, so register before you generate. A
-registration that goes *missing* later — a reverted initializer line, a bad
-merge — is loud at generate/verify time, which name the files it moves, and
-silent forever after: code regenerated without it casts the field to the plain
-wire type (a `String` where an `Email` was) and nothing raises anywhere.
-[`verify_generated!`](generated_modules.md) in CI is what protects a
-registration; no runtime assertion can.
+registration that goes *missing* later — a reverted initializer line, a bad merge
+— is loud at generate/verify time and silent forever after: code regenerated
+without it casts the field to the plain wire type (a `String` where an `Email`
+was) and nothing raises anywhere. [`verify_generated!`](generated_modules.md) in
+CI is what protects a registration; no runtime assertion can.
 
 ## Already registered
 
 These names need no registration. graphql-ruby ships all but `DateTime` as its
-own scalars, and `DateTime` is what GitHub, Shopify and most hand-written
-schemas call an ISO 8601 timestamp.
+own scalars, and `DateTime` is what GitHub, Shopify and most hand-written schemas
+call an ISO 8601 timestamp.
 
 | scalar | Ruby type | on the wire |
 |---|---|---|
@@ -41,29 +42,26 @@ schemas call an ISO 8601 timestamp.
 | `BigInt` | `Integer` | the decimal string graphql-ruby writes; a JSON number is read too |
 | `JSON` | `T.untyped` | whatever it is, untouched |
 
-A date stays a `Date` and a timestamp a `Time`, deliberately, and that holds in
-both directions: casting a date to `Time` invents a midnight the server never
-sent, and sending a `Time` for a date variable drops the time of day. Give one
-for the other and it is refused, naming the class —
-`$on of Report: expected a Date, got a Time — pass .to_date if dropping the
-time of day is what you meant`. That holds when you register your own `cast:`
-too: a cast says how the Ruby object is *built*, not which values are right, so
-a `DateTime` — which Ruby files under `Date` — is refused for a `Date` scalar
-however the codec is spelled. The refusal is about Ruby **objects**: a
-timestamp *string* given for a `Date` parses and truncates to its date, which
-is what graphql-ruby's own `ISO8601Date` does with it. A schema that means something
-else by one of these names fails loudly — the cast raises, naming the field —
-and one `register_scalar` overrides it, like any other entry. Names that are
-*not* a convention (`Timestamp`, `UUID`, `URL`, `Decimal`, `Money`) are left to
-you, because guessing at one would be worse than asking.
+**A date stays a `Date` and a timestamp a `Time`**, in both directions: casting a
+date to `Time` invents a midnight the server never sent, and sending a `Time` for
+a date variable drops the time of day. Give one for the other and it is refused,
+naming the class — `$on of Report: expected a Date, got a Time — pass .to_date if
+dropping the time of day is what you meant`. A `cast:` of your own doesn't change
+that: a cast says how the object is *built*, not which values are right. The
+refusal is about Ruby **objects**; a timestamp *string* given for a `Date` parses
+and truncates to its date, as graphql-ruby's own `ISO8601Date` does.
+
+A schema that means something else by one of these names fails loudly, and one
+`register_scalar` overrides it like any other entry. Names that are *not* a
+convention (`Timestamp`, `UUID`, `URL`, `Decimal`, `Money`) are left to you,
+because guessing at one would be worse than asking.
 
 ## Registering a stdlib type
 
 Name the class and stop. What the library supplies is the part inference can't
-reach: the wire spelling (`BigDecimal#to_s` writes `"0.125e2"`, which is not
-what any server means by 12.5, and `Date.parse` reads far more than the ISO
-8601 a `Date` scalar carries) and the file to require, so the generated source
-stands alone.
+reach: the wire spelling (`BigDecimal#to_s` writes `"0.125e2"`, which is not what
+any server means by 12.5) and the file to require, so the generated source stands
+alone.
 
 | Ruby type | cast | serialize | require |
 |---|---|---|---|
@@ -73,24 +71,16 @@ stands alone.
 | `Time` | `Time.parse(v)` | `GraphWeaver::Coerce.timestamp(v)` | `time` |
 | `DateTime` | `DateTime.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `date` |
 
-For a timestamp, reach for `Time`; Ruby's own `DateTime` is accepted if you
-register it, but never assumed. They don't cost the same per value:
-`DateTime.iso8601` measures about 1.6× `Date.iso8601`, and `Time.parse` — what
-a `Time` registration infers, so what every `DateTime`/`ISO8601DateTime` field
-already casts through — about 7×, since it is the tolerant reader rather than a
-strict one. That is noise beside the `T::Struct` construction around it until
-you're casting thousands of timestamps per response; there,
-`register_scalar("Timestamp", Time, cast: :iso8601)` is about 3× cheaper than
-`Time.parse` and refuses the looser forms, which is the trade.
-`BigDecimal(v)` is Ruby's own reader, so
-it takes what Ruby takes — `"12.5"`, `"1e3"`, a JSON number — and refuses
-`"abc"` or `"$12.50"`, naming the field or the variable.
+For a timestamp reach for `Time`; Ruby's own `DateTime` is accepted if you
+register it, but never assumed. `Time.parse` is the tolerant reader, and about 7×
+the cost of a strict one — noise until you are casting thousands of timestamps per
+response, where `register_scalar("Timestamp", Time, cast: :iso8601)` is both
+cheaper and narrower.
 
 **A trailing zero doesn't survive the round trip.** A `BigDecimal` holds the
-*number*, so `"10.00"` in comes back `"10.0"` — `to_s("F")` writes the value,
-not the spelling. Numerically identical, textually different, which matters
-only where the bytes are: diffing a request body, or hashing one for a
-signature. Keep the string the user typed if that is what you need to compare.
+*number*, so `"10.00"` in comes back `"10.0"` — numerically identical, textually
+different, which matters only where the bytes are: diffing a request body, or
+hashing one for a signature.
 
 ## Registering a class of your own
 
@@ -103,39 +93,58 @@ deserialize side and pairing its serializer:
 | `.load` | `Type.load(v)` | `Type.dump(v)` |
 | `Kernel#Type` | `Type(v)` | — |
 
-so a value object with a `.parse` needs nothing more:
+so a value object with a `.parse` needs nothing more than
+`GraphWeaver.register_scalar("Money", Money)`.
 
-```ruby
-GraphWeaver.register_scalar("Money", Money)
-```
+**Give it `eql?` and `hash` too, not just `==`.** A result compares its props with
+`eql?`, so a class that stops at `==` makes two results parsed from the same
+response unequal, and useless as hash keys, while the `Money` inside them compares
+fine. Registration warns when it spots one; `alias_method :eql?, :==` plus a
+`hash` built from the same values is the whole fix.
 
-**Give it `eql?` and `hash` too, not just `==`.** A result compares its props
-with `eql?`, so that it and `#hash` agree on what "same" means — a class that
-stops at `==` makes two results parsed from the same response unequal, and
-useless as hash keys, while the `Money` inside them compares fine. Registration
-warns when it spots one. `alias_method :eql?, :==` plus a `hash` built from the
-same values is the whole fix.
+A type defining none of those probes stays pass-through rather than getting
+wrapped — every object has `#to_s`, so inferring a serializer off it would wrap
+plain types too. Override explicitly when you need to:
 
-A type defining none of those stays pass-through rather than getting wrapped —
-every object has `#to_s`, so inferring a serializer off it would wrap plain
-types too. That is about not *inventing* a codec, not about the cast being
-optional: a class JSON can't parse into is still refused (below) the moment a
-query reads that field. Override explicitly when you need to:
-
-- a `Symbol` method name, nothing to misspell: `cast: :load` → `Money.load(expr)`,
-  `serialize: :to_json` → `expr.to_json`
-- an `Array`, for a method with arguments: `serialize: [:to_s, "F"]` → `expr.to_s("F")`
-- a `Proc` for anything a method name can't express: `cast: ->(expr) { "Money.new(#{expr})" }`
+- a `Symbol` method name: `cast: :load` → `Money.load(expr)`, `serialize: :to_json`
+- an `Array`, for a method with arguments: `serialize: [:to_s, "F"]` →
+  `expr.to_s("F")`
+- a `Proc` for anything a method name can't express:
+  `cast: ->(expr) { "Money.new(#{expr})" }` — it returns **source, not a value**,
+  since what comes back is inlined into `from_h`
 - `:itself` to force pass-through, opting out of inference (rare)
 
-Not every class is so obliging, and the money gem's `Money` is the honest hard
-case: it defines none of those probes, so you say how one is built. **A cast can
-only use what the wire carries**, and `Money.from_amount` needs a currency no
-amount of Ruby recovers if the response didn't send one. So the scalar's shape
-decides the registration, and three shapes carry it.
+The type also accepts a plain string (`"Money"`) when you'd rather not reference
+the class, which **skips inference entirely** — there is no class in hand to
+probe. `requires:` (a string or array) names files emitted as `require`s atop the
+generated source so the cast and type resolve; where the type is a real class each
+path is also `require`d at registration, so a typo fails now rather than in the
+generated file.
 
-**An object** — `{"amount": "12.50", "currency": "EUR"}`. The cast reads both
-out of it, and `serialize:` writes the same hash back:
+**Register what your cast returns, not where the factory method lives.**
+`register_scalar("URL", URI)` looks right and runs fine — `URI.parse` is a probe
+hit — but `URI` is a *module*, and Sorbet's payload for it doesn't `include
+Kernel`, so every call site fails `srb tc` with "Method `nil?` does not exist on
+`URI`". The value is a `URI::Generic`:
+
+```ruby
+GraphWeaver.register_scalar("URL", URI::Generic, cast: ->(v) { "URI.parse(#{v})" })
+```
+
+`URI.parse` is ASCII-only, so a server writing an un-escaped unicode path raises
+`URI must be ascii only` — a clean `CastError`, but a refusal of a URL that is
+fine. Escape in the cast (`URI::DEFAULT_PARSER.escape(#{v})`), or register
+[Addressable](https://github.com/sporkmonger/addressable) instead.
+
+### When the wire shape decides the registration
+
+The money gem's `Money` is the honest hard case: it defines none of the probes,
+and `Money.from_amount` needs a currency no amount of Ruby recovers if the
+response didn't send one. **A cast can only use what the wire carries**, so the
+scalar's shape decides what you write.
+
+An **object** — `{"amount": "12.50", "currency": "EUR"}` — is read out in the cast
+and written back by `serialize:`:
 
 ```ruby
 GraphWeaver.register_scalar("Money", Money,
@@ -143,36 +152,10 @@ GraphWeaver.register_scalar("Money", Money,
   serialize: ->(v) { "{ \"amount\" => #{v}.amount.to_s(\"F\"), \"currency\" => #{v}.currency }" })
 ```
 
-**One string carrying both** — `"12.50 EUR"`, split in the cast, with
-`serialize: :to_s` writing it back when that is the spelling `Money#to_s` gives.
-
-**One `serialize:` serves both directions**, which matters when the server's
-don't match. It writes the outbound variable *and* a result's
-[`as_json`](generated_modules.md#anatomy) — that pairing is what makes
-`from_h(JSON.parse(x.to_json)) == x` hold. A scalar that sends an object and
-accepts a string can't have both: `cast:` reads the object, `serialize:` writes
-`"12.50 EUR"`, and `as_json` writes the string the cast can't read, so the JSON
-round trip raises a `CastError` coming back. The wire itself is fine in both
-directions; it is that round trip alone, and it is the bound until a
-`to_wire:`/`as_json:` split earns its keep. The same asymmetry decides the
-[`:fake` pin](testing.md#pins): a pin stands in for a *result*, so pin what the
-server **sends** — `{"amount" => "12.50", "currency" => "EUR"}` — not the
-string your `serialize:` writes. Pin the string and the fabrication succeeds
-and `from_h` fails a call later with "can't convert nil into BigDecimal".
-
-**An object type rather than a scalar** — `Money { amount currency }` — which
-needs no `register_scalar` at all: codegen types both fields, and
-[`extend_type`](generated_modules.md#type-helpers) adds the conversion. Ask for
-this shape if you get a vote; the currency is then in the schema, where a reader
-finds it.
-
-```ruby
-GraphWeaver.extend_type("Money") { def to_money = ::Money.from_amount(BigDecimal(amount), currency) }
-```
-
-**A bare decimal string** — `"12.50"` — carries no currency, so the cast has to
-supply one. Reach for this only when the API really is single-currency, and say
-so where the next reader will look:
+**One string carrying both** — `"12.50 EUR"` — splits in the cast, with
+`serialize: :to_s` writing it back. A **bare decimal string** carries no currency,
+so the cast supplies one; reach for that only when the API really is
+single-currency, and say so where the next reader will look:
 
 ```ruby
 # single-currency API: a Money in any other currency comes back mislabelled
@@ -181,148 +164,106 @@ GraphWeaver.register_scalar("Money", Money,
   serialize: :to_s)
 ```
 
-The `cast:` proc returns **source, not a value** — generated code is static, so
-what comes back is the expression inlined into `from_h`, here
-`Money.from_amount(BigDecimal(data.fetch("price")), "USD")`. `serialize: :to_s`
-is the inverse, and it's the right one of three near-identical candidates:
-`Money#to_s` writes a plain `"12.50"` — no symbol, no thousands separator, and
-it ignores your app's `default_formatting_rules` — while `#to_d` and its alias
-`#amount` hand back a `BigDecimal`, which reaches the wire as `"0.125e2"`.
-
-A registration this plausible can also be flatly wrong. The *format* a `Money`
-string has to match lives in the server's `coerce_input`, and no schema carries
-it, so nothing before a real request says whether the server wants `"12.50"`,
-`"12.50 USD"` or the object — it generates clean either way, and a `:fake`
-suite never asks. [Send one for real](#what-no-check-can-see) and a server that
-disagrees says so itself: `"12.5" is not a valid Money — expected "12.50 USD"`,
-arriving `:refused` with that wording.
-
-**Register what your cast returns, not where the factory method lives.**
-`register_scalar("URL", URI)` looks right and runs fine — `URI.parse` is a
-probe hit — but `URI` is a *module*, and Sorbet's payload for it doesn't
-`include Kernel`, so every call site that touches the prop fails `srb tc` with
-"Method `nil?` does not exist on `URI`". The value is a `URI::Generic`, so
-register that and say where it comes from:
+**An object type rather than a scalar** — `Money { amount currency }` — needs no
+`register_scalar` at all: codegen types both fields, and
+[`extend_type`](generated_modules.md#type-helpers) adds the conversion. Ask for
+this shape if you get a vote; the currency is then in the schema, where a reader
+finds it.
 
 ```ruby
-GraphWeaver.register_scalar("URL", URI::Generic, cast: ->(v) { "URI.parse(#{v})" })
+GraphWeaver.extend_type("Money") { def to_money = ::Money.from_amount(BigDecimal(amount), currency) }
 ```
 
-`URI.parse` is ASCII-only, so a server that writes an un-escaped unicode path
-(`https://example.com/café`) raises `URI must be ascii only` — a clean
-`CastError` naming the field, but a refusal of a URL that is fine. Escape
-before parsing (`URI::DEFAULT_PARSER.escape(#{v})`), or register
-[Addressable](https://github.com/sporkmonger/addressable), which takes unicode
-as it comes.
+**One `serialize:` serves both directions** — the outbound variable *and* a
+result's [`as_json`](generated_modules.md#anatomy), which is what makes
+`from_h(JSON.parse(x.to_json)) == x` hold. So a scalar that sends an object and
+accepts a string can't have both: `as_json` writes the string the cast can't read,
+and the JSON round trip raises a `CastError` coming back (the wire itself is fine
+in both directions). The same asymmetry decides the [`:fake` pin](testing.md#pins):
+a pin stands in for a *result*, so pin what the server **sends**.
 
-The type also accepts a plain string (`"Money"`) when you'd rather not
-reference the class — which **skips inference entirely**, since there is no
-class in hand to probe: a string-registered type with no `cast:` of its own has
-none, and the refusal below says so rather than pretending it was probed.
-`requires:` (a string or array) names files emitted as `require`s atop the
-generated source so the cast/type resolve. When the type is
-a real class (so the runtime is loaded), each path is also `require`d at
-registration — a typo fails now, not in the generated file.
+Any of this can also be flatly wrong: the *format* a `Money` string has to match
+lives in the server's `coerce_input`, which no schema carries, so nothing before a
+real request says whether the server wants `"12.50"`, `"12.50 USD"` or the object.
+[Send one for real](#what-no-check-can-see).
 
 ## Overriding one field
 
-Pass a `Type.field` **coordinate** instead of a scalar name to override just
-that one field — so the same scalar can deserialize as different Ruby types
-across fields:
+Pass a `Type.field` **coordinate** instead of a scalar name to override just that
+one field, so the same scalar can deserialize as different Ruby types across
+fields — and so two servers that disagree about a `DateTime` can coexist in one
+process:
 
 ```ruby
 GraphWeaver.register_scalar("Timestamp", Time)      # the default, everywhere
 GraphWeaver.register_scalar("User.birthday", Date)  # this field only
 ```
 
-A field override wins over the scalar-name registration — which is also how two
-servers that disagree about a `DateTime` coexist in one process.
+A coordinate takes a **type string** too, which is how you narrow `JSON`: the
+scalar can legally be any JSON value, so the registry's answer for the whole scalar
+stays `T.untyped`, but where *you* know one field's shape, say it there —
+`register_scalar("Settings.meta", "T::Hash[String, T.untyped]")`. `srb tc` then
+sees a Hash at every call site, and a response carrying something else is refused
+naming the struct rather than surfacing as a `NoMethodError` three layers on.
+That's a trade: an array the scalar allowed is now a hard failure, and the field
+opts out of `:fake` fabrication, so pin it
+(`overrides: { "Settings.meta" => { ... } }`).
 
-A coordinate takes a **type string** too, which is how you narrow `JSON`. A
-`JSON` scalar can legally be any JSON value — an object, an array, a string, a
-number — so the registry's answer for the whole scalar has to stay `T.untyped`.
-Where *you* know one field's shape, say it there:
+## What generation refuses, and what it only warns about
 
-```ruby
-GraphWeaver.register_scalar("Settings.meta", "T::Hash[String, T.untyped]")
-```
-
-The prop becomes `T.nilable(T::Hash[String, T.untyped])`, so `srb tc` sees a
-Hash at every call site, and a response carrying something else is refused
-naming the struct instead of surfacing as a `NoMethodError` three layers on.
-That's a trade rather than a free win: an array the scalar allowed is now a
-hard failure — you asserted the shape, so being right about it is on you. It
-also opts that field out of `:fake` fabrication, for the same reason any
-non-stdlib type is: only you know which hashes the field really carries, so pin
-it (`overrides: { "Settings.meta" => { ... } }`).
-
-Registrations are validated against the schema you generate against, and only
-what that schema can **disprove** fails generation: a name it declares as
-something else (`register_scalar("Species")` where `Species` is an enum), or a
-coordinate whose field it declares as a composite. A name it simply can't match
-only warns — one registry serves a whole graph, so that name may belong to the
-subgraph next door (see
-[federation](federation.md#generating-for-a-federated-graph)).
-
-The testing harness can't invent a wire value for a scalar registered as your
-own class — only `Money.parse` knows what it accepts — so it refuses rather than
-guess. Say it in test config, where that answer belongs: a pin for the type,
-`GraphWeaver::Testing.config.overrides = { "Money" => "12.00" }`, or per example
-([testing → pins](testing.md#pins)). A scalar registered as one of the types
-above — `BigDecimal`, `Time`, `Date`, `Integer`, `Float`, `String`,
-`T::Boolean` — needs nothing.
+Registrations are validated against the schema you generate against, and only what
+that schema can **disprove** fails generation: a name it declares as something else
+(`register_scalar("Species")` where `Species` is an enum), or a coordinate whose
+field it declares as a composite. A name it simply can't match only warns — one
+registry serves a whole graph, so that name may belong to the subgraph next door
+(see [federation](federation.md#generating-for-a-federated-graph)).
 
 A registration whose type is a class **JSON can't parse into**, with nothing to
 build one, is refused where a query reads that scalar back: the prop would be
-unsatisfiable for every response, and finding that out at runtime is worse.
-Generation names the field, and which of the two mistakes you made — a class
-the probes missed:
+unsatisfiable for every response. The message names the field and which of the two
+mistakes you made — `Wallet defines no .parse and no .load, and Kernel has no
+Wallet conversion function, so there was nothing to infer`, or, for a type given
+by name, that a name is never probed. A registration used only for a variable is
+untouched: nothing casts it.
+
+A scalar you never register is not an error — it generates as `T.untyped` and the
+wire value passes through untouched. It is the one hole in an otherwise exact
+result type, so generation names the holes; `rake graph_weaver:generate` and
+`:verify` print them once for the run, and `GraphWeaver.parse` says the same at
+`info`:
 
 ```
-register_scalar("Money", Wallet) has no cast, so nothing builds a Wallet out of
-the JSON at Product.price — Wallet defines no .parse and no .load, and Kernel
-has no Wallet conversion function, so there was nothing to infer. Give it a
-cast ...
+3 unregistered custom scalars → T.untyped: CountryCode, FuzzyDateInt, Json (register with GraphWeaver.register_scalar)
 ```
 
-or a type given by name, which is never probed:
+A scalar that is *meant* to be untyped belongs in the registry too —
+`GraphWeaver.register_scalar("Json", "T.untyped")` says so once and leaves the
+report. `JSON` is registered that way already.
 
-```
-register_scalar("Money", "Wallet") has no cast, so nothing builds a Wallet out
-of the JSON at Product.price — a type: given by name is never probed, since
-there is no class in hand. Pass the class ...
-```
+The testing harness can't invent a wire value for a scalar registered as your own
+class — only `Money.parse` knows what it accepts — so it refuses rather than
+guess. Say it in test config: `Testing.config.overrides = { "Money" => "12.00" }`,
+or per example ([testing → pins](testing.md#pins)). A scalar registered as one of
+the stdlib types above needs nothing.
 
-A registration used only for a variable is untouched: nothing casts it.
-
-`cast:` is also what a *variable* of this scalar coerces through, so the same
-registration gets you both directions with nothing to switch on:
-
-```ruby
-GraphWeaver.register_scalar("Money", Money)
-StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the hood
-StoreQuery.execute(budget: Money.new(1200))  # already a Money — passed straight through
-```
-
-The kwarg is still typed `Money`, not `T.any(Money, String)`: `execute`'s sig
-stays as narrow as the schema and the conversion happens in its body (see
-[typed variables](generated_modules.md#variables-become-typed-kwargs)). So
-`budget: "12.00"` written literally in a `# typed:` file is still an `srb tc`
-error — as it should be, since you have a `Money` right there — while
-`budget: params[:budget]` typechecks and converts.
-
+`GraphWeaver.reset_registrations!` is the clean slate between tests (built-in
+scalars restored, enum mappings and type helpers dropped);
+`GraphWeaver.reset_graphs!` is its twin for declared graphs, and
+`GraphWeaver::Codegen` has the pieces for one registry rather than all of them —
+`reset_scalars!`, `clear_scalars!`, `reset_enums!`, `reset_type_helpers!`. Scoping
+registrations to one of several schemas is not what any of that is for: a
+[graph](getting_started.md#more-than-one-schema) block does that, and holds both
+sets at once instead of resetting between them.
 
 ## What the wire carries
 
-The rule is one sentence: **generated code takes every JSON spelling a
-spec-compliant server may write, and refuses the rest.** The tables below are
-the whole of it, and [`bin/round-trip`](../bin/round-trip) fuzzes both
-directions against them — the accepted spellings as real values, the refused
-ones under `--hostile`, where generated code has to name what it turned down.
+One sentence: **generated code takes every JSON spelling a spec-compliant server
+may write, and refuses the rest.** The tables below are the whole of it, and
+[`bin/round-trip`](../bin/round-trip) fuzzes both directions against them.
 
-The one place "spec-compliant" is doing real work is `Float`. JSON has a single
+The one place "spec-compliant" is doing real work is `Float`: JSON has a single
 number type and encoders write the shortest form, so `1.0` reaches Ruby as `1`
-from graphql-js and from Go. Nothing does the reverse: `2.0` for an `Int` is the
+from graphql-js and from Go. Nothing does the reverse — `2.0` for an `Int` is the
 server writing a non-integer where the spec says integer, so it is refused.
 
 ### Coming back — what `from_h` accepts
@@ -341,21 +282,18 @@ server writing a non-integer where the spec says integer, so it is refused.
 | `JSON`, or unregistered | anything — `T.untyped`, straight through | nothing |
 
 A refusal is a [`GraphWeaver::CastError`](errors.md) naming the field and the
-generated struct (which names the query). Two refusals carry advice rather than
-only sorbet's words: an unquoted `ID`, and a registration with no cast (above).
-
-Numeric strings — here, and in the going-out table below — are read as a wire
-format, not as Ruby source: `"010"` is ten, and `"0x1f"` and `"1_0"` are
-refused. `Kernel#Integer` and `Kernel#Float` accept all three as literals,
-which would let a zero-padded form field silently mean something else.
+generated struct (which names the query). Numeric strings — here and in the table
+below — are read as a wire format, not as Ruby source: `"010"` is ten, and `"0x1f"`
+and `"1_0"` are refused, where `Kernel#Integer` would take all three and let a
+zero-padded form field silently mean something else.
 
 ### Going out — what a variable kwarg accepts
 
-The kwarg's **type** is what `srb tc` holds a call site to, and it is exactly
-what the schema says. The **value** reaching `execute` at runtime is coerced,
-because a Rails param is a String whatever the sig says (see
-[typed variables](generated_modules.md#variables-become-typed-kwargs) for why
-the sig is `.checked(:never)`).
+The kwarg's **type** is what `srb tc` holds a call site to, and it is exactly what
+the schema says. The **value** reaching `execute` at runtime is coerced, because a
+Rails param is a String whatever the sig says (see
+[typed variables](generated_modules.md#variables-become-typed-kwargs) for why the
+sig is `.checked(:never)`).
 
 | scalar | kwarg is typed | also accepts, at runtime | on the wire |
 |---|---|---|---|
@@ -373,79 +311,58 @@ the sig is `.checked(:never)`).
 | `JSON`, or unregistered | `T.untyped` | anything | straight through |
 
 The **on the wire** column is also what a result's
-[`#as_json`/`#to_json`](generated_modules.md#anatomy)
-writes, so a result read back with `from_h` equals the one you rendered.
+[`#as_json`/`#to_json`](generated_modules.md#anatomy) writes, so a result read back
+with `from_h` equals the one you rendered.
 
-**Writing the scalar on the server too?** graphql-ruby calls a *nullable*
-scalar argument's `coerce_input` with `nil` for an explicit `null` — only
-`NonNull` short-circuits — so a coercer written the way the examples above are
-(`value.upcase`, `Money.parse(value)`) raises `NoMethodError` on nil. Guard it,
-or `:in_process` will show it to you as a `ServerError`.
-
-Two rows are judgment calls worth stating. **`ID` takes an `Integer`** because
-the GraphQL spec says an ID serializes as a string but accepts an integer input,
-and `execute(id: user.id)` off a model is the everyday call; `String` gets no
-such license, since an `Integer` where a `String` belongs is more often a bug
-than a spelling. **`Boolean` takes no string** — Ruby has no `Kernel#Boolean`,
-so every rule for reading `"0"`, `"off"`, `"no"` is somebody's convention, and
-the library will not pick one for you; convert at the call site. **A `Date` and
-a `Time` are not each other** — one converts to the other only by dropping the
-time of day or inventing a midnight, so a cross-type Ruby **object** is refused
-rather than truncated. A timestamp *string* is a different question, answered
-by the wire table above: it truncates. What *is* accepted for a `Time` is anything that already is one:
-a `DateTime`, or the `ActiveSupport::TimeWithZone` that `Time.zone.now` returns.
+Three rows are judgment calls. **`ID` takes an `Integer`** because the spec says an
+ID serializes as a string but accepts an integer input, and `execute(id: user.id)`
+off a model is the everyday call; `String` gets no such license. **`Boolean` takes
+no string**, because every rule for reading `"0"`, `"off"`, `"no"` is somebody's
+convention. **A `Date` and a `Time` are not each other**, as above; what *is*
+accepted for a `Time` is anything that already is one.
 
 Anything the table refuses raises `GraphWeaver::InputError` naming the variable,
-the operation and the value — `$count of Compute: expected an Int, got "lots"`
-— which is the same [422 rescue point](errors.md) as a bad input-object field.
-It is named the way the **schema** names it, so a `register_scalar("Money",
-BigDecimal)` field refuses a `Money`, in `#message` and in `#details[:type]`
-alike. Input-object fields go through this table too, so `{first: "20"}` inside
-a filter hash reads the same as `first: "20"` as a kwarg.
+the operation and the value — `$count of Compute: expected an Int, got "lots"` —
+which is the same [422 rescue point](errors.md) as a bad input-object field. The
+type is named the way the **schema** names it, so a `register_scalar("Money",
+BigDecimal)` field refuses a `Money`, in `#message` and in `#details[:type]` alike.
+Input-object fields go through this table too, so `{first: "20"}` inside a filter
+hash reads the same as `first: "20"` as a kwarg. When it is the **server's**
+scalar that refuses, its `GraphQL::CoercionError` earns a specific
+[`kind`](errors.md#what-an-inputerror-says-without-reading-english) only where its
+message matches one of graphql-ruby's own explanations, or it raises with
+`extensions: { "input" => … }`
+([the convention](errors.md#what-your-server-can-send)).
 
-When it is the **server's** custom scalar that refuses, its
-`GraphQL::CoercionError` earns a specific
-[`kind`](errors.md#what-an-inputerror-says-without-reading-english) only where
-its message matches one of graphql-ruby's own explanations, or the scalar
-raises with `extensions: { "input" => … }`
-([the convention](errors.md#what-your-server-can-send)) itself — a scalar's own
-wording arrives `:refused`, with that wording.
+A custom scalar's `cast:` is what a *variable* of that scalar coerces through, so
+one registration gets you both directions:
 
-`GraphWeaver.reset_registrations!` is the clean slate between tests: built-in
-scalars restored, enum mappings and type helpers dropped. `GraphWeaver.reset_graphs!`
-is its twin for graphs declared with `GraphWeaver.graph`. To reset one registry
-rather than all of them,
-`GraphWeaver::Codegen` has the pieces —
-`reset_scalars!` (restore the built-ins), `clear_scalars!` (empty the registry
-entirely), `reset_enums!`, `reset_type_helpers!`.
-
-Scoping registrations to one of several schemas is not what this is for — a
-[graph](getting_started.md#more-than-one-schema) block does that, and holds both
-sets at once instead of resetting between them.
-
-A scalar you never register is not an error — it generates as `T.untyped` and
-the wire value passes through untouched. It is, though, the one hole in an
-otherwise exact result type, so generation names the holes. `rake
-graph_weaver:generate` and `:verify` print them once for the run, and a
-`GraphWeaver.parse` says the same thing at `info` (see [logging](logging.md)):
-
-```
-3 unregistered custom scalars → T.untyped: CountryCode, FuzzyDateInt, Json (register with GraphWeaver.register_scalar)
+```ruby
+StoreQuery.execute(budget: "12.00")          # Money.parse("12.00") under the hood
+StoreQuery.execute(budget: Money.new(1200))  # already a Money — passed straight through
 ```
 
-A scalar that is *meant* to be untyped belongs in the registry too —
-`GraphWeaver.register_scalar("Json", "T.untyped")` says so once, and it leaves
-the report. `JSON` is registered that way already.
+The kwarg is still typed `Money`, not `T.any(Money, String)`: the sig stays as
+narrow as the schema and the conversion happens in `execute`'s body. So
+`budget: "12.00"` written literally in a `# typed:` file is still an `srb tc` error
+— as it should be, since you have a `Money` right there — while
+`budget: params[:budget]` typechecks and converts.
+
+**Writing the scalar on the server too?** graphql-ruby calls a *nullable* scalar
+argument's `coerce_input` with `nil` for an explicit `null` — only `NonNull`
+short-circuits — so a coercer written like the examples above raises
+`NoMethodError` on nil. Guard it, or `:in_process` will show it to you as a
+`ServerError`.
 
 ## What no check can see
 
 A custom scalar has two definitions that have to agree: the server's
-`coerce_input`/`coerce_result`, and your `register_scalar`. **No schema carries
-the first one.** A scalar's SDL is its name, a description and a `@specifiedBy`
-url — the coercers are Ruby method bodies that never reach a dump — so a server
+`coerce_input`/`coerce_result`, and your `register_scalar`. **No schema carries the
+first one.** A scalar's SDL is its name, a description and a `@specifiedBy` url —
+the coercers are Ruby method bodies that never reach a dump — so a server
 switching `coerce_result` from a decimal string to a JSON number, same scalar,
 same name, moves nothing `verify`, `schema:diff` or `generate` reads. All three
-stay green. Then `BigDecimal` accepts the Float without complaint:
+stay green, and `BigDecimal` then takes the Float without complaint:
 
 ```ruby
 BigDecimal(BigDecimal("123456789.123456789").to_f).to_s("F")   # => "123456789.1234567"
@@ -453,7 +370,7 @@ BigDecimal(BigDecimal("123456789.123456789").to_f).to_s("F")   # => "123456789.1
 
 No `CastError`, no warning — just totals quietly wrong past the seventh
 significant figure, which is the precision a string-valued `Decimal` exists to
-protect in the first place.
+protect.
 
 The check is a request that runs the real coercers: one `graphql: :in_process`
 example per registered scalar, round-tripping a value through the schema class.
@@ -465,32 +382,24 @@ it "round-trips a Money through the real server", graphql: :in_process do
 end
 ```
 
-Four lines, and it fails the moment either side moves. **`graphql: :fake`
-cannot stand in for it**: a fake fabricates from your *client* registration
-alone, so it hands back a value the real server would never send and accepts
-one the real server would reject — a lowercase currency, a format the
-`coerce_input` regex refuses. It is shape-correct, never rule-correct.
-`:in_process` is the tier that runs the rules, and a
-[cassette](cassettes.md) recorded against it carries them to a suite that
-can't boot the schema class.
+Four lines, and it fails the moment either side moves. **`graphql: :fake` cannot
+stand in for it**: a fake fabricates from your *client* registration alone, so it
+hands back a value the real server would never send and accepts one the real
+server would reject. It is shape-correct, never rule-correct. A
+[cassette](cassettes.md) recorded against `:in_process` carries the rules to a
+suite that can't boot the schema class.
 
 ## Enums: map onto your own T::Enum
 
-By default a schema enum generates one `T::Enum` per schema, shared by every
-query module that touches it (`GraphQLTypes::Species`, aliased as
-`AddPetMutation::Species`). That's fine until your app has its own domain
-enum, and then the boundary shuffle starts:
+By default a schema enum generates one `T::Enum` per schema, shared by every query
+module that touches it (`GraphQLTypes::Species`, aliased as
+`AddPetMutation::Species`). That's fine until your app has its own domain enum —
+one that is persisted, or matched in business logic — and then every call site
+converts by hand, in both directions:
 
 ```ruby
-# your domain already speaks PetKind — it's in your models, your
-# ActiveRecord enum column, your case statements
-class PetKind < T::Enum
-  enums { Cat = new("cat"); Dog = new("dog") }
-end
-
-# without a mapping, every call site converts by hand, in both directions
-kind = PetKind.deserialize(pet.species.serialize.downcase)      # response -> domain
-AddPetMutation.execute!(species: kind.serialize.upcase)            # domain -> wire
+kind = PetKind.deserialize(pet.species.serialize.downcase)   # response -> domain
+AddPetMutation.execute!(species: kind.serialize.upcase)      # domain -> wire
 ```
 
 Register the mapping once and the seam disappears — generated code speaks your
@@ -499,43 +408,36 @@ enum everywhere, casting wire values in and serializing members out:
 ```ruby
 GraphWeaver.register_enum("Species", PetKind)
 
-pet.species                                   # => PetKind::Dog — compare, case, persist directly
-pet.species == other_pet.species              # same type across every query
+pet.species                                      # => PetKind::Dog — compare, case, persist directly
+pet.species == other_pet.species                 # same type across every query
 AddPetMutation.execute!(species: PetKind::Cat)   # or "CAT" — members and wire values both work
 ```
 
-**When to reach for it**: the enum has a life outside the API — it's
-persisted or matched in business logic. **When not to bother**: values you
-only read back out of responses; the generated enum is already one type
-across every query and needs zero setup.
+For values you only ever read back out of responses, don't bother: the generated
+enum is already one type across every query and needs zero setup.
 
 The mapping is inferred by name (`"CAT"` ↔ `PetKind::Cat`,
-case/underscore-insensitive against each member's serialized value), so
-aligned enums need only the one line. When names diverge, `map:` pins the
-exceptions and merges over inference:
-
-```ruby
-GraphWeaver.register_enum("Species", PetKind, map: { "FELINE" => PetKind::Cat })
-```
+case/underscore-insensitive against each member's serialized value), so aligned
+enums need only the one line. When names diverge, `map:` pins the exceptions and
+merges over inference:
+`GraphWeaver.register_enum("Species", PetKind, map: { "FELINE" => PetKind::Cat })`.
 
 Two safety properties do the real work:
 
-- **Exhaustiveness at generation**: every value the schema declares must
-  resolve to a member, or generation fails naming the gaps
-  (`PetKind has no member for Species value(s) DOG — add them, pin with
-  map:, or absorb with fallback:`). Your enum drifting from the server's
-  is caught at `rake graph_weaver:generate`, not in production.
-- **`fallback:` for forward-compat**: `fallback: PetKind::Unknown` makes
-  *casting* absorb wire values the server added after you generated —
-  responses keep flowing instead of raising. Inputs stay strict either
-  way: a typo'd input is your bug, not drift. A union or interface absorbs
-  the same drift without a registration: a member added upstream lands in the
-  catch-all `Other` its dispatch always carries
-  ([generated modules](generated_modules.md#abstract-types)).
+- **Exhaustiveness at generation**: every value the schema declares must resolve to
+  a member, or generation fails naming the gaps (`PetKind has no member for
+  Species value(s) DOG — add them, pin with map:, or absorb with fallback:`), so
+  your enum drifting from the server's is caught by `rake graph_weaver:generate`,
+  not in production.
+- **`fallback:` for forward-compat**: `fallback: PetKind::Unknown` makes *casting*
+  absorb wire values the server added after you generated, so responses keep
+  flowing instead of raising. Inputs stay strict either way: a typo'd input is your
+  bug, not drift. A union or interface absorbs the same drift with no registration
+  — a member added upstream lands in the catch-all `Other` its dispatch always
+  carries ([generated modules](generated_modules.md#abstract-types)).
 
-The translation tables are emitted into the generated source
-(`SPECIES_FROM_WIRE` / `SPECIES_TO_WIRE`) — reviewable in the diff, no
-runtime registry.
+The translation tables are emitted into the generated source (`SPECIES_FROM_WIRE` /
+`SPECIES_TO_WIRE`) — reviewable in the diff, no runtime registry.
 
 Decorating a generated *struct* with your own methods is the sibling API —
 `extend_type`, in [generated modules](generated_modules.md#type-helpers).
