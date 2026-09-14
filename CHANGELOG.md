@@ -98,6 +98,16 @@
   settled where the context is written, so the lock is entered only when a proc
   is being resolved — the same 64 requests now take 0.47s. `docs/testing.md`'s
   two sentences are true without qualification.
+- **Recording one cassette from several processes no longer loses entries.**
+  `Cassette#record` rewrote the whole file from a snapshot taken when the
+  object was built, so under `parallel_tests` the last process to rename won
+  outright: four processes recording five entries each left five on disk, all
+  four green, no warning — surfacing days later as a `MissingRecording` in a
+  different process. A recorder now re-reads and rewrites under an advisory
+  `flock`, and all twenty survive. The lock is a `<cassette>.yml.lock`
+  sidecar, since `save` renames a fresh file into place and a lock on the
+  replaced inode would guard nothing. *Action:* gitignore `*.yml.lock` under
+  your cassette directory if you don't want the empty file in the repo.
 
 ###  v0.7.0  (2026-09-13)
 

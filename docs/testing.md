@@ -788,6 +788,11 @@ response is scrubbed on its way to disk — the query and its variables are the
 replay key and are recorded verbatim, so read a cassette before committing it.
 The full workflow guide is **[cassettes](cassettes.md)**.
 
+Recording under `parallel_tests` is safe: every process's entries survive,
+because a recorder re-reads the file and rewrites it under an advisory lock on
+a `<cassette>.yml.lock` sidecar. That file is an empty lock target — gitignore
+it, or let it sit; nothing reads it.
+
 ## Test-only generated modules
 
 They don't have to live in `app/` — `generated_paths` is an appendable list,

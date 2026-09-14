@@ -115,11 +115,8 @@ module GraphWeaver
 
       def initialize(path)
         @path = Testing.cassette_path(path)
-        @entries = File.exist?(@path) ? YAML.safe_load_file(@path, aliases: true) : []
+        @entries = read_entries
         @flagged = []
-        # record is read-modify-write; two threads recording through one
-        # cassette (a parallel spec run) would each save a snapshot missing
-        # the other's entry — atomic_write keeps the file whole, not complete
         @lock = Mutex.new
       end
 
@@ -147,7 +144,13 @@ module GraphWeaver
         entry["response"] = response
 
         wanted = Internal::RequestKey.for(query, variables, operation_name)
-        @lock.synchronize do
+        # Recording rewrites the whole file, and parallel_tests points several
+        # processes at one cassette — so the read-modify-write happens under a
+        # lock every recorder shares, re-reading inside it. The snapshot taken
+        # at construction is already missing whatever another process recorded
+        # since, and saving it would throw those entries away.
+        locked do
+          @entries = read_entries
           @entries.reject! { |existing| Internal::RequestKey.for_entry(existing) == wanted }
           @entries << entry
           save
@@ -197,6 +200,26 @@ module GraphWeaver
       end
 
       private
+
+      def read_entries = File.exist?(@path) ? YAML.safe_load_file(@path, aliases: true) : []
+
+      # Serialize a read-modify-write against every other recorder, in this
+      # process and any other. The Mutex is the threads; the flock is the
+      # processes. Both, because flock is held per open file, so one process's
+      # two threads would each take their own.
+      def locked
+        @lock.synchronize do
+          FileUtils.mkdir_p(File.dirname(@path))
+          File.open(lock_path, File::RDWR | File::CREAT, 0o644) do |lock|
+            lock.flock(File::LOCK_EX)
+            yield
+          end
+        end
+      end
+
+      # A sidecar, not the cassette itself: save renames a fresh file into
+      # place, so a lock held on the replaced inode guards nothing.
+      def lock_path = "#{@path}.lock"
 
       def save
         yaml = YAML.dump(@entries)

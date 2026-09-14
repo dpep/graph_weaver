@@ -157,6 +157,25 @@ describe GraphWeaver::Testing::Cassette do
 
       expect(File).to exist(File.join(@dir, "github.yml"))
     end
+
+    # Real processes, because that is the shipped configuration: parallel_tests
+    # gives four of them one cassette name. Recording is a whole-file rewrite
+    # of a snapshot taken at construction, so without a lock the last renamer
+    # won outright — three quarters of the recordings vanished, green, and
+    # surfaced days later as a MissingRecording in a different process.
+    it "keeps every process's entries when four record one cassette" do
+      4.times do |p|
+        fork do
+          recorder = GraphWeaver::Testing::Recorder.new(live, path)
+          5.times { |n| recorder.execute(PersonQuery::QUERY, variables: { "id" => "p#{p}-#{n}" }) }
+          exit!(0)
+        end
+      end
+      Process.waitall
+
+      recorded = YAML.safe_load_file(path).map { |entry| entry["variables"]["id"] }
+      expect(recorded.sort).to eq(4.times.flat_map { |p| 5.times.map { |n| "p#{p}-#{n}" } }.sort)
+    end
   end
 
   describe "record mode and anonymize-on-record" do
