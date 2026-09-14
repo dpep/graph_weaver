@@ -158,6 +158,32 @@ RSpec.describe "thread safety" do
     end
   end
 
+  # The debug tag has to identify a request in an aggregated log, and a Puma
+  # cluster forks: the counter is inherited, so every worker used to continue
+  # the master's sequence and "[req 4]" named two unrelated requests.
+  describe "#{GraphWeaver::Internal::Wire}.log_tag across a fork" do
+    it "gives each process its own sequence, under its own pid" do
+      3.times { GraphWeaver::Internal::Wire.send(:log_tag, "Boot") }
+
+      reader, writer = IO.pipe
+      2.times do
+        fork do
+          reader.close
+          writer.puts(3.times.map { GraphWeaver::Internal::Wire.send(:log_tag, "Serve") }.join("\t"))
+          exit!(0)
+        end
+      end
+      writer.close
+      children = 2.times.map { reader.gets.chomp.split("\t") }
+      Process.waitall
+
+      # each worker counts its own requests from 1...
+      expect(children).to all(match([/-1 Serve\]\z/, /-2 Serve\]\z/, /-3 Serve\]\z/]))
+      # ...and no tag names two of them
+      expect(children.flatten.uniq.size).to eq 6
+    end
+  end
+
   describe GraphWeaver::Client do
     # A cold Puma process serves its first requests concurrently, and the
     # schema is introspected lazily — over the network, and into a cache file

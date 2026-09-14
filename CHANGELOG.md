@@ -129,6 +129,14 @@
   one second, which collapses a wave to a single round trip (8.0× → 1.0×) and
   makes the wave after it free. Not a circuit breaker: nothing counts failures
   or stays open, and an upstream that comes back is tried on the next request.
+- **The debug request tag carries the pid: `[req 4123-3 Operation]`.** It was
+  `[req 3 Operation]`, counted in a module ivar that a Puma cluster's workers
+  inherit at fork — so every worker continued the master's sequence and
+  grepping an aggregated log for `[req 4]` returned two unrelated requests.
+  The count now restarts in a new process and the tag names the process.
+  *Action:* widen the pattern if you grep or parse for the old shape.
+  `docs/logging.md` gains a short table of what is process-global and who owns
+  each one.
 
 ###  v0.7.0  (2026-09-13)
 

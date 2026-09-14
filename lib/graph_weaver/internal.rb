@@ -403,11 +403,20 @@ module GraphWeaver
           { "message" => message, "extensions" => { "code" => code } }
         end
 
-        # "[req 3 FilteredPokemon]" — a per-process request id plus the
-        # operation name, when there is one
+        # "[req 4123-3 FilteredPokemon]" — the pid, this process's own
+        # request count, and the operation name when there is one.
+        #
+        # Both halves, because a Puma cluster forks: the counter is inherited
+        # with everything else, so without the reset every worker continues
+        # the master's sequence, and without the pid two workers' "[req 3]"
+        # are two unrelated requests in one aggregated log.
         def log_tag(operation_name = nil)
-          id = REQUEST_MUTEX.synchronize { @request_count = (@request_count || 0) + 1 }
-          "[req #{id}#{" #{operation_name}" if operation_name}]"
+          pid = Process.pid
+          id = REQUEST_MUTEX.synchronize do
+            @request_pid, @request_count = pid, 0 unless @request_pid == pid
+            @request_count += 1
+          end
+          "[req #{pid}-#{id}#{" #{operation_name}" if operation_name}]"
         end
 
         def truncate_for_log(query)

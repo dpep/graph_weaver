@@ -81,7 +81,7 @@ describe GraphWeaver::InProcess do
 
     expect(io.string).to include("in-process InProcessDemo::Schema")
     expect(io.string).to include("query Me { me }")
-    expect(io.string).to match(/\[req \d+ Me\].*completed \(\d+ms\)/)
+    expect(io.string).to match(/\[req \d+-\d+ Me\].*completed \(\d+ms\)/)
   ensure
     GraphWeaver.logger = nil
   end

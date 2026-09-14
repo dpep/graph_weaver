@@ -28,7 +28,7 @@ describe "GraphWeaver.logger" do
   it "tags each request's lines with an id and the operation name" do
     executor.execute("query LoggedPeople { people { name } }", variables: {})
 
-    tag = io.string[/\[req \d+ LoggedPeople\]/]
+    tag = io.string[/\[req \d+-\d+ LoggedPeople\]/]
     expect(tag).not_to be_nil
     expect(io.string.scan(tag).size).to eq 3 # request, timing, status
   end

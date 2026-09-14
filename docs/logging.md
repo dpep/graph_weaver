@@ -20,8 +20,9 @@ What logs at which level — pick the level, get the story:
 
 Every line carries `graph_weaver` as the progname, so formatter-based
 filtering works out of the box. Wire lines are tagged
-`[req 3 FilteredPokemon]` — a per-process request id plus the operation
-name — so a request's lines stay paired when threads interleave.
+`[req 4123-3 FilteredPokemon]` — the pid, that process's own request count,
+and the operation name — so a request's lines stay paired when threads
+interleave, and stay distinct when a Puma cluster's workers write to one log.
 
 **PII note**: queries, variables, and response sizes appear at debug
 only — variables can carry user data, so keep production loggers at
@@ -256,3 +257,21 @@ Datadog's Net::HTTP and Faraday contribs already trace the transport
 layer, so with them on you have a span for the POST. This adds the span
 *above* it, named for the operation — the one that means anything, since
 every GraphQL call is a POST to the same url.
+
+## What is process-global, and who owns it
+
+Three things outlive a single request, and each of them meets more than one
+writer in a shipped configuration — a Puma cluster, a multi-graph app, a
+`parallel_tests` run. Each has one owner now, so none of them needs a
+convention on your side:
+
+| Resource | Several writers arrive from | Who keeps them apart |
+|----------|-----------------------------|----------------------|
+| the `[req …]` counter | a Puma cluster: forked workers inherit it | the tag carries the pid, and the count restarts in a new process |
+| the schema cache file | two clients both saying `cache: true` | a dump records its source url; a client that didn't write it caches under a name of its own ([getting started](getting_started.md)) |
+| a cassette | `parallel_tests`, one cassette, several processes | a recorder re-reads and rewrites under a `flock` ([testing](testing.md)) |
+
+The two things that are *not* process-global and shouldn't be made so: a
+client's GraphQL context (per client, guarded by the client — see
+`GraphWeaver::ContextSeam`), and a connection pool (per process, rebuilt after
+a fork).
