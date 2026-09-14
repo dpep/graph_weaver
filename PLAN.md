@@ -79,7 +79,9 @@ in the patch. Roughly by value.
 6. **A version matrix in CI** (graphql-ruby floor/lock/latest, Rails 7.1–8.x,
    Sorbet latest): the `@oneOf` and `specifiedByURL` omissions each lived a
    release because one version was ever exercised.
-7. **Smaller:** a correlation id in the payload; `QueryError#summary`
+7. **Smaller:** `:wire` refuses the whole example when any declared graph's
+   client has no url, so an app with one in-process graph can't use `:wire`
+   for its remote ones (`wire_targets` walks every graph); a correlation id in the payload; `QueryError#summary`
    graph-aware ("recompose", not "refresh", for a supergraph);
    `source_transport`'s message for a supergraph; the built-in timestamp cast
    is `Time.parse`, the slowest of four (`:iso8601` is 3× cheaper and
