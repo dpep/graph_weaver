@@ -1,4 +1,8 @@
 ###  Unreleased
+- **A scalar's `@specifiedBy` url reaches an introspected dump.** The loader
+  read `specifiedByURL` off a dump all along; the introspection query never
+  asked for it, the same omission `isOneOf` had. Asked now, with the same
+  fallback for a server that predates the field.
 - **The union-dispatch refusal is a `GraphWeaver::Error` that names its file.**
   It was a bare `ArgumentError` with no path, so under `rake` it aborted with a
   backtrace naming no query, and it escaped the run's refusal list. Found on

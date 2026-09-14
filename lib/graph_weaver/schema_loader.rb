@@ -750,16 +750,20 @@ module GraphWeaver::SchemaLoader
     schema
   end
 
-  # The introspection result, asking for isOneOf and falling back without it.
+  # The introspection result, asking for the newer fields and falling back
+  # without them.
   #
   # isOneOf is the only thing that says an input object is @oneOf, and
-  # graphql-ruby leaves it out unless asked — but it is newer than plenty of
-  # servers, and one that doesn't define it REFUSES the query outright
-  # (Hasura: "field 'isOneOf' not found in type: '__Type'"). So ask, and ask
-  # the baseline query rather than give up. The second request costs one round
-  # trip on exactly the servers whose answer was going to be an error anyway.
+  # specifiedByURL the only thing that says what a scalar's format is;
+  # graphql-ruby leaves both out unless asked — but they are newer than
+  # plenty of servers, and one that doesn't define them REFUSES the query
+  # outright (Hasura: "field 'isOneOf' not found in type: '__Type'"). So ask,
+  # and ask the baseline query rather than give up. The second request costs
+  # one round trip on exactly the servers whose answer was going to be an
+  # error anyway.
   def self.ask(transport)
-    result = transport.execute(GraphQL::Introspection.query(include_is_one_of: true), variables: {}).to_h
+    query = GraphQL::Introspection.query(include_is_one_of: true, include_specified_by_url: true)
+    result = transport.execute(query, variables: {}).to_h
     return result if result["errors"].nil? && result.dig("data", "__schema")
 
     transport.execute(GraphQL::Introspection.query, variables: {}).to_h

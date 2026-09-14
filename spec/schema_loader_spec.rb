@@ -182,6 +182,20 @@ describe GraphWeaver::SchemaLoader do
         .to raise_error(GraphWeaver::InputError, /is @oneOf — supply exactly one field/)
     end
 
+    # the same omission for a scalar's @specifiedBy: the loader reads it off a
+    # dump, but nothing asked the server for it
+    it "carries a scalar's specifiedByURL through" do
+      source = GraphQL::Schema.from_definition(<<~GRAPHQL)
+        scalar UUID @specifiedBy(url: "https://tools.ietf.org/html/rfc4122")
+        type Query { id: UUID }
+      GRAPHQL
+
+      path = File.join(@dir, "schema.json")
+      described_class.introspect(source, cache: path)
+
+      expect(described_class.load(path).get_type("UUID").specified_by_url).to eq "https://tools.ietf.org/html/rfc4122"
+    end
+
     # isOneOf is newer than plenty of servers, and one that doesn't define it
     # refuses the query outright rather than answering null — PokeAPI's Hasura
     # does exactly this, so asking unconditionally broke introspection there
