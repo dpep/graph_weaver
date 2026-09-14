@@ -656,11 +656,15 @@ rather have a real socket:
 run GraphWeaver::Testing::Endpoint.new(router)   # config.ru, or a Puma in a thread
 ```
 
-Answering a `context:` proc means setting the client's context for the length
-of one dispatch, so a client with that seam is served **one request at a
-time** — the identity a request asked for is the identity that request gets,
-whatever else is in flight. A client with no context seam is served
-concurrently.
+Answering a `context:` **proc** means setting the client's context for the
+length of one dispatch, so that client is served **one request at a time** —
+the identity a request asked for is the identity that request gets, whatever
+else is in flight. The lock is the client's own, not the endpoint's, so it
+holds however the endpoint is mounted: one app, several apps over one client,
+or the fresh one `graphql: :wire` builds per request.
+
+A client whose `context:` is a plain hash is served **concurrently** — nothing
+writes it, so there is nothing to serialize.
 
 ### Making the served endpoint fail
 

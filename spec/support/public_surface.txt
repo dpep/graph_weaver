@@ -105,6 +105,10 @@ GraphWeaver::Coerce.variable
 GraphWeaver::Coerce::INTEGER = Regexp
 GraphWeaver::Coerce::NUMBER = Regexp
 GraphWeaver::ConfigurationError (Class)
+GraphWeaver::ContextSeam (Module)
+GraphWeaver::ContextSeam#context
+GraphWeaver::ContextSeam#context=
+GraphWeaver::ContextSeam#with_request_context
 GraphWeaver::DEFAULT_FILTER_PARAMETERS = Array
 GraphWeaver::EXECUTE_EVENT = String
 GraphWeaver::Error (Class)
@@ -182,8 +186,6 @@ GraphWeaver::Hints.field
 GraphWeaver::Hints.mapped_enum
 GraphWeaver::Hints.validate_keys!
 GraphWeaver::InProcess (Class)
-GraphWeaver::InProcess#context
-GraphWeaver::InProcess#context=
 GraphWeaver::InProcess#execute
 GraphWeaver::InProcess#inspect
 GraphWeaver::InProcess#schema
@@ -457,8 +459,6 @@ GraphWeaver::Testing::Replayer#execute
 GraphWeaver::Testing::Router (Class)
 GraphWeaver::Testing::Router#absent
 GraphWeaver::Testing::Router#ambiguous
-GraphWeaver::Testing::Router#context
-GraphWeaver::Testing::Router#context=
 GraphWeaver::Testing::Router#execute
 GraphWeaver::Testing::Router#fake
 GraphWeaver::Testing::Router#fake=

@@ -11,6 +11,7 @@ require_relative "../internal"
 require_relative "../transport"
 require_relative "../internal/planner"
 require_relative "../internal/subgraphs"
+require_relative "../context_seam"
 
 module GraphWeaver
   module Testing
@@ -203,6 +204,8 @@ module GraphWeaver
     # reset it yourself around the code path you're measuring.
     class Router
       include GraphWeaver::Parsing
+      # #context/#context= plus the lock over them — see the accessor below
+      include GraphWeaver::ContextSeam
 
       # the schema the router serves — the supergraph with its composition
       # machinery stripped, exactly what a real router exposes
@@ -232,8 +235,9 @@ module GraphWeaver
       # run as a different user without rebuilding the router. A proc is
       # answered from the request's headers, which only a wire supplies:
       # `context: ->(headers) { { current_user: User.find_by(token:
-      # headers["Authorization"]) } }` served through {Endpoint}.
-      attr_accessor :context
+      # headers["Authorization"]) } }` served through {Endpoint}. The
+      # accessors, and the lock guarding them, come from
+      # {GraphWeaver::ContextSeam}.
 
       # The planner injects key fields under this prefix, and the concrete
       # __typename under that key; reading an answer back means stripping
@@ -252,7 +256,7 @@ module GraphWeaver
         source = supergraph.to_s # a path, or the SDL itself — Pathname included
         @schema = GraphWeaver::SchemaLoader.load(source)
         @table = GraphWeaver::SchemaLoader.routing_table(source)
-        @context = context
+        init_context_seam(context)
         @trace = []
 
         Unplannable.unsupported!(@table)

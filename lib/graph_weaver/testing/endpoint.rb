@@ -2,7 +2,6 @@
 # frozen_string_literal: true
 
 require "json"
-require "monitor"
 
 module GraphWeaver
   module Testing
@@ -28,6 +27,12 @@ module GraphWeaver
     # one thing an in-process client can't test.
     #
     #      Router.new(supergraph:, context: ->(headers) { { current_user: User.find_by(token: headers["Authorization"]) } })
+    #
+    # Answering that proc means writing the client's context for the length
+    # of one dispatch, so the client is what resolves it: any client
+    # answering `with_request_context(headers) { }` gets the seam, which
+    # {InProcess} and {Router} take from {GraphWeaver::ContextSeam}. A client
+    # without it is served untouched, and concurrently.
     class Endpoint
       JSON_HEADERS = { "content-type" => "application/json" }.freeze
       TEXT_HEADERS = { "content-type" => "text/plain" }.freeze
@@ -39,14 +44,6 @@ module GraphWeaver
 
       def initialize(client)
         @client = client
-        # Answering a `context:` proc means assigning the client's context for
-        # the length of one dispatch, which is shared state — so a client with
-        # that seam is served one request at a time. Both documented
-        # deployments are concurrent (a Puma in a thread, `graphql: :wire`
-        # under a parallel run), and this is the class whose stated purpose is
-        # proving one identity can't read another's data. A Monitor rather than
-        # a Mutex: a resolver may re-enter the app.
-        @dispatch = Monitor.new
       end
 
       def call(env)
@@ -76,27 +73,15 @@ module GraphWeaver
 
       private
 
-      # A `context:` proc is answered from the request in hand, so it is
-      # resolved here and put back after — one request's identity must not
-      # leak into the next, or into a request running beside it. A client with
-      # no context seam is served untouched, and concurrently.
-      def with_context(headers)
-        return yield unless @client.respond_to?(:context) && @client.respond_to?(:context=)
+      # A `context:` proc is answered from the request in hand, and the
+      # client's context is what gets written to answer it — so the client
+      # does it, under its own lock. This endpoint is built per request by
+      # `graphql: :wire`; a lock held here would guard nothing the next
+      # request shares.
+      def with_context(headers, &block)
+        return yield unless @client.respond_to?(:with_request_context)
 
-        # inside the lock: read outside it and a concurrent dispatch answers
-        # with the resolved hash, which isn't callable, so its request is
-        # served with whoever's identity is installed
-        @dispatch.synchronize do
-          context = @client.context
-          next yield unless context.respond_to?(:call)
-
-          @client.context = context.call(headers)
-          begin
-            yield
-          ensure
-            @client.context = context
-          end
-        end
+        @client.with_request_context(headers, &block)
       end
 
       # Rack spells a header HTTP_X_CALLER; the proc reads "X-Caller".

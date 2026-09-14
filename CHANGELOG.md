@@ -79,6 +79,25 @@
   still writes nothing at all, which is the point; but pointing it at an
   existing query directory meant clearing refusals one file per run. One bad
   file reads exactly as before — same class, same message.
+- **The identity lock moved onto the client, so it reaches `graphql: :wire`.**
+  It sat on `Testing::Endpoint`, and `graphql: :wire` builds a fresh Endpoint
+  per request over a client memoized per example — so each request held its own
+  lock over one shared `context`, and 6 of 8 concurrent requests in one `:wire`
+  example were served another request's identity. So were 32 of 64 when two
+  endpoints were mounted over one client. One rule now: whoever owns the
+  mutable field owns the lock. `InProcess` and `Testing::Router` include the
+  new **`GraphWeaver::ContextSeam`**, which carries `#context`, `#context=` and
+  the lock; a client of your own gets the header seam by including it too, or
+  by answering `with_request_context(headers) { }`. *Action:* none, unless you
+  wrote a client with a bare `attr_accessor :context` and mounted it behind
+  `Testing::Endpoint` — include `GraphWeaver::ContextSeam` in it.
+- **A client whose `context:` is a plain hash is served concurrently again.**
+  The old guard asked `respond_to?(:context=)`, which every wrapper answers
+  yes, and held the lock even for a context nobody writes: 64 requests through
+  one endpoint took 3.8s against a 0.47s floor, 8× for nothing. Callability is
+  settled where the context is written, so the lock is entered only when a proc
+  is being resolved — the same 64 requests now take 0.47s. `docs/testing.md`'s
+  two sentences are true without qualification.
 
 ###  v0.7.0  (2026-09-13)
 

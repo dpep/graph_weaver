@@ -5,6 +5,7 @@ require "json"
 
 require_relative "errors"
 require_relative "internal"
+require_relative "context_seam"
 require_relative "parsing"
 require_relative "transport"
 
@@ -32,13 +33,13 @@ require_relative "transport"
 # is usually the whole reason you're running in-process.
 class GraphWeaver::InProcess
   include GraphWeaver::Parsing
+  # #context/#context= plus the lock over them: Testing::Endpoint answers a
+  # `context:` proc from one request's headers by writing this field, so the
+  # field's owner owns the lock
+  include GraphWeaver::ContextSeam
 
-  # the schema queries run against, and the context handed to every one
-  attr_reader :schema, :context
-
-  # settable so Testing::Endpoint can answer a `context:` proc from the
-  # request's headers and put it back — the same seam Router#context= is
-  attr_writer :context
+  # the schema queries run against
+  attr_reader :schema
 
   def initialize(schema, context: {})
     unless schema.respond_to?(:execute)
@@ -46,7 +47,7 @@ class GraphWeaver::InProcess
     end
 
     @schema = schema
-    @context = context
+    init_context_seam(context)
   end
 
   def execute(query, variables: {}, operation_name: nil)

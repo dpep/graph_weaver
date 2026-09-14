@@ -302,6 +302,25 @@ describe "graphql: :wire" do
       expect { graphql_context }
         .to raise_error(GraphWeaver::Error, /GraphWeaver\.new\(url, headers:/)
     end
+
+    # End to end through the harness, which is where the seam has to hold:
+    # rspec.rb builds an Endpoint per request over one client memoized per
+    # example, so a lock on the Endpoint guarded nothing and 6 of 8 threads
+    # read another thread's identity.
+    it "serves each concurrent request its own identity", graphql: :wire do
+      app_client!("http://graph.test/graphql",
+        headers: { "X-User" => -> { Thread.current[:wire_user] } })
+
+      served = %w[1 2 1 2 1 2 1 2].each_with_index.map do |user, i|
+        Thread.new do
+          Thread.current[:wire_user] = user
+          ["#{user}/#{i}", GraphWeaver.client.execute("{ me { id } }").dig("data", "me", "id")]
+        end
+      end.map(&:value)
+
+      expect(served.map { |sent, got| [sent, got] })
+        .to all(satisfy { |sent, got| sent.start_with?("#{got}/") })
+    end
   end
 
   describe "one schema behind the wire" do

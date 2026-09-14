@@ -12,12 +12,15 @@ describe GraphWeaver::Testing::Endpoint do
   # unpacked the request rather than that the router agrees with itself
   let(:client) do
     Class.new do
+      # the seam Endpoint serves: a client that owns a settable context owns
+      # the lock over it, and answers with_request_context
+      include GraphWeaver::ContextSeam
+
       attr_reader :calls
-      attr_accessor :context
 
       def initialize
         @calls = []
-        @context = {}
+        init_context_seam({})
       end
 
       def execute(query, variables: {}, operation_name: nil)
@@ -115,6 +118,21 @@ describe GraphWeaver::Testing::Endpoint do
   end
 
   describe "context from the request's headers" do
+    # a resolver slow enough for another request to arrive mid-dispatch
+    def slow_client
+      Class.new do
+        include GraphWeaver::ContextSeam
+
+        def initialize = init_context_seam(->(headers) { { caller: headers["X-Caller"] } })
+
+        def execute(_query, variables: {}, operation_name: nil)
+          who = context[:caller]
+          sleep 0.02
+          { "data" => { "whoami" => who } }
+        end
+      end.new
+    end
+
     it "asks a context proc what this request's headers mean" do
       seen = nil
       client.context = lambda do |headers|
@@ -144,32 +162,61 @@ describe GraphWeaver::Testing::Endpoint do
     # concurrent — a Puma in a thread, `graphql: :wire` under a parallel run —
     # and a spec asserting user A can't read user B's data is exactly the spec
     # that would pass here for the wrong reason.
-    it "can't cross two identities served at once" do
-      slow = Class.new do
-        attr_accessor :context
+    #
+    # Once per way an Endpoint reaches a client, because the lock used to sit
+    # on the Endpoint: two of them over one client shared nothing, and
+    # `graphql: :wire` builds a fresh one per request (rspec.rb's to_rack
+    # lambda) over a client memoized per example.
+    {
+      "one endpoint" => lambda do |client|
+        endpoint = GraphWeaver::Testing::Endpoint.new(client)
+        ->(_i, env) { endpoint.call(env) }
+      end,
+      "two endpoints over one client" => lambda do |client|
+        pair = [GraphWeaver::Testing::Endpoint.new(client), GraphWeaver::Testing::Endpoint.new(client)]
+        ->(i, env) { pair[i % 2].call(env) }
+      end,
+      "an endpoint per request" => lambda do |client|
+        ->(_i, env) { GraphWeaver::Testing::Endpoint.new(client).call(env) }
+      end,
+    }.each do |shape, build|
+      it "can't cross two identities served at once — #{shape}" do
+        app = build.call(slow_client)
 
-        def execute(_query, variables: {}, operation_name: nil)
-          who = context[:caller]
-          sleep 0.02 # a resolver slow enough for another request to arrive
-          { "data" => { "whoami" => who } }
-        end
-      end.new
-      slow.context = ->(headers) { { caller: headers["X-Caller"] } }
-      app = described_class.new(slow)
+        served = 8.times.map do |i|
+          Thread.new do
+            env = {
+              "REQUEST_METHOD" => "POST",
+              "rack.input" => StringIO.new(JSON.generate("query" => "{ whoami }")),
+              "HTTP_X_CALLER" => "user-#{i}",
+            }
+            _status, _headers, body = app.call(i, env)
+            ["user-#{i}", JSON.parse(body.join).dig("data", "whoami")]
+          end
+        end.map(&:value)
 
-      served = 8.times.map do |i|
+        expect(served).to all(satisfy { |sent, got| sent == got })
+      end
+    end
+
+    # The other half of the same rule: the lock guards a context being
+    # written, so a client whose context is a plain hash — nobody writes it —
+    # is served concurrently. Eight requests of 20ms serialize to 160ms.
+    it "serves a client with a plain context concurrently" do
+      client = slow_client
+      client.context = { caller: "static" }
+      app = GraphWeaver::Testing::Endpoint.new(client)
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      8.times.map do
         Thread.new do
-          env = {
-            "REQUEST_METHOD" => "POST",
-            "rack.input" => StringIO.new(JSON.generate("query" => "{ whoami }")),
-            "HTTP_X_CALLER" => "user-#{i}",
-          }
-          _status, _headers, body = app.call(env)
-          ["user-#{i}", JSON.parse(body.join).dig("data", "whoami")]
+          app.call({ "REQUEST_METHOD" => "POST",
+                     "rack.input" => StringIO.new(JSON.generate("query" => "{ whoami }")) })
         end
-      end.map(&:value)
+      end.each(&:join)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-      expect(served).to all(satisfy { |sent, got| sent == got })
+      expect(elapsed).to be < 0.1
     end
 
     it "leaves a hash context alone" do
