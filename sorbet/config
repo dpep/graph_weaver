@@ -5,4 +5,6 @@
 # agent worktrees check out inside the repo; each carries a full sorbet/rbi/gems,
 # which srb tc reads as duplicate definitions of every gem type
 --ignore=.claude/worktrees/
+# corpus/ scripts are throwaway probes against arbitrary schemas, never loaded by the gem
+--ignore=research/
 --parser=prism

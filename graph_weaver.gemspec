@@ -16,7 +16,8 @@ Gem::Specification.new do |s|
   # points at the GitHub copy instead
   s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' \
                      ':!:CLAUDE.md' ':!:PLAN.md' ':!:REVIEW.md' ':!:NOTES.md' \
-                     ':!:DECISIONS.md' ':!:CHANGELOG.md' ':!:Makefile' ':!:design'`.split("\n") + [".yardopts"]
+                     ':!:DECISIONS.md' ':!:CHANGELOG.md' ':!:Makefile' ':!:design' \
+                     ':!:research'`.split("\n") + [".yardopts"]
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"
