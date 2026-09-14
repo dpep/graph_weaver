@@ -909,8 +909,8 @@ and `queries` already have, and the one place it mattered — "which server does
 this graph talk to" — is answered by `rake graph_weaver:graphs`, which now
 prints the endpoint rather than the constant's name.
 
-**Kept:** the per-module `MyQuery.client =` slot, which the five-layer order
-also had. It is not redundant with the graph: `client.parse(query)` and
+**Kept:** the per-module `MyQuery.client =` slot, so the order still has five
+slots rather than four. It is not redundant with the graph: `client.parse(query)` and
 `load_queries!` bind a *parsed* module to the object that parsed it, and a
 parsed module generates no file and so has no graph to read a client off. That
 is also why `GraphWeaver.parse(client:)` sets the module's own client rather

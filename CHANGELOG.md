@@ -24,9 +24,10 @@
   of the name-to-constant resolution (`:wire`'s endpoint lookup and
   `schema:refresh`'s bootstrap each had their own), and the regeneration of
   every module when the constant holding a client is renamed — which is now an
-  initializer edit and nothing else. Resolution goes from five layers to four:
-  per call → per module → a test mode's stand-in → the client the module's
-  graph names → `GraphWeaver.client`.
+  initializer edit and nothing else. The order still has five slots — per call
+  → per module → a test mode's stand-in → the client the module's graph names
+  → `GraphWeaver.client` — but the fourth is a lookup rather than a decision
+  generation had to make, so it carries no caveat.
 - **`client` in a graph block takes a live object.** Nothing spells it in
   generated source any more, so `client GraphWeaver.new(url, auth: …)` is as
   good as the constant holding one; a String naming a constant still works and
