@@ -112,7 +112,8 @@ describe "a transport reading the wire" do
   # Either way the server applies the charge exactly once — a guarantee that
   # lives in net/http's internals, so it is worth pinning here.
   it "never replays a mutation on a keep-alive socket the server closed" do
-    url = serving { |socket| socket.write(http_response(200, good_body)) }
+    # the one response in the suite that closes without saying so
+    url = serving { |socket| socket.write(http_response(200, good_body, "Connection" => nil)) }
     transport = GraphWeaver::Transport::HTTP.new(url)
     transport.execute(query)
     sleep 0.3 # the FIN lands while the socket sits in the pool
@@ -157,10 +158,7 @@ describe "a transport reading the wire" do
     it "waits as long as Retry-After says whether the 429 raised or came back as an errors body" do
       errors_body = JSON.generate({ "errors" => [{ "message" => "slow down" }] })
       [errors_body, "slow down"].each do |body|
-        # Connection: close, as a one-request server should say: a retry that
-        # reused the pooled socket raced the raw server's silent close on CI
-        # (EOFError on every Ruby). The race itself has its own spec below.
-        url = answering(http_response(429, body, "Retry-After" => "7", "Connection" => "close"))
+        url = answering(http_response(429, body, "Retry-After" => "7"))
         slept = []
         client = GraphWeaver::Retry.new(
           GraphWeaver::Transport::HTTP.new(url), retries: 2, base_delay: 1, jitter: false,

@@ -7,8 +7,9 @@ require "socket"
 #
 #      url = serving { |socket| socket.write(http_response(500, "<html>")) }
 #
-# One request per connection, then the socket closes — which is also the
-# keep-alive socket a real server reaps out from under a pooled client.
+# One request per connection, then the socket closes — and `http_response`
+# says `Connection: close` so a pooled client doesn't reuse a socket that is
+# already going away. An example that wants that race writes it explicitly.
 RSpec.shared_context "raw http server" do
   # Every request this server read, as [head, body] — so an example can assert
   # a mutation reached it exactly once.
@@ -31,10 +32,18 @@ RSpec.shared_context "raw http server" do
     "http://127.0.0.1:#{server.addr[1]}#{path}"
   end
 
-  # a complete HTTP/1.1 message — Content-Length computed, so the client isn't
-  # left waiting for bytes the example didn't mean to promise
+  # A complete HTTP/1.1 message — Content-Length computed, so the client isn't
+  # left waiting for bytes the example didn't mean to promise, and
+  # `Connection: close` because this server really does close after one
+  # request. A header given nil is left off the wire, which is how an example
+  # asks for the silent close a pooled client walks into.
   def http_response(status, body, headers = {})
-    fields = { "Content-Type" => "application/json", "Content-Length" => body.bytesize.to_s }.merge(headers)
+    defaults = {
+      "Content-Type" => "application/json",
+      "Content-Length" => body.bytesize.to_s,
+      "Connection" => "close",
+    }
+    fields = defaults.merge(headers).compact
     "HTTP/1.1 #{status} X\r\n#{fields.map { |name, value| "#{name}: #{value}\r\n" }.join}\r\n#{body}"
   end
 
