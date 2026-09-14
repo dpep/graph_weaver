@@ -186,8 +186,8 @@ module StargazersQuery
   # client / client= — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
-  # the graph this module was generated from — what a test mode builds
-  # its stand-in client from
+  # the graph this module was generated from — whose client it runs
+  # against, and what a test mode builds its stand-in from
   GRAPH = T.let(:github, Symbol)
   private_constant :GRAPH
 
