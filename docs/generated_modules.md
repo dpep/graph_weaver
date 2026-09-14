@@ -1,170 +1,24 @@
 # Generated modules
 
-What `rake graph_weaver:generate` writes, and the rules it follows: how modules
-and nested types get their names, how variables become kwargs, and how unions and
-interfaces come out. Read it when you want to predict the output — or when a
-generated name isn't the one you expected.
-
 `GraphWeaver::Codegen` turns one GraphQL operation into one `# typed: strict`
 Ruby module. Everything `srb tc` knows about your query results comes from that
-file — there is no runtime schema, no lazy wrapper, no reflection. The setup
-around it is assembled step by step in
+file — there is no runtime schema, no lazy wrapper, no reflection.
+
+Read this when you want to predict the output, or when a generated name isn't
+the one you expected:
+
+- **[Anatomy](#anatomy)** — what a module holds, and what a `Result` can do
+- **[Naming](#naming)** — how the module and every nested struct get their names
+- **[Variables](#variables-become-typed-kwargs)** — kwargs, input objects, coercion
+- **[Enums](#enums-one-graphql-enum-one-ruby-type)** and **[selections](#selections)** — fragments, aliases, unions and interfaces
+- **[Type helpers](#type-helpers)** — your own methods on a generated struct
+- **[Clients](#clients)**, **[`from_response`](#deserializing-a-response-from-another-client)**, and the **[build](#generating)** itself
+
+The setup around it is assembled step by step in
 [getting started](getting_started.md), including
 [what Sorbet does and doesn't require](getting_started.md#sorbet-with-or-without).
-For consoles and dev there's [dynamic mode](#dynamic-mode); for one-off
-scripts, `client.run!` skips modules entirely.
-
-## Generating
-
-Queries live as `.graphql` files (the source of truth), generation writes the
-Ruby, and verification fails when the two drift. The conventional layout
-(configurable via `GraphWeaver.queries_paths` / `generated_paths` /
-`schema_path`):
-
-```text
-app/graphql/
-  schema.json        # introspection dump (or schema.graphql SDL)
-  queries/           # *.graphql / *.gql, nested — hand-written, reviewed
-  fragments/         # shared fragments, spread by name from any query
-  generated/
-    types.rb         # manifest: requires + forward declarations, in load order
-    types/           # one file per shared type
-    *_query.rb       # one module per query — generated, checked in, never edited
-    *_mutation.rb    # ...and per mutation
-```
-
-```sh
-rake graph_weaver:generate    # queries_paths -> generated_paths.first
-rake graph_weaver:verify      # fail if anything is stale — run in CI
-```
-
-The tasks self-register in Rails; elsewhere add `require "graph_weaver/tasks"`
-to your Rakefile. Scalar/enum/type registrations are baked into generated
-source, so they must run first — in Rails they do, since the tasks depend on
-`:environment`. Or call the same APIs directly:
-
-```ruby
-schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
-GraphWeaver.generate!(schema:)            # write the modules
-GraphWeaver.verify_generated!(schema:)    # the freshness guard, one line in a spec
-```
-
-**`verify_generated!` costs what `generate!` costs**, minus the writes — it
-recomputes the whole plan, every file's content, and diffs each against disk,
-whether nothing is stale or everything is. It doesn't get cheaper because only
-one query changed, so it belongs in *one* example per suite run, not in a
-`before` or an assertion per example, where it reads like a cheap check and
-isn't.
-
-`generate!` returns every file the plan produces, but rewrites only the ones
-whose bytes changed; `GraphWeaver.changed_files` is that subset. So
-`rake graph_weaver:generate` prints `wrote` for what moved and `N already up to
-date` for the rest, and a watching dev server has one module to reload instead
-of all of them. The unregistered-scalar report is the rake task's `puts`, not
-`generate!`'s, so off rake read `GraphWeaver.untyped_scalars` for the unioned
-list — or set [`GraphWeaver.logger`](logging.md), which `generate!` names them
-on at `info` as it goes.
-
-The schema dump is step 0 — codegen reads it, never a live endpoint.
-`cache: true` on a url client writes it on first introspection
-(`GraphWeaver.new(url, cache: true).schema` in a console bootstraps it);
-generating without one fails pointing at exactly that.
-
-**A type shared across query modules lives in `GraphQLTypes` and is aliased
-in.** Input types, schema enums, and unions hoisted from shared fragments are
-all one kind of thing — a type that would otherwise be copied into every query
-that touches it — so they live in one module, one file each, and a query module
-that uses any of them opens with `require_relative "types"`. Rename the constant
-(`GraphWeaver.types_module=`, or `generate!(types_module:)`) when one app
-generates against two schemas. One module is one namespace, so a shared fragment
-whose name is already a schema type in that module is refused at generation,
-naming both.
-
-**Generation prunes.** Rename or delete a `.graphql` and the module it used
-to produce is deleted on the next `generate!` — which says so, since a
-deletion you didn't expect is the one worth reading. `verify` flags it as stale
-until you regenerate. Only files carrying GraphWeaver's header —
-`# Generated by GraphWeaver <version> — do not edit.`, where the version is the
-release that wrote the file — are ever deleted, so hand-written files in the
-output directory are safe. A run that finds **no** queries says where it looked
-rather than exiting 0 in silence, and `verify_generated!` fails outright: a
-mistyped `queries_paths` used to leave a CI gate green forever.
-
-**A refusal writes nothing at all** — not even the files that planned cleanly —
-so a failed run leaves the tree exactly as it was. It reports *every* query it
-refused rather than the first, since pointing `generate!` at a query directory
-it has never seen is how adoption starts and one file per run is a slow way
-through it.
-
-In Rails, loading is automatic — the Railtie requires every generated file at
-boot from a `to_prepare` block, after your initializers and after any
-registrations of your own in one (so a helper a file names is already there). Elsewhere it's
-explicit, factory_bot-style:
-
-```ruby
-GraphWeaver.load_generated!   # require every file under generated_paths
-```
-
-**Outside Rails, four things have to agree**, and nothing wires them together
-for you — a script that generates its own modules sets all four:
-
-1. `queries_paths` — where `generate!` reads `.graphql` files.
-2. `generated_paths` — where it writes, and where `load_generated!` reads.
-   Point them at the same directory or generation is invisible.
-3. the call above, before the first `execute` — nothing else requires the
-   files.
-4. `GraphWeaver.client =` — a module generated without a baked
-   [`client:`](#clients) has none of its own.
-
-Miss (3) and the script gets a `NameError` for its own module; miss (4) and it
-gets `PersonQuery: client must respond to #execute(query, variables:), got
-NilClass` from a module that otherwise looks fine.
-
-Every directory setting is a list — `queries_paths`, `generated_paths`,
-`fragments_paths` — and every entry is read (entries may be globs; the
-generated default includes `app/graphql/*/generated`, so per-schema layouts
-load too). Append a test-only schema or an engine's queries and every reader
-walks them all:
-
-```ruby
-# e.g. in spec/support/graph_weaver.rb
-GraphWeaver.generated_paths << "spec/graphql/generated"
-```
-
-Assigning a String wraps it, so pointing at one directory stays a one-liner.
-`generate!` writes into the first `generated_paths` entry — one run, one output
-directory. `schema_path` is the one singular setting: a run reads one schema,
-so a list would name a dump nothing ever opens. A relative path resolves
-against `GraphWeaver.root` — `Rails.root` in a Rails app, the working directory
-otherwise — so where you started the process doesn't change which files it
-reads, and every path it reports back is relative to that same root.
-
-(Plain requires, not Zeitwerk: Zeitwerk would expect
-`Generated::PersonQuery` from `generated/person_query.rb`. In development a
-query edit regenerates and reloads before the next request; everywhere else
-generated code changes only on regeneration — restart, like a schema
-migration. `GraphWeaver.reload_generated!` does the reload by hand, after
-regenerating in another terminal.)
-
-Regenerate when: a query changes, the schema changes, a registration changes,
-or GraphWeaver itself upgrades — **any release can change what codegen emits**,
-patch releases included, and `verify_generated!` is what catches it. The rake
-tasks that spot a *schema* change for you — `schema:diff`, `schema:refresh`,
-`queries:check` — are in
-[getting started](getting_started.md#5-verify-in-ci); a
-[`schema_stale?`](errors.md) error in production is the late signal.
-
-In development, skip the build entirely — `client.load_queries!` parses
-every query file into modules with the same names generation would use
-(see [dynamic mode](#dynamic-mode)).
-
-**Generation is deterministic.** The same schema and queries produce
-byte-identical files, on any machine, in any order — everything with a
-non-obvious order (schema members, enum values, requires, hoisted names) is
-sorted, and a spec asserts it both across calls and against the checked-in
-fixtures. So regenerating a file you didn't change produces no diff,
-`verify_generated!` never fails spuriously, and a generated file is worth
-reviewing line by line.
+For consoles and dev there's [dynamic mode](#dynamic-mode); for one-off scripts,
+`client.run!` skips modules entirely.
 
 ## Anatomy
 
@@ -193,124 +47,104 @@ module PersonQuery
 end
 ```
 
-- `execute` returns the **envelope** — `GraphWeaver::Response[Result]` with
-  `#data`, `#data!`, `#errors`, `#extensions` — so partial data and
-  cost/throttle metadata survive. `execute!` is the shortcut: the typed
-  **result**, or a raised `GraphWeaver::QueryError`. See [errors](errors.md).
-- `from_response` / `from_response!` are the **network-free half** of the
-  pair — same envelope, but from a response hash you already have (below).
-- A `Result` is an **ordinary Ruby object**: value `==` (with `eql?` and
-  `hash`, so a result works as a hash key), `deconstruct_keys` for pattern
-  matching, `#to_h`, and `#to_json`/`#as_json`. All of them go the whole way
-  down a nested result.
-  Immutable as far as its props go, like `Struct` or `Data` — and no further:
-  the `String` or `Hash` a leaf holds is the one the response carried, so
-  `result.name << "!"` changes the result, and its `hash` with it.
+`execute` returns the **envelope** — `GraphWeaver::Response[Result]` with
+`#data`, `#data!`, `#errors`, `#extensions` — so partial data and cost/throttle
+metadata survive. `execute!` is the shortcut: the typed **result**, or a raised
+`GraphWeaver::QueryError`. See [errors](errors.md).
+[`from_response`](#deserializing-a-response-from-another-client) is the
+network-free half of the pair.
 
-  **Cache a result with `Marshal`, not YAML.** A `T::Enum` member is a
-  singleton that sorbet compares by identity, and Psych allocates an object
-  before filling it in, so YAML has no way to hand back the canonical one:
-  after a round trip `pet.species == Species::Dog` is false and the result no
-  longer equals itself. `Marshal` restores it intact — as does JSON, since
-  `#to_json` writes the wire shape and `from_h` reads it back (below).
+`OPERATION_NAME` rides along on every request as the spec's `operationName`, so
+Apollo Studio, Hasura and your APM key traces, rate limits and slow-query reports
+on the operation instead of lumping every request together. **You don't have to
+name your operations**: an anonymous document is named after the module in the
+emitted `QUERY` *and* in `OPERATION_NAME` — both, since a server rejects an
+`operationName` its document doesn't declare.
 
-  ```ruby
-  PersonQuery.from_response!(raw) == PersonQuery.from_response!(raw)  # true — value, not identity
+A `Result` is an **ordinary Ruby object**: value `==` (with `eql?` and `hash`,
+so a result works as a hash key), `deconstruct_keys` for pattern matching,
+`#to_h`, and `#to_json`/`#as_json`. All of them go the whole way down a nested
+result. It is immutable as far as its props go, like `Struct` or `Data` — and no
+further: the `String` or `Hash` a leaf holds is the one the response carried, so
+`result.name << "!"` changes the result, and its `hash` with it.
 
-  case PersonQuery.execute!(id: "1")
-  in { person: { name:, pets: [{ name: first_pet }, *] } } then "#{name} and #{first_pet}"
-  in { person: { name: } } then "#{name}, petless"
-  in { person: nil } then "nobody"
-  end
+```ruby
+case PersonQuery.execute!(id: "1")
+in { person: { name:, pets: [{ name: first_pet }, *] } } then "#{name} and #{first_pet}"
+in { person: { name: } } then "#{name}, petless"
+in { person: nil } then "nobody"
+end
+```
 
-  PersonQuery.execute!(id: "1").to_h
-  # => { person: { id: "1", name: "Daniel", birthday: #<Date 1984-05-06>,
-  #                pets: [{ name: "Nibbler" }] } }
-  ```
+**`#to_h` is the Ruby shape; `#to_json` is the wire shape.** `to_h` gives
+snake_case prop names as Symbols, nils kept, enums as their `T::Enum` members,
+and a registered scalar as whatever object its codec built — a view, for Ruby to
+read. `#to_json` — and `#as_json`, which `render json:` goes through — writes
+the response keys instead, every leaf back through its scalar registration's
+`serialize:`, so a result's JSON is the inverse of `from_h`
+(`Result.from_h(JSON.parse(result.to_json)) == result`), which is what a cache
+entry, a log line or a JSON API response wants. The split is deliberate: a
+Symbol-keyed Ruby hash can't be mistaken for a server's response, and a JSON
+string can, so the JSON is the one that has to be true. (An **input** struct's
+`to_h` is already the wire hash it sends, so there its JSON and its `to_h`
+agree.) The trip is exactly as faithful as each scalar's own `cast:`/`serialize:`
+pair: a `Time` goes back out with
+[the microseconds its registration writes](scalars.md#going-out--what-a-variable-kwarg-accepts),
+and a `register_scalar` with a `cast:` and no `serialize:` has no wire spelling
+at all, so its value reaches the encoder as it is.
 
-  `#to_h` is the **Ruby** shape, not the wire's: snake_case prop names as
-  Symbols, nils kept, enums as their `T::Enum` members, and a registered
-  scalar as whatever object its codec built. It is a view, for Ruby to read.
-
-  `#to_json` — and `#as_json`, which `render json:` goes through — is the
-  **wire** shape instead: the response keys, and every leaf back through its
-  scalar registration's `serialize:`. So a result's JSON is the inverse of
-  `from_h`:
-
-  ```ruby
-  PersonQuery::Result.from_h(JSON.parse(result.to_json)) == result  # true
-  ```
-
-  which is what a cache entry, a log line or a JSON API response wants. That
-  split is deliberate: a Symbol-keyed Ruby hash can't be mistaken for a
-  server's response, and a JSON string can — so the JSON is the one that has
-  to be true. (An **input** struct's `to_h` is already the wire hash it
-  sends, so there its JSON and its `to_h` agree.) The trip is exactly as
-  faithful as each scalar's own `cast:`/`serialize:` pair: a `Time` goes back
-  out with [the microseconds its registration writes](scalars.md#going-out--what-a-variable-kwarg-accepts),
-  and a `register_scalar` with a `cast:` and no `serialize:` has no wire
-  spelling at all, so its value reaches the encoder as it is — the same
-  reason an input can't send one.
-- `OPERATION_NAME` rides along on every request as the spec's
-  `operationName`, so Apollo Studio, Hasura and your APM key traces, rate
-  limits and slow-query reports on the operation instead of lumping every
-  request together. **You don't have to name your operations**: an anonymous
-  document is named after the module in the emitted `QUERY` *and* in
-  `OPERATION_NAME` — both, since a server rejects an `operationName` its
-  document doesn't declare. A document that names its own operation is left
-  exactly as written.
+**Cache a result with `Marshal` or JSON, not YAML.** A `T::Enum` member is a
+singleton that sorbet compares by identity, and Psych allocates an object before
+filling it in, so YAML has no way to hand back the canonical one: after a round
+trip `pet.species == Species::Dog` is false and the result no longer equals
+itself.
 
 ## Naming
 
 **A module is named after its file**, suffixed with the operation the file
 defines — `person.graphql` → `PersonQuery` in `person_query.rb`,
 `save_list_entry.graphql` → `SaveListEntryMutation` in
-`save_list_entry_mutation.rb`. The operation name written *inside* the file
-never names the module (it goes on the wire as `operationName`); leave it off
-and the module's name is written into the document instead. The same rule
-runs at all three doors: `generate!`, `GraphWeaver.parse(path)`, and
-`client.load_queries!`.
+`save_list_entry_mutation.rb`. The operation name written *inside* the file never
+names the module (it goes on the wire as `operationName`); leave it off and the
+module's name is written into the document instead. The same rule runs at all
+three doors: `generate!`, `GraphWeaver.parse(path)`, and `client.load_queries!`.
 
 **Every run of non-alphanumerics in the file name is a word boundary**, after a
-trailing `.query`/`.mutation`/`.subscription` extension naming the document's
-own operation is dropped — so `get-hello.graphql` is `GetHelloQuery` in
-`get_hello_query.rb`, and `hello.query.graphql` is `HelloQuery` in
-`hello_query.rb`, not `HelloQueryQuery`. Only that extension is dropped:
-`user.profile.graphql` is `UserProfileQuery`, keeping the `profile`. A file
-whose extension names a kind it doesn't hold (`hello.query.graphql` defining a
-mutation) is refused, naming both halves. What is left still has to spell a
-constant — `01_home.graphql` is refused, since `01HomeQuery` isn't one.
+trailing `.query`/`.mutation`/`.subscription` extension naming the document's own
+operation is dropped — so `get-hello.graphql` is `GetHelloQuery` in
+`get_hello_query.rb`, and `hello.query.graphql` is `HelloQuery`, not
+`HelloQueryQuery`. Only that extension is dropped: `user.profile.graphql` is
+`UserProfileQuery`, keeping the `profile`. A file whose extension names a kind it
+doesn't hold (`hello.query.graphql` defining a mutation) is refused, naming both
+halves. What is left still has to spell a constant — `01_home.graphql` is
+refused, since `01HomeQuery` isn't one.
 
 Subdirectories are yours to organize with — `queries/admin/pets.graphql` is
 found, but the module name still comes from the file name alone, so it is
-`PetsQuery` in `pets_query.rb`. Two files that name the same module are refused
-at generation (`pets.graphql` and `pets.query.graphql` both name `PetsQuery`),
-naming both, rather than one silently overwriting the other; so is a
-file holding two operations, since one file can't name two modules. Change a
-file's `query` to `mutation` and its constant changes with it; the next
-`generate!` prunes the old file, and `verify` fails until you regenerate.
+`PetsQuery`. Two files that name the same module are refused at generation,
+naming both, rather than one silently overwriting the other; so is a file holding
+two operations, since one file can't name two modules. Change a file's `query` to
+`mutation` and its constant changes with it; the next `generate!` prunes the old
+file, and `verify` fails until you regenerate.
 
 **A graph's `namespace:` nests what it generates**, and is the answer when two
 schemas in one app each have a `person.graphql`: `namespace: "Billing"` makes
 that one `Billing::PersonQuery` in the same `person_query.rb`, and its shared
-types module `Billing::GraphQLTypes`. Nothing else about the rule changes — the
-file still names the module. See [getting started](getting_started.md#more-than-one-schema).
+types module `Billing::GraphQLTypes`. Nothing else about the rule changes. See
+[getting started](getting_started.md#more-than-one-schema).
 
 Parsing a raw query *string* has no file to name it after, so it uses the
 operation name (`query GetPerson` → `GetPerson`); dynamic `parse` falls back to
 `Query` for an anonymous one (its constants are container-scoped, so collisions
 are impossible) while `Codegen.generate` insists on a deliberate name. Override
-with `name:` on either.
-
-Whatever it lands on, the module wears it: a cast failure inside a parsed module
-reads `GraphWeaver.parse::PersonQuery::Result::Person`, not a hex object
-address. Assign the module to a constant and every nested struct upgrades to
-that real path.
+with `name:` on either. Assign a parsed module to a constant and every nested
+struct upgrades to that real path, so a cast failure names it rather than a hex
+object address.
 
 **Every nested type is named for the response key that selects it**, camelized
 (`stargazers` → `Stargazers`, `nameWithOwner` → `NameWithOwner`, `_entities` →
-`Entities`). Structs nest the way the selection does, so the constant path
-reads like the query:
+`Entities`). Structs nest the way the selection does, so the constant path reads
+like the query:
 
 ```graphql
 query { repository { stargazers { edges { node { login } } } } }
@@ -331,21 +165,19 @@ The key is used verbatim — no pluralization heuristics, so a list field `pets`
 generates `Pets`, not `Pet`. To choose the name yourself, alias the field in the
 query: `pet: pets { name }` generates `Pet` (and a `.pet` accessor).
 
-Two kinds of name don't come from a key, both equally position-determined:
+**Union and interface members** are the one name that doesn't come from a key:
+they take the type condition that produces them (`... on Book` → `Book`) inside
+the container named for the field, plus the catch-all `Other`; a union hoisted
+out of a shared fragment is named for the fragment; and several fields sharing
+one collapsed union type take the first of their keys alphabetically. Still
+position-determined, all of it.
 
-- **Union and interface members** are named for the type condition that
-  produces them (`... on Book` → `Book`) inside the container named for the
-  field, plus the catch-all `Other`. A union hoisted out of a shared fragment
-  is named for the fragment.
-- Where several fields share one collapsed union type (identical selections),
-  it takes the first of their keys alphabetically; and a name that would shadow
-  the struct it nests in (`pet { pet { ... } }`) takes a numeric suffix
-  (`Pet2`), since a bare `Pet` inside `class Pet` would resolve to the child.
-
-A generated name that would shadow a constant the file *uses* is refused
-instead — a key `date` beside a `Date` scalar prop turns `Date.iso8601` into a
-`NoMethodError` in a file that typechecks. The message names both; alias either
-one in the query.
+Two collisions are handled rather than left to surprise you. A name that would
+shadow the struct it nests in (`pet { pet { ... } }`) takes a numeric suffix
+(`Pet2`), since a bare `Pet` inside `class Pet` would resolve to the child. And a
+name that would shadow a constant the file *uses* is refused — a key `date`
+beside a `Date` scalar prop turns `Date.iso8601` into a `NoMethodError` in a file
+that typechecks. The message names both; alias either one in the query.
 
 ## Variables become typed kwargs
 
@@ -359,15 +191,19 @@ AddPetMutation.execute!(name: "Rex", species: AddPetMutation::Species::Dog)
 
 - required vs optional falls out of nullability and defaults: nullable or
   defaulted variables become optional kwargs
-- **absent and `null` are different things, and the kwarg says which.**
-  Leaving a keyword out omits the variable, so the server's default applies;
-  passing `nil` sends `null`, which is how a mutation clears a field.
-  `bio: params[:bio]` therefore sends `null` when the param is missing — pass
-  the keyword only when you mean to. A non-null variable can't carry `null`,
-  so `nil` there still means omit.
-- enum variables accept the enum or its wire value (`species: Species::Dog`
-  or `species: "DOG"`)
+- **absent and `null` are different things, and the kwarg says which.** Leaving a
+  keyword out omits the variable, so the server's default applies; passing `nil`
+  sends `null`, which is how a mutation clears a field. `bio: params[:bio]`
+  therefore sends `null` when the param is missing — pass the keyword only when
+  you mean to. A non-null variable can't carry `null`, so `nil` there still means
+  omit.
+- enum variables accept the enum or its wire value (`species: Species::Dog` or
+  `species: "DOG"`)
 - custom scalars serialize through the [scalar registry](scalars.md)
+- one kwarg per declared variable, always — so adding a variable to a query adds
+  a kwarg and leaves every existing call site alone. Two names are refused at
+  generation, `$client` and `$variables`: the generated `execute` body already
+  owns them. Rename the variable in the query.
 
 **The kwarg is typed exactly as the schema types it, and the value is coerced
 anyway.** Those aren't in tension, because they answer different questions:
@@ -386,33 +222,17 @@ A value that won't convert raises `GraphWeaver::InputError` naming the variable,
 the operation and the value.
 
 That is why the emitted sig carries `.checked(:never)`: sorbet-runtime would
-otherwise reject the String before the body could read it. Coercion is what
-stands in its place for the arguments — stricter, and with a better message —
-and the `Result` it returns is a `T::Struct`, so its props are still checked one
-by one.
-
-`T::Configuration.default_checked_level = :never` buys nothing back here. That
-knob governs `sig` dispatch, and the emitted sigs already opt out; the cost that
-remains is `T::Struct`'s own prop validation, which sorbet-runtime declares
-`.checked(:never)` in its own source and runs through a setter built at class
-definition. `from_h` allocates and costs the same either way — measured
-object-for-object identical — so reach for the scalar's cast, not this, when a
-deserialization path is hot.
-
-One kwarg per declared variable, always — so adding a variable to a query
-adds a kwarg and leaves every existing call site alone. Two names are refused at
-generation, `$client` and `$variables`: the generated `execute` body already
-owns them, and `def self.execute(client:, client: nil)` doesn't even parse.
-Rename the variable in the query.
+otherwise reject the String before the body could read it. Coercion stands in its
+place for the arguments — stricter, and with a better message — and the `Result`
+it returns is a `T::Struct`, so its props are still checked one by one.
+(`T::Configuration.default_checked_level = :never` buys nothing back: that knob
+governs `sig` dispatch, which the emitted sigs already opt out of, and `from_h`
+allocates and costs the same either way.)
 
 **Input objects** take the generated `T::Struct` or a plain hash — `.coerce`
 normalizes underscored Symbol/String keys, enums accept wire values, nested
 inputs accept hashes, and an unknown key raises with a spellchecked hint rather
 than silently dropping:
-
-```graphql
-mutation($input: AdoptionInput!) { adopt(input: $input) { ... } }
-```
 
 ```ruby
 AdoptMutation.execute!(input: { name: "Rex", species: "DOG", nickname: "Rexy" })
@@ -427,25 +247,17 @@ the wire hash, `coerce` builds from a plain hash. `coerce` remembers which keys
 the hash had, so `{nickname: nil}` sends `null` and `{}` omits the field. A
 struct built with `.new` can't tell the two apart — every unset prop is nil
 either way — so `nil` there means omit; reach for `coerce` to send an explicit
-null.
-Nested inputs work, including recursive ones — a self-referential filter
-generates cleanly, with `_and:`/`_not:` typed as the struct itself:
+null. Nested inputs work, including recursive ones: a self-referential filter
+generates cleanly, with `_and:`/`_not:` typed as the struct itself.
 
-```ruby
-where = mod::PokemonBoolExp.coerce(
-  _and: [{ name: { _like: "%chu" } }, { _not: { name: { _eq: "raichu" } } }],
-)
-mod.execute!(where:)
-```
-
-In the `generate!` workflow input types are emitted **once per schema**, one
-file per type under `generated/types/` with `types.rb` as the manifest. Query
-modules alias what they touch, so `AdoptMutation::AdoptionInput` still works and
-a shared type keeps one identity across modules. A query module aliases only its
-*variable root* types, so a deeply nested one is reached as
-`GraphQLTypes::<Type>`. Per-type files keep drift reviewable: a schema migration
-diffs exactly the types it touched, and types the schema drops are pruned on
-regeneration (`verify` flags strays). Dynamic `parse` stays self-contained.
+In the `generate!` workflow input types are emitted **once per schema**, one file
+per type under `generated/types/` with `types.rb` as the manifest. Query modules
+alias what they touch, so `AdoptMutation::AdoptionInput` still works and a shared
+type keeps one identity across modules; a query module aliases only its *variable
+root* types, so a deeply nested one is reached as `GraphQLTypes::<Type>`. Per-type
+files keep drift reviewable: a schema migration diffs exactly the types it
+touched, and types the schema drops are pruned on regeneration (`verify` flags
+strays). Dynamic `parse` stays self-contained.
 
 ### An input object generates its whole closure
 
@@ -468,18 +280,15 @@ query($name: String!, $minHeight: Int!) {
 }
 ```
 
-`srb tc` gets *more* out of that, not less. `name: String`, `min_height:
-Integer` are types it checks at every call site, where the variable form is
+`srb tc` gets *more* out of that, not less. `name: String`, `min_height: Integer`
+are types it checks at every call site, where the variable form is
 `T.any(PokemonBoolExp, T::Hash[T.untyped, T.untyped])` — and a hash built from
 `params`, which is how a filter is really assembled, takes the untyped branch.
 Refusals land on the leaf too, so `path` is the form field rather than the
-comparison operator under it.
-
-Two shapes can't be inlined, and codegen says which when a prop collision in an
-input type forces the question. A key chosen at runtime — the sort column in
-`order_by: { <column>: asc }` — has no spelling, because GraphQL has no dynamic
-object keys. And a literal list can't stand in for a length only the runtime
-knows.
+comparison operator under it. Two shapes can't be inlined, and codegen says which
+when a prop collision forces the question: a key chosen at runtime (the sort
+column in `order_by: { <column>: asc }`), since GraphQL has no dynamic object
+keys, and a list whose length only the runtime knows.
 
 ## Enums: one GraphQL enum, one Ruby type
 
@@ -494,16 +303,15 @@ AddPetMutation.execute!(name: "Rex", species:)     # same class, no conversion
 
 So a value read out of one query hands straight back into another's variable,
 `case`/`T.absurd` is exhaustive across your app, and the class a field gets
-doesn't depend on what else the query happened to reference.
-
-An enum value that camelizes to nothing — `_` and `__` are both legal GraphQL —
-is refused at generation: there is no constant to name it. Map the enum onto one
-of yours instead.
+doesn't depend on what else the query happened to reference. An enum value that
+camelizes to nothing — `_` and `__` are both legal GraphQL — is refused at
+generation: there is no constant to name it. Map the enum onto one of yours
+instead.
 
 `register_enum` replaces the generated `T::Enum` with your own app enum — see
-[scalars.md](scalars.md#enums-map-onto-your-own-tenum). Dynamic `parse` emits
-the enums into the query module itself; there's no cross-query set to share
-against, but one enum is still one class within that module.
+[scalars.md](scalars.md#enums-map-onto-your-own-tenum). Dynamic `parse` emits the
+enums into the query module itself; there's no cross-query set to share against,
+but one enum is still one class within that module.
 
 **The one misuse nothing catches** is comparing against the wire spelling:
 
@@ -514,49 +322,39 @@ pet.species == GraphQLTypes::Species::Cat
 
 A generated enum is a plain `T::Enum`, so `==` against a String is `false` —
 `srb tc` allows it (`==` takes `BasicObject`) and nothing raises. sorbet-runtime
-owns this question and ships the switch; turn it on in dev and test and route
-the report wherever your other soft assertions go:
-
-```ruby
-T::Configuration.enable_legacy_t_enum_migration_mode
-T::Configuration.soft_assert_handler = ->(message, extra) { raise "#{message} #{extra}" }
-```
-
-It covers your own `T::Enum`s too, which is why it belongs there rather than in
-the generated classes. Careful reading it: in that mode the comparison answers
-**true** (it serializes first), so the handler, not the return value, is the
-signal.
+owns this question and ships the switch: turn on
+`T::Configuration.enable_legacy_t_enum_migration_mode` in dev and test, and route
+`soft_assert_handler` wherever your other soft assertions go. It covers your own
+`T::Enum`s too, which is why it belongs there rather than in the generated
+classes. Careful reading it: in that mode the comparison answers **true** (it
+serializes first), so the handler, not the return value, is the signal.
 
 ## Selections
 
-- **Fragments** — inline fragments and named spreads flatten into the
-  selection; type conditions match exact names or interfaces/unions the type
-  belongs to.
-- **`@skip` / `@include`** — a directive-conditional field may be absent from
-  the response regardless of schema nullability, so its generated type is
-  always nilable.
+- **Fragments** — inline fragments and named spreads flatten into the selection;
+  type conditions match exact names or interfaces/unions the type belongs to.
+- **`@skip` / `@include`** — a directive-conditional field may be absent from the
+  response regardless of schema nullability, so its generated type is always
+  nilable.
 - **Aliases** — result keys follow aliases; props are the underscored alias.
 
-Props are always snake_case (`nameWithOwner` → `name_with_owner`). Reaching
-for the wire name is a classic stumble, so it fails helpfully at both
-layers: `srb tc` flags it statically, and at runtime (consoles, dynamic
-mode) the struct raises a NoMethodError naming the prop that does exist —
-`use 'name_with_owner'` for the exact wire name, `did you mean ...?` for
-a near-miss typo in either casing.
+Props are always snake_case (`nameWithOwner` → `name_with_owner`). Reaching for
+the wire name is a classic stumble, so it fails helpfully at both layers: `srb
+tc` flags it statically, and at runtime (consoles, dynamic mode) the struct
+raises a NoMethodError naming the prop that does exist — `use 'name_with_owner'`
+for the exact wire name, `did you mean ...?` for a near-miss typo in either
+casing.
 
 A name that would shadow a method every struct answers — `class`, `hash`,
 `display`, `to_json`, and `supplied` on an input — takes a trailing underscore
-instead: `class` → `class_`, in results and input types alike. The generated
-source says so on the line above the prop. Only the Ruby name moves: the wire
-keeps the schema's spelling in both directions, so the query, the request and
-the response are untouched, and `result.class` is still Ruby's `class`. The
-prop is the one Ruby name for the field, so `.new`, `.coerce`, a result's
-`#to_h` and pattern matching, and an `InputError`'s `#path` all use `class_`
-(an input error's `#coordinate` still names the schema's `Tricky.class`). The
-wire views are where the schema's spelling comes back: an **input** struct's
-`#to_h` is the hash you would send — `{"class" => …}` — and a result's
-`#as_json`/`#to_json` write `"class"` too, so `render json: result` never
-leaks a trailing underscore. Input structs don't pattern-match at all.
+instead: `class` → `class_`, in results and input types alike, and the generated
+source says so on the line above the prop. Only the Ruby name moves. It is the
+one Ruby name for the field, so `.new`, `.coerce`, a result's `#to_h` and pattern
+matching, and an `InputError`'s `#path` all use `class_` (an input error's
+`#coordinate` still names the schema's `Tricky.class`) — while the wire keeps the
+schema's spelling in both directions, so the query, the request, the response,
+and `#as_json`/`#to_json` are untouched and `render json: result` never leaks a
+trailing underscore.
 
 ### Abstract types
 
@@ -567,35 +365,35 @@ plus a catch-all `Other`, wrapped in a module with
 unaliased and unconditional — the wire response carries no type tag unless you
 ask, and `from_h` reads it on every response. One `__typename` inside each
 `... on Type` does **not** substitute, however many of them there are: the
-dispatch runs before any member's selection applies, and a member the query
-never named would carry none at all.
+dispatch runs before any member's selection applies, and a member the query never
+named would carry none at all.
 
 Size follows the query, not the schema: two `... on` conditions against GitHub's
 `Node` — an interface with a few hundred implementations — emit three structs,
-not a few hundred. Anything the query didn't name — a member you have no
-fragment on, or one the schema grew *after* you generated — deserializes into
-`Other`, carrying what the abstract type itself guarantees (an interface's
-selected interface-level fields; for a union, `__typename`). Adding a union
-member upstream is a non-breaking change, and it stays one here.
+not a few hundred. Anything the query didn't name — a member you have no fragment
+on, or one the schema grew *after* you generated — deserializes into `Other`,
+carrying what the abstract type itself guarantees (an interface's selected
+interface-level fields; for a union, `__typename`). Adding a union member
+upstream is a non-breaking change, and it stays one here.
 
 Two selections have nothing to dispatch between, so they skip the module and
 become the struct directly: **no conditions at all** (interface-level fields
 only) → one shared struct; **exactly one condition and nothing else** → that
 type's struct, always nilable, since a non-matching runtime type comes back as
 `nil` — so narrowing doubles as filtering. "Nothing else" is what keeps the miss
-legible: a field every member answers — spelled bare, or inside a fragment on
-the abstract type itself, which is the same selection — puts the field back on
-the dispatch path, so the other members keep what they sent. Narrowing reads the
-match off `__typename` when the selection carries one unaliased and unguarded,
-and off "the object came back empty" when it doesn't — so an
-all-`@skip`/`@include` narrowed fragment, or one whose `__typename` is itself
-guarded, is refused: a match would be indistinguishable from a miss.
+legible: a field every member answers — spelled bare, or inside a fragment on the
+abstract type itself, which is the same selection — puts the field back on the
+dispatch path, so the other members keep what they sent. Narrowing reads the match
+off `__typename` when the selection carries one unaliased and unguarded, and off
+"the object came back empty" when it doesn't — so an all-`@skip`/`@include`
+narrowed fragment, or one whose `__typename` is itself guarded, is refused: a
+match would be indistinguishable from a miss.
 
 When a whole union field is selected as one named *shared* fragment
 (`{ ...FeedItemFields }`), that type is hoisted once into `GraphQLTypes` — named
 for the fragment — and each query aliases it, so the same union is one Ruby type
-family across queries, not a fresh dispatch module per query. Like shared
-inputs, it's a `generate!`-directory concern; dynamic `parse` inlines.
+family across queries, not a fresh dispatch module per query. Like shared inputs,
+it's a `generate!`-directory concern; dynamic `parse` inlines.
 
 ### Consuming a union — dispatch on the class, not `__typename`
 
@@ -617,28 +415,25 @@ end
 Two things a `case` on the `__typename` string can't give you. `when Book`
 *narrows*: inside the branch `item` is statically a `Book`, so its fields
 typecheck and a `Disc` field is a compile error. And after every branch the
-`T.any` is exhausted, so `T.absurd` asserts the `else` is unreachable —
-**write a fragment for another member, regenerate, and the `T.absurd` stops
-compiling until you handle it.**
-
-Exhaustive over the members *this query asked about*, plus `Other` —
-deliberately not "every type in the schema", which is what keeps a `case` you
-wrote today compiling when upstream adds a member. To make the compiler force
-your hand on a new one, name it in the query.
+`T.any` is exhausted, so `T.absurd` asserts the `else` is unreachable — **write a
+fragment for another member, regenerate, and the `T.absurd` stops compiling until
+you handle it.** It is exhaustive over the members *this query asked about*, plus
+`Other` — deliberately not "every type in the schema", which is what keeps a
+`case` you wrote today compiling when upstream adds a member.
 
 `__typename` is still there as a plain `String`, with one use the class can't
-cover: two *differently-selected* occurrences of the same union are distinct
-type families (`Result::Item::Book` is not `Result::FeaturedItem::Book`), so a
-`case` written for one won't span the other. Select the union through a shared
-fragment to hold it as one type across queries ([above](#abstract-types)); if
-all you have is the bare tag, `__typename` is the common denominator, unchecked.
+cover: two *differently-selected* occurrences of the same union are distinct type
+families (`Result::Item::Book` is not `Result::FeaturedItem::Book`), so a `case`
+written for one won't span the other. Select the union through a shared fragment
+to hold it as one type across queries ([above](#abstract-types)); if all you have
+is the bare tag, `__typename` is the common denominator, unchecked.
 
 ## Type helpers
 
-Derived values (display names, emoji, predicates) belong next to the data but
-not *in* it — rewriting wire values on the way in destroys the raw truth.
-Register a plain module and every struct generated from that GraphQL type
-includes it, whatever query it appears in:
+Derived values (display names, emoji, predicates) belong next to the data but not
+*in* it — rewriting wire values on the way in destroys the raw truth. Register a
+plain module and every struct generated from that GraphQL type includes it,
+whatever query it appears in:
 
 ```ruby
 module PetHelpers
@@ -660,9 +455,9 @@ same reason — [getting started](getting_started.md#2-run-the-generator) has th
 rule and the boot order behind it. Editing the *mixin* in development needs a
 restart, unlike a `.graphql` edit: a reload hands the constant a new module
 object, and the `include` that took the old one doesn't run again.
-For quick decoration, build the mixin inline — the block
-is `module_eval`'d into a fresh module auto-named under
-`GraphWeaver::TypeHelpers`:
+
+For quick decoration, build the mixin inline — the block is `module_eval`'d into
+a fresh module auto-named under `GraphWeaver::TypeHelpers`:
 
 ```ruby
 GraphWeaver.extend_type("Pet") do
@@ -681,28 +476,10 @@ one a boot creates.
 checks a mixin's method bodies in the module's own scope, not the including
 struct's, so a helper reading a wire field (`name`, `birthday`) fails with
 "method does not exist on the module" — and the block form has no source on disk
-for `srb tc` to read at all (it shows up as `Unable to resolve constant` on the
-generated `include`, which is the cost of the convenience).
-
-A *named* module can carry real sigs, though, by declaring the fields it leans
-on — abstract sigs are how a mixin says "whatever includes me has these", and the
-struct's `const`s satisfy them:
-
-```ruby
-# typed: strict
-module PetHelpers
-  extend T::Sig
-  extend T::Helpers
-  abstract!
-
-  sig { abstract.returns(String) }
-  def name; end
-
-  sig { returns(String) }
-  def display_name = "#{name} 🐶"
-end
-```
-
+for `srb tc` to read at all. A *named* module can carry real sigs, though, by
+declaring the fields it leans on: `abstract!` plus a
+`sig { abstract.returns(String) }; def name; end` is how a mixin says "whatever
+includes me has these", and the struct's `const`s satisfy them.
 `T.unsafe(self).name` also silences it, at the cost of checking nothing. Either
 beats `# typed: false` for a helper you want checked.
 
@@ -752,16 +529,14 @@ GraphWeaver.extend_type("Query", alias: { entity: "_entities.first" }, optional:
 `optional: true` makes the aliases *lenient*: a query whose selection doesn't fit
 the path just omits the accessor instead of failing generation. Reach for it when
 the alias lives on a universal type like `Query` — where a strict alias would
-force *every* query to select the path — or when it only fits some selections.
-It excuses a field the query didn't select, not a segment the schema doesn't
-have: a typo or a wire-cased name (`findPets` for `find_pets`) still raises,
-since no selection could ever satisfy it.
+force *every* query to select the path — or when it only fits some selections. It
+excuses a field the query didn't select, not a segment the schema doesn't have: a
+typo or a wire-cased name (`findPets` for `find_pets`) still raises, since no
+selection could ever satisfy it.
 
 For anything beyond a passthrough projection — real logic, still typed — reopen
 the generated struct in your own file and add sig'd methods; Sorbet merges the
-bodies.
-
-Every form above, and every error it raises, is a named example in
+bodies. Every form above, and every error it raises, is a named example in
 [`spec/aliases_spec.rb`](https://github.com/dpep/graph_weaver/blob/main/spec/aliases_spec.rb).
 
 ## Clients
@@ -770,33 +545,28 @@ A client is anything satisfying the [execute contract](transports.md) — a
 `GraphWeaver::Client`, a transport, a `Retry`, a live schema class, a fake.
 Resolution is per call (`client:`) → per module → baked constant →
 `GraphWeaver.client`; the canonical list is in
-[transports](transports.md#client-resolution).
+[transports](transports.md#client-resolution). Generate *without* a baked
+constant when you want modules to follow the app default (`GraphWeaver.client =`
+in an initializer). A baked one is no reason a module escapes
+[testing's `graphql:` tag](testing.md), which is exactly the instruction to
+replace the client generation chose; what the *example* says still wins.
 
-Generate *without* a baked constant when you want modules to follow the
-app default (`GraphWeaver.client =` in an initializer).
-
-A baked constant is no longer a reason a module escapes
-[testing's `graphql:` tag](testing.md): the tag is exactly the instruction
-to replace the client generation chose, so it stands in for the baked one
-too. What the *example* says still wins — a per-call `client:`, or
-`MyQuery.client =` in a `before` block.
-
-`client`/`client=` live in the gem (`GraphWeaver::QueryModule`, extended by
-every generated module). A baked constant is emitted as a private
-`DEFAULT_CLIENT`, resolved on first use so a module can load before the
-initializer that builds its client. A module generated from a
-[declared graph](getting_started.md#more-than-one-schema) also carries a private `GRAPH` naming
-it — so with two graphs, `graphql: :fake` fabricates each module's own
-schema instead of having to be told which one you meant, and it is the
-`:graph` on every [instrumentation event](logging.md#the-payload) the
-module's `execute` produces.
+`client`/`client=` live in the gem (`GraphWeaver::QueryModule`, extended by every
+generated module). A baked constant is emitted as a private `DEFAULT_CLIENT`,
+resolved on first use so a module can load before the initializer that builds its
+client. A module generated from a
+[declared graph](getting_started.md#more-than-one-schema) also carries a private
+`GRAPH` naming it — so with two graphs, `graphql: :fake` fabricates each module's
+own schema instead of having to be told which one you meant, and it is the
+`:graph` on every [instrumentation event](logging.md#the-payload) the module's
+`execute` produces.
 
 ## Deserializing a response from another client
 
 `execute` is two steps: make the request, then cast the JSON into the typed
 structs. Only the second step is GraphWeaver-specific, and it's exposed on its
-own — so you can fetch with any GraphQL client (Apollo, a raw `Net::HTTP` post,
-a batching layer, a recorded fixture) and hand the result over:
+own — so you can fetch with any GraphQL client (Apollo, a raw `Net::HTTP` post, a
+batching layer, a recorded fixture) and hand the result over:
 
 ```ruby
 raw = my_graphql_client.post(PersonQuery::QUERY, id: "1")
@@ -808,26 +578,150 @@ person   = response.data!.person            # typed, no network
 person = PersonQuery.from_response!(raw).person   # or skip the envelope
 ```
 
-`execute` *is* `from_response(client.execute(...))`, so the envelope is
-identical. The one requirement: pass the response **verbatim** — a hash (or
-anything with `#to_h`) with the standard GraphQL shape and **wire-cased string
-keys** (`"person"`, `"nameWithOwner"`), the top-level `"data"` / `"errors"` /
-`"extensions"` keys included. Don't symbolize or snake_case it first.
+`execute` *is* `from_response(client.execute(...))`, so the envelope is identical.
+The one requirement: pass the response **verbatim** — a hash (or anything with
+`#to_h`) with the standard GraphQL shape and **wire-cased string keys**
+(`"person"`, `"nameWithOwner"`), the top-level `"data"` / `"errors"` /
+`"extensions"` keys included. Don't symbolize or snake_case it first. Which is
+checked, since symbolizing is the likeliest thing to go wrong at this seam: a
+hash carrying neither `"data"` nor `"errors"` raises a `GraphWeaver::CastError`
+naming the keys it *did* find, rather than handing back an envelope that reports
+success with no data. `nil` and a bare String are refused the same way.
 
-Which is checked, since symbolizing is the likeliest thing to go wrong at this
-seam: a hash carrying neither `"data"` nor `"errors"` raises a
-`GraphWeaver::CastError` naming the keys it *did* find, rather than handing back
-an envelope that reports success with no data. `nil` and a bare String are
-refused the same way.
+## Generating
+
+Queries live as `.graphql` files (the source of truth), generation writes the
+Ruby, and verification fails when the two drift. The conventional layout
+(configurable via `GraphWeaver.queries_paths` / `generated_paths` /
+`schema_path`):
+
+```text
+app/graphql/
+  schema.json        # introspection dump (or schema.graphql SDL)
+  queries/           # *.graphql / *.gql, nested — hand-written, reviewed
+  fragments/         # shared fragments, spread by name from any query
+  generated/
+    types.rb         # manifest: requires + forward declarations, in load order
+    types/           # one file per shared type
+    *_query.rb       # one module per query — generated, checked in, never edited
+    *_mutation.rb    # ...and per mutation
+```
+
+```sh
+rake graph_weaver:generate    # queries_paths -> generated_paths.first
+rake graph_weaver:verify      # fail if anything is stale — run in CI
+```
+
+The tasks self-register in Rails; elsewhere add `require "graph_weaver/tasks"` to
+your Rakefile. Scalar/enum/type registrations are baked into generated source, so
+they must run first — in Rails they do, since the tasks depend on `:environment`.
+Or call the same APIs directly:
+
+```ruby
+schema = GraphWeaver::SchemaLoader.load(GraphWeaver.schema_path)
+GraphWeaver.generate!(schema:)            # write the modules
+GraphWeaver.verify_generated!(schema:)    # the freshness guard, one line in a spec
+```
+
+**`verify_generated!` costs what `generate!` costs**, minus the writes — it
+recomputes the whole plan whether nothing is stale or everything is. So it
+belongs in *one* example per suite run, not in a `before` or an assertion per
+example, where it reads like a cheap check and isn't.
+
+`generate!` returns every file the plan produces, but rewrites only the ones whose
+bytes changed; `GraphWeaver.changed_files` is that subset. So
+`rake graph_weaver:generate` prints `wrote` for what moved and `N already up to
+date` for the rest, and a watching dev server has one module to reload instead of
+all of them. The unregistered-scalar report is the rake task's `puts`, so off rake
+read `GraphWeaver.untyped_scalars` for the unioned list — or set
+[`GraphWeaver.logger`](logging.md), which `generate!` names them on at `info` as
+it goes. The schema dump is step 0: codegen reads it, never a live endpoint, and
+generating without one fails pointing at exactly that.
+
+**A type shared across query modules lives in `GraphQLTypes` and is aliased in.**
+Input types, schema enums, and unions hoisted from shared fragments are all one
+kind of thing — a type that would otherwise be copied into every query that
+touches it — so they live in one module, one file each, and a query module that
+uses any of them opens with `require_relative "types"`. Rename the constant
+(`GraphWeaver.types_module=`, or `generate!(types_module:)`) when one app
+generates against two schemas. One module is one namespace, so a shared fragment
+whose name is already a schema type in that module is refused at generation,
+naming both.
+
+**Generation prunes.** Rename or delete a `.graphql` and the module it used to
+produce is deleted on the next `generate!` — which says so, since a deletion you
+didn't expect is the one worth reading; `verify` flags it as stale until you
+regenerate. Only files carrying GraphWeaver's header
+(`# Generated by GraphWeaver <version> — do not edit.`) are ever deleted, so
+hand-written files in the output directory are safe. A run that finds **no**
+queries says where it looked rather than exiting 0 in silence, and
+`verify_generated!` fails outright.
+
+**A refusal writes nothing at all** — not even the files that planned cleanly —
+so a failed run leaves the tree exactly as it was, and it reports *every* query it
+refused rather than the first.
+
+**Generation is deterministic.** The same schema and queries produce
+byte-identical files, on any machine, in any order — everything with a
+non-obvious order (schema members, enum values, requires, hoisted names) is
+sorted, and a spec asserts it both across calls and against the checked-in
+fixtures. So regenerating a file you didn't change produces no diff,
+`verify_generated!` never fails spuriously, and a generated file is worth
+reviewing line by line.
+
+Regenerate when: a query changes, the schema changes, a registration changes, or
+GraphWeaver itself upgrades — **any release can change what codegen emits**, patch
+releases included, and `verify_generated!` is what catches it. The rake tasks that
+spot a *schema* change for you — `schema:diff`, `schema:refresh`, `queries:check`
+— are in [getting started](getting_started.md#5-verify-in-ci); a
+[`schema_stale?`](errors.md) error in production is the late signal.
+
+### Loading what it wrote
+
+In Rails, loading is automatic — the Railtie requires every generated file at
+boot from a `to_prepare` block, after your initializers and after any
+registrations of your own in one. Elsewhere it's explicit, factory_bot-style:
+`GraphWeaver.load_generated!` requires every file under `generated_paths`.
+
+**Outside Rails, four things have to agree**, and nothing wires them together for
+you — a script that generates its own modules sets all four:
+
+1. `queries_paths` — where `generate!` reads `.graphql` files.
+2. `generated_paths` — where it writes, and where `load_generated!` reads. Point
+   them at the same directory or generation is invisible.
+3. the call above, before the first `execute` — nothing else requires the files.
+4. `GraphWeaver.client =` — a module generated without a baked
+   [`client:`](#clients) has none of its own.
+
+Miss (3) and the script gets a `NameError` for its own module; miss (4) and it
+gets `PersonQuery: client must respond to #execute(query, variables:), got
+NilClass` from a module that otherwise looks fine.
+
+Every directory setting is a list — `queries_paths`, `generated_paths`,
+`fragments_paths` — and every entry is read (entries may be globs; the generated
+default includes `app/graphql/*/generated`, so per-schema layouts load too).
+Assigning a String wraps it, so pointing at one directory stays a one-liner.
+`generate!` writes into the first `generated_paths` entry — one run, one output
+directory. `schema_path` is the one singular setting: a run reads one schema, so a
+list would name a dump nothing ever opens. A relative path resolves against
+`GraphWeaver.root` — `Rails.root` in a Rails app, the working directory otherwise
+— so where you started the process doesn't change which files it reads.
+
+Plain requires, not Zeitwerk: Zeitwerk would expect `Generated::PersonQuery` from
+`generated/person_query.rb`. In development a query edit regenerates and reloads
+before the next request; everywhere else generated code changes only on
+regeneration — restart, like a schema migration, or call
+`GraphWeaver.reload_generated!` after regenerating in another terminal.
 
 ## Dynamic mode
 
-`GraphWeaver.parse` generates + evals in one step (no build artifact, evaled
-into an anonymous container — no global constants leak). Same runtime
-semantics; invisible to `srb tc`, so prefer the build step where static
-checking matters. `GraphWeaver.run(source, query, **variables)` — or
-`client.run` — is the one-shot form: parse and execute in one call, no module
-kept.
+`GraphWeaver.parse` generates + evals in one step (no build artifact, evaled into
+an anonymous container — no global constants leak). Same runtime semantics;
+invisible to `srb tc`, so prefer the build step where static checking matters.
+`GraphWeaver.run(source, query, **variables)` — or `client.run` — is the one-shot
+form: parse and execute in one call, no module kept. In development
+`client.load_queries!` parses every query file into modules with the same names
+generation would use.
 
 In an app with [more than one graph](getting_started.md#more-than-one-schema), a
 parsed module belongs to one of them — that is what a `graphql:` tag runs it
@@ -840,5 +734,5 @@ PersonQuery = GraphWeaver.parse(schema: BILLING, query: "…", graph: :billing)
 ```
 
 Generated source is eval'd, so inputs are validated: module names must be
-constant names, and query heredocs can't be terminated early. Still: queries
-are code — don't feed untrusted strings to parse.
+constant names, and query heredocs can't be terminated early. Still: queries are
+code — don't feed untrusted strings to parse.
