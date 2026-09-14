@@ -479,6 +479,44 @@ describe GraphWeaver::Testing do
         }.to raise_error(GraphWeaver::Error, /list_size: key "Person.pest"/)
       end
     end
+
+    # The Relay/Shopify payload — `placeOrder { order userErrors }` — is the
+    # ecosystem's mutation shape, and a fabricated order beside a fabricated
+    # failure is a response no server can send. So the natural happy-path
+    # assertion was flaky until it was pinned, in every mutation test in
+    # every app that follows the convention.
+    describe "a list field whose name ends in errors" do
+      let(:payload_schema) do
+        GraphQL::Schema.from_definition(<<~SDL)
+          type UserError { field: String, message: String! }
+          type Order { id: ID! }
+          type PlaceOrderPayload { order: Order, userErrors: [UserError!]! }
+          type Mutation { placeOrder: PlaceOrderPayload! }
+          type Query { order: Order }
+        SDL
+      end
+
+      let(:place_order) { "mutation { placeOrder { order { id } userErrors { message } } }" }
+
+      it "fabricates empty, whatever the seed and whatever list_size says" do
+        20.times do |seed|
+          fake = described_class.new(schema: payload_schema, seed:, list_size: 5)
+          placed = fake.execute(place_order).dig("data", "placeOrder")
+
+          expect(placed["userErrors"]).to eq []
+          expect(placed["order"]).not_to be_nil # still a fabricated success
+        end
+      end
+
+      it "fabricates what a pin says, which is how the failure path is written" do
+        fake = described_class.new(
+          { "userErrors" => [{ "message" => "Out of stock" }] }, schema: payload_schema, seed: 1
+        )
+
+        expect(fake.execute(place_order).dig("data", "placeOrder", "userErrors"))
+          .to eq [{ "message" => "Out of stock" }]
+      end
+    end
   end
 
   describe GraphWeaver::Internal::Values do

@@ -164,6 +164,15 @@
   *name*, while the library was already reading the answer off the document to
   decide whether `Retry` may repeat it. Same reading, now on the payload;
   `docs/logging.md` has the row.
+- **`graphql: :fake` fabricates an empty `userErrors`.** One rule: a list field
+  whose name ends in `errors` comes back `[]` unless you pin it. The
+  Relay/Shopify payload (`placeOrder { order userErrors }`) is the ecosystem's
+  mutation shape, and the fake was returning a fabricated order *and* a
+  fabricated non-empty `userErrors` — a response no server can send, which made
+  the natural happy-path assertion flaky in every mutation test in every app
+  that follows the convention. *Action:* an example that meant to fabricate
+  failures pins the field (`{ "userErrors" => [{ "message" => "..." }] }`),
+  which is how the failure path was written anyway.
 
 ###  v0.7.0  (2026-09-13)
 

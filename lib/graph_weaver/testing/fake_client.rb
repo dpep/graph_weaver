@@ -616,11 +616,19 @@ class GraphWeaver::Testing::FakeClient
     # Array.new(-1) is "negative array size" out of the fabricator's guts; a
     # cap below zero asks for nothing, which is what a page of none is
     return [capped, 0].max if capped.is_a?(Integer)
+    return 0 if errors_list?(node.name)
 
     size = list_size_for(coordinate, node.name)
     # an Integer list_size means exactly that many; a Range randomizes within it
     size.is_a?(Range) ? rng.rand(size) : size
   end
+
+  # A list field whose name ends in `errors` fabricates empty. The Relay and
+  # Shopify payload convention — `placeOrder { order userErrors }` — otherwise
+  # comes back with a fabricated order AND a fabricated failure, which is a
+  # response no server can send, so the natural happy-path assertion is flaky
+  # until it is pinned. Pin it to fabricate the failure path.
+  def errors_list?(name) = name.downcase.end_with?("errors")
 
   # How long an unbounded list is. A Hash says it per list, read most
   # specific first like a pin — which is what keeps nested lists from

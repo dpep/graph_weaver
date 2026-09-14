@@ -160,6 +160,13 @@ many, a Range randomized within it, or a Hash saying it per list (below). A
 list with a `first:`/`last:`/`limit:` argument is that long instead, whatever
 this says.
 
+**A list field whose name ends in `errors` fabricates empty** — `userErrors`,
+`errors`, `mutationErrors`. The Relay/Shopify payload
+(`placeOrder { order userErrors }`) is the ecosystem's mutation shape, and a
+fabricated order beside a fabricated failure is a response no server can send;
+[pin it](#pins) to write the failure path
+(`{ "userErrors" => [{ "message" => "Out of stock" }] }`).
+
 **Every list the fabricator reaches reads the same setting, so nested lists
 multiply.** A query selecting `rows { owner { … } tags }` with `tags`
 uncapped fabricates `list_size` rows and `list_size` tags *in each of them* —
