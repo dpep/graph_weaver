@@ -27,12 +27,6 @@ expensive.
 The honest counter: if your app doesn't use Sorbet, most of that value
 evaporates, and [graphlient](#graphlient) is the better answer.
 
-This idea was tried once before. `yogurt` generated Sorbet types from GraphQL
-documents, shipped two versions 70 minutes apart in November 2020, and stopped —
-its own README concedes it lacked named fragments and that the author "probably
-got a lot of the decisions wrong".<!-- https://raw.githubusercontent.com/theorygeek/yogurt/master/README.md ; versions 0.1.1 16:52 and 0.2.0 18:02 on 2020-11-26 — https://rubygems.org/api/v1/versions/yogurt.json ; last real commit 29ef902 2020-11-26 -->
-So the thesis is unproven, not proven wrong.
-
 ## The table
 
 `graphql-ruby` isn't a column because it isn't a client — see
@@ -53,7 +47,7 @@ vendor SDKs actually do.
 | **Errors** | typed envelope keeping partial data, hierarchy by failure site<!-- docs/errors.md; lib/graph_weaver/errors.rb --> | raw hashes; HTTP errors become a fake `errors` array<!-- lib/graphql/client/http.rb:80-85; https://github.com/github-community-projects/graphql-client/issues/67 --> | raises a real class hierarchy on every failure<!-- lib/graphlient/errors/ --> | thin hierarchy, mostly never raised<!-- lib/artemis/exceptions.rb — GraphQLError/GraphQLServerError defined, never raised --> | yours to write |
 | **Transport** | `Net::HTTP` (pooled) or Faraday, plus `Retry`<!-- docs/transports.md; lib/graph_weaver/transport/ --> | stock adapter self-described as trivial<!-- lib/graphql/client/http.rb:17-19 "Production applications should consider implementing their own network adapter" --> | Faraday 2.x, full middleware access<!-- lib/graphlient/adapters/http/faraday_adapter.rb:36-48 --> | four adapters, no middleware layer<!-- lib/artemis/adapters.rb; https://github.com/yuki24/artemis/issues/57 open since 2019 --> | whatever you picked |
 | **Rails** | generator, railtie, reload-on-edit, rake lifecycle<!-- lib/generators/graph_weaver/install_generator.rb; lib/graph_weaver/railtie.rb; lib/graph_weaver/tasks.rb --> | opt-in railtie, no generators; docs call the boot order "a mess"<!-- lib/graphql/client/railtie.rb:34-37 TODO; https://github.com/github-community-projects/graphql-client/blob/master/guides/rails-configuration.md --> | none | the whole pitch: generators, config, callbacks<!-- lib/artemis/railtie.rb; lib/generators/artemis/ --> | n/a |
-| **Last release** | v0.7.0, 2026-09-12 | v0.26.0, 2025-05-29<!-- https://rubygems.org/api/v1/gems/graphql-client.json --> | v0.9.0, 2026-08-02<!-- https://rubygems.org/api/v1/gems/graphlient.json --> | v1.1.0, 2024-08-16<!-- https://rubygems.org/api/v1/gems/artemis.json --> | n/a |
+| **Last release** | v0.7.1, 2026-09-13 | v0.26.0, 2025-05-29<!-- https://rubygems.org/api/v1/gems/graphql-client.json --> | v0.9.0, 2026-08-02<!-- https://rubygems.org/api/v1/gems/graphlient.json --> | v1.1.0, 2024-08-16<!-- https://rubygems.org/api/v1/gems/artemis.json --> | n/a |
 | **Downloads** | 7.5k<!-- 7,478 — https://rubygems.org/api/v1/gems/graph_weaver.json --> | 94M<!-- 94,408,657 --> | 32M<!-- 32,287,626 --> | 430k<!-- 425,737 --> | n/a |
 
 ## graphql-client

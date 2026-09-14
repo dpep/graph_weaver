@@ -17,13 +17,13 @@ bundle exec examples/federation.rb
 bundle exec examples/github/run.rb        # gh auth login, or GITHUB_TOKEN=...
 ```
 
-**`federation.rb` is the one with no network at all** — three real subgraphs,
-a boundary-crossing query through a generated module, the trace of the fetches
-it took, and a refusal it declines to plan. `spec/examples_spec.rb` runs it on
-every build.
+**`federation.rb` is the one with no network at all** — three real subgraphs, a
+boundary-crossing query through a generated module, the trace of the fetches it
+took, and a refusal it declines to plan. `spec/examples_spec.rb` runs it on every
+build.
 
-**`github/` is the only one with committed generated code**, so it's the one
-that looks like an app:
+**`github/` is the only one with committed generated code**, so it's the one that
+looks like an app:
 
 - [`setup.rb`](github/setup.rb) — the shared wiring an initializer would hold:
   auth and the client.
