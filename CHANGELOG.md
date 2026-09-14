@@ -184,6 +184,18 @@
 - **Docs: `docs/scalars.md` says a trailing zero doesn't survive a
   `BigDecimal`.** `"10.00"` comes back `"10.0"` — the same number, different
   bytes, which matters where a request body is diffed or signed.
+- **The payload's `:code` is a GraphQL error code or nothing — never an HTTP
+  status.** It held a `ServerError`'s status on a `:failed`, so one APM tag
+  carried two dimensions (`code:THROTTLED` and `code:429`) and grouped neither.
+  The number was already on `:http_status`. *Action:* an alert reading `:code`
+  for a status reads `:http_status` instead; the Rails log line is unchanged.
+- **Docs: both tracing snippets mark the span errored on `:errors`.** A
+  response carrying GraphQL errors returns normally, so nothing raises and a
+  span left to itself is `UNSET` — an SLO copy-pasted off span status missed
+  every GraphQL-level failure there is. `docs/logging.md` now says the payload's
+  `:status`/`:code` are the alerting signal, adds the traceparent-out recipe (a
+  `headers:` callable resolves inside the span), notes that a retry's wall clock
+  is recoverable from the sibling spans, and carries two adapter footnotes.
 
 ###  v0.7.0  (2026-09-13)
 

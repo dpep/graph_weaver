@@ -204,8 +204,9 @@ module GraphWeaver
               result
             rescue => e
               payload[:error] = e.class.name
-              # the one key an alert groups by, whichever kind of failure it was
-              payload[:code] = e.status if e.is_a?(GraphWeaver::ServerError)
+              # :code stays the GraphQL error code and nothing else — it used
+              # to hold a ServerError's status here, so one tag carried two
+              # dimensions ("THROTTLED" and 429). The number is :http_status.
               raise
             ensure
               payload[:duration_ms] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000).round(2)

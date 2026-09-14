@@ -214,13 +214,17 @@ describe "GraphWeaver.instrumenter" do
     expect(payload[:code]).not_to include "\n"
   end
 
-  it "names the error class on a failure, and a ServerError's status as the code" do
+  # :code is one dimension — the GraphQL error code — or nothing. It used to
+  # hold a ServerError's status too, so one APM tag carried "THROTTLED" and
+  # 429 and grouped neither; the number was already on :http_status.
+  it "names the error class on a failure, and leaves the status on :http_status" do
     bad = GraphWeaver::Transport::HTTP.new(throttled_url)
 
     expect { bad.execute("query { x }") }.to raise_error(GraphWeaver::ServerError)
     expect(payload[:status]).to eq :failed
     expect(payload[:error]).to eq "GraphWeaver::ServerError"
-    expect(payload[:code]).to eq 429
+    expect(payload[:http_status]).to eq 429
+    expect(payload).not_to have_key :code
     expect(payload[:duration_ms]).to be_a Float
   end
 

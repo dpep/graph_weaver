@@ -58,9 +58,11 @@ describe GraphWeaver::LogSubscriber do
       .to include "GraphWeaver PersonQuery (8.1ms) errors [THROTTLED]"
   end
 
-  it "names the error class, and a ServerError's status, on a failure" do
+  # the payload keeps :code for the GraphQL code alone; the human line still
+  # wants a number for a failure that never got one, and that is :http_status
+  it "names the error class, and the HTTP status, on a failure" do
     expect(line(operation: "PersonQuery", status: :failed, error: "GraphWeaver::ServerError",
-      code: 502, duration_ms: 31.2))
+      http_status: 502, duration_ms: 31.2))
       .to include "GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::ServerError [502]"
 
     expect(line(operation: "PersonQuery", status: :failed, error: "GraphWeaver::TransportError",

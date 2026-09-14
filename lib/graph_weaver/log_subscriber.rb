@@ -60,11 +60,13 @@ module GraphWeaver
       payload[:graph] ? "#{payload[:graph]}/#{operation}" : operation
     end
 
-    # status, then whatever narrows it: the error class, the code an alert
+    # status, then whatever narrows it: the error class, the reason an alert
     # groups by, and which attempt this was when a Retry is in the stack.
     def outcome(payload)
       parts = [payload[:status], payload[:error]]
-      parts << "[#{payload[:code]}]" if payload[:code]
+      # the GraphQL code, or the HTTP status where the request never got one
+      reason = payload[:code] || (payload[:http_status] if payload[:status] == :failed)
+      parts << "[#{reason}]" if reason
       parts << "(retry #{payload[:retries]})" if payload[:retries].to_i.positive?
       parts.compact.join(" ")
     end

@@ -141,11 +141,11 @@ reports the failure instead of raising it.
 | `:client` | always | the class that ran it: `GraphWeaver::Transport::HTTP`, `GraphWeaver::InProcess`, your own |
 | `:kind` | always | `:query`, `:mutation` or `:subscription` — what the document runs, so a write failure rate is a payload question rather than a guess at the operation's name. The shorthand `{ ... }` document is a `:query`. The same reading decides whether [`Retry`](transports.md#retries) may repeat the request |
 | `:status` | always | `:ok`, `:errors` (a response carrying GraphQL errors), or `:failed` (it raised) |
-| `:duration_ms` | always | start to parsed response, for **this attempt** — under a [`Retry`](transports.md#retries) the backoff sleep between attempts is in none of them, so no event reports the wall clock the caller waited |
+| `:duration_ms` | always | start to parsed response, for **this attempt** — under a [`Retry`](transports.md#retries) the backoff sleep between attempts is in none of them, so no event reports the wall clock the caller waited. A tracer recovers it anyway: the sibling spans the attempts make share a parent, and the first one's start to the last one's end is the wait |
 | `:url` | over the wire | the endpoint; nil in-process |
 | `:http_status` | over the wire | what the server answered with, success or not; nil in-process |
 | `:schema` | in-process | the schema class's name, as a String, so a payload logs as it stands |
-| `:code` | on `:errors`, and on a `ServerError` | the machine-readable reason — the first `code` *any* of the errors carries, not the first error's, or a `ServerError`'s status. A code that exists beats the absence of one at position 0, which is what an alert groups by. Present and `nil` when the errors carry none |
+| `:code` | on `:errors` | the machine-readable reason, always a String or `nil` — the first `extensions.code` *any* of the errors carries, not the first error's. A code that exists beats the absence of one at position 0, which is what an alert groups by. Present and `nil` when the errors carry none. Never an HTTP status: one tag carrying two dimensions groups nothing, and the number is `:http_status` |
 | `:error` | on `:failed` | the exception's class name |
 | `:retries` | under a `Retry` | how many retries this attempt follows. Each attempt is its own event, so one retried call is three events reading 0, 1, 2 — present at 0 rather than absent, so its absence means nothing was retrying |
 | `:graph` | always | the [graph](getting_started.md#more-than-one-schema) the generated module was declared under, as a Symbol — `nil` for a module that names none, and for a client called directly. Never inferred from the client: a wrong graph on a request is worse than no graph |
@@ -234,13 +234,37 @@ GraphWeaver.instrumenter = lambda do |_event, payload, &block|
     block.call
   ensure
     span.add_attributes(payload.compact.transform_keys { "graphql.#{_1}" }.transform_values(&:to_s))
+    span.status = OpenTelemetry::Trace::Status.error(payload[:code] || "graphql errors") if payload[:status] == :errors
   end
 end
 ```
 
 `ensure` rather than after the call: the payload is only complete once
 the block has returned, and a failed span needs the attributes most.
-`in_span` records the exception and sets the span status itself.
+`in_span` records the exception and sets the span status itself — but only
+for a *raise*, which is the line above's whole reason to exist.
+
+**Span status is not the alerting signal; `payload[:status]` is.** A response
+carrying GraphQL errors is a 200 that returned normally, so nothing raises and
+a span left to itself is `UNSET` — an SLO built on span status alone misses
+every GraphQL-level failure there is. Alert on `:status` (`:ok` / `:errors` /
+`:failed`) and group by `:code`.
+
+The Rails auto-instrumentation this rides on wants `c.use_all` — naming
+`OpenTelemetry::Instrumentation::Rails` on its own does not pull in the
+Action Pack / Active Record instrumentations underneath it.
+
+**Propagating the trace outward** is a header, and a header value may be a
+callable, resolved per request — inside the span, which is what makes this
+work at all:
+
+```ruby
+GraphWeaver.new(url, headers: {
+  "traceparent" => -> { {}.tap { OpenTelemetry.propagation.inject(_1) }["traceparent"] },
+})
+```
+
+One callable per header name; `nil` back from one sends no such header.
 
 ### Datadog
 
@@ -250,6 +274,7 @@ GraphWeaver.instrumenter = lambda do |event, payload, &block|
     block.call
   ensure
     payload.compact.each { |key, value| span.set_tag("graphql.#{key}", value.to_s) }
+    span.set_error([payload[:code], "graphql errors"]) if payload[:status] == :errors
   end
 end
 ```
@@ -258,6 +283,10 @@ Datadog's Net::HTTP and Faraday contribs already trace the transport
 layer, so with them on you have a span for the POST. This adds the span
 *above* it, named for the operation — the one that means anything, since
 every GraphQL call is a POST to the same url.
+
+Testing one of these in a spec: Datadog's `SyncWriter` flushes a *complete*
+trace, so a span read while the trace is still open is not there yet — capture
+from a `before_flush` hook rather than reaching for the span afterwards.
 
 ## What is process-global, and who owns it
 
