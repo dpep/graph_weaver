@@ -1,9 +1,9 @@
 # Upgrading
 
 [Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then
-read the one section that is yours: from [0.6.1](#upgrading-from-061), from
-[0.5.1](#upgrading-from-051), or [to 0.5.0](#upgrading-to-050) from anything
-older.
+read the one section that is yours: from [0.7.0](#upgrading-from-070), from
+[0.6.1](#upgrading-from-061), from [0.5.1](#upgrading-from-051), or
+[to 0.5.0](#upgrading-to-050) from anything older.
 
 ## Regenerate on every upgrade
 
@@ -23,6 +23,25 @@ moved. That's the reminder working, not a false alarm.
 
 Generation is deterministic, so the diff is exactly what the new version emits
 differently and nothing else — worth reading rather than rubber-stamping.
+
+## Upgrading from 0.7.0
+
+A patch release of fixes, and a typical app ticks none of these. Read the left
+column and skip what isn't yours; the [changelog](../CHANGELOG.md) says why
+each one moved.
+
+| applies if you… | what changed |
+|---|---|
+| read `payload[:code]` in an alert or a dashboard expecting an HTTP status | it is a GraphQL error code or nothing now — the number is on `:http_status`, where it already was |
+| assert a fabricated `userErrors` is non-empty under `graphql: :fake` | a list field whose name ends in `errors` fabricates `[]` — pin it (`{ "userErrors" => [{ "message" => "…" }] }`) to fabricate failures |
+| grep or parse the debug log for `[req 3 …]` | the tag names the process: `[req 4123-3 …]` |
+| run more than one graph with `cache: true` | the second graph caches to `schema-<url digest>.json` of its own instead of sharing the first's dump — `cache: "<path>"` names it yourself |
+| commit your cassette directory | recording takes a `<cassette>.yml.lock` sidecar — gitignore `*.yml.lock` |
+| `rescue ArgumentError` around the union-dispatch refusal | it is a `GraphWeaver::Error` naming the query file now |
+| wrote a client of your own with a bare `attr_accessor :context` and mount it behind `Testing::Endpoint` | include `GraphWeaver::ContextSeam` — the lock lives on whoever owns the field |
+| read `CHANGELOG.md` out of the installed gem | it isn't packaged any more; `changelog_uri` points at `blob/v<version>` |
+| send a `File`, `IO`, `Pathname` or plain object as a variable under `graphql: :in_process` or `:fake` | refused there too now, as it already was over the wire — **a test that "proved" an upload works starts failing** |
+| retry a 429/503 that arrives **with** a GraphQL errors body | a `Retry-After` header wins over the configured backoff now, as it already did for a raised `ServerError` — **nothing raises** |
 
 ## Upgrading from 0.6.1
 

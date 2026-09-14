@@ -609,6 +609,14 @@ question. A `200` is never retried on status, so a router's partial
 `GATEWAY_TIMEOUT` still takes `retry_codes:` to opt in, and `retry_mutations:`
 still governs mutations.
 
+The header follows the same rule. `Retry-After: 7` on a 429 was read only when
+the failure *raised*, so the identical response waited 7s with a plain body and
+1s then 2s with an errors body — the configured backoff overriding a limiter
+that had named a number. `Transport::Envelope` carries the parsed seconds
+beside `http_status` (the seconds, not the headers: that is the whole of what
+`Retry` asks), the parse lives once in `Internal::Headers`, and `Retry#delay`
+reads it off whatever the attempt produced.
+
 ## A supergraph refusal runs above the plan, not inside a step
 
 **Considered:** scanning at `Router.new`. The directives that make a query
@@ -738,3 +746,135 @@ rather than moving under `Internal`: its methods build a `ScalarType` and an
 `EnumType`, which are private constants there, so only a lexical child can see
 them. `GraphWeaver.registry_for` went with it, to `Internal::Util` — the fakes
 were its only callers.
+
+## Redaction is a property of the channel, not of the value
+
+**Considered:** keeping the body in `ServerError#message` and scrubbing it —
+quoting the response is the fastest way to see what a 500 actually said, and
+the library already knows how to fold a url and filter a variable.
+
+**Rejected because** a rule that quotes "only what it can scrub" needs an
+exception for every body that isn't JSON, and the commonest non-2xx body in the
+world — a framework error page echoing the request — is one. `Error#initialize`
+writes every message to the log at `warn`, the level production runs at, so one
+upstream 500 put the request's variables (a password among them) and our own
+`Authorization` header into the log, with the url in the same sentence
+correctly scrubbed. That gap is the shape of the whole problem: redaction had
+been done value-first, and the value it hadn't been taught about was the one
+that mattered.
+
+So the rule is the channel. **A message never carries a body**: `#message` is
+the status, what GraphWeaver judged wrong, the hint and the safe url; the bytes
+stay on `#body`, the way `#to_h` already keeps the headers off, and the debug
+line names the content type and size rather than quoting the page. `detail:`
+replaces the two places a library-authored sentence was passed *as* a body, so
+`#body` means one thing everywhere. `spec/redaction_spec.rb` is the table: one
+row per channel that carries text the library didn't author, the row's name is
+its policy, and every row drives the same three secrets.
+
+## Whoever owns the mutable field owns the lock
+
+**Considered:** leaving the identity lock on `Testing::Endpoint`, which is
+where the concurrency it guards is visible — the endpoint is the thing serving
+several requests at once, so the Monitor reads naturally there.
+
+**Rejected because** the endpoint isn't what the requests share. `graphql:
+:wire` builds a fresh Endpoint per request over a client memoized per example,
+so each request locked its own object while writing one shared `context`: 6 of
+8 concurrent requests were served another's identity, 32 of 64 with two
+endpoints over one client. A lock on the wrong object is worse than none — it
+reads as proof.
+
+So the seam moved to the client that owns the field. `GraphWeaver::ContextSeam`
+carries `#context`, `#context=` and the Monitor; `InProcess` and
+`Testing::Router` include it, and the endpoint asks the client to resolve its
+own request context, which reaches every way the endpoint is mounted. The same
+move fixes an over-broad guard: `respond_to?(:context=)` is true of every
+wrapper, so a plain-hash context was serialized to protect a value nobody
+writes (3.8s for 64 requests against a 0.47s floor). Callability is settled
+where the context is written, never by the per-request swap, so the lock is
+entered only for a proc.
+
+## Every run of non-alphanumerics in a file name is a word boundary
+
+**Considered:** leaving `Inflect.camelize`'s `_`-only split alone and asking
+apps to rename their query files, or stripping every extension so
+`hello.query.graphql` and `get-hello.graphql` both reduce to one word.
+
+**Rejected because** the files the old rule refused are the ones the ecosystem
+actually writes: `*.query.graphql` is what Apollo and Relay tooling name every
+file, which is 100% of GitLab's 120-query frontend corpus, and a kebab-case
+shop is refused on its first file. And stripping every extension is wrong in
+the other direction — `user.profile.graphql` would lose `profile` and collide
+with `user.graphql`.
+
+The rule: every run of non-alphanumerics is a word boundary, after a trailing
+extension naming the document's *own* operation kind is dropped.
+`get-hello.graphql` → `GetHelloQuery`, `user.profile.graphql` →
+`UserProfileQuery`, `hello.query.graphql` → `HelloQuery` rather than the
+doubled `HelloQueryQuery`. The kind list is GraphQL's own and shares one source
+of truth with the suffix the module already gains, so a file naming a kind it
+doesn't hold is refused naming both halves rather than picking one. It is an
+*extension*, not a word — a `_query` inside a snake_case name is part of the
+name — so nothing that generates today is renamed; everything this widens was
+refused outright before. A base name that is nothing but punctuation has no
+words left, keeps its raw form and stays refused: answering `Query` would be a
+guess.
+
+## A fabricated list field named `…errors` comes back empty
+
+**Considered:** documenting "pin `userErrors` to `[]`" and leaving the fake
+fabricating a non-empty list, which is what every other list field gets and
+what the schema alone can justify.
+
+**Rejected because** it taxes the commonest mutation test there is. The
+Relay/Shopify payload — `placeOrder { order userErrors }` — is the ecosystem's
+mutation shape, and a fabricated order *and* a fabricated non-empty
+`userErrors` is a response no real server can send. Schema-correct, and the
+natural happy-path assertion was flaky in every mutation test in every app that
+follows the convention. The fake's promise is a response that could have come
+back, so the convention is worth reading.
+
+One rule: a list field whose name ends in `errors` comes back `[]` unless you
+pin it. Pinning stays how the failure path is written, which is the explicit
+direction rather than the implicit one.
+
+## The `execute` event stays per attempt, below `Retry`
+
+**Considered:** moving the instrumentation extent up to `QueryModule#dispatch`,
+so the event brackets what the *caller* experienced. Two real gaps argue for
+it: a `CastError` closes the event as `:ok` and then raises, and a `Testing`
+double emits no event at all.
+
+**Rejected because** the extent is a contract, not a bug. `Retry` runs each
+attempt as its own `EXECUTE_EVENT` with `:retries` saying which one, so "slow"
+and "slow after two 502s" don't read alike in an APM; one event per dispatch
+collapses those into a single span and drops the per-attempt `:http_status`
+with them. Trading a real signal for a real signal is a rewrite of
+`docs/logging.md`'s payload table, not a fix, and a `CastError` does already
+reach the `warn` log.
+
+The shape to do deliberately, when it is worth its own pass: keep the
+per-attempt event and *add* a caller-outcome event — or a `cast` phase —
+emitted at the module seam for every client kind, documented as the thing an
+SLO reads.
+
+## `stub_graphql(key).to_return(value)` was built and declined
+
+**Considered:** a WebMock-shaped verb for pinning a fake — `stub_graphql("Product.name").to_return("Ada's Book")`
+— replacing the `"coordinate" => value` hash. It reads like the tool every Ruby
+developer already knows, puts the coordinate first, and leaves room for
+operation scoping later.
+
+**Rejected because** dogfooding it across the suite's own pin sites converted 7
+of 17. Five read marginally better, two read worse (under `:wire` the verb no
+longer says which mode is standing in), and ten couldn't convert at all —
+there is no `schema:` door, no options, no mode. `to_return` carries no
+information `=>` doesn't, and the split would also have to move pins out of
+`graphql_router(fake:)` and `config.overrides`, so the app would hold two
+spellings for one idea. A second way to say the same thing is the cost; the
+verb's familiarity was the only benefit, and it didn't survive contact with the
+call sites.
+
+Kept as the branch `experiment/stub-graphql` for the record. The two object-pin
+bugs it turned up are fixed on main.
