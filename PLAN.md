@@ -79,18 +79,15 @@ in the patch. Roughly by value.
 6. **A version matrix in CI** (graphql-ruby floor/lock/latest, Rails 7.1–8.x,
    Sorbet latest): the `@oneOf` and `specifiedByURL` omissions each lived a
    release because one version was ever exercised.
-7. **Stub servers on port 0, and `Connection: close` by default in the raw
-   server helper** (the keep-alive spec opts out): three CI/local flakes this
-   session were the same race.
-8. **Smaller:** a correlation id in the payload; `QueryError#summary`
+7. **Smaller:** a correlation id in the payload; `QueryError#summary`
    graph-aware ("recompose", not "refresh", for a supergraph);
    `source_transport`'s message for a supergraph; the built-in timestamp cast
    is `Time.parse`, the slowest of four (`:iso8601` is 3× cheaper and
    stricter — a behavior change); `null_chance` per coordinate like
    `list_size`; `merge=union` on `CHANGELOG.md`; two cold clients both writing
    the conventional dump once.
-9. **Declined, recorded:** `stub_graphql(key).to_return(value)` (branch
-   `experiment/stub-graphql`; `to_return` carries nothing `=>` doesn't and the
+8. **Declined, recorded:** `stub_graphql(key).to_return(value)` (declined after a dogfood;
+   `to_return` carries nothing `=>` doesn't and the
    name misleads under `:wire`); batching/async (user); an upgrade-guide drill
    (no real users yet).
 
