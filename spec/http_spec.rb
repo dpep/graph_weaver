@@ -266,11 +266,10 @@ describe GraphWeaver::Transport::HTTP do
   end
 
   it "raises TransportError when the connection never lands" do
-    # grab a port, then free it so the connection is refused
-    probe = TCPServer.new("127.0.0.1", 0)
-    port = probe.addr[1]
-    probe.close
-    bad = described_class.new("http://127.0.0.1:#{port}/")
+    # port 1 is the suite's "nothing listens": a just-freed ephemeral port can
+    # be re-bound by another suite's server, which answers 404 rather than
+    # refusing
+    bad = described_class.new("http://127.0.0.1:1/")
 
     expect { PersonQuery.execute(client: bad, id: "1") }
       .to raise_error(GraphWeaver::TransportError)

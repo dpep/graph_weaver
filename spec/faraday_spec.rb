@@ -147,10 +147,7 @@ describe GraphWeaver::Transport::Faraday do
   end
 
   it "raises TransportError when the connection never lands" do
-    probe = TCPServer.new("127.0.0.1", 0)
-    port = probe.addr[1]
-    probe.close
-    executor = described_class.new("http://127.0.0.1:#{port}/")
+    executor = described_class.new("http://127.0.0.1:1/") # nothing listens
 
     expect { PersonQuery.execute(client: executor, id: "1") }.to raise_error(GraphWeaver::TransportError)
   end
