@@ -120,6 +120,15 @@
   as before. *Action:* none for a single-client app. A multi-graph app gets a
   second file it didn't have; name it yourself with `cache: "<path>"` if you'd
   rather say which is which.
+- **A cold `Client#schema` against a hung upstream no longer serializes the
+  worker.** The introspection round trip runs under a lock and memoized
+  nothing on failure, so every queued thread paid its own `read_timeout` in
+  turn: 8 threads at the 30s default is four minutes of occupied worker, and
+  the next wave paid it again — measured at exactly 8.0× with 8 threads, 4.0×
+  with 4. A failed introspection is now answered to the threads behind it for
+  one second, which collapses a wave to a single round trip (8.0× → 1.0×) and
+  makes the wave after it free. Not a circuit breaker: nothing counts failures
+  or stays open, and an upstream that comes back is tried on the next request.
 
 ###  v0.7.0  (2026-09-13)
 

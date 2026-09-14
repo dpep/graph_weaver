@@ -186,5 +186,61 @@ RSpec.describe "thread safety" do
       expect(counting.calls).to eq 1
       expect(schemas.uniq.size).to eq 1
     end
+
+    # A hung upstream, which is the case the lock makes worse: nothing was
+    # memoized on failure, so each queued thread paid the whole read_timeout
+    # in turn — 8 threads at the 30s default is four minutes of occupied
+    # worker, and the next wave paid it again.
+    describe "when the upstream never answers" do
+      let(:hung) do
+        Class.new do
+          attr_reader :calls
+
+          def initialize = @calls = 0
+          def url = "https://example.test/graphql"
+
+          def execute(_query, variables: {}, operation_name: nil)
+            @calls += 1
+            sleep 0.05 # stands in for read_timeout
+            raise GraphWeaver::TransportError, "execution expired"
+          end
+        end.new
+      end
+
+      let(:client) do
+        GraphWeaver.new("https://example.test/graphql").tap do |c|
+          c.instance_variable_set(:@transport, hung)
+        end
+      end
+
+      it "answers a wave of threads with the first failure, not one timeout each" do
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        raised = Array.new(8) do
+          Thread.new do
+            client.schema
+            nil
+          rescue GraphWeaver::TransportError => e
+            e
+          end
+        end.map(&:value)
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+
+        expect(raised).to all(be_a(GraphWeaver::TransportError))
+        expect(hung.calls).to eq 1
+        expect(elapsed).to be < 0.2 # one timeout, not eight
+      end
+
+      # short-lived on purpose: an upstream that comes back is tried again on
+      # the next request, not waited out
+      it "tries again once the window is past" do
+        expect { client.schema }.to raise_error(GraphWeaver::TransportError)
+        expect { client.schema }.to raise_error(GraphWeaver::TransportError)
+        expect(hung.calls).to eq 1
+
+        client.instance_variable_set(:@schema_error_until, 0)
+        expect { client.schema }.to raise_error(GraphWeaver::TransportError)
+        expect(hung.calls).to eq 2
+      end
+    end
   end
 end

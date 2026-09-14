@@ -128,6 +128,17 @@ class GraphWeaver::Client
       "this client has no transport (built from a schema dump) — pass a url or transport:"
   end
 
+  # How long a failed introspection answers for the threads behind it. The
+  # lock makes a cold schema one round trip at a time, so against a hung
+  # upstream every queued thread used to pay its own read_timeout in turn —
+  # 8 threads at the 30s default is four minutes of occupied worker, and the
+  # next wave paid it again. A second is enough to collapse a wave and the
+  # retry right behind it, and short enough that an upstream which comes back
+  # is tried again on the next request. Deliberately not a circuit breaker:
+  # nothing here counts failures or stays open.
+  FAILURE_TTL = 1.0
+  private_constant :FAILURE_TTL
+
   # The schema, introspecting through the transport on first use (cached
   # per the client's cache:/ttl:) unless one was given up front.
   #
@@ -136,7 +147,17 @@ class GraphWeaver::Client
   # in-flight thread, each of them also writing the cache file.
   def schema
     @schema_lock.synchronize do
-      @schema ||= GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
+      next @schema if @schema
+      raise @schema_error if @schema_error && Process.clock_gettime(Process::CLOCK_MONOTONIC) < @schema_error_until
+
+      begin
+        @schema_error = nil
+        @schema = GraphWeaver::SchemaLoader.introspect(transport!, cache: @cache, ttl: @ttl)
+      rescue GraphWeaver::Error => e
+        @schema_error = e
+        @schema_error_until = Process.clock_gettime(Process::CLOCK_MONOTONIC) + FAILURE_TTL
+        raise
+      end
     end
   end
 
