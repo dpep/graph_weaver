@@ -108,6 +108,18 @@
   sidecar, since `save` renames a fresh file into place and a lock on the
   replaced inode would guard nothing. *Action:* gitignore `*.yml.lock` under
   your cassette directory if you don't want the empty file in the repo.
+- **`cache: true` is no longer one file for every client in the process.** It
+  resolved to `GraphWeaver.schema_path` whatever graph or endpoint the client
+  served, so a multi-graph app's two clients read and overwrote one dump and
+  each was silently served the other's schema — cold and concurrent, which one
+  was a coin flip. A dump already records the url it came from, so that is now
+  the rule: **`cache: true` is the conventional dump unless the dump there came
+  from a different endpoint**, and a client that can't use it caches under
+  `schema-<url digest>.json` beside it. A dump recording no url is nobody's in
+  particular and stays a hit, so a hand-written or older committed dump reads
+  as before. *Action:* none for a single-client app. A multi-graph app gets a
+  second file it didn't have; name it yourself with `cache: "<path>"` if you'd
+  rather say which is which.
 
 ###  v0.7.0  (2026-09-13)
 

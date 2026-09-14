@@ -1,6 +1,7 @@
 # typed: true
 # frozen_string_literal: true
 
+require "digest"
 require "fileutils"
 require "graphql"
 require "json"
@@ -682,7 +683,7 @@ module GraphWeaver::SchemaLoader
   #      end
   #      schema = GraphWeaver::SchemaLoader.load(json)
   def self.introspect(transport, cache: nil, ttl: nil, auth_env: nil)
-    cache = cache_path(cache)
+    cache = cache_path(cache, (transport.url if transport.respond_to?(:url)))
 
     if cache
       # reuse whatever fresh dump is present, regardless of format —
@@ -948,23 +949,24 @@ module GraphWeaver::SchemaLoader
   private_constant :CACHE_EXTENSIONS
 
   # cache: true / :json / :graphql / :gql / a path => the file to write
-  # (nil for no caching). Symbols and true anchor at GraphWeaver.schema_path —
-  # the schema dump the generation workflow reads, so one file serves both
-  # (introspect caches it, rake generate loads it).
-  def self.cache_path(cache)
+  # (nil for no caching). A path is taken as given. Symbols and true anchor at
+  # GraphWeaver.schema_path — the schema dump the generation workflow reads,
+  # so one file serves both (introspect caches it, rake generate loads it) —
+  # unless that dump belongs to a different endpoint; see {conventional_dump}.
+  def self.cache_path(cache, url = nil)
     # Rails.root.join(...) hands you a Pathname, as schema: and query: already take
     cache = cache.to_path if cache.respond_to?(:to_path)
     path = case cache
     when nil, false
       nil
     when true
-      GraphWeaver.schema_path
+      conventional_dump(File.extname(GraphWeaver.schema_path), url)
     when Symbol
       unless CACHE_EXTENSIONS.include?(".#{cache}")
         raise ArgumentError, "cache: format must be :json, :graphql, or :gql, got #{cache.inspect}"
       end
 
-      "#{strip_extension(GraphWeaver.schema_path)}.#{cache}"
+      conventional_dump(".#{cache}", url)
     else
       unless cache.end_with?(*CACHE_EXTENSIONS)
         raise ArgumentError, "cache: must be a .json or .graphql/.gql path, got #{cache}"
@@ -975,6 +977,38 @@ module GraphWeaver::SchemaLoader
     path && GraphWeaver::Internal::Util.resolve(path)
   end
   private_class_method :cache_path
+
+  # Where an unnamed `cache:` lands. One rule: **the conventional dump, unless
+  # the dump there came from a different endpoint** — then a file of this
+  # client's own, named by a digest of its url and sitting beside it. A dump
+  # records the url it was introspected from, so this is answerable; without
+  # it, two clients at two origins both saying `cache: true` read and
+  # overwrote one file, and each was silently served the other's schema.
+  #
+  # A dump that records no url is nobody's in particular — hand-written, or
+  # committed by an older version — so it stays a hit for whoever asks.
+  def self.conventional_dump(extension, url)
+    base = strip_extension(GraphWeaver.schema_path)
+    conventional = base + extension
+    url = url && GraphWeaver::Internal::Endpoint.bare(url) # what a dump records
+    return conventional if url.nil? || !someone_elses?(conventional, url)
+
+    "#{base}-#{Digest::SHA256.hexdigest(url)[0, 8]}#{extension}"
+  end
+  private_class_method :conventional_dump
+
+  # Whether a dump already at `path` (or a sibling format) says it came from
+  # somewhere other than `url`. Nothing there yet is nobody's, so a cold
+  # client still writes the conventional dump — which is what the documented
+  # bootstrap does, and what an app with one client wants.
+  def self.someone_elses?(path, url)
+    existing = cache_candidates(path).find { |candidate| File.exist?(candidate) }
+    return false unless existing
+
+    recorded = provenance(existing)&.dig("url")
+    !recorded.nil? && recorded != url
+  end
+  private_class_method :someone_elses?
 
   # the requested path first, then its siblings in the other formats
   def self.cache_candidates(path)

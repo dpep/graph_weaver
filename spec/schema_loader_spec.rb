@@ -251,6 +251,70 @@ describe GraphWeaver::SchemaLoader do
       GraphWeaver.schema_path = nil
     end
 
+    # `cache: true` used to name GraphWeaver.schema_path for every client in
+    # the process, whatever endpoint each posted to — so a multi-graph app's
+    # two clients read and overwrote one file, and each was served the
+    # other's schema.
+    describe "cache: true with two clients at two origins" do
+      # each origin serves a schema whose Query has a field of its own, so
+      # "whose schema is this" is answerable from the schema itself
+      def origin(field)
+        query = Class.new(GraphQL::Schema::Object) do
+          graphql_name "Query"
+          field field.to_sym, String, null: false
+        end
+        schema = Class.new(GraphQL::Schema) { query(query) }
+        Class.new do
+          attr_reader :calls
+
+          define_method(:url) { "https://#{field}.example.com/graphql" }
+          define_method(:execute) do |q, variables:, operation_name: nil|
+            @calls = @calls.to_i + 1
+            schema.execute(q, variables:, operation_name:).to_h
+          end
+        end.new
+      end
+
+      before { GraphWeaver.schema_path = File.join(@dir, "schema.json") }
+
+      after { GraphWeaver.schema_path = nil }
+
+      it "serves each client its own schema, and never the other's" do
+        first = described_class.introspect(origin("alpha"), cache: true)
+        second = described_class.introspect(origin("beta"), cache: true)
+
+        expect(first.query.fields.keys).to eq %w[alpha]
+        expect(second.query.fields.keys).to eq %w[beta]
+      end
+
+      it "gives the second client a file of its own, named for its url" do
+        described_class.introspect(origin("alpha"), cache: true)
+        described_class.introspect(origin("beta"), cache: true)
+
+        written = Dir.children(@dir).grep(/\Aschema.*\.json\z/).sort
+        expect(written.size).to eq 2
+        expect(written).to include("schema.json") # the first client keeps the conventional dump
+        expect(described_class.provenance(File.join(@dir, "schema.json"))["url"])
+          .to eq "https://alpha.example.com/graphql"
+
+        theirs = (written - ["schema.json"]).first
+        expect(described_class.provenance(File.join(@dir, theirs))["url"])
+          .to eq "https://beta.example.com/graphql"
+      end
+
+      # the same file every boot, so the second client caches rather than
+      # re-introspecting forever
+      it "sends the second client back to the same file next time" do
+        described_class.introspect(origin("alpha"), cache: true)
+        described_class.introspect(origin("beta"), cache: true)
+
+        again = origin("beta")
+        expect(described_class.introspect(again, cache: true).query.fields.keys).to eq %w[beta]
+        expect(again.calls).to be_nil # a cache hit, not a second introspection
+        expect(Dir.children(@dir).grep(/\.json\z/).size).to eq 2
+      end
+    end
+
     it "caches as SDL when the path says .graphql — reviewable dumps" do
       path = File.join(@dir, "schema.graphql")
 

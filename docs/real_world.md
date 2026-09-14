@@ -16,7 +16,9 @@ require "graph_weaver"
 # advanced setup). cache: true dumps the schema at GraphWeaver.schema_path
 # on first introspection — the same file rake graph_weaver:generate reads
 # (docs/getting_started.md for the formats), with the source url recorded
-# in a header, so a stale dump says where it came from.
+# in a header, so a stale dump says where it came from. That header is also
+# what keeps a second client at a second origin off this file: it caches
+# under a name of its own rather than overwriting this one.
 github = GraphWeaver.new("https://api.github.com/graphql", auth: `gh auth token`.strip, cache: true)
 
 # GitHub's DateTime needs no registration — it is one of the names the

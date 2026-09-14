@@ -104,6 +104,12 @@ What it wrote:
   re-introspect. Prefer PR-reviewable diffs? `cache: :graphql` writes SDL
   instead; both generate identical code. (`cache:`/`ttl:` apply only to url
   clients — a schema source never introspects, so passing them raises.)
+
+  A dump records the url it came from, so **`cache: true` is that dump unless
+  it came from a different endpoint** — a second client at a second origin
+  caches under `app/graphql/schema-<digest>.json` instead of reading and
+  overwriting the first client's. Name the file yourself
+  (`cache: "app/graphql/billing.json"`) when you'd rather say which is which.
 - **`graphql.config.yml`.** Five lines of YAML that give VS Code and
   RubyMine schema autocomplete, hover docs, and validation as you type in
   `.graphql` files — no JS project, no `npm install`. Details and the honest
