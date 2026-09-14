@@ -201,22 +201,32 @@ describe GraphWeaver::Testing::Endpoint do
 
     # The other half of the same rule: the lock guards a context being
     # written, so a client whose context is a plain hash — nobody writes it —
-    # is served concurrently. Eight requests of 20ms serialize to 160ms.
+    # is served concurrently. Proven by overlap, not by the clock: a wall-time
+    # bound failed on a loaded CI runner while the requests still overlapped.
     it "serves a client with a plain context concurrently" do
       client = slow_client
       client.context = { caller: "static" }
       app = GraphWeaver::Testing::Endpoint.new(client)
 
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      in_flight = 0
+      peak = 0
+      gauge = Mutex.new
+      client.define_singleton_method(:execute) do |*, **|
+        gauge.synchronize { in_flight += 1; peak = [peak, in_flight].max }
+        sleep 0.02
+        { "data" => { "whoami" => context[:caller] } }
+      ensure
+        gauge.synchronize { in_flight -= 1 }
+      end
+
       8.times.map do
         Thread.new do
           app.call({ "REQUEST_METHOD" => "POST",
                      "rack.input" => StringIO.new(JSON.generate("query" => "{ whoami }")) })
         end
       end.each(&:join)
-      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-      expect(elapsed).to be < 0.1
+      expect(peak).to be > 1
     end
 
     it "leaves a hash context alone" do
