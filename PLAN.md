@@ -50,19 +50,46 @@ Green gate is in `CLAUDE.md`; `make check` runs the core of it.
 
 ## Next
 
-1. **Cut 0.5.0.** Needs an upgrade guide rather than a changelog dump — the
-   breaking list is long, but most of it is caught mechanically, so the guide is
-   largely *"regenerate, then follow `srb tc` and `verify_generated!`"*.
-   `gem push` needs an OTP.
-2. **`extend_type`'s mixin forms can't be statically checked.** A mixin's method
-   bodies are checked in the module's scope, not the struct's, so the docs have
-   to recommend `# typed: false` or `T.unsafe(self)`. In a library whose pitch is
-   static checking, that's a seam worth a design pass. Note `alias:` — which
-   emits into the struct body — *is* checked, which suggests the mixin forms are
-   the ones carrying the cost.
-3. **Nice-to-haves, unclaimed.** `write_timeout` on `Transport::HTTP` (and
-   possibly a `net_http:` passthrough rather than more kwargs); a Tapioca DSL
-   compiler so dynamic `parse` modules get static types without the build step.
+Backlog after 0.7.1, each found by a user-test pass and deliberately not done
+in the patch. Roughly by value.
+
+1. **A caller-outcome instrumentation event.** A `CastError` closes
+   `execute.graph_weaver` as `:ok` and then raises, and every testing double
+   emits no event. Moving the extent up to `dispatch` would collapse `Retry`'s
+   per-attempt events (`:retries`, per-attempt `:http_status`), so the shape
+   is a second event at the module seam for every client kind, with its own
+   docs pass — a contract change, not a fix.
+2. **Persisted queries.** No `extensions.persistedQuery` is sent and there is
+   no hook; a safelist with `require_id` refuses the client outright. A
+   manifest task from the generated modules' `QUERY`/`OPERATION_NAME` and an
+   APQ register-on-miss transport option (a twelve-line subclass proved it).
+3. **Multipart uploads.** A `File` variable is refused by name in every mode;
+   the GraphQL multipart request spec is the feature.
+4. **`queries:check` / `schema:diff` against a supergraph URL**, so a federated
+   app has a pre-deploy check against the live graph; today every CI task
+   compares the app to its own artifacts (docs say so and point at rover).
+5. **Asymmetric scalars.** One `serialize:` serves both the outbound variable
+   and a result's `as_json`, so an object-out/string-in scalar can't round-trip
+   through JSON; and an object pin holding a JSON-shaped scalar class
+   (`BigDecimal`) reaches the fake's wire unserialized. Both want a real user
+   before growing a knob.
+6. **A version matrix in CI** (graphql-ruby floor/lock/latest, Rails 7.1–8.x,
+   Sorbet latest): the `@oneOf` and `specifiedByURL` omissions each lived a
+   release because one version was ever exercised.
+7. **Stub servers on port 0, and `Connection: close` by default in the raw
+   server helper** (the keep-alive spec opts out): three CI/local flakes this
+   session were the same race.
+8. **Smaller:** a correlation id in the payload; `QueryError#summary`
+   graph-aware ("recompose", not "refresh", for a supergraph);
+   `source_transport`'s message for a supergraph; the built-in timestamp cast
+   is `Time.parse`, the slowest of four (`:iso8601` is 3× cheaper and
+   stricter — a behavior change); `null_chance` per coordinate like
+   `list_size`; `merge=union` on `CHANGELOG.md`; two cold clients both writing
+   the conventional dump once.
+9. **Declined, recorded:** `stub_graphql(key).to_return(value)` (branch
+   `experiment/stub-graphql`; `to_return` carries nothing `=>` doesn't and the
+   name misleads under `:wire`); batching/async (user); an upgrade-guide drill
+   (no real users yet).
 
 ## Federation router: what it still refuses
 
