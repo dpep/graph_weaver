@@ -543,11 +543,13 @@ rather than guessing**:
   [maps subgraphs](federation.md#which-schema-serves-which-subgraph).
 - **`:router`** plans against the composed supergraph **that graph** names, else
   `config.router = { supergraph: … }`, else the committed dump when *that*
-  carries `@join__*` markers — which for a federated app is usually no config at
-  all. A graph that is in no supergraph is refused **by name**, rather than
-  planned against another graph's. A client can't stand in for one: a client's
-  schema is the API schema the router serves, with the `@join__*` routing table
-  stripped out. Subgraphs are derived either way.
+  carries `@join__*` markers, else the dump your own client was built from
+  (`GraphWeaver.new("supergraph.graphql")`) — which for a federated app is
+  usually no config at all. A graph that is in no supergraph is refused **by
+  name**, rather than planned against another graph's. A client's *schema* can't
+  stand in for one — it is the API schema the router serves, with the `@join__*`
+  routing table stripped out — but the file it was read from carries the table.
+  Subgraphs are derived either way.
 
 So configure only to override a derivation, or to tune fabricated values — in the
 same file as the require, since support files load in sorted order and one naming

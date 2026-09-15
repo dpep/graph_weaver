@@ -129,11 +129,13 @@ your resolvers run, which is the whole point.
 
 In rspec that's the [`graphql: :router`](testing.md#a-federated-graph--graphql-router)
 tag and there is nothing to pass — the tag builds it, once for the suite. It finds
-the supergraph where you have already said it is: `Testing.config.router =
-{ supergraph: … }` if you named one there, else the schema a
+the supergraph where you have already said it is: the schema a
 [graph](getting_started.md#more-than-one-schema) declares when that schema is
-composed, else the committed dump when *that* is. Two graphs may name one
-supergraph; two naming different ones is refused rather than picked between.
+composed, else `Testing.config.router = { supergraph: … }` if you named one
+there, else the committed dump when *that* is, else the dump your own client was
+built from (`GraphWeaver.new("supergraph.graphql")` keeps its path). Two graphs
+may name one supergraph; two naming different ones is refused rather than picked
+between.
 Outside rspec, build it yourself:
 
 ```ruby

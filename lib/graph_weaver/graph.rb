@@ -112,7 +112,7 @@ module GraphWeaver
 
     # The dump this graph's schema was named by, when it was named by a file —
     # what a validation error's subgraph branding is read off. nil for a live
-    # class, a Client, or inline SDL.
+    # class, inline SDL, or a Client built from any of those.
     def dump_path
       path = named_dump_path
       path if path && File.exist?(path)
@@ -126,6 +126,9 @@ module GraphWeaver
       return GraphWeaver::SchemaLoader.locate_path unless @schema
 
       source = named_source
+      # a client built from a dump names that dump: the file is where a
+      # supergraph's routing table is, and the loaded schema is not
+      source = source.schema_source if source.respond_to?(:schema_source) && source.schema_source
       path = source.respond_to?(:to_path) ? source.to_path : source
       path if path.is_a?(String) && GraphWeaver::SchemaLoader.dump_path?(path)
     end

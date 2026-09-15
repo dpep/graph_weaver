@@ -53,6 +53,18 @@
   `MyQuery.client` (the reader) stays, as the diagnostic for "what would this
   module execute through". A module's client comes from its graph, its parser,
   or the call.
+- **A client knows the dump it was built from.** A client built from a file
+  (`GraphWeaver.new("supergraph.graphql")`) loaded the schema and threw the path
+  away, so a supergraph handed to the client was invisible to `:router` — which
+  finds one where you have already said it is: the schema a graph declares, else
+  `config.router[:supergraph]`, else the conventional dump. A client keeps its
+  file now (`Client#schema_source` — the path for a dump, nil for a url, inline
+  SDL or a schema class), a graph whose `schema` is such a client is named by
+  that dump, so `Graph#dump_path`, `Graph#supergraph`, the federation rake tasks
+  and `:router` all reach it through the rule each already had, and the app's
+  own client is the last place `:router` looks. Last, because codegen for the
+  default graph reads the conventional dump, and the router has to plan against
+  what the modules were typed against.
 
 ###  v0.7.1  (2026-09-13)
 

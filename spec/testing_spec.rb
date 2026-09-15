@@ -781,10 +781,12 @@ describe GraphWeaver::Testing do
     let(:supergraph) { File.expand_path("support/federation/supergraph.graphql", __dir__) }
 
     around do |example|
+      prior = GraphWeaver.client
       example.run
     ensure
       GraphWeaver.reset_graphs!
       GraphWeaver.schema_path = nil
+      GraphWeaver.client = prior
     end
 
     def graph(name) = GraphWeaver.graphs.find { |declared| declared.name == name }
@@ -826,6 +828,49 @@ describe GraphWeaver::Testing do
       expect(described_class.config.supergraph?(graph(:api))).to be true
       expect(described_class.config.built_router(graph(:api))
         .execute("{ me { username } }").dig("data", "me", "username")).to eq "dpep"
+    end
+
+    # A client built from a supergraph dump knows the file, and the file is
+    # where the routing table is — so a supergraph handed to GraphWeaver.new
+    # is named as surely as one handed to `schema "supergraph.graphql"`.
+    it "takes the one a graph's client was built from" do
+      Dir.mktmpdir do |dir|
+        source = File.join(dir, "elsewhere.graphql")
+        File.write(source, File.read(supergraph))
+        GraphWeaver.graph(:api) { schema GraphWeaver.new(source) }
+
+        expect(described_class.config.supergraph?(graph(:api))).to be true
+        expect(described_class.config.built_router(graph(:api))
+          .execute("{ me { username } }").dig("data", "me", "username")).to eq "dpep"
+      end
+    end
+
+    # and the app-wide ask, for an app whose only statement about its schema
+    # is the client it built: no graph declared, nothing at schema_path
+    it "takes the one the app's own client was built from" do
+      Dir.mktmpdir do |dir|
+        source = File.join(dir, "elsewhere.graphql")
+        File.write(source, File.read(supergraph))
+        GraphWeaver.schema_path = File.join(dir, "nothing_here.graphql")
+        GraphWeaver.client = GraphWeaver.new(source)
+
+        expect(described_class.config.supergraph?).to be true
+      end
+    end
+
+    # It ranks last: codegen for the default graph reads the conventional
+    # dump, so that is what the modules were typed against, and the router
+    # has to plan against the same graph.
+    it "prefers the conventional dump to the client's own file" do
+      Dir.mktmpdir do |dir|
+        source = File.join(dir, "elsewhere.graphql")
+        File.write(source, File.read(File.expand_path("support/federation/supergraph_chain.graphql", __dir__)))
+        GraphWeaver.schema_path = supergraph
+        GraphWeaver.client = GraphWeaver.new(source)
+
+        expect(described_class.config.built_router.table.subgraphs)
+          .to match_array %w[accounts products reviews]
+      end
     end
 
     it "lets config.router name one for a graph that names none" do

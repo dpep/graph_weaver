@@ -258,6 +258,22 @@ describe GraphWeaver::Client do
       end
     end
 
+    # a supergraph's routing table lives in the file, not in the loaded
+    # schema — so the path is the only thing that can name one afterwards
+    it "remembers the dump it was built from, and only then" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "schema.graphql")
+        sdl = Demo::Schema.to_definition
+        File.write(path, sdl)
+
+        expect(GraphWeaver.new(path).schema_source).to eq path
+        expect(GraphWeaver.new(Pathname.new(path)).schema_source.to_path).to eq path
+        expect(GraphWeaver.new(url).schema_source).to be_nil
+        expect(GraphWeaver.new(sdl).schema_source).to be_nil
+        expect(GraphWeaver.new(Demo::Schema).schema_source).to be_nil
+      end
+    end
+
     it "rejects url-only options" do
       expect { GraphWeaver.new(Demo::Schema, auth: "t0ken") }.to raise_error(ArgumentError, /url/)
       # a schema source never introspects — a cache would silently no-op

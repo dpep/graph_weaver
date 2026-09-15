@@ -77,6 +77,10 @@ class GraphWeaver::Client
       # a live schema class doubles as an in-process transport; a loaded
       # dump has no resolvers, so it is type information only
       @schema = source.is_a?(Module) ? source : GraphWeaver::SchemaLoader.load(source)
+      # A supergraph's routing table lives in the file, not in the loaded
+      # schema, so the path is the only thing that can name one later. Told
+      # from SDL by its extension, as SchemaLoader tells it.
+      @schema_source = source if !source.is_a?(Module) && GraphWeaver::SchemaLoader.dump_path?(source)
 
       if context && !(source.is_a?(Module) && transport.nil?)
         # nothing would ever read it — a dump has no resolvers, and an
@@ -121,6 +125,10 @@ class GraphWeaver::Client
   # Clients are self-contained — the app default never leaks in; nil for
   # schema-dump clients (type information only).
   attr_reader :transport
+
+  # The dump this client's schema was read from, or nil for a url, a schema
+  # class, or inline SDL. What a graph named by this client is named by.
+  attr_reader :schema_source
 
   # transport, when this client must be able to execute
   private def transport!

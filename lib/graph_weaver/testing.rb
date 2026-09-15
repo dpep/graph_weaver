@@ -221,9 +221,10 @@ module GraphWeaver
       # warn line as it is constructed, and a predicate that raised to say
       # "no" put a refusal that never happened in the log of every :wire
       # example. The one that graph names, else config.router[:supergraph],
-      # else the conventional dump when that's what it is. A client can't
-      # supply one — its schema is the API schema a router serves, with the
-      # @join__* routing table stripped out.
+      # else the conventional dump when that's what it is, else the dump the
+      # app's own client was built from. A client's *schema* can't supply one
+      # — it is the API schema a router serves, with the @join__* routing
+      # table stripped out — but the file behind it carries the table.
       private def supergraph_for(graph)
         # named_schema?, so a graph that declared no schema of its own falls
         # through to config.router rather than past it to the conventional dump
@@ -232,7 +233,14 @@ module GraphWeaver
         return @router[:supergraph] if @router&.key?(:supergraph)
 
         path = GraphWeaver::SchemaLoader.locate_path
-        path if path && GraphWeaver::Internal::Util.composed?(path)
+        return path if path && GraphWeaver::Internal::Util.composed?(path)
+
+        # Last, because codegen for the default graph reads the conventional
+        # dump, and the router must plan against what the modules were typed
+        # against.
+        client = GraphWeaver.client
+        source = client.schema_source if client.respond_to?(:schema_source)
+        source if source && GraphWeaver::Internal::Util.composed?(source)
       end
 
       # what to do about it, which differs by who asked: a graph in no

@@ -224,12 +224,26 @@ describe "GraphWeaver.graph" do
       expect(poke.dump_path).to be_nil
     end
 
+    # A Client stands for its schema wherever schema: is taken, and one built
+    # from a dump stands for the file too — so a supergraph handed to
+    # GraphWeaver.new is as named as one handed to schema "supergraph.graphql".
+    it "names the dump a client was built from" do
+      path = billing_schema
+      client = GraphWeaver.new(path)
+      GraphWeaver.graph(:billing) { schema client }
+      billing = GraphWeaver.graphs.first
+
+      expect(billing.named_dump_path).to eq path
+      expect(billing.dump_path).to eq path
+    end
+
     # SDL and a schema class name no dump, so neither grows one
     it "names no dump for inline SDL or a live class" do
       GraphWeaver.graph(:billing) { schema BILLING_SDL }
       GraphWeaver.graph(:pets) { schema Demo::Schema }
+      GraphWeaver.graph(:live) { schema GraphWeaver.new(Demo::Schema) }
 
-      expect(GraphWeaver.graphs.map(&:named_dump_path)).to eq [nil, nil]
+      expect(GraphWeaver.graphs.map(&:named_dump_path)).to eq [nil, nil, nil]
     end
 
     it "sources the missing dump from the url its modules already post to" do

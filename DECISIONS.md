@@ -922,3 +922,9 @@ is stated where `parse` is documented rather than as a slot in the order —
 `MyQuery.client`, the reader, stays public as a diagnostic ("what would this
 module execute through"). One rule: a module's client comes from its graph, its
 parser, or the call, never from a setter.
+
+**And the other direction:** a client knows the dump it was built from
+(`Client#schema_source`), so a graph whose `schema` is such a client is named by
+that dump — which is how a supergraph handed to `GraphWeaver.new` reaches
+`Graph#supergraph`, the federation tasks and `:router` through the lookup each
+already had.
