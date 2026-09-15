@@ -38,7 +38,7 @@ module PersonQuery
     const :person, T.nilable(Person)
   end
 
-  extend GraphWeaver::QueryModule # client / client= (see below)
+  extend GraphWeaver::QueryModule # client (see below)
   def self.execute(id:, client: nil)    # -> GraphWeaver::Response[Result]
   def self.execute!(id:, client: nil)   # -> Result, or raises QueryError
 
@@ -544,14 +544,16 @@ bodies. Every form above, and every error it raises, is a named example in
 A client is anything satisfying the [execute contract](transports.md) — a
 `GraphWeaver::Client`, a transport, a `Retry`, a live schema class, a fake.
 A module knows which graph it belongs to, and the graph knows how to reach it:
-resolution is per call (`client:`) → per module → the client its
+resolution is per call (`client:`) → a test mode's stand-in → the client its
 [graph](getting_started.md#more-than-one-schema) names → `GraphWeaver.client`;
-the canonical list is in [transports](transports.md#client-resolution). A graph
-naming its own client is no reason a module escapes
-[testing's `graphql:` tag](testing.md), which is exactly the instruction to
-replace it; what the *example* says still wins.
+the canonical list is in [transports](transports.md#client-resolution). There is
+no setter — `MyQuery.client` reads back what the module would execute through,
+and a [parsed](#dynamic-mode) module, which has no graph, runs
+against whatever parsed it. A graph naming its own client is no reason a module
+escapes [testing's `graphql:` tag](testing.md), which is exactly the instruction
+to replace it; what the *example* says still wins.
 
-`client`/`client=` live in the gem (`GraphWeaver::QueryModule`, extended by every
+`client` lives in the gem (`GraphWeaver::QueryModule`, extended by every
 generated module). A generated file says nothing about transport — only a private
 `GRAPH` naming its graph, which is also how `graphql: :fake` fabricates each
 module's own schema with two graphs in play, and the
@@ -719,6 +721,12 @@ invisible to `srb tc`, so prefer the build step where static checking matters.
 form: parse and execute in one call, no module kept. In development
 `client.load_queries!` parses every query file into modules with the same names
 generation would use.
+
+A parsed module **runs against whatever parsed it** — `client.parse(query)` and
+`load_queries!` bind the client they came from, and `GraphWeaver.parse(client:)`
+says it outright. That is a property of parsing, not a slot you can set later:
+it generates no file, so it has no graph to read a client off, and a per-call
+`client:` still wins over it.
 
 In an app with [more than one graph](getting_started.md#more-than-one-schema), a
 parsed module belongs to one of them — that is what a `graphql:` tag runs it

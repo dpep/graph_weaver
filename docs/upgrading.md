@@ -167,7 +167,7 @@ only one here that shows up in production rather than in your code.
 - **A `graphql:` tag reaches a module generated with `client:`.** The baked client
   used to sit above the slot a tag swaps, so a bound module ran against its real
   endpoint under `graphql: :fake`. **If a spec relied on that**, pass `client:` on
-  the call, set `MyQuery.client =`, or tag the example `graphql: :live`.
+  the call, or tag the example `graphql: :live`.
 - **`config.context`, `config.schema` and `config.router` are suite setup.**
   Setting any of the three once an example is running refuses, naming the
   per-example helper (`graphql_context`, `graphql_fake(schema:)`,

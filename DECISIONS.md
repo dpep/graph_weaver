@@ -909,11 +909,16 @@ and `queries` already have, and the one place it mattered — "which server does
 this graph talk to" — is answered by `rake graph_weaver:graphs`, which now
 prints the endpoint rather than the constant's name.
 
-**Kept:** the per-module `MyQuery.client =` slot, so the order still has five
-slots rather than four. It is not redundant with the graph: `client.parse(query)` and
-`load_queries!` bind a *parsed* module to the object that parsed it, and a
-parsed module generates no file and so has no graph to read a client off. That
-is also why `GraphWeaver.parse(client:)` sets the module's own client rather
-than pretending to be a graph declaration — and dropping the old "baked when
-the object can be named, set on the module when it can't" split removed the
-exception from that rule.
+**Then made private:** the per-module `MyQuery.client =` writer, so the public
+order has four slots — per call → a test mode's stand-in → the client the
+module's graph names → `GraphWeaver.client`. It only ever existed for one
+internal case: `client.parse(query)` and `load_queries!` bind a *parsed* module
+to the object that parsed it, since a parsed module generates no file and so
+has no graph to read a client off. Exposing that as a general per-module
+override made it a second way to say what a graph declaration says, and a
+module whose client came from neither its graph nor its call. So parsing binds
+through the now-private writer, and a parsed module running against its parser
+is stated where `parse` is documented rather than as a slot in the order —
+`MyQuery.client`, the reader, stays public as a diagnostic ("what would this
+module execute through"). One rule: a module's client comes from its graph, its
+parser, or the call, never from a setter.

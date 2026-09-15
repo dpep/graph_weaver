@@ -208,15 +208,22 @@ The canonical order — how a generated module finds its client (each slot takes
 
 1. per call: `execute(client: some_client, ...)` — a kwarg like the variables, and
    a name no GraphQL variable is allowed to take
-2. per module: `MyQuery.client = something`
-3. a test mode's stand-in: under `graphql: :fake` / `:in_process` / `:router`,
+2. a test mode's stand-in: under `graphql: :fake` / `:in_process` / `:router`,
    built from the graph this module was generated from
-4. the client its [graph](getting_started.md#more-than-one-schema) names
-5. the app default: `GraphWeaver.client=`
+3. the client its [graph](getting_started.md#more-than-one-schema) names
+4. the app default: `GraphWeaver.client=`
 
-The mode replaces what the graph says, not what your example said — 1 and 2
-still win. Nothing set anywhere raises, naming the two you'd usually reach for:
+The mode replaces what the graph says, not what your example said — 1 still
+wins. Nothing set anywhere raises, naming the two you'd usually reach for:
 `no client configured — set GraphWeaver.client= or pass a client`.
+
+**A [parsed](generated_modules.md#dynamic-mode) module isn't in that list**: it generates no
+file, so it has no graph, and it runs against whatever parsed it —
+`client.parse(query)`, `load_queries!`, or `GraphWeaver.parse(client:)`. That
+binding sits directly under the per-call `client:`, above even a test mode's
+stand-in, and is the only one there is: `MyQuery.client` reads back what a
+module would execute through, but there is no setter for it. A module's client
+comes from its graph, its parser, or the call.
 
 ## Retries
 

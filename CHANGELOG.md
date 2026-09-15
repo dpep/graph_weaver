@@ -12,6 +12,11 @@
 - **Read `Graph#client` as the object, not its name**, if anything of yours
   asks a graph for its client — it resolves a constant name now and answers
   the client itself.
+- **Stop assigning `MyQuery.client =`** — the writer is private, and the call
+  raises `NoMethodError`. Say it on the graph (`client` in a
+  `GraphWeaver.graph` block), pass `client:` on the call, or, for a module you
+  parsed, bind it where you parse it (`GraphWeaver.parse(client:)`;
+  `client.parse` and `load_queries!` already do).
 
 - **A module knows its graph; the graph knows its client.** Codegen used to
   copy the constant *name* from a graph's `client` declaration into every
@@ -24,9 +29,9 @@
   of the name-to-constant resolution (`:wire`'s endpoint lookup and
   `schema:refresh`'s bootstrap each had their own), and the regeneration of
   every module when the constant holding a client is renamed — which is now an
-  initializer edit and nothing else. The order still has five slots — per call
-  → per module → a test mode's stand-in → the client the module's graph names
-  → `GraphWeaver.client` — but the fourth is a lookup rather than a decision
+  initializer edit and nothing else. The order still has four slots — per call
+  → a test mode's stand-in → the client the module's graph names →
+  `GraphWeaver.client` — but the third is a lookup rather than a decision
   generation had to make, so it carries no caveat.
 - **`client` in a graph block takes a live object.** Nothing spells it in
   generated source any more, so `client GraphWeaver.new(url, auth: …)` is as
@@ -39,6 +44,15 @@
   parsed module generates no file, so it has no graph to read one off — and the
   old rule ("baked when the object can be named, set on the module when it
   can't") had an exception in it.
+- **A module's client is not a thing you set.** `MyQuery.client =` was the one
+  slot that came from neither the graph nor the call — a second way to say what
+  a graph declaration says — and it existed for a single internal case: binding
+  a parsed module to whatever parsed it. The writer is private now, and that
+  binding happens where `parse` is documented rather than as a slot in the
+  order, which is what makes the order four slots you can state in a sentence.
+  `MyQuery.client` (the reader) stays, as the diagnostic for "what would this
+  module execute through". A module's client comes from its graph, its parser,
+  or the call.
 
 ###  v0.7.1  (2026-09-13)
 

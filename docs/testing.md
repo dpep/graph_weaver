@@ -50,7 +50,8 @@ whatever the example did to it, so building your own client is a plain
 assignment: `before { GraphWeaver.client = GraphWeaver::Testing::Failure.throttled }`.
 Do both at once and **the tag wins**: the assignment reads back while the modules
 keep using the mode. Two things do step out of a tag — a per-call `client:`, and
-`DashboardQuery.client =` on the module itself
+a module [parsed](generated_modules.md#dynamic-mode) from a client of its own,
+which runs against that client
 ([client resolution](transports.md#client-resolution) has the full order).
 
 **The half `:fake` can't reach** is refusal. It fabricates a shape-correct
