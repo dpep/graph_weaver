@@ -1,10 +1,11 @@
 # Upgrading
 
 [Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then read
-the one section that is yours: from [0.7.0](#upgrading-from-070) or from
-[0.6.1](#upgrading-from-061). Coming from 0.6.0 or older, the path is that
-version's own upgrade notes — read them at the tag they shipped under
-(`git show v0.7.1:docs/upgrading.md`), then this page from 0.6.1 down.
+the one section that is yours: from [0.7.1](#upgrading-from-071), from
+[0.7.0](#upgrading-from-070) or from [0.6.1](#upgrading-from-061). Coming from
+0.6.0 or older, the path is that version's own upgrade notes — read them at the
+tag they shipped under (`git show v0.7.1:docs/upgrading.md`), then this page from
+0.6.1 down.
 
 ## Regenerate on every upgrade
 
@@ -21,6 +22,28 @@ after an upgrade reports the tree as stale whether or not codegen actually moved
 That's the reminder working, not a false alarm. Generation is deterministic, so
 the diff is exactly what the new version emits differently and nothing else —
 worth reading rather than rubber-stamping.
+
+## Upgrading from 0.7.1
+
+A patch release, and one change with a shape: a generated module no longer
+carries a client of its own — the graph it belongs to resolves one. Read the
+left column and skip what isn't yours; the [changelog](../CHANGELOG.md) says why
+each one moved.
+
+| applies if you… | what changed |
+|---|---|
+| call `generate!`, `verify_generated!`, `Codegen.new` or `Codegen.generate` yourself — `grep -rn "client:" config lib Rakefile` | the `client:` kwarg is gone, and the call raises `unknown keyword: :client`. Say it once on the graph (`client` in a `GraphWeaver.graph` block), or as the app default (`GraphWeaver.client =`) for modules in no declared graph. `Graph#client` answers that object now, not the name of the constant holding it |
+| assign a generated module's client — `grep -rn "\.client *=" app config lib` (a hit on `GraphWeaver.client =` is the app default, and still fine) | the writer is private, and `MyQuery.client = …` raises `NoMethodError`. A module's client comes from its graph, from `client:` on the call, or — for a module you parsed — from `GraphWeaver.parse(client:)`, which `client.parse` and `load_queries!` already pass |
+
+Then regenerate, and the gate:
+
+```sh
+# generated files no longer carry a DEFAULT_CLIENT
+rake graph_weaver:generate
+
+# red while any checked-in file is still what 0.7.1 wrote
+rake graph_weaver:verify
+```
 
 ## Upgrading from 0.7.0
 
