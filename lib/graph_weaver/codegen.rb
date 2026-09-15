@@ -114,8 +114,9 @@ class GraphWeaver::Codegen
   # Development convenience: generate + eval in one step, no build
   # artifact or checked-in file. Same runtime semantics as the generated
   # file, but invisible to srb tc — use the build step for static typing.
-  # Evaluates into an anonymous container, so no global constants leak;
-  # client: additionally accepts a live object (set via .client=).
+  # Evaluates into an anonymous container, so no global constants leak.
+  # client: is the client the parsed module runs against — it has no graph to
+  # read one off — and a per-call `client:` still wins over it.
   def self.parse(schema:, query:, name: nil, client: nil, path: nil, module_name: nil, graph_name: nil)
     codegen = new(schema:, query:, name:, path:, module_name:, graph_name:, default_name: "Query")
     source = codegen.generate
@@ -130,8 +131,9 @@ class GraphWeaver::Codegen
     mod = container.const_get(codegen.name)
     GraphWeaver::Internal::Log.log(:debug) { "parsed #{codegen.name} (dynamic module, #{source.bytesize} bytes)" }
     # a parsed module generates no file, so it has no graph to read a client
-    # off — client: is its module-level one, whatever kind of object it is
-    mod.client = client if client
+    # off — client: binds one, whatever kind of object it is. The writer is
+    # private: parsing is the only thing that may bind one.
+    mod.send(:client=, client) if client
     mod
   end
 

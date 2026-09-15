@@ -1308,30 +1308,29 @@ describe GraphWeaver::Codegen do
       expect { mod.execute }.to raise_error(GraphWeaver::Error, /no client configured/)
     end
 
-    it "supports per-module override" do
-      mod.client = Demo::Schema
-
-      expect(mod.execute.data!.people.map(&:name)).to eq ["Daniel"]
-    end
-
     # parse has no graph to read a client off — a parsed module generates no
-    # file — so client: is the module's own, and a per-call one still wins
-    it "prefers a per-call client over the one parse set on the module" do
-      bound = GraphWeaver.parse(
-        schema: Demo::Schema,
-        client: Demo::Schema,
-        query: "query People { people { name } }",
-      )
+    # file — so client: is what the module runs against, and a per-call one
+    # still wins
+    it "runs against the client that parsed it, and a per-call client still wins" do
       fake = Class.new do
         def execute(*, **) = { "data" => { "people" => [{ "name" => "Fake" }] } }
       end.new
+      bound = GraphWeaver.parse(
+        schema: Demo::Schema,
+        client: fake,
+        query: "query People { people { name } }",
+      )
 
-      expect(bound.client).to eq Demo::Schema
-      expect(bound.execute.data!.people.map(&:name)).to eq ["Daniel"]
-
-      bound.client = fake
+      expect(bound.client).to eq fake
       expect(bound.execute.data!.people.map(&:name)).to eq ["Fake"]
       expect(bound.execute(client: Demo::Schema).data!.people.map(&:name)).to eq ["Daniel"]
+    end
+
+    # one rule: a module's client comes from its graph, its parser, or the
+    # call — never from a setter an app can reach
+    it "offers no setter for it" do
+      expect { mod.client = Demo::Schema }
+        .to raise_error(NoMethodError, /private method .client=. called/)
     end
   end
 

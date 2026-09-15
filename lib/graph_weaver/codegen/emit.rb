@@ -456,8 +456,8 @@ class GraphWeaver::Codegen
     end
 
     def emit_execute(out, variables)
-      # client/client= carry no per-query types, so they live in the gem
-      out << "  # client / client= — see GraphWeaver::QueryModule"
+      # client carries no per-query types, so it lives in the gem
+      out << "  # client — see GraphWeaver::QueryModule"
       out << "  extend GraphWeaver::QueryModule"
       if @graph_name
         out << ""

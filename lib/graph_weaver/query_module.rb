@@ -12,27 +12,34 @@ module GraphWeaver
   # Runtime for generated query modules: the client plumbing, which is the
   # one part of a generated module that carries no per-query type
   # information — every module's copy was identical. `extend
-  # GraphWeaver::QueryModule` supplies `client`/`client=`; execute and
-  # from_response stay generated, since their sigs are the query's types and
-  # those are the point.
+  # GraphWeaver::QueryModule` supplies `client`; execute and from_response
+  # stay generated, since their sigs are the query's types and those are the
+  # point.
   #
-  # Resolution order, per the docs: per call → per module (`MyQuery.client =`)
-  # → a test mode's stand-in (Internal::TestClients) → the client the
-  # module's graph names → `GraphWeaver.client`.
+  # Resolution order, per the docs: per call → a test mode's stand-in
+  # (Internal::TestClients) → the client the module's graph names →
+  # `GraphWeaver.client`. A module has no fifth slot you can set: a parsed
+  # module runs against whatever parsed it (GraphWeaver.parse(client:)),
+  # which is a property of parsing rather than a per-module override.
   module QueryModule
     extend T::Sig
 
-    sig { params(client: T.untyped).void }
-    attr_writer :client
-
-    # the default client (a GraphWeaver::Client or any transport) for
-    # execute: per-module override, else the graph's, else the app one
+    # What this module would execute through, right now — the client a parse
+    # bound it to, else the order above. A diagnostic, and what `execute`
+    # reads when the call names none.
     sig { returns(T.untyped) }
     def client
       @client || default_client
     end
 
     private
+
+    # Bound by GraphWeaver.parse, which is the only caller: a parsed module
+    # generates no file, so it has no graph to read a client off. Private
+    # because a generated module's client comes from its graph — one way to
+    # say a thing.
+    sig { params(client: T.untyped).void }
+    attr_writer :client
 
     # The one call a generated `execute` makes: resolve the client, run this
     # module's own operation, hand the raw response back for from_response to

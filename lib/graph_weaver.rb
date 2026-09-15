@@ -65,8 +65,8 @@ module GraphWeaver
     #
     # Anything satisfying the execute contract — a Client, a schema class,
     # a transport, a fake (testing's graphql: tag swaps one in per
-    # example). Generated modules resolve per call -> per module
-    # (MyQuery.client=) -> the client their graph names -> here.
+    # example). Generated modules resolve per call -> a test mode's stand-in
+    # -> the client their graph names -> here.
     attr_accessor :client
 
     # the default client, when one is required
@@ -1081,9 +1081,10 @@ module GraphWeaver
     # name derived from the file name and the operation — see #module_name) or
     # a raw query string (name derived from the operation name, falling back to
     # "Query" for anonymous operations — collisions are impossible since each
-    # parse gets its own container). Pass name: to override, client: to set
-    # the module's own client — a parsed module generates no file, so it has
-    # no graph to read one off.
+    # parse gets its own container). Pass name: to override, client: to say
+    # what the module runs against — a parsed module generates no file, so it
+    # has no graph to read one off, and this is the only time one is bound
+    # (a per-call `client:` still wins).
     #
     # graph: names the graph this module belongs to, which is what a test mode
     # runs it against in an app with more than one — the same thing generation

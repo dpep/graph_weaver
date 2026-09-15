@@ -82,7 +82,7 @@ module FindPetsQuery
     end
   end
 
-  # client / client= — see GraphWeaver::QueryModule
+  # client — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
   # .checked(:never): an untyped value (a Rails param) reaches the coercion

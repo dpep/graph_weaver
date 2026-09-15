@@ -348,7 +348,9 @@ describe "graph_weaver/rspec" do
   end
 
   # what docs/testing.md promises about stepping out of a tag: the mode's
-  # stand-in outranks GraphWeaver.client=, and these are the three that don't
+  # stand-in outranks GraphWeaver.client=, and these are the two that don't
+  # (the third, a module parsed from a client of its own, is in
+  # spec/test_clients_spec.rb — it takes no rspec tag to show)
   describe "stepping out of a tag", graphql: :fake do
     around do |example|
       app_client!(DraftsDemo::Schema)
@@ -370,12 +372,6 @@ describe "graph_weaver/rspec" do
 
     it "takes a per-call client:" do
       expect(query.execute(client: throttled).errors.map(&:code)).to eq %w[THROTTLED]
-    end
-
-    it "takes a per-module client=" do
-      query.client = throttled
-
-      expect(query.execute.errors.map(&:code)).to eq %w[THROTTLED]
     end
 
     it "leaves the client alone under graphql: :live", graphql: :live do

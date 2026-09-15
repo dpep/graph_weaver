@@ -365,9 +365,9 @@ describe GraphWeaver::Client do
       expect(per_call.map(&:first)).to eq [GraphWeaver::EXECUTE_EVENT]
       expect(per_call.first.last[:schema]).to eq "Demo::Schema"
 
-      mod.client = Demo::Schema
-      expect(events_for { mod.execute! }.size).to eq 1
-      mod.client = nil
+      bound = GraphWeaver.parse(schema: Demo::Schema, client: Demo::Schema,
+        query: "query Who { person(id: 1) { name } }")
+      expect(events_for { bound.execute! }.size).to eq 1
 
       GraphWeaver.client = Demo::Schema
       expect(events_for { mod.execute! }.size).to eq 1

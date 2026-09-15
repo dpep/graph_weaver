@@ -85,15 +85,19 @@ describe GraphWeaver::Internal::TestClients do
     expect(BoundClient::SPY.requests.size).to eq 1
   end
 
-  # a module's own `client =` is the example talking; the mode stands in for
-  # what the GRAPH says, not for what the example just said
-  it "yields to a client the example set on the module" do
+  # a parsed module runs against whatever parsed it; the mode stands in for
+  # what the GRAPH says, not for a binding parsing already made
+  it "yields to the client a parsed module was bound to" do
     GraphWeaver.client = fake
     described_class.install(:fake)
-    bound.client = BoundClient::SPY
+    GraphWeaver.graph(:spied) { schema Demo::Schema; client "BoundClient::SPY" }
+    parser = BoundClient::Spy.new
+    parsed = GraphWeaver::Codegen.parse(schema: Demo::Schema, query: BoundClient::QUERY,
+      graph_name: :spied, client: parser)
 
-    bound.execute!(id: "1")
-    expect(BoundClient::SPY.requests.size).to eq 1
+    parsed.execute!(id: "1")
+    expect(parser.requests.size).to eq 1
+    expect(BoundClient::SPY.requests).to be_empty
   end
 
   # :wire serves whatever a graph IS, in descending faithfulness — the rule

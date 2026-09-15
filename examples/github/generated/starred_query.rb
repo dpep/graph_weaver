@@ -103,7 +103,7 @@ module StarredQuery
     end
   end
 
-  # client / client= — see GraphWeaver::QueryModule
+  # client — see GraphWeaver::QueryModule
   extend GraphWeaver::QueryModule
 
   # the graph this module was generated from — whose client it runs

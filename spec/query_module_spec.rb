@@ -5,11 +5,14 @@
 # (spec/generated); these build the bare shape dispatch actually reads — three
 # constants — so a behavior isn't pinned to one fixture query.
 describe GraphWeaver::QueryModule do
-  def query_module(graph: nil, query: "query Q { ok }", operation: "Q")
+  def query_module(graph: nil, query: "query Q { ok }", operation: "Q", client: nil)
     mod = Module.new { extend GraphWeaver::QueryModule }
     mod.const_set(:QUERY, query)
     mod.const_set(:OPERATION_NAME, operation)
     mod.const_set(:GRAPH, graph) if graph
+    # bound the way GraphWeaver.parse binds a parsed module — there is no
+    # setter an app can reach
+    mod.send(:client=, client) if client
     mod
   end
 
@@ -41,8 +44,7 @@ describe GraphWeaver::QueryModule do
 
     it "prefers the per-call client over the module's" do
       per_call = recorder
-      mod = query_module
-      mod.client = recorder
+      mod = query_module(client: recorder)
 
       mod.send(:dispatch, {}, client: per_call)
 
@@ -51,8 +53,7 @@ describe GraphWeaver::QueryModule do
     end
 
     it "falls back to the module's client when the call names none" do
-      mod = query_module
-      mod.client = recorder
+      mod = query_module(client: recorder)
 
       mod.send(:dispatch, {}, client: nil)
 
