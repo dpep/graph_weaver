@@ -116,9 +116,9 @@ describe "graph_weaver/rspec" do
         expect(fake.requests.first[:query]).to include "drafts"
       end
 
-      # PersonQuery bakes DEFAULT_CLIENT = Demo::Schema, which sits above
+      # PersonQuery's graph names Demo::Schema as its client, which sits above
       # GraphWeaver.client — the tag has to stand in for that too
-      it "reaches a module generated with its own client:" do
+      it "reaches a module whose graph names its own client" do
         fake = graphql_fake
 
         PersonQuery.execute(id: "1") # this group's fake knows no Person; the request is the proof
