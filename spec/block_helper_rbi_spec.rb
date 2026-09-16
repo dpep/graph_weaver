@@ -113,6 +113,30 @@ RSpec.describe "the .rbi declaring block-built type helpers" do
     expect(File.exist?(rbi)).to be false
   end
 
+  # one file name, like types.rb — so two graphs sharing an output refuse with
+  # the same message and the same fix, rather than one merging into the other's
+  it "refuses two graphs writing it into one output" do
+    to = output
+    # their own query file each, so the modules and the .rb names don't collide
+    # first — a shared output is only the .rbi's problem here
+    %i[billing ledger].each do |name|
+      from = File.join(@dir, name.to_s)
+      FileUtils.mkdir_p(from)
+      File.write(File.join(from, "#{name}_pets.graphql"), "query { person(id: 1) { pets { name } } }")
+      GraphWeaver.graph(name) do
+        schema Demo::Schema
+        queries from
+        output to
+        extend_type("Pet") { def shout = "#{name}!" }
+      end
+    end
+
+    expect { GraphWeaver.generate! }.to raise_error(
+      GraphWeaver::Error,
+      /type_helpers\.rbi — the extend_type blocks in graph :billing and .*:ledger.*its own output:/m,
+    )
+  end
+
   it "counts a stale declaration as stale for verify_generated!" do
     GraphWeaver.extend_type("Pet") { def shout = "#{name}!" }
     generate!
