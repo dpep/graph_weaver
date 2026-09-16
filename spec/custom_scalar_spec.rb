@@ -185,6 +185,63 @@ describe "custom scalar deserialization" do
     expect(warnings_for(MoneyDemo::Currency)).to be_empty
   end
 
+  # The other half of the same rule: a registration says both directions or
+  # is told what it can't do. A cast with nothing to pair it reads the wire
+  # and can't write back, and both failures are silent — #to_json answers for
+  # any object, so a variable goes out as whatever that happens to be.
+  describe "a registration that reads but can't write" do
+    # a class with neither probe, so only an explicit cast reads it
+    let(:wallet) do
+      Class.new do
+        def self.name = "Wallet"
+        def ==(other) = other.is_a?(self.class)
+        alias_method :eql?, :==
+        def hash = self.class.hash
+      end
+    end
+
+    def warnings(type, **options)
+      io = StringIO.new
+      GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+      GraphWeaver.register_scalar("Money", type, **options)
+      io.string
+    ensure
+      GraphWeaver.logger = nil
+    end
+
+    it "names the scalar and what a serialize: would give" do
+      expect(warnings(wallet, cast: ->(v) { "Wallet.new(#{v})" })).to include(
+        'register_scalar("Money", Wallet): cast: reads a Wallet off the wire and nothing writes one ' \
+        "back — a Money variable goes out as whatever #to_json makes of it, and a result's #as_json " \
+        "can't reproduce what the server sent. Name the other half (serialize: :to_s names an instance " \
+        'method, serialize: [:to_s, "F"] passes it arguments, serialize: ->(v) { "#{v}.to_s" } emits ' \
+        "any expression), or serialize: :itself if the value really does go out as it is",
+      )
+    end
+
+    # Kernel#Rational is a cast the probe finds on its own, and the docs' own
+    # inference table has no serializer to pair with a Kernel conversion
+    it "warns about an inferred Kernel cast with nothing to pair it" do
+      expect(warnings(Rational)).to include("cast: reads a Rational off the wire and nothing writes one back")
+    end
+
+    it "says nothing when serialize: :itself says the value goes out as it is" do
+      expect(warnings(wallet, cast: ->(v) { "Wallet.new(#{v})" }, serialize: :itself)).to be_empty
+    end
+
+    it "says nothing about a Ruby type JSON already holds" do
+      sku = Class.new(String) { def self.name = "Sku" }
+
+      expect(warnings(sku, cast: :new)).to be_empty
+      expect(warnings(Float)).to be_empty # the built-in Float's own registration
+    end
+
+    it "says nothing when the probe paired a serializer with the cast" do
+      expect(warnings(MoneyDemo::Money)).to be_empty
+      expect(warnings(BigDecimal)).to be_empty
+    end
+  end
+
   it "warns about a Comparable that stops at <=>" do
     comparable = Class.new do
       include Comparable

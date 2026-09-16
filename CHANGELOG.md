@@ -33,6 +33,17 @@
   cast result sees a string there now.
   ([testing → pins](docs/testing.md#pins))
 
+- **A registration that reads but can't write is told so.** A `cast:` with no
+  `serialize:` to pair it — which is where the `Kernel#Type` inference lands —
+  reads the wire and has nothing to put a variable of that scalar onto it with,
+  and a result's `as_json` can't reproduce what the server sent. Both were
+  silent, because every object answers `#to_json`. Registration now warns
+  naming the scalar and what a `serialize:` would give, the sibling of the
+  existing `eql?`/`hash` warning: a registration says both directions or is
+  told what it can't do. Silent where the Ruby type writes itself (a `String`,
+  `Integer`, `Float`, `Hash` or `Array`, or a subclass) and where
+  `serialize: :itself` said so. ([scalars](docs/scalars.md#registering-a-class-of-your-own))
+
 ###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.

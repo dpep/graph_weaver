@@ -130,6 +130,7 @@ class GraphWeaver::Codegen
       @serialize_value = (known[:call] if serialize.nil?) ||
         runtime_serialize(serialize || known[:serialize], codec)
       warn_half_a_value_object
+      warn_half_a_codec(serialize)
     end
 
     def cast(expr) = @cast&.call(expr)
@@ -209,6 +210,30 @@ class GraphWeaver::Codegen
           "values (alias_method :eql?, :== is the usual shortcut)"
       end
     end
+
+    # The other half of the same rule: a registration says both directions or
+    # is told what it can't do. A cast with nothing to write back reads the
+    # wire and can't put a variable of that scalar onto it, and a result's
+    # #as_json can't reproduce what the server sent — both silent, since
+    # `#to_json` answers for any object.
+    def warn_half_a_codec(serialize)
+      # nothing said and nothing inferred: `serialize: :itself` said it, and a
+      # Ruby type JSON already holds has no other half to name
+      return if !cast? || serialize? || !serialize.nil? || json_shaped?
+
+      GraphWeaver::Internal::Log.log(:warn) do
+        "register_scalar(#{@graphql_name.inspect}, #{@klass ? @type : @type.inspect}): cast: reads " \
+          "#{GraphWeaver::Internal::Util.article(@type)} #{@type} off the wire and nothing writes one " \
+          "back — a #{@graphql_name} variable goes out as whatever #to_json makes of it, and a result's " \
+          "#as_json can't reproduce what the server sent. Name the other half (serialize: :to_s names an " \
+          "instance method, serialize: [:to_s, \"F\"] passes it arguments, " \
+          "serialize: ->(v) { \"\#{v}.to_s\" } emits any expression), or serialize: :itself if the value " \
+          "really does go out as it is"
+      end
+    end
+
+    # A Ruby type JSON already holds writes itself, subclasses included
+    def json_shaped? = !@klass.nil? && WIRE_CLASSES.any? { |native| @klass <= native }
 
     def defines?(method)
       ![BasicObject, Kernel, Object].include?(@klass.instance_method(method).owner)

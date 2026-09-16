@@ -103,6 +103,15 @@ response unequal, and useless as hash keys, while the `Money` inside them compar
 fine. Registration warns when it spots one; `alias_method :eql?, :==` plus a
 `hash` built from the same values is the whole fix.
 
+**A `cast:` with nothing to write back is half a codec**, and registration says
+so too. `Kernel#Type` is the inference that lands there — it reads the wire and
+pairs with nothing — so a variable of that scalar goes out as whatever `#to_json`
+makes of the object, and a result's `as_json` can't reproduce what the server
+sent. Both are silent, because every object answers `#to_json`. Name a
+`serialize:`, or `serialize: :itself` if the value really does go out as it is. A
+type JSON already holds (a `String`, `Integer`, `Float`, `Hash` or `Array`, or a
+subclass of one) writes itself, and is left alone.
+
 A type defining none of those probes stays pass-through rather than getting
 wrapped — every object has `#to_s`, so inferring a serializer off it would wrap
 plain types too. Override explicitly when you need to:
