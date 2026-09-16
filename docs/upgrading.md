@@ -1,11 +1,11 @@
 # Upgrading
 
 [Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then read
-the one section that is yours: from [0.7.1](#upgrading-from-071), from
-[0.7.0](#upgrading-from-070) or from [0.6.1](#upgrading-from-061). Coming from
-0.6.0 or older, the path is that version's own upgrade notes — read them at the
-tag they shipped under (`git show v0.7.1:docs/upgrading.md`), then this page from
-0.6.1 down.
+the one section that is yours: from [0.7.3](#upgrading-from-073), from
+[0.7.1](#upgrading-from-071), from [0.7.0](#upgrading-from-070) or from
+[0.6.1](#upgrading-from-061). Coming from 0.6.0 or older, the path is that
+version's own upgrade notes — read them at the tag they shipped under
+(`git show v0.7.1:docs/upgrading.md`), then this page from 0.6.1 down.
 
 ## Regenerate on every upgrade
 
@@ -22,6 +22,31 @@ after an upgrade reports the tree as stale whether or not codegen actually moved
 That's the reminder working, not a false alarm. Generation is deterministic, so
 the diff is exactly what the new version emits differently and nothing else —
 worth reading rather than rubber-stamping.
+
+## Upgrading from 0.7.3
+
+A patch release. One change can reach an app that never touched it — how a
+timestamp is read off the wire — and the rest is in the regenerate. Read the
+left column and skip what isn't yours; the [changelog](../CHANGELOG.md) says why
+each one moved.
+
+| applies if you… | what changed |
+|---|---|
+| register a timestamp scalar — `grep -rn 'register_scalar.*Time' app config lib`, which finds `Time` and `DateTime` alike | it reads the wire with `Time.iso8601` rather than `Time.parse`, so a spelling graphql-ruby's `coerce_result` never writes is refused: a bare date, seconds omitted, basic format (`"20240115T102030Z"`), a space and a zone name, `"Jan 15 2024 10:20"`. Same for a variable going out. **A server that writes one of those starts failing the cast** — `cast: :parse` keeps the tolerant reader: `register_scalar("DateTime", Time, cast: :parse)` |
+| have `DateTime` or `ISO8601DateTime` in your schema and register neither | same change: the gem registers both as `Time`, so the row above is yours without a line of your own |
+
+Then regenerate, and the gate:
+
+```sh
+# the timestamp cast is emitted, the input-struct FIELDS table grew a column,
+# and a graph with a block-form extend_type gains a type_helpers.rbi — commit
+# it with the rest
+rake graph_weaver:generate
+
+# red while any checked-in file is still what 0.7.3 wrote; 0.7.3's input
+# structs raise `ArgumentError: missing keyword: :type` at load until then
+rake graph_weaver:verify
+```
 
 ## Upgrading from 0.7.1
 

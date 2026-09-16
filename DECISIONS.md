@@ -1002,3 +1002,29 @@ writes; the trip lost something (`==`, and both values shown). Its reach is the
 fabricated value, which is why the pin is the documented lever: a two-decimal
 `Decimal` always survives a Float, so the precision case only appears for a
 value the app pins.
+
+## A minted type helper is declared in an `.rbi`, not in Ruby
+
+A block-form `extend_type("Pet") { … }` mints its mixin at registration, so
+`GraphWeaver::TypeHelpers::Pet` exists in no source file — while the generated
+`# typed: strict` struct that includes it names the constant in source. Sorbet
+reads source, so the include failed to resolve and the app's whole typecheck
+went red. The rule that fixes it is short: **generation declares every constant
+it includes.** The question was where.
+
+**Not taken: declaring it in Ruby**, in `types.rb` or a `type_helpers.rb` beside
+it — the obvious move, since generation already writes Ruby and one more
+`module … end` per helper costs nothing. It would also be loaded, and that is
+the problem: the include is the only thing that resolves the constant at
+runtime, which is what makes a dropped registration fail loudly at require
+("includes …, but nothing registers it"). Define the module in Ruby and that
+require succeeds against an empty module, and the struct quietly loses every
+method the block gave it — a silent wrong answer in place of a startup failure,
+which is the trade this library refuses everywhere else.
+
+**So a `type_helpers.rbi`**, because Ruby never loads an `.rbi`: it reaches
+`srb tc` and nothing else, so the typecheck resolves the constant and the
+runtime still has exactly one definition of it. Pruning and `verify_generated!`
+count the file like any other generated output, so a stale declaration can't
+keep `srb tc` green over an include that is gone, and two graphs sharing one
+output refuse rather than overwrite — the same rule `types.rb` already has.

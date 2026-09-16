@@ -1,6 +1,8 @@
-###  Unreleased
+###  v0.7.4  (2026-09-16)
 
-**What you must do.**
+**What you must do.** Both are 0.7.3 → 0.7.4, and a typical app does only the
+first. [upgrading](docs/upgrading.md#upgrading-from-073) has the same list with
+what each one applies to.
 
 - **Regenerate** (`rake graph_weaver:generate`), for two reasons: the timestamp
   cast is emitted into generated source, and the input-struct `FIELDS` table
@@ -22,8 +24,8 @@
   writes nothing else, so the rule is now the doc's one sentence with no
   exception: generated code takes every JSON spelling a spec-compliant server may
   write, and refuses the rest. It is also cheaper — 10k casts of
-  `"2024-01-15T10:20:30.123456Z"` take 19 ms through `Time.iso8601` against 59 ms
-  through `Time.parse`, a 3.1× difference paid on every timestamp in every
+  `"2024-01-15T10:20:30.123456Z"` take about 20 ms through `Time.iso8601` against
+  about 60 ms through `Time.parse`, roughly 3× on every timestamp in every
   response. `Date` and `DateTime` already read `.iso8601`; `Time` was the odd one
   out. ([scalars](docs/scalars.md#registering-a-stdlib-type))
 
