@@ -840,6 +840,7 @@ class GraphWeaver::Codegen
     node = ObjectNode.new(class_name)
     node.graphql_type = type.graphql_name
     node.mixins = type_mixins(type.graphql_name)
+    node.overrides = abstract_mixin_members(type.graphql_name)
     # class name => the result key that claimed it; the struct itself first,
     # claimed by nothing (see pick_name)
     taken = { class_name => nil }
@@ -1435,6 +1436,23 @@ class GraphWeaver::Codegen
     @requires.concat(entry[:requires])
     entry[:mixins].map(&:name)
   end
+
+  # Struct members a registered mixin declares abstract (docs/generated_modules.md
+  # recommends that shape so a named helper carries sigs srb tc can check).
+  # Sorbet demands the override be declared on whatever satisfies an abstract
+  # sig, and nothing generation writes can be corrected by hand — a `const` has
+  # no sig to insert `override.` into — so codegen derives it, the same way it
+  # derives an alias's type. Mixin ancestors count: an inherited abstract sig is
+  # one Sorbet demands the override for just the same.
+  def abstract_mixin_members(graphql_name)
+    entry = @registry.type_registry[graphql_name]
+    return [] unless entry
+
+    entry[:mixins].flat_map { |mixin|
+      T::AbstractUtils.declared_abstract_methods_for(mixin).map { |method| method.name.to_s }
+    }.uniq
+  end
+  private :abstract_mixin_members
 
   # The MappedEnum node for a schema enum with a registered app-enum
   # mapping; nil when unregistered, falling back to a generated T::Enum.

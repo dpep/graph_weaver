@@ -383,7 +383,10 @@ class GraphWeaver::Codegen
       node.fields.each do |field|
         note = renamed_note(field.prop, field.key)
         out << "#{pad}  #{note}" if note
-        out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}"
+        # a prop satisfying a mixin's abstract sig has to declare the override,
+        # and a `const` says it as a rule — there is no sig to put it in
+        override = node.overrides.include?(field.prop) ? ", override: true" : ""
+        out << "#{pad}  const :#{field.prop}, #{field.node.prop_type}#{override}"
       end
 
       out << ""
@@ -418,7 +421,7 @@ class GraphWeaver::Codegen
       # selected field onto the struct, next to the honest wire data
       node.aliases.each do |a|
         out << ""
-        out << "#{pad}  sig { returns(#{a.type}) }"
+        out << "#{pad}  sig { #{"override." if node.overrides.include?(a.name)}returns(#{a.type}) }"
         out << "#{pad}  def #{a.name} = #{a.expr}"
       end
       out << "#{pad}end"

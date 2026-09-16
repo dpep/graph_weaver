@@ -479,7 +479,10 @@ struct's, so a helper reading a wire field (`name`, `birthday`) fails with
 for `srb tc` to read at all. A *named* module can carry real sigs, though, by
 declaring the fields it leans on: `abstract!` plus a
 `sig { abstract.returns(String) }; def name; end` is how a mixin says "whatever
-includes me has these", and the struct's `const`s satisfy them.
+includes me has these", and the struct's `const`s satisfy them — generation
+declares the override Sorbet demands there (`const :name, String, override:
+true`, and `sig { override.returns(...) }` on an `alias:` accessor), which is
+the one thing you couldn't add by hand: a `const` has no sig to put it in.
 `T.unsafe(self).name` also silences it, at the cost of checking nothing. Either
 beats `# typed: false` for a helper you want checked.
 

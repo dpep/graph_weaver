@@ -87,6 +87,19 @@
   where the law is checked: against a schema class it is the innermost leg of
   the same trip. ([DECISIONS.md](DECISIONS.md))
 
+- **A mixin that declares a field abstract gets the `override` it needs.**
+  [generated modules](docs/generated_modules.md#type-helpers)
+  recommends `abstract!` plus `sig { abstract.returns(String) }` as how a named
+  helper carries sigs `srb tc` can check, and Sorbet then demands that whatever
+  satisfies the abstract sig say `override` — which is the one thing you
+  couldn't add by hand, since a generated `const` has no sig to put it in and an
+  `alias:` accessor's sig is generated too. The emitter now writes `const :name,
+  String, override: true` and `sig { override.returns(...) }` for exactly the
+  members a registered mixin (or one of its ancestors) declares abstract, and
+  nothing else — `override` on a method that overrides nothing is its own error.
+  One more derivation codegen makes from what it already has in hand, like an
+  alias's type.
+
 ###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.
