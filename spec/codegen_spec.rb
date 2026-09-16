@@ -32,6 +32,12 @@ describe GraphWeaver::Codegen do
     ).to be true
   end
 
+  # spec/typecheck is the one checked-in pair with a block-form extend_type
+  # include — the repo's own srb tc reads it, and nothing loads it
+  it "keeps the checked-in block-helper pair up to date" do
+    expect(TypecheckFixture.generate!(verify: true)).to be true
+  end
+
   it "names the module with name:, and says so when given the old spelling" do
     args = { schema: Demo::Schema, query: "query { people { name } }" }
 

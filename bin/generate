@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
-# regenerate spec/generated/ from spec/queries/
+# regenerate spec/generated/ from spec/queries/, and spec/typecheck/
 
 require_relative "../lib/graph_weaver"
 require_relative "../spec/support/schema"
+require_relative "../spec/support/typecheck_fixture"
 
 root = File.expand_path("..", __dir__)
 # the inline door, not GraphWeaver.graph: the parity specs regenerate these
@@ -13,5 +14,10 @@ GraphWeaver.generate!(
   output: File.join(root, "spec/generated"),
 )
 changed = GraphWeaver.changed_files
+# spec/generated carries no extend_type registration (the suite resets the
+# registry), so the pair with a block-form include is generated on its own
+TypecheckFixture.generate!
+changed += GraphWeaver.changed_files
+
 changed.each { |path| puts "wrote #{path}" }
 puts "already up to date" if changed.empty?
