@@ -76,11 +76,11 @@ describe "filtered messages" do
       module_ = parse("query Pets($where: PetFilter) { findPets(where: $where) { name } }")
 
       expect { module_.execute(where: { metadata: "brown" }) }
-        .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got "brown"/)
+        .to raise_error(GraphWeaver::InputError, /metadata: expected Metadata, got "brown"/)
 
       GraphWeaver.filter_parameters = [:metadata]
       expect { module_.execute(where: { metadata: "brown" }) }
-        .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got \[FILTERED\]/)
+        .to raise_error(GraphWeaver::InputError, /metadata: expected Metadata, got \[FILTERED\]/)
     ensure
       GraphWeaver.reset_registrations!
     end

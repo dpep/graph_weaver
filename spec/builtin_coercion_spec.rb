@@ -198,7 +198,8 @@ describe "built-in scalar coercion" do
       name: "PetsQuery",
     )
 
-    expect(source).to include('Field.new(:metadata, "metadata", false, nil, nil, "PetFilter.metadata")')
+    expect(source)
+      .to include('Field.new(:metadata, "metadata", false, nil, nil, "PetFilter.metadata", "Metadata")')
   end
 
   # A scalar registered as a Ruby type with no codec and no entry in Coerce's
@@ -212,8 +213,10 @@ describe "built-in scalar coercion" do
       query: "query Pets($where: PetFilter) { findPets(where: $where) { name } }",
     )
 
+    # named the way the SCHEMA spells it: #details[:type] is what an app
+    # translates for a user, so Sorbet's vocabulary has no business there
     expect { mod::PetFilter.coerce({ metadata: "brown" }) }
-      .to raise_error(GraphWeaver::InputError, /metadata: expected T::Hash.*, got "brown"/) { |error|
+      .to raise_error(GraphWeaver::InputError, 'metadata: expected Metadata, got "brown"') { |error|
         expect(error.field).to eq "metadata"
         expect(error.cause).to be_a ::TypeError
       }

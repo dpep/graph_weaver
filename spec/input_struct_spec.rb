@@ -9,7 +9,8 @@ describe GraphWeaver::InputStruct do
   SHAPES_SCHEMA = GraphQL::Schema.from_definition(<<~GRAPHQL)
     scalar Vector
     scalar Grid
-    input LineItemInput { sku: String!, vector: Vector, grid: Grid }
+    scalar JSON
+    input LineItemInput { sku: String!, vector: Vector, grid: Grid, notes: [JSON!] }
     input OrderInput { items: [LineItemInput!]! }
     type Order { id: ID! }
     type Mutation { placeOrder(input: OrderInput!): Order }
@@ -46,19 +47,29 @@ describe GraphWeaver::InputStruct do
   it "names the field whose element type refused, not the list holding it" do
     error = refusal(vector: [1, 2, 3])
 
-    expect(error.message).to eq %($input of PlaceOrder: vector: expected T::Array[Float], got [1, 2, 3])
+    expect(error.message).to eq %($input of PlaceOrder: vector: expected Vector, got [1, 2, 3])
     expect(error.coordinate).to eq "LineItemInput.vector"
     expect(error.path).to eq ["input", "items", 0, "vector"]
-    expect(error.details).to eq(type: "T::Array[Float]")
+    expect(error.details).to eq(type: "Vector")
     expect(error.value).to eq [1, 2, 3]
   end
 
   it "sees through a list of lists to the element that refused" do
     error = refusal(grid: [[1.0], [2]])
 
-    expect(error.message).to include "grid: expected T::Array[T::Array[Float]], got [[1.0], [2]]"
+    expect(error.message).to include "grid: expected Grid, got [[1.0], [2]]"
     expect(error.coordinate).to eq "LineItemInput.grid"
-    expect(error.details).to eq(type: "T::Array[T::Array[Float]]")
+    expect(error.details).to eq(type: "Grid")
+  end
+
+  # The schema's own spelling, not the prop's: a list of a scalar nothing
+  # coerces reaches here as "T::Array[T.untyped]", which is the library's
+  # vocabulary in the one field an app translates for a user.
+  it "reports a list field the way the schema spells it" do
+    error = refusal(notes: "nope")
+
+    expect(error.message).to eq %($input of PlaceOrder: notes: expected [JSON!], got "nope")
+    expect(error.details).to eq(type: "[JSON!]")
   end
 
   # the nilable wrapper is the prop's, not the element's: nil stays legal
@@ -72,8 +83,8 @@ describe GraphWeaver::InputStruct do
   it "reports a wholly wrong type the same way" do
     error = refusal(vector: "nope")
 
-    expect(error.message).to eq %($input of PlaceOrder: vector: expected T::Array[Float], got "nope")
+    expect(error.message).to eq %($input of PlaceOrder: vector: expected Vector, got "nope")
     expect(error.coordinate).to eq "LineItemInput.vector"
-    expect(error.details).to eq(type: "T::Array[Float]")
+    expect(error.details).to eq(type: "Vector")
   end
 end

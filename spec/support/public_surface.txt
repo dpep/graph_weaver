@@ -227,6 +227,7 @@ GraphWeaver::InputStruct::Field#coordinate
 GraphWeaver::InputStruct::Field#prop
 GraphWeaver::InputStruct::Field#required
 GraphWeaver::InputStruct::Field#serializer
+GraphWeaver::InputStruct::Field#type
 GraphWeaver::InputStruct::Field#wire
 GraphWeaver::InputStruct::Field.[]
 GraphWeaver::InputStruct::Field.members

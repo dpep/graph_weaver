@@ -1315,7 +1315,8 @@ class GraphWeaver::Codegen
       child = type_ref(argument.type) { variable_core(argument.type.unwrap) }
       @input_hops.pop
       required = child.non_null? && !argument.default_value?
-      node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required)
+      node.fields << InputNode::Field.new(prop, argument.graphql_name, child, required,
+        argument.type.to_type_signature)
     end
     check_input_props!(core, node)
     node

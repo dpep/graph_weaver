@@ -12,6 +12,11 @@
   the tolerant reader, say so: `register_scalar("DateTime", Time, cast: :parse)`.
   **Regenerate** — the cast is emitted into generated source.
 
+- **Regenerate** for the input-struct `FIELDS` table too, which grew a column
+  (the schema's spelling of each field's type). Generated code from 0.7.3 raises
+  `ArgumentError: missing keyword: :type` at load until you do —
+  `verify_generated!` in CI catches it first.
+
 - **One reader for a timestamp, and it is the server's.** `Time.iso8601` is what
   graphql-ruby's own `ISO8601DateTime` reads input with, and its `coerce_result`
   writes nothing else, so the rule is now the doc's one sentence with no
@@ -43,6 +48,17 @@
   told what it can't do. Silent where the Ruby type writes itself (a `String`,
   `Integer`, `Float`, `Hash` or `Array`, or a subclass) and where
   `serialize: :itself` said so. ([scalars](docs/scalars.md#registering-a-class-of-your-own))
+
+- **`#details[:type]` is the GraphQL type for an input field nothing coerces
+  too.** [i18n](docs/i18n.md) says that field is the schema's name for the type,
+  and it was — except where only Sorbet stood between the value and the struct
+  (a type-string registration, or a list of a scalar nothing coerces), where it
+  reported the prop's Sorbet spelling: `"T::Array[Float]"` for a `Vector`,
+  `"T::Hash[String, T.untyped]"` for a `Metadata`. The emitter now writes the
+  schema's spelling into the `FIELDS` row and the refusal reports that, in
+  `#message` and `#details[:type]` alike — `notes: expected [JSON!], got
+  "nope"`. An app keying a translation off `details[:type]` gets one key per
+  schema type rather than one per Sorbet type.
 
 ###  v0.7.3  (2026-09-15)
 

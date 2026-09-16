@@ -379,7 +379,10 @@ class GraphWeaver::Codegen
   # Joins the coerce protocol so execute kwargs accept plain hashes,
   # normalized (and type-checked) through the generated .coerce.
   class InputNode < Node
-    Field = Struct.new(:prop, :wire, :node, :required)
+    # type: the schema's spelling of the field's type ("[Float!]!"), which a
+    # refusal reports — the Sorbet prop type is the library's vocabulary, not
+    # the caller's.
+    Field = Struct.new(:prop, :wire, :node, :required, :type)
 
     # graphql_name as well as class_name: a schema coordinate is spelled the
     # schema's way (pokemon_bool_exp.name), which camelize has already lost.
