@@ -2,20 +2,20 @@
 
 **What you must do.**
 
-- **A timestamp is ISO 8601 now, in both directions.** `DateTime`,
-  `ISO8601DateTime` and anything else registered as `Time` read the wire with
-  `Time.iso8601` where they read it with `Time.parse` before, so a server (or a
-  variable) writing a spelling `coerce_result` never produces is refused rather
-  than parsed: a bare date (`"2024-01-15"`), seconds omitted
-  (`"2024-01-15T10:20Z"`), ISO 8601 basic format (`"20240115T102030Z"`), a space
-  and a zone name (`"2024-01-15 10:20:30 UTC"`), `"Jan 15 2024 10:20"`. To keep
-  the tolerant reader, say so: `register_scalar("DateTime", Time, cast: :parse)`.
-  **Regenerate** — the cast is emitted into generated source.
+- **Regenerate** (`rake graph_weaver:generate`), for two reasons: the timestamp
+  cast is emitted into generated source, and the input-struct `FIELDS` table
+  grew a column. Generated code from 0.7.3 raises `ArgumentError: missing
+  keyword: :type` at load until you do — `verify_generated!` in CI catches it
+  first.
 
-- **Regenerate** for the input-struct `FIELDS` table too, which grew a column
-  (the schema's spelling of each field's type). Generated code from 0.7.3 raises
-  `ArgumentError: missing keyword: :type` at load until you do —
-  `verify_generated!` in CI catches it first.
+- **Check anything registered as `Time` against a server that writes a looser
+  timestamp.** `DateTime`, `ISO8601DateTime` and every `register_scalar(…,
+  Time)` read the wire with `Time.iso8601` now, so a spelling `coerce_result`
+  never produces is refused rather than parsed: a bare date (`"2024-01-15"`),
+  seconds omitted (`"2024-01-15T10:20Z"`), ISO 8601 basic format
+  (`"20240115T102030Z"`), a space and a zone name (`"2024-01-15 10:20:30 UTC"`),
+  `"Jan 15 2024 10:20"`. The same goes for a variable. To keep the tolerant
+  reader: `register_scalar("DateTime", Time, cast: :parse)`.
 
 - **One reader for a timestamp, and it is the server's.** `Time.iso8601` is what
   graphql-ruby's own `ISO8601DateTime` reads input with, and its `coerce_result`
