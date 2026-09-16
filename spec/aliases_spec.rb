@@ -62,6 +62,29 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     expect(none.widget.tag).to be_nil
   end
 
+  # One call does both halves: `alias:` is emitted into the struct body, where
+  # the field is in scope and a sig can be written, and the block becomes a
+  # mixin the struct includes — so a block method can call the accessor the
+  # same call declared. The block can't spell `alias` itself: it is a Ruby
+  # keyword, and the block is module_eval'd Ruby.
+  it "takes alias: and a block on one call, and the block can call the alias" do
+    GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" }) do
+      def shout = tag&.upcase
+    end
+    src = generate
+
+    expect(src).to include("sig { returns(T.nilable(String)) }", "def tag = meta&.tag")
+    expect(src).to include("include GraphWeaver::TypeHelpers::Widget")
+
+    mod = GraphWeaver::Codegen.parse(schema:, query:, name: "WBoth")
+    widget = mod.from_response!(
+      "data" => { "widget" => { "id" => "1", "name" => "n", "meta" => { "tag" => "t", "color" => nil } } },
+    ).widget
+
+    expect(widget.tag).to eq "t"
+    expect(widget.shout).to eq "T"
+  end
+
   it "field-traversing a list points you at .first/.last" do
     GraphWeaver.extend_type("Widget", alias: { code: "bits.code" })
     expect { generate("query W { widget { bits { code } } }") }

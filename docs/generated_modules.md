@@ -534,6 +534,21 @@ excuses a field the query didn't select, not a segment the schema doesn't have: 
 typo or a wire-cased name (`findPets` for `find_pets`) still raises, since no
 selection could ever satisfy it.
 
+**One call does both halves.** `alias:` and a block are independent parts of the
+same registration — the accessor is emitted into the struct body, the block
+becomes a mixin the struct includes — so a block method can call an accessor the
+same call declared:
+
+```ruby
+GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" }) do
+  def shout = tag&.upcase
+end
+```
+
+The block can't spell the `alias` half itself: `alias` is a Ruby keyword and the
+block is `module_eval`'d Ruby, so writing it there would define a method alias
+rather than a projection. It stays a keyword on the call.
+
 For anything beyond a passthrough projection — real logic, still typed — reopen
 the generated struct in your own file and add sig'd methods; Sorbet merges the
 bodies. Every form above, and every error it raises, is a named example in
