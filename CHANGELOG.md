@@ -22,6 +22,17 @@
   response. `Date` and `DateTime` already read `.iso8601`; `Time` was the odd one
   out. ([scalars](docs/scalars.md#registering-a-stdlib-type))
 
+- **A pinned `BigDecimal` reaches the fake's wire serialized.** A pin — written
+  by hand or read off an object pin — is what the wire carries, and a value JSON
+  can hold stands as written. `BigDecimal` was counted as one of those, because
+  the list said `Numeric`; JSON has no spelling for a `BigDecimal`, so a `Money`
+  registered as one went out as the number `12.5` where the registration says
+  the server writes `"12.5"`. The fake now reads it the way every other Ruby
+  value is read, through the registration's `serialize:`. Same for a `Rational`
+  or a `Complex`. A suite that asserted the raw faked response rather than the
+  cast result sees a string there now.
+  ([testing → pins](docs/testing.md#pins))
+
 ###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.

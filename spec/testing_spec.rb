@@ -1,3 +1,4 @@
+require "bigdecimal"
 require "graph_weaver/testing"
 require_relative "generated/person_query"
 require_relative "generated/search_query"
@@ -192,6 +193,40 @@ describe GraphWeaver::Testing do
           pinned = person("Money" => "12.00", "Person" => factory.build(:person, name: "Ada"), "Order.total" => "999.00")
 
           expect(pinned).to eq("name" => "Ada", "orders" => [{ "total" => "999.00" }, { "total" => "999.00" }])
+        end
+      end
+
+      # A pin is what the wire carries — hand-written or read off an object,
+      # one rule — and JSON carries no BigDecimal. It went out as a JSON
+      # number, so a Money the registration says the server writes as "12.5"
+      # was faked as 12.5, and the generated cast happened not to mind.
+      describe "a Ruby value JSON can't hold" do
+        let(:schema) do
+          GraphQL::Schema.from_definition("scalar Money scalar Date type Query { order: Order } " \
+            "type Order { total: Money! on: Date! }")
+        end
+
+        before { GraphWeaver.register_scalar("Money", BigDecimal) }
+
+        after { GraphWeaver::Codegen.reset_scalars! }
+
+        def order(pins)
+          GraphWeaver::Testing::FakeClient.new(pins, schema:, seed: 1)
+            .execute("{ order { total on } }").dig("data", "order")
+        end
+
+        it "serializes one read off an object pin" do
+          pin = Struct.new(:total, :on).new(BigDecimal("12.50"), Date.new(2026, 3, 4))
+
+          expect(order("Order" => pin)).to eq("total" => "12.5", "on" => "2026-03-04")
+        end
+
+        it "serializes one written as a pin by hand" do
+          expect(order("Money" => BigDecimal("12.50"))).to include("total" => "12.5")
+        end
+
+        it "leaves a pin JSON can hold as written" do
+          expect(order("Money" => "12.00")).to include("total" => "12.00")
         end
       end
 

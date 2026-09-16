@@ -51,8 +51,11 @@ class GraphWeaver::Internal::Values
   UNREGISTERED = "T.untyped"
 
   # What JSON can hold. Anything else a pin offers is a Ruby object the
-  # registration has to serialize before it can stand in for a response.
-  WIRE = [NilClass, TrueClass, FalseClass, Numeric, String, Symbol, Array, Hash].freeze
+  # registration has to serialize before it can stand in for a response —
+  # Integer and Float, not Numeric, because a BigDecimal is a Numeric that
+  # JSON has no spelling for, and taking one as written sent 12.5 where the
+  # registration says the server writes "12.5".
+  WIRE = [NilClass, TrueClass, FalseClass, Integer, Float, String, Symbol, Array, Hash].freeze
 
   # The fallback, for a scalar nobody registered: its prop is T.untyped, so
   # anything holds and a plausible shape beats a placeholder.
