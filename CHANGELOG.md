@@ -101,8 +101,8 @@
   ("includes ..., but nothing registers it") rather than silently handing the
   struct an empty module. Pruning and `verify_generated!` count it like any
   other generated file, so a stale declaration can't keep `srb tc` green over an
-  include that is gone.
-  ([generated modules](docs/generated_modules.md#type-helpers))
+  include that is gone. The regeneration above writes it; commit it with the
+  rest. ([generated modules](docs/generated_modules.md#type-helpers))
 
 - **A mixin that declares a field abstract gets the `override` it needs.**
   [generated modules](docs/generated_modules.md#type-helpers)
