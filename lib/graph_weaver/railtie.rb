@@ -368,8 +368,17 @@ class GraphWeaver::Railtie < Rails::Railtie
   # app's own to_prepare blocks (where extend_type/register_enum are told to
   # register, Codegen::AUTOLOAD_HINT) happen after config/initializers.
   # after_initialize is past all of them, and past the watcher above.
-  config.after_initialize do
-    GraphWeaver::Railtie.prepare_generated!
+  #
+  # Except where the app eager loads: an eager-loaded class may name a
+  # generated constant in its class body, and Zeitwerk can't resolve one (the
+  # directory is ignored, by design), so the modules have to be in place before
+  # Rails' :eager_load! rather than after it. before_eager_load is that point,
+  # and Rails only runs it when config.eager_load is on — which is exactly when
+  # after_initialize must not do the work a second time.
+  config.before_eager_load { GraphWeaver::Railtie.prepare_generated! }
+
+  config.after_initialize do |app|
+    GraphWeaver::Railtie.prepare_generated! unless app.config.eager_load
     # and again on every dev reload, which picks up a module generated since
     # boot and re-requires one whose namespace Zeitwerk just unloaded. On the
     # reloader itself, not config.to_prepare: the :add_to_prepare_blocks

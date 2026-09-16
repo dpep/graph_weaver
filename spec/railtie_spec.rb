@@ -32,7 +32,7 @@ describe "GraphWeaver::Railtie" do
   # the lifecycle hooks the railtie hangs its work off instead of initializer
   # edges — captured so the wiring can be counted, while what each one does is
   # exercised through the named method it calls
-  %i[before_initialize after_initialize].each do |kind|
+  %i[before_initialize before_eager_load after_initialize].each do |kind|
     RAILTIE_CONFIG.define_singleton_method(kind) { |&block| RAILTIE_HOOKS[kind] << block }
   end
   railtie_base = Class.new do
@@ -108,6 +108,7 @@ describe "GraphWeaver::Railtie" do
       .to eq("graph_weaver.ignore_generated" => { before: :setup_main_autoloader })
     expect(RAILTIE_HOOKS[:before_initialize].size).to eq 2 # logger, instrumentation
     expect(RAILTIE_HOOKS[:after_initialize].size).to eq 3  # filter_parameters, watch, generated
+    expect(RAILTIE_HOOKS[:before_eager_load].size).to eq 1 # generated, where there is an eager load
   end
 
   # calling the captured block does `require "graph_weaver/tasks"` — already
@@ -953,18 +954,27 @@ describe "GraphWeaver::Railtie" do
     # boot — one boot answers the ordering and the opt-out together.
     # gem: false is the control, an identical app with graph_weaver never
     # required, which is the only honest baseline for "did we move anything".
-    def boot(gem: true)
+    def boot(gem: true, eager: false)
       Dir.mktmpdir("graph-weaver-boot") do |root|
         FileUtils.mkdir_p(File.join(root, "config/initializers"))
+        # a generated module, and an app class that names it in its CLASS BODY
+        # — the one thing that cares whether the modules load before or after
+        # Rails' :eager_load!
+        FileUtils.mkdir_p(File.join(root, "generated"))
+        File.write(File.join(root, "generated/probe_query.rb"), "module BootGeneratedProbe; end\n")
+        FileUtils.mkdir_p(File.join(root, "app/models"))
+        File.write(File.join(root, "app/models/uses_generated.rb"),
+          "class UsesGenerated; PROBE = BootGeneratedProbe; end\n")
         if gem
           File.write(File.join(root, "config/initializers/zzz_graph_weaver.rb"), <<~INIT)
             SAW = { logger: GraphWeaver.logger.class.to_s, instrumenter: !GraphWeaver.instrumenter.nil? }
             GraphWeaver.logger = nil
             GraphWeaver.instrumenter = nil
+            GraphWeaver.generated_paths = "generated"
           INIT
         end
         script = File.join(root, "boot.rb")
-        File.write(script, BOOT_SCRIPT.sub("ROOT", root.inspect)
+        File.write(script, BOOT_SCRIPT.sub("ROOT", root.inspect).sub("EAGER", eager.to_s)
           .sub("REQUIRE_GEM", gem ? 'require "graph_weaver"' : ""))
 
         out = IO.popen([RbConfig.ruby, "-I#{File.expand_path("../lib", __dir__)}", script],
@@ -998,7 +1008,7 @@ describe "GraphWeaver::Railtie" do
 
       class BootProbe < Rails::Application
         config.root = ROOT
-        config.eager_load = false
+        config.eager_load = EAGER
         config.logger = Logger.new(IO::NULL)
         config.secret_key_base = "x" * 32
       end
@@ -1014,6 +1024,7 @@ describe "GraphWeaver::Railtie" do
           instrumenter: GraphWeaver.instrumenter.inspect,
           attached: ActiveSupport::LogSubscriber.log_subscribers.map { |sub| sub.class.to_s },
           listening: ActiveSupport::Notifications.notifier.listening?(GraphWeaver::EXECUTE_EVENT),
+          eager_probe: UsesGenerated::PROBE.to_s,
         )
       end
       puts JSON.generate(payload)
@@ -1034,6 +1045,14 @@ describe "GraphWeaver::Railtie" do
       # than printing two elided lists of seventy
       expect(ours.zip(without).find { |mine, theirs| mine != theirs }).to be_nil
       expect(ours).to eq without
+    end
+
+    # An eager-loaded class may name a generated constant in its class body,
+    # and Zeitwerk can't resolve one — the generated directory is ignored, on
+    # purpose. So the modules are in place before Rails' :eager_load!, which is
+    # earlier than after_initialize.
+    it "loads the generated modules before the app is eager loaded" do
+      expect(boot(eager: true)["eager_probe"]).to eq "BootGeneratedProbe"
     end
 
     it "auto-wires before config/initializers, so the documented opt-out wins" do
