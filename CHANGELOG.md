@@ -1,4 +1,4 @@
-###  Unreleased
+###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.
 
