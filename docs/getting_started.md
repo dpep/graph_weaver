@@ -99,8 +99,9 @@ What it wrote:
 
 Rake needs no wiring: in Rails the `graph_weaver:*` tasks register themselves and
 depend on `:environment`, so your initializer runs first. The generated modules
-load at boot from a `to_prepare` block, so a helper or enum you registered is
-already in place when the file that names it loads.
+load at the end of boot, after your initializers and after any `to_prepare`
+block of yours, so a helper or enum you registered is already in place when the
+file that names it loads.
 
 All of that describes **one** schema, which is the usual case; an app with a
 second one declares each as a graph ([more than one

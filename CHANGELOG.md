@@ -1,3 +1,25 @@
+###  Unreleased
+
+**What you must do.** Nothing — no app-visible behaviour moved.
+
+- **The railtie stopped reordering your app's boot.** A Rails app failed to
+  start with graph_weaver in the Gemfile, and neutering all six of the
+  railtie's initializer bodies did not help: the cause was their `after:
+  :load_config_initializers` / `before: :load_config_initializers` options.
+  Rails topologically sorts every railtie's initializers as one graph, so an
+  edge naming another railtie's initializer constrains the *whole* app's order —
+  measured here moving an unrelated gem's edge-free initializer 27 places later,
+  across `load_config_initializers`. Five of the six are now Rails lifecycle
+  hooks, which have a fixed place in boot and add no edge; the sixth keeps only
+  `before: :setup_main_autoloader`, which records a deadline without moving
+  anything. It could stop waiting on `config/initializers` because a graph's
+  `output` (and `GraphWeaver.generated_paths`) is now hidden from Zeitwerk the
+  moment it is named, rather than swept up by an initializer that had to run
+  after the declarations. The rule, and the spec that holds it: with the gem in
+  the Gemfile, `Rails.application.initializers.tsort` is the same sequence as
+  without it, with graph_weaver's own names inserted and nothing else moved.
+  ([DECISIONS.md](DECISIONS.md))
+
 ###  v0.7.2  (2026-09-15)
 
 **What you must do.** All of these are 0.7.1 → 0.7.2, and a typical app does

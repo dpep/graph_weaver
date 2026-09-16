@@ -928,3 +928,42 @@ parser, or the call, never from a setter.
 that dump — which is how a supergraph handed to `GraphWeaver.new` reaches
 `Graph#supergraph`, the federation tasks and `:router` through the lookup each
 already had.
+
+## Rails lifecycle hooks, not initializer edges
+
+**Considered:** keeping the railtie's timing as `after:`/`before:` options on its
+initializers, naming another railtie's initializer — `after:
+:load_config_initializers` so an output declared in `config/initializers` is
+known before Zeitwerk's setup, and `before: :load_config_initializers` so the
+logger and instrumenter defaults lose to an app that assigns nil.
+
+**Rejected because** Rails topologically sorts every railtie's initializers as
+one graph, so such an edge constrains the WHOLE app's boot order, not ours. TSort
+satisfies `after: X` by emitting X — and everything X transitively depends on —
+before us, which in a real app moved another gem's edge-free initializer 27
+places later, across `load_config_initializers`. The app stopped booting with
+graph_weaver in the Gemfile; neutering all six initializer bodies did not help,
+because the damage was the edges, not the work. An edge is a global constraint
+expressed as a local option, which is the worst shape a knob can have.
+
+A lifecycle hook (`config.before_initialize`, `config.before_eager_load`,
+`config.after_initialize`, `ActiveSupport::Reloader.to_prepare`) has a fixed
+place in boot and adds no edge, so the same timings cost nothing outside us. The
+rule: prefer a hook; keep an edge only where no hook expresses the timing, and
+then only a `before:` naming a LATER initializer — which is inert, since our
+initializer is emitted at its own place in the railties block regardless and
+only records the deadline.
+
+**What that cost, and what paid for it.** One timing had no hook: hiding a
+generated output from Zeitwerk needs the output to be *known* before
+`:setup_main_autoloader`, and a graph declared in `config/initializers` isn't
+known until then. Waiting for it is what the `after:` bought. The answer was to
+stop waiting: `GraphWeaver.graph` and `generated_paths=` hide an output the
+moment they name it, and Zeitwerk's own `on_setup` says when that window shuts —
+after which `check_generated_ignored!` refuses, as it always has. Knowledge acted
+on where it arrives needs no ordering edge at all, which is the better shape
+anyway.
+
+The measurable form, and the spec: with graph_weaver in the Gemfile,
+`Rails.application.initializers.tsort.map(&:name)` must be the same sequence as
+without it, with our own names inserted and nothing else moved.

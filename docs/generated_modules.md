@@ -678,8 +678,9 @@ spot a *schema* change for you — `schema:diff`, `schema:refresh`, `queries:che
 ### Loading what it wrote
 
 In Rails, loading is automatic — the Railtie requires every generated file at
-boot from a `to_prepare` block, after your initializers and after any
-registrations of your own in one. Elsewhere it's explicit, factory_bot-style:
+the end of boot, after your initializers and after any registrations of your own
+in a `to_prepare` block, and again after each development reload. Elsewhere it's
+explicit, factory_bot-style:
 `GraphWeaver.load_generated!` requires every file under `generated_paths`.
 
 **Outside Rails, four things have to agree**, and nothing wires them together for
