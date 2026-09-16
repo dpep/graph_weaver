@@ -78,6 +78,13 @@ describe "GraphWeaver::Testing.check_scalars!" do
     expect { check }.to raise_error(GraphWeaver::Error, /Date: serialize: is a Proc, which builds source/)
   end
 
+  # one unpinned scalar must not hide the verdict on the others
+  it "reports a scalar nothing can fabricate a value for" do
+    GraphWeaver.register_scalar("Date", Class.new { def self.name = "Wallet" }, cast: :parse)
+
+    expect { check }.to raise_error(GraphWeaver::Error, /Date: can't fabricate a Date .*Pin the type/)
+  end
+
   it "says nothing about a scalar the app never registered, or the library's own entries" do
     # Metadata is declared and unregistered; Date holds the pre-registered entry
     expect { check }.not_to raise_error

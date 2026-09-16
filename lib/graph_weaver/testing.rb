@@ -436,7 +436,15 @@ module GraphWeaver
       # a different mistake, so each says which.
       def disagreement(scalar, type, values, context)
         name = type.graphql_name
-        wire = values.scalar(name, name)
+        # a scalar registered as your own class has no fabricable value, and
+        # it says how to pin one — reported here rather than raised, so one
+        # unpinned scalar doesn't hide the verdict on all the others
+        begin
+          wire = values.scalar(name, name)
+        rescue GraphWeaver::Error => e
+          return "#{name}: #{e.message}"
+        end
+
         cast = cast_proc(scalar)
         begin
           sample = cast.call(wire)
