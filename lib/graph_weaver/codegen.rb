@@ -154,6 +154,12 @@ class GraphWeaver::Codegen
   # queries so the build says them once, for GraphWeaver.untyped_scalars.
   def untyped_scalars = @untyped_scalars.uniq.sort
 
+  # The block-built type helpers this walk included, by constant name. They are
+  # minted at registration, so no source file declares them and an app's
+  # `srb tc` can't resolve the include this emitted — the generate! workflow
+  # unions these across queries and declares them in an .rbi.
+  def block_helpers = @block_helpers.uniq.sort
+
   # The shared types artifact: every type a schema shares across query modules,
   # emitted once as a manifest (types.rb) plus one file per type under types/,
   # so a schema migration diffs only the types it touched. Returns
@@ -245,6 +251,8 @@ class GraphWeaver::Codegen
     @input_hops = []
     @mapped_enums = {}
     @used_unions = []
+    # block-built type helpers this walk included — see #block_helpers
+    @block_helpers = []
     # requires the generated file needs (custom scalars, enum mappings,
     # type helpers all contribute)
     @requires = []
@@ -1434,8 +1442,16 @@ class GraphWeaver::Codegen
     return [] unless entry
 
     @requires.concat(entry[:requires])
-    entry[:mixins].map(&:name)
+    names = entry[:mixins].map(&:name)
+    # GraphWeaver::TypeHelpers is where extend_type mints a block's mixin, and
+    # a module there exists in no source file — so generation has to declare it
+    @block_helpers.concat(names.grep(BLOCK_HELPER))
+    names
   end
+
+  # A block-built mixin's constant, by the namespace extend_type mints it under.
+  BLOCK_HELPER = /\AGraphWeaver::TypeHelpers::/
+  private_constant :BLOCK_HELPER
 
   # Struct members a registered mixin declares abstract (docs/generated_modules.md
   # recommends that shape so a named helper carries sigs srb tc can check).

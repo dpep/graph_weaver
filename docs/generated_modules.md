@@ -470,13 +470,17 @@ The name is where the block is written and what it extends:
 `GraphWeaver::TypeHelpers::Billing::Pet` inside `GraphWeaver.graph :billing`.
 Generated code spells it, so it depends on your source and nothing else — two
 graphs can extend the same type name, and the name a `generate` bakes in is the
-one a boot creates.
+one a boot creates. The module is minted at registration, so no file declares
+it; generation writes a `type_helpers.rbi` beside the modules that does, which
+is what lets your `srb tc` resolve the `include`. Ruby never loads an `.rbi`, so
+dropping the registration still fails loudly at require rather than quietly
+handing the struct an empty module.
 
-**Neither form is statically checked as written**, for the same reason: `srb tc`
-checks a mixin's method bodies in the module's own scope, not the including
-struct's, so a helper reading a wire field (`name`, `birthday`) fails with
-"method does not exist on the module" — and the block form has no source on disk
-for `srb tc` to read at all. A *named* module can carry real sigs, though, by
+**Neither form has its method bodies statically checked**, for the same reason:
+`srb tc` checks a mixin's method bodies in the module's own scope, not the
+including struct's, so a helper reading a wire field (`name`, `birthday`) fails
+with "method does not exist on the module" — and the block form has no source on
+disk for `srb tc` to read at all. A *named* module can carry real sigs, though, by
 declaring the fields it leans on: `abstract!` plus a
 `sig { abstract.returns(String) }; def name; end` is how a mixin says "whatever
 includes me has these", and the struct's `const`s satisfy them — generation
@@ -620,6 +624,7 @@ app/graphql/
   generated/
     types.rb         # manifest: requires + forward declarations, in load order
     types/           # one file per shared type
+    type_helpers.rbi # only with a block-form extend_type — declares its module
     *_query.rb       # one module per query — generated, checked in, never edited
     *_mutation.rb    # ...and per mutation
 ```

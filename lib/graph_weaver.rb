@@ -29,7 +29,11 @@ module GraphWeaver
   # How far into a file to look for it: the header sits under the `typed:` and
   # `frozen_string_literal:` magic comments, never deeper.
   HEADER_SCAN_LINES = 10
-  private_constant :GENERATED_HEADER, :HEADER_SCAN_LINES
+
+  # Where a graph declares the modules its extend_type blocks mint — an .rbi,
+  # so the declaration reaches `srb tc` and nothing else (see helpers_rbi).
+  HELPERS_RBI = "type_helpers.rbi"
+  private_constant :GENERATED_HEADER, :HEADER_SCAN_LINES, :HELPERS_RBI
 
   class << self
     # A client for one GraphQL server — transport, schema, and scoped
@@ -484,12 +488,13 @@ module GraphWeaver
     end
     private :orphaned
 
-    # Every .rb under output that GraphWeaver wrote, identified by the header
+    # Every file under output that GraphWeaver wrote, identified by the header
     # it emits. The header — not a *_query.rb glob — is what makes pruning
     # safe: this is a real directory, and a hand-written file in it must
-    # survive regeneration.
+    # survive regeneration. .rbi too: a stale type-helper declaration would
+    # keep an app's srb tc green over an include that is gone.
     def generated_files(output)
-      Dir[File.join(Internal::Util.resolve(output), "**/*.rb")].sort.select do |path|
+      Dir[File.join(Internal::Util.resolve(output), "**/*.{rb,rbi}")].sort.select do |path|
         File.foreach(path).first(HEADER_SCAN_LINES).any? { |line| line.start_with?(GENERATED_HEADER) }
       end
     end
@@ -863,6 +868,7 @@ module GraphWeaver
 
       used = { inputs: [], enums: [], mapped: [] }
       used_unions = []
+      helpers = []
       shared = Codegen.load_fragments(fragments)
 
       refusals = []
@@ -886,6 +892,7 @@ module GraphWeaver
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
         found.concat(codegen.untyped_scalars).uniq!
         used_unions |= codegen.used_union_names
+        helpers |= codegen.block_helpers
         [filename, out]
       rescue GraphWeaver::Error => e
         # collected, not raised: nothing is written either way, and an adopter
@@ -903,15 +910,51 @@ module GraphWeaver
           unions: used_unions, fragments: shared,
         )
         found.concat(codegen.untyped_scalars).uniq!
+        helpers |= codegen.block_helpers
         # these land in the graph's output like any other file, so they collide
         # with another graph's the same way
         types.each_key { |filename| refuse_duplicate_file!(seen, filename, graph, graph.types_module) }
         plan = types.to_a + plan
       end
 
+      if helpers.any?
+        refuse_duplicate_file!(seen, HELPERS_RBI, graph, "the extend_type blocks")
+        plan = [[HELPERS_RBI, helpers_rbi(helpers)]] + plan
+      end
+
       plan
     end
     private :generation_plan
+
+    # One rule: generation declares every constant it includes. A block-form
+    # extend_type mints its mixin at registration, so no source file declares
+    # GraphWeaver::TypeHelpers::Pet — and an app's `srb tc` failed on every
+    # generated include of one ("Unable to resolve constant ...").
+    #
+    # An .rbi rather than Ruby, because Ruby never loads one: the include stays
+    # the only thing that resolves the constant at runtime, which keeps a
+    # dropped registration loud (see load_generated!) instead of silently
+    # handing the struct an empty module.
+    def helpers_rbi(names)
+      # `module A::B` does not define A, so each outer segment is opened first
+      declared = names.flat_map { |name|
+        segments = name.split("::")
+        (1...segments.size).map { |i| segments.first(i + 1).join("::") }
+      }.uniq.sort
+      # assembled line by line, not from a heredoc (as Emit does): a `# typed:`
+      # sigil at the start of a line is the sigil srb reads for THIS file
+      lines = [
+        "# typed: strict",
+        "",
+        "#{GENERATED_HEADER} #{VERSION} — do not edit. The modules this graph's",
+        "# extend_type blocks mint, declared so `srb tc` can resolve the includes",
+        "# in the generated code. Ruby never loads an .rbi; the registrations do",
+        "# the real work.",
+        "",
+      ]
+      (lines + declared.map { |mod| "module #{mod}; end" }).join("\n") + "\n"
+    end
+    private :helpers_rbi
 
     # Every query that refused, in one error. One refusal is re-raised as
     # itself, so a single bad file reads exactly as it always has — class,

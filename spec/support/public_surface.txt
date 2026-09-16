@@ -61,6 +61,7 @@ GraphWeaver::Client#transport
 GraphWeaver::Client.instrumented
 GraphWeaver::Client::URL = Regexp
 GraphWeaver::Codegen (Class)
+GraphWeaver::Codegen#block_helpers
 GraphWeaver::Codegen#generate
 GraphWeaver::Codegen#generate_types
 GraphWeaver::Codegen#name

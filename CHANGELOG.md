@@ -87,6 +87,23 @@
   where the law is checked: against a schema class it is the innermost leg of
   the same trip. ([DECISIONS.md](DECISIONS.md))
 
+- **A block-form `extend_type` now typechecks in your app.** The block's mixin
+  is minted at registration, so `GraphWeaver::TypeHelpers::Pet` exists in no
+  source file — and every generated `# typed: strict` file that `include`d one
+  failed the app's `srb tc` outright ("Unable to resolve constant ... Did you
+  mean `GraphWeaver::Codegen`?"). The docs said only that the block's *bodies*
+  aren't checked; the include didn't resolve at all. One rule now: generation
+  declares every constant it includes. A graph whose registry has a block-built
+  helper gets a `type_helpers.rbi` beside the modules, declaring each one (and
+  the graph's namespace above it). It's an `.rbi` because Ruby never loads one,
+  so the include stays the only thing that resolves the constant at runtime —
+  which is what keeps a dropped registration failing loudly at require
+  ("includes ..., but nothing registers it") rather than silently handing the
+  struct an empty module. Pruning and `verify_generated!` count it like any
+  other generated file, so a stale declaration can't keep `srb tc` green over an
+  include that is gone.
+  ([generated modules](docs/generated_modules.md#type-helpers))
+
 - **A mixin that declares a field abstract gets the `override` it needs.**
   [generated modules](docs/generated_modules.md#type-helpers)
   recommends `abstract!` plus `sig { abstract.returns(String) }` as how a named
