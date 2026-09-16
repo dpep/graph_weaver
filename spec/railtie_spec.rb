@@ -27,7 +27,14 @@ describe "GraphWeaver::Railtie" do
   RAILTIE_RAKE_TASKS = []
   RAILTIE_INITIALIZERS = {}
   RAILTIE_INITIALIZER_OPTIONS = {}
+  RAILTIE_HOOKS = Hash.new { |hooks, kind| hooks[kind] = [] }
   RAILTIE_CONFIG = ActiveSupport::OrderedOptions.new
+  # the lifecycle hooks the railtie hangs its work off instead of initializer
+  # edges — captured so the wiring can be counted, while what each one does is
+  # exercised through the named method it calls
+  %i[before_initialize after_initialize].each do |kind|
+    RAILTIE_CONFIG.define_singleton_method(kind) { |&block| RAILTIE_HOOKS[kind] << block }
+  end
   railtie_base = Class.new do
     define_singleton_method(:config) { RAILTIE_CONFIG }
     define_singleton_method(:rake_tasks) { |&block| RAILTIE_RAKE_TASKS << block }
@@ -39,9 +46,13 @@ describe "GraphWeaver::Railtie" do
   Rails.const_set(:Railtie, railtie_base)
   load File.expand_path("../lib/graph_weaver/railtie.rb", __dir__)
 
-  # what the ignore initializer hid, and so what the next example would
-  # measure "declared too late" against — process-global, like the watcher
-  after { GraphWeaver::Railtie.ignored_dirs = nil }
+  # what the sweep hid, and whether the window for hiding more is open — both
+  # process-global, like the watcher, and both what the next example would
+  # measure "declared too late" against
+  after do
+    GraphWeaver::Railtie.ignored_dirs = nil
+    GraphWeaver::Railtie.hiding_outputs = false
+  end
 
   # config.graph_weaver is where an app reaches for a graph_weaver setting, and
   # a plain OrderedOptions swallows whatever it finds: no error, no effect, and
@@ -82,6 +93,21 @@ describe "GraphWeaver::Railtie" do
       expect { options.wach = false }.to raise_error(ArgumentError, /did you mean watch\?/)
       expect(options).not_to respond_to :wach
     end
+  end
+
+  # Rails topologically sorts every railtie's initializers together, so
+  # `after:`/`before:` naming another railtie's initializer constrains the
+  # whole app's boot order — and tsort may satisfy that by moving someone
+  # else's initializer relative to what it depended on. A real app stopped
+  # booting with graph_weaver in the Gemfile and all six bodies neutered. So
+  # the work hangs off lifecycle hooks, which have a fixed place and no edge.
+  # The one `before:` left names a LATER initializer, which records a deadline
+  # without moving anything (the tsort proof at the bottom measures that).
+  it "hangs its work off lifecycle hooks, not off cross-railtie edges" do
+    expect(RAILTIE_INITIALIZER_OPTIONS)
+      .to eq("graph_weaver.ignore_generated" => { before: :setup_main_autoloader })
+    expect(RAILTIE_HOOKS[:before_initialize].size).to eq 2 # logger, instrumentation
+    expect(RAILTIE_HOOKS[:after_initialize].size).to eq 3  # filter_parameters, watch, generated
   end
 
   # calling the captured block does `require "graph_weaver/tasks"` — already
@@ -150,12 +176,6 @@ describe "GraphWeaver::Railtie" do
   # the generated directory is inside an autoload root, so eager loading (production)
   # raised until the loader was told to skip it.
   it "hides the generated directory from Zeitwerk, before it is set up" do
-    # after the app's own initializers, because that is where it declares its
-    # graphs — an output: outside the conventional glob is otherwise eager
-    # loaded on top of load_generated!, and dies on a redefined enum
-    expect(RAILTIE_INITIALIZER_OPTIONS["graph_weaver.ignore_generated"])
-      .to eq(after: :load_config_initializers, before: :setup_main_autoloader)
-
     ignored = []
     loader = Object.new
     loader.define_singleton_method(:ignore) { |path| ignored << path }
@@ -163,7 +183,7 @@ describe "GraphWeaver::Railtie" do
     Rails.define_singleton_method(:autoloaders) { [loader] }
     Rails.define_singleton_method(:root) { Pathname.new("/app") }
 
-    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+    GraphWeaver::Railtie.hide_generated!
 
     expect(ignored).to eq GraphWeaver.generated_paths.map { |path| "/app/#{path}" }
   end
@@ -181,11 +201,77 @@ describe "GraphWeaver::Railtie" do
     Rails.define_singleton_method(:autoloaders) { [loader] }
     Rails.define_singleton_method(:root) { Pathname.new("/app") }
 
-    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+    GraphWeaver::Railtie.hide_generated!
 
     expect(ignored).to include "/app/app/graphql/odd_output"
   ensure
     GraphWeaver.reset_graphs!
+  end
+
+  # A graph declared in config/initializers says where it writes long after the
+  # sweep above ran, and Zeitwerk is still open then. Waiting for it with
+  # `after: :load_config_initializers` is what reordered the whole app's boot;
+  # hiding the output as it is named needs no edge at all.
+  describe "an output named after the sweep" do
+    # Rails.autoloaders with a `main` that announces its own setup — the only
+    # signal there is for "Zeitwerk has read the ignore list; it's closed now"
+    def zeitwerk
+      ignored, on_setup = [], []
+      main = Object.new
+      main.define_singleton_method(:ignore) { |path| ignored << path }
+      main.define_singleton_method(:dirs) { ["/app/app/graphql"] }
+      main.define_singleton_method(:on_setup) { |&block| on_setup << block }
+      loaders = [main]
+      loaders.define_singleton_method(:main) { main }
+      stub_const("Rails", Module.new)
+      Rails.define_singleton_method(:autoloaders) { loaders }
+      Rails.define_singleton_method(:root) { Pathname.new("/app") }
+      [ignored, on_setup]
+    end
+
+    def declare_odd_graph(name)
+      GraphWeaver.graph name do
+        schema Demo::Schema
+        output "app/graphql/odd_output"
+      end
+    end
+
+    after { GraphWeaver.reset_graphs! }
+
+    it "is hidden as the graph declaring it is declared" do
+      ignored, = zeitwerk
+      GraphWeaver::Railtie.hide_generated!
+
+      declare_odd_graph(:initializer_declared)
+
+      expect(ignored).to include "/app/app/graphql/odd_output"
+    end
+
+    it "is hidden when it arrives as a generated_paths setting" do
+      ignored, = zeitwerk
+      GraphWeaver::Railtie.hide_generated!
+
+      GraphWeaver.generated_paths = "app/graphql/named_late"
+
+      expect(ignored).to include "/app/app/graphql/named_late"
+    ensure
+      GraphWeaver.generated_paths = nil
+    end
+
+    # once Zeitwerk has read the list, calling ignore hides nothing — so it
+    # isn't called, and the refusal stays the honest answer
+    it "is refused once Zeitwerk has been set up" do
+      ignored, on_setup = zeitwerk
+      GraphWeaver::Railtie.hide_generated!
+      on_setup.each(&:call)
+
+      declare_odd_graph(:too_late)
+
+      expect(ignored).not_to include "/app/app/graphql/odd_output"
+      expect { GraphWeaver::Railtie.prepare_generated! }.to raise_error(
+        GraphWeaver::Error, a_string_including(":too_late", "app/graphql/odd_output"),
+      )
+    end
   end
 
   # Rails sets the `once` autoloader up in bootstrap, long before
@@ -219,7 +305,7 @@ describe "GraphWeaver::Railtie" do
     it "is refused, naming the place that can still hide it" do
       once_autoloader(ignores: false)
 
-      expect { RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call }.to raise_error(
+      expect { GraphWeaver::Railtie.hide_generated! }.to raise_error(
         GraphWeaver::Error,
         a_string_including(
           ":once_probe", "once_generated/billing", "config.autoload_once_paths",
@@ -231,7 +317,7 @@ describe "GraphWeaver::Railtie" do
     it "is let through when the app hid it there itself" do
       once_autoloader(ignores: true)
 
-      expect { RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call }.not_to raise_error
+      expect { GraphWeaver::Railtie.hide_generated! }.not_to raise_error
     end
   end
 
@@ -248,14 +334,14 @@ describe "GraphWeaver::Railtie" do
     Rails.define_singleton_method(:autoloaders) { [loader] }
     Rails.define_singleton_method(:root) { Pathname.new("/app") }
 
-    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+    GraphWeaver::Railtie.hide_generated!
 
     GraphWeaver.graph :late do
       schema Demo::Schema
       output "app/generated_graphql/billing"
     end
 
-    expect { register_generated_load.each(&:call) }.to raise_error(
+    expect { GraphWeaver::Railtie.prepare_generated! }.to raise_error(
       GraphWeaver::Error,
       a_string_including(
         ":late", "app/generated_graphql/billing", "config/initializers",
@@ -309,7 +395,7 @@ describe "GraphWeaver::Railtie" do
       declare "generated_link"
       ignored = zeitwerk
 
-      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+      GraphWeaver::Railtie.hide_generated!
 
       expect(ignored).to include @real
     end
@@ -321,7 +407,7 @@ describe "GraphWeaver::Railtie" do
       declare File.join(@root, "current/generated_graphql/billing")
       ignored = zeitwerk
 
-      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+      GraphWeaver::Railtie.hide_generated!
 
       expect(ignored).to include File.join(@root, "releases/generated_graphql/billing")
     end
@@ -333,10 +419,10 @@ describe "GraphWeaver::Railtie" do
       File.symlink("app/generated_graphql/billing", File.join(@root, "generated_link"))
       zeitwerk(roots: [File.join(@root, "app")])
 
-      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+      GraphWeaver::Railtie.hide_generated!
       declare "generated_link"
 
-      expect { register_generated_load.each(&:call) }.to raise_error(
+      expect { GraphWeaver::Railtie.prepare_generated! }.to raise_error(
         GraphWeaver::Error,
         # the graph's own spelling, not the directory the symlink points at
         a_string_including(":linked", "generated_link", "GraphWeaver.generated_paths"),
@@ -358,14 +444,14 @@ describe "GraphWeaver::Railtie" do
       Rails.define_singleton_method(:autoloaders) { [loader] }
       Rails.define_singleton_method(:root) { Pathname.new("/app") }
 
-      RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+      GraphWeaver::Railtie.hide_generated!
 
       GraphWeaver.graph :late do
         schema Demo::Schema
         output "app/generated_graphql/billing"
       end
 
-      expect { register_generated_load.each(&:call) }.not_to raise_error
+      expect { GraphWeaver::Railtie.prepare_generated! }.not_to raise_error
     ensure
       GraphWeaver.reset_graphs!
     end
@@ -381,45 +467,24 @@ describe "GraphWeaver::Railtie" do
     Rails.define_singleton_method(:autoloaders) { [loader] }
     Rails.define_singleton_method(:root) { Pathname.new("/app") }
 
-    RAILTIE_INITIALIZERS["graph_weaver.ignore_generated"].call
+    GraphWeaver::Railtie.hide_generated!
 
     GraphWeaver.graph :late do
       schema Demo::Schema
       output "graphql_generated" # not under an autoload root
     end
 
-    expect { register_generated_load.each(&:call) }.not_to raise_error
+    expect { GraphWeaver::Railtie.prepare_generated! }.not_to raise_error
   ensure
     GraphWeaver.reset_graphs!
   end
 
-  # The initializer only registers; the to_prepare block it hands back is what
-  # loads. Returns the registered blocks.
-  def register_generated_load
-    prepared = []
-    config = Object.new
-    config.define_singleton_method(:to_prepare) { |&block| prepared << block }
-    app = Object.new
-    app.define_singleton_method(:config) { config }
-
-    RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call(app)
-    prepared
-  end
-
   it "loads generated modules at boot when the directory exists" do
-    # declaration order, which Rails turns into an implicit `after:` chain —
-    # the two auto-wires lead, because anything declared after
-    # ignore_generated inherits its `after: :load_config_initializers`
-    expect(RAILTIE_INITIALIZERS.keys).to eq %w[
-      graph_weaver.logger graph_weaver.instrumentation graph_weaver.ignore_generated
-      graph_weaver.filter_parameters graph_weaver.watch graph_weaver.load_generated
-    ]
-
     Dir.mktmpdir do |dir|
       GraphWeaver.generated_paths = dir
       File.write(File.join(dir, "boot_probe_query.rb"), "module RailtieBootProbe; end")
 
-      register_generated_load.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
 
       expect(defined?(RailtieBootProbe)).to be_truthy
     ensure
@@ -449,12 +514,12 @@ describe "GraphWeaver::Railtie" do
       end
       GraphWeaver.generate!
 
-      register_generated_load.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
       expect(defined?(RailtieNamespaceProbe::ProbeQuery)).to eq "constant"
 
       # what Zeitwerk does to the namespace it owns
       Object.send(:remove_const, :RailtieNamespaceProbe)
-      register_generated_load.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
 
       expect(defined?(RailtieNamespaceProbe::ProbeQuery)).to eq "constant"
     ensure
@@ -468,18 +533,20 @@ describe "GraphWeaver::Railtie" do
   # after config/initializers — so loading from the initializer body raised
   # NameError at every boot. `after:` a finisher initializer isn't the fix
   # either: tsort hoists whichever one is named ahead of the app's own
-  # config/initializers.
-  it "loads generated modules from a to_prepare block, not from the initializer" do
-    expect(RAILTIE_INITIALIZER_OPTIONS["graph_weaver.load_generated"]).to eq(after: :load_config_initializers)
-
+  # config/initializers, and everything that one depends on with it.
+  # after_initialize is past all of them and names none of them.
+  it "loads generated modules from a lifecycle hook, not from an initializer" do
     Dir.mktmpdir do |dir|
       GraphWeaver.generated_paths = dir
       File.write(File.join(dir, "deferred_query.rb"), "module RailtieDeferProbe; end")
+      stub_const("Rails", Module.new)
+      Rails.define_singleton_method(:autoloaders) { [] }
 
-      prepared = register_generated_load
+      # the whole of what the one initializer does
+      GraphWeaver::Railtie.hide_generated!
       expect(defined?(RailtieDeferProbe)).to be_nil
 
-      prepared.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
       expect(defined?(RailtieDeferProbe)).to be_truthy
     ensure
       GraphWeaver.generated_paths = nil
@@ -495,7 +562,7 @@ describe "GraphWeaver::Railtie" do
       File.write(File.join(dir, "skipped_query.rb"), "module RailtieSkipProbe; end")
       GraphWeaver.skip_generated_load = true
 
-      register_generated_load.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
 
       expect(defined?(RailtieSkipProbe)).to be_nil
     ensure
@@ -514,7 +581,7 @@ describe "GraphWeaver::Railtie" do
       File.write(File.join(app, "generated/probe_query.rb"), "module RailtieRootProbe; end")
       GraphWeaver.generated_paths = "generated"
 
-      Dir.mktmpdir { |elsewhere| Dir.chdir(elsewhere) { register_generated_load.each(&:call) } }
+      Dir.mktmpdir { |elsewhere| Dir.chdir(elsewhere) { GraphWeaver::Railtie.prepare_generated! } }
 
       expect(defined?(RailtieRootProbe)).to be_truthy
     ensure
@@ -525,7 +592,7 @@ describe "GraphWeaver::Railtie" do
 
   it "boots quietly when there is nothing generated" do
     GraphWeaver.generated_paths = "no/such/dir"
-    expect { register_generated_load.each(&:call) }.not_to raise_error
+    expect { GraphWeaver::Railtie.prepare_generated! }.not_to raise_error
   ensure
     GraphWeaver.generated_paths = nil
   end
@@ -550,7 +617,7 @@ describe "GraphWeaver::Railtie" do
       app.define_singleton_method(:config) do
         Struct.new(:filter_parameters).new(filters)
       end
-      RAILTIE_INITIALIZERS["graph_weaver.filter_parameters"].call(app)
+      GraphWeaver::Railtie.adopt_filter_parameters!(app)
     end
 
     after { GraphWeaver.filter_parameters = GraphWeaver::DEFAULT_FILTER_PARAMETERS }
@@ -706,29 +773,25 @@ describe "GraphWeaver::Railtie" do
       GraphWeaver.logger = nil
     end
 
-    # a graph declared from to_prepare is declared after every initializer, so
-    # a watcher built in one watches the wrong directories and an edit to that
-    # graph's .graphql silently never regenerates. app.reloaders is read per
+    # a graph declared from to_prepare is declared after every initializer and
+    # after the first prepare pass, so a watcher built any earlier watches the
+    # wrong directories and an edit to that graph's .graphql silently never
+    # regenerates. after_initialize is past both; app.reloaders is read per
     # request, so joining it this late still counts.
-    it "watches a graph declared from a to_prepare block" do
+    it "watches a graph declared after the initializers have run" do
       dir, host = @dir, app
-      prepared = []
-      host.config.define_singleton_method(:to_prepare) { |&block| prepared << block }
-
-      RAILTIE_INITIALIZERS["graph_weaver.watch"].call(host)
-      expect(GraphWeaver::Railtie.watcher).to be_nil
 
       GraphWeaver.graph :late do
         schema Demo::Schema
         queries File.join(dir, "late")
         output File.join(dir, "late_generated")
       end
-      prepared.each(&:call)
+      GraphWeaver::Railtie.watch!(host)
 
       expect(GraphWeaver::Railtie.watcher.dirs.keys).to include File.join(@dir, "late")
-      # and once only — a dev reload re-runs to_prepare, and a second watcher
-      # would be a second reloader polling the same files
-      prepared.each(&:call)
+      # and one watcher however often it is called — a second one is a second
+      # reloader polling the same files
+      GraphWeaver::Railtie.watch!(host)
       expect(host.reloaders).to eq [GraphWeaver::Railtie.watcher]
     ensure
       GraphWeaver.reset_graphs!
@@ -782,21 +845,14 @@ describe "GraphWeaver::Railtie" do
     # regenerate first, then load — and only load again when nothing did
     it "asks the watcher before loading, and skips the load when it regenerated" do
       write_query("name")
-      host = app
-      GraphWeaver::Railtie.watch!(host)
-      prepared = []
-      config = Object.new
-      config.define_singleton_method(:to_prepare) { |&block| prepared << block }
-      rails_app = Object.new
-      rails_app.define_singleton_method(:config) { config }
-      RAILTIE_INITIALIZERS["graph_weaver.load_generated"].call(rails_app)
+      GraphWeaver::Railtie.watch!(app)
 
       # nothing changed: no generation, just the load
-      prepared.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
       expect(Dir[File.join(@dir, "generated/*.rb")]).to be_empty
 
       GraphWeaver::Railtie.watcher.updated = true
-      prepared.each(&:call)
+      GraphWeaver::Railtie.prepare_generated!
       expect(WatchProbeQuery::Result::Person.props.keys).to eq %i[name]
     end
   end
@@ -822,7 +878,7 @@ describe "GraphWeaver::Railtie" do
 
     after { GraphWeaver.instrumenter = nil }
 
-    def boot = RAILTIE_INITIALIZERS["graph_weaver.instrumentation"].call
+    def boot = GraphWeaver::Railtie.default_instrumenter!
 
     it "wires the ActiveSupport::Notifications adapter" do
       boot
@@ -870,23 +926,23 @@ describe "GraphWeaver::Railtie" do
     rails_logger = Logger.new(File::NULL)
     Rails.define_singleton_method(:logger) { rails_logger }
 
-    RAILTIE_INITIALIZERS["graph_weaver.logger"].call
+    GraphWeaver::Railtie.default_logger!
     expect(GraphWeaver.logger).to be rails_logger
 
     mine = Logger.new(File::NULL)
     GraphWeaver.logger = mine
-    RAILTIE_INITIALIZERS["graph_weaver.logger"].call
+    GraphWeaver::Railtie.default_logger!
     expect(GraphWeaver.logger).to be mine
   ensure
     GraphWeaver.logger = nil
   end
 
-  # Everything above calls the initializer blocks out of a hash and asserts
-  # their declared names in order — Rails' TSort is never involved, and TSort
-  # is the entire mechanism of the bug this exists for: `ignore_generated`
-  # declares `after: :load_config_initializers`, and its siblings in the same
-  # collection used to inherit that position, so `GraphWeaver.logger = nil` in
-  # an initializer was overwritten by the railtie that ran after it.
+  # Everything above calls the hook bodies by name — Rails' TSort is never
+  # involved, and TSort is the entire mechanism of both bugs this exists for:
+  # an inherited `after: :load_config_initializers` once made
+  # `GraphWeaver.logger = nil` in an initializer lose to the railtie that ran
+  # after it, and the edges that fixed that then reordered a real app's whole
+  # boot and stopped it starting at all.
   #
   # So boot a REAL Rails::Application. In a subprocess: `load`ing railtie.rb
   # against the stand-in above has already made GraphWeaver::Railtie a subclass
@@ -894,17 +950,22 @@ describe "GraphWeaver::Railtie" do
   # autoloaders, Zeitwerk) — either would reach every other example here.
   describe "booted in a real Rails application" do
     # what the initializer file saw when it ran, and what survived the rest of
-    # boot — one boot answers the ordering and the opt-out together
-    def boot
+    # boot — one boot answers the ordering and the opt-out together.
+    # gem: false is the control, an identical app with graph_weaver never
+    # required, which is the only honest baseline for "did we move anything".
+    def boot(gem: true)
       Dir.mktmpdir("graph-weaver-boot") do |root|
         FileUtils.mkdir_p(File.join(root, "config/initializers"))
-        File.write(File.join(root, "config/initializers/zzz_graph_weaver.rb"), <<~INIT)
-          SAW = { logger: GraphWeaver.logger.class.to_s, instrumenter: !GraphWeaver.instrumenter.nil? }
-          GraphWeaver.logger = nil
-          GraphWeaver.instrumenter = nil
-        INIT
+        if gem
+          File.write(File.join(root, "config/initializers/zzz_graph_weaver.rb"), <<~INIT)
+            SAW = { logger: GraphWeaver.logger.class.to_s, instrumenter: !GraphWeaver.instrumenter.nil? }
+            GraphWeaver.logger = nil
+            GraphWeaver.instrumenter = nil
+          INIT
+        end
         script = File.join(root, "boot.rb")
-        File.write(script, BOOT_SCRIPT.sub("ROOT", root.inspect))
+        File.write(script, BOOT_SCRIPT.sub("ROOT", root.inspect)
+          .sub("REQUIRE_GEM", gem ? 'require "graph_weaver"' : ""))
 
         out = IO.popen([RbConfig.ruby, "-I#{File.expand_path("../lib", __dir__)}", script],
           err: %i[child out], &:read)
@@ -919,7 +980,21 @@ describe "GraphWeaver::Railtie" do
       require "json"
       require "logger"
       require "rails"
-      require "graph_weaver"
+      # in both boots: graphql's own railtie arrives with ours, and the
+      # question here is what OUR edges move, not what our dependencies add
+      require "graphql"
+      REQUIRE_GEM
+
+      # A third-party railtie, loaded after ours would be. The plain
+      # initializer is the canary: an `after:` of ours hoists
+      # load_config_initializers AND the whole engine chain it depends on ahead
+      # of everything between us and it, which is this. The second carries the
+      # edge graph_weaver used to declare four of, so its own position is
+      # measured too.
+      class ThirdParty < Rails::Railtie
+        initializer "third_party.plain" do end
+        initializer "third_party.after_initializers", after: :load_config_initializers do end
+      end
 
       class BootProbe < Rails::Application
         config.root = ROOT
@@ -929,23 +1004,40 @@ describe "GraphWeaver::Railtie" do
       end
       BootProbe.initialize!
 
-      puts JSON.generate(
-        order: Rails.application.initializers.tsort.map { |init| init.name.to_s },
-        saw: SAW,
-        logger: GraphWeaver.logger.inspect,
-        instrumenter: GraphWeaver.instrumenter.inspect,
-        attached: ActiveSupport::LogSubscriber.log_subscribers.map { |sub| sub.class.to_s },
-        listening: ActiveSupport::Notifications.notifier.listening?(GraphWeaver::EXECUTE_EVENT),
-      )
+      payload = { order: Rails.application.initializers.tsort.map { |init| init.name.to_s } }
+      # ::Railtie, not ::GraphWeaver — bundler evaluates this gem's gemspec,
+      # which reads version.rb, so the module itself is defined in the control
+      if defined?(GraphWeaver::Railtie)
+        payload.merge!(
+          saw: SAW,
+          logger: GraphWeaver.logger.inspect,
+          instrumenter: GraphWeaver.instrumenter.inspect,
+          attached: ActiveSupport::LogSubscriber.log_subscribers.map { |sub| sub.class.to_s },
+          listening: ActiveSupport::Notifications.notifier.listening?(GraphWeaver::EXECUTE_EVENT),
+        )
+      end
+      puts JSON.generate(payload)
     RUBY
+
+    # The measurable goal. An `after:`/`before:` naming another railtie's
+    # initializer is a constraint on the whole app's order, and tsort is free
+    # to satisfy it by hoisting the named initializer and everything it depends
+    # on — which is how a real app failed to boot with graph_weaver in the
+    # Gemfile and every one of its initializer bodies neutered.
+    it "inserts its own initializer and moves nothing else" do
+      with = boot["order"]
+      without = boot(gem: false)["order"]
+      ours = with.grep_v(/\Agraph_weaver\./)
+
+      expect(with - without).to eq %w[graph_weaver.ignore_generated]
+      # the pair first, so a failure names the initializer that moved rather
+      # than printing two elided lists of seventy
+      expect(ours.zip(without).find { |mine, theirs| mine != theirs }).to be_nil
+      expect(ours).to eq without
+    end
 
     it "auto-wires before config/initializers, so the documented opt-out wins" do
       booted = boot
-      order = booted["order"]
-
-      # the ordering, as Rails' own TSort resolves it
-      expect(order.index("graph_weaver.logger")).to be < order.index("load_config_initializers")
-      expect(order.index("graph_weaver.instrumentation")).to be < order.index("load_config_initializers")
 
       # the auto-wire an app that configures nothing gets: by the time its own
       # initializers run, both are already set

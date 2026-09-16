@@ -7,16 +7,25 @@
 #   rake_tasks block, so graph_weaver:* tasks appear with no Rakefile
 #   edit. (Outside Rails there is no task-discovery hook — add
 #   `require "graph_weaver/tasks"` to your Rakefile.)
-# - generated modules: required at boot once every registration has run —
-#   both the initializer kind and the to_prepare kind, since a generated
-#   file `include`s the type helper it was generated with and that
-#   constant must resolve. load_generated! stays idempotent, so calling
-#   it yourself too is harmless.
+# - generated modules: required once every registration has run — both the
+#   initializer kind and the to_prepare kind, since a generated file
+#   `include`s the type helper it was generated with and that constant must
+#   resolve. load_generated! stays idempotent, so calling it yourself too is
+#   harmless.
 # - Zeitwerk: the generated directory is hidden from it, since the
 #   default one lives under app/ and its files define top-level
 #   constants.
 # - watch mode: in development, editing a .graphql regenerates before the
 #   next request, the way editing a route or a locale takes effect.
+#
+# All of that is hung off Rails' lifecycle HOOKS — before_initialize,
+# after_initialize, the reloader — rather than off initializers with
+# `after:`/`before:` edges naming other railties' initializers. Rails
+# topologically sorts every railtie's initializers together, so such an edge
+# constrains the whole app's boot order and tsort is free to satisfy it by
+# moving initializers that aren't ours: a real app failed to boot with
+# graph_weaver in the Gemfile and every one of these bodies neutered. A hook
+# has a fixed place in boot and adds no edge. See DECISIONS.md.
 class GraphWeaver::Railtie < Rails::Railtie
   # config.graph_weaver.watch — false to never regenerate during a request.
   # Default: development only. Every other setting is a top-level one, and an
@@ -62,94 +71,87 @@ class GraphWeaver::Railtie < Rails::Railtie
   config.graph_weaver = Options.new
 
   class << self
-    # The file watcher, so the to_prepare block below can ask it whether a
-    # query changed. nil when not watching.
+    # The file watcher, so the prepare hook below can ask it whether a query
+    # changed. nil when not watching.
     attr_accessor :watcher
 
-    # What ignore_generated actually hid, resolved. Zeitwerk only reads its
+    # What has been hidden from Zeitwerk, resolved. Zeitwerk only reads its
     # ignore list at setup, so anything that arrives later isn't hidden by
     # calling ignore again — check_generated_ignored! refuses instead.
     attr_accessor :ignored_dirs
+
+    # Whether hiding an output right now would actually hide it: false until
+    # the initializer below has swept (it picks up anything declared so far),
+    # and false again from the moment Zeitwerk sets the main autoloader up.
+    attr_accessor :hiding_outputs
   end
 
   rake_tasks do
     require "graph_weaver/tasks"
   end
 
-  # The two auto-wires an app gets for free, and the only two it can turn off
-  # by assigning nil. They are declared FIRST, and `before:
-  # :load_config_initializers`, and both of those are load-bearing:
+  # ONE initializer, and it declares no `after:` — see the note on the class.
+  # The `before:` that is left is inert: it only says "not after Zeitwerk's
+  # setup", and this is emitted at its own place in the railties block anyway,
+  # so nothing moves. It records the deadline.
   #
-  # Rails gives an initializer an implicit `after:` of the previous one in the
-  # same railtie (Initializable#initializer: `opts[:after] ||=
-  # initializers.last&.name`). Declared after ignore_generated, which is
-  # `after: :load_config_initializers`, these two inherited that position —
-  # they ran AFTER config/initializers, so the `if nil?` fallback overwrote an
-  # app that had just said nil and the documented PII opt-out did nothing,
-  # silently, while queries and variables kept reaching a debug Rails.logger.
-  # Adding the `before:` without moving them is a TSort::Cyclic at boot, since
-  # the implicit `after:` would then point through ignore_generated.
-  #
-  # Rails.logger, unless the app already chose one (set
-  # GraphWeaver.logger = nil in an initializer to silence)
-  initializer "graph_weaver.logger", before: :load_config_initializers do
-    GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
-  end
-
-  # An APM sees every GraphQL call without the app configuring anything:
-  # the ActiveSupport::Notifications adapter from docs/logging.md, plus the
-  # LogSubscriber that turns its event into one line. Measured at ~4.5µs per
-  # execution all told (0.13µs of that ActiveSupport::Notifications itself
-  # with nothing subscribed; the rest is its Event machinery) — 0.05% of a
-  # 10ms round trip, so there is nothing to weigh.
-  #
-  # An instrumenter the app set is never replaced: assigned before this (in
-  # config/application.rb) the nil check leaves it, and config/initializers now
-  # genuinely runs later, so one assigned there wins on its own — including
-  # `GraphWeaver.instrumenter = nil` to opt out.
-  initializer "graph_weaver.instrumentation", before: :load_config_initializers do
-    next unless defined?(ActiveSupport::Notifications)
-
-    if GraphWeaver.instrumenter.nil?
-      GraphWeaver.instrumenter = lambda do |event, payload, &block|
-        ActiveSupport::Notifications.instrument(event, payload, &block)
-      end
-    end
-
-    # ActiveSupport::LogSubscriber is one of ActiveSupport's own eager
-    # autoloads, so naming it is enough — no require of theirs needed
-    require "graph_weaver/log_subscriber"
-    # idempotent — Subscriber.add_event_subscriber skips a pattern it already has
-    GraphWeaver::LogSubscriber.attach_to :graph_weaver
+  # What it sweeps is what config/application.rb configured. A graph declared
+  # in config/initializers is later than this and hides its own output as it is
+  # declared (ignore_output!) — which is where that knowledge arrives, and so
+  # needs no edge to wait for.
+  initializer "graph_weaver.ignore_generated", before: :setup_main_autoloader do
+    GraphWeaver::Railtie.hide_generated!
   end
 
   # generated/person_query.rb defines ::PersonQuery, but Zeitwerk infers
-  # Generated::PersonQuery from the path — and app/graphql/generated is
-  # inside an autoload root by default, so eager loading raised
-  # "uninitialized constant Generated::PersonQuery" in production while
-  # development (lazy) was fine. load_generated! below requires them.
-  #
-  # after: :load_config_initializers as well as before Zeitwerk's setup — a
-  # graph's output: is only known once the app has declared its graphs, and
-  # with only the `before:` constraint this ran ~20 initializers too early, so
-  # an output outside the conventional glob was eager loaded on top of
-  # load_generated! and died on a redefined enum.
-  initializer "graph_weaver.ignore_generated",
-    after: :load_config_initializers, before: :setup_main_autoloader do
-    # patterns, not paths — generated_paths may be globs, and Zeitwerk
-    # expands its own at setup (which is what this runs before)
-    dirs = GraphWeaver::Internal::Util.generated_dirs.map { GraphWeaver::Railtie.autoload_path(_1) }
-    GraphWeaver::Railtie.check_autoload_once!(dirs)
-    GraphWeaver::Railtie.ignored_dirs = dirs
-    Rails.autoloaders.each { |loader| dirs.each { |path| loader.ignore(path) } }
+  # Generated::PersonQuery from the path — and app/graphql/generated is inside
+  # an autoload root by default, so eager loading raised "uninitialized
+  # constant Generated::PersonQuery" in production while development (lazy) was
+  # fine. prepare_generated! requires them instead.
+  def self.hide_generated!
+    self.ignored_dirs = []
+    self.hiding_outputs = true
+    GraphWeaver::Internal::Util.generated_dirs.each { |path| ignore_output!(path) }
+
+    # Zeitwerk reads its ignore list once, at setup, and nothing in Rails
+    # announces that moment — Zeitwerk itself does. With no such signal, shut
+    # the window here: an ignore registered after setup hides nothing, and
+    # check_generated_ignored! has to be the one to say so.
+    main = Rails.autoloaders.main if Rails.autoloaders.respond_to?(:main)
+    if main.respond_to?(:on_setup)
+      main.on_setup { GraphWeaver::Railtie.hiding_outputs = false }
+    else
+      self.hiding_outputs = false
+    end
   end
 
-  # The `once` autoloader is set up in bootstrap, and Zeitwerk reads its ignore
-  # list only at setup — so the `loader.ignore` above, which runs after
-  # config/initializers, hides nothing from it however the output is spelled.
-  # The generic advice ("name it in GraphWeaver.generated_paths from
-  # config/initializers") produced byte-identical output for this one, so it
-  # gets its own refusal, naming the place that is still early enough.
+  # Hide one output from Zeitwerk, the moment it is named — a graph declared in
+  # config/initializers says where it writes long after the sweep above ran.
+  # Waiting for it instead is what `after: :load_config_initializers` used to
+  # buy, at the cost of the whole app's boot order.
+  #
+  # Outside the window this is a no-op on purpose: before it, the sweep will
+  # pick the path up; after it, calling Zeitwerk's `ignore` would only teach
+  # check_generated_ignored! a lie.
+  def self.ignore_output!(path)
+    return unless hiding_outputs
+
+    # patterns, not paths — generated_paths may be globs, and Zeitwerk expands
+    # its own at setup, which is what the window stays open until
+    dir = autoload_path(path)
+    return if ignored_dirs.include?(dir)
+
+    check_autoload_once!([dir])
+    ignored_dirs << dir
+    Rails.autoloaders.each { |loader| loader.ignore(dir) }
+  end
+
+  # The `once` autoloader is set up in bootstrap, before any of this — and
+  # Zeitwerk reads its ignore list only at setup, so `loader.ignore` hides
+  # nothing from it however the output is spelled. The generic advice ("name it
+  # in GraphWeaver.generated_paths from config/initializers") produced
+  # byte-identical output for this one, so it gets its own refusal, naming the
+  # place that is still early enough.
   def self.check_autoload_once!(dirs)
     return unless Rails.respond_to?(:autoloaders) && Rails.autoloaders.respond_to?(:once)
 
@@ -232,13 +234,64 @@ class GraphWeaver::Railtie < Rails::Railtie
     end
   end
 
+  # The two auto-wires an app gets for free, and the only two it can turn off
+  # by assigning nil.
+  #
+  # before_initialize runs in Rails' own :bootstrap_hook — after
+  # :initialize_logger and before the first railtie initializer, so the default
+  # is in place for anything that boots, and config/initializers still runs
+  # later and still wins. That timing used to be a `before:
+  # :load_config_initializers` edge, and getting it wrong shipped: declared
+  # without one, these ran AFTER config/initializers, so the `if nil?` fallback
+  # overwrote an app that had just said nil — the documented PII opt-out did
+  # nothing, silently, while queries and variables kept reaching a debug
+  # Rails.logger.
+  config.before_initialize { GraphWeaver::Railtie.default_logger! }
+
+  # Rails.logger, unless the app already chose one (set GraphWeaver.logger =
+  # nil in an initializer to silence)
+  def self.default_logger!
+    GraphWeaver.logger = Rails.logger if GraphWeaver.logger.nil?
+  end
+
+  # An APM sees every GraphQL call without the app configuring anything:
+  # the ActiveSupport::Notifications adapter from docs/logging.md, plus the
+  # LogSubscriber that turns its event into one line. Measured at ~4.5µs per
+  # execution all told (0.13µs of that ActiveSupport::Notifications itself
+  # with nothing subscribed; the rest is its Event machinery) — 0.05% of a
+  # 10ms round trip, so there is nothing to weigh.
+  #
+  # An instrumenter the app set is never replaced: assigned before this (in
+  # config/application.rb) the nil check leaves it, and config/initializers runs
+  # later, so one assigned there wins on its own — including
+  # `GraphWeaver.instrumenter = nil` to opt out.
+  config.before_initialize { GraphWeaver::Railtie.default_instrumenter! }
+
+  def self.default_instrumenter!
+    return unless defined?(ActiveSupport::Notifications)
+
+    if GraphWeaver.instrumenter.nil?
+      GraphWeaver.instrumenter = lambda do |event, payload, &block|
+        ActiveSupport::Notifications.instrument(event, payload, &block)
+      end
+    end
+
+    # ActiveSupport::LogSubscriber is one of ActiveSupport's own eager
+    # autoloads, so naming it is enough — no require of theirs needed
+    require "graph_weaver/log_subscriber"
+    # idempotent — Subscriber.add_event_subscriber skips a pattern it already has
+    GraphWeaver::LogSubscriber.attach_to :graph_weaver
+  end
+
   # The app already declared what is sensitive, so variables logged at debug
   # honour the same list as its request logs — including the Procs and dotted
-  # paths only ParameterFilter understands. after: :load_config_initializers,
-  # since filter_parameter_logging.rb is where an app adds to it.
-  initializer "graph_weaver.filter_parameters", after: :load_config_initializers do |app|
+  # paths only ParameterFilter understands. after_initialize, since
+  # filter_parameter_logging.rb is where an app adds to it.
+  config.after_initialize { |app| GraphWeaver::Railtie.adopt_filter_parameters!(app) }
+
+  def self.adopt_filter_parameters!(app)
     filters = app.config.filter_parameters
-    next if filters.empty? || GraphWeaver.filter_parameters != GraphWeaver::DEFAULT_FILTER_PARAMETERS
+    return if filters.empty? || GraphWeaver.filter_parameters != GraphWeaver::DEFAULT_FILTER_PARAMETERS
 
     GraphWeaver.filter_parameters = ActiveSupport::ParameterFilter.new(filters)
   end
@@ -246,41 +299,31 @@ class GraphWeaver::Railtie < Rails::Railtie
   # Watch mode. A .graphql edit should reach the next request the way a route
   # or a locale change does, so the query directories and the schema dump
   # become one of Rails' own reloaders: a change there alone triggers a reload
-  # cycle, and the to_prepare below regenerates before it loads. Off with
+  # cycle, and the prepare hook below regenerates before it loads. Off with
   #
   #      config.graph_weaver.watch = false
   #
-  # after: :load_config_initializers — that's where an app moves
-  # queries_paths, and the finisher that reads app.reloaders runs later still.
-  #
-  # to_prepare, not the initializer itself: a graph declared from one of those
-  # (what the docs say to do when its block names an autoloaded constant) isn't
-  # declared until every initializer has run, and a watcher built before it
-  # watched the default queries_paths — an edit to that graph's .graphql
-  # silently never regenerated. to_prepare blocks run in registration order and
-  # an app registers its own during :load_config_initializers, which this is
-  # `after:`, so every graph is in by the time this runs; app.reloaders is read
-  # per request, so joining it this late still counts. Once, though: a dev
-  # reload re-runs to_prepare, and a second watcher is a second reloader over
-  # the same files.
-  initializer "graph_weaver.watch", after: :load_config_initializers do |app|
-    watched = false
-    app.config.to_prepare do
-      next if watched
-
-      watched = true
-      GraphWeaver::Railtie.watch!(app)
-    end
-  end
+  # after_initialize, because every graph has to be declared before the watcher
+  # is built: a graph declared from a to_prepare block (what the docs say to do
+  # when its block names an autoloaded constant) isn't declared until the
+  # prepare callbacks have run, and a watcher built before it watched the
+  # default queries_paths — an edit to that graph's .graphql silently never
+  # regenerated. app.reloaders is read per request, so joining it this late
+  # still counts.
+  config.after_initialize { |app| GraphWeaver::Railtie.watch!(app) }
 
   # Registers the watcher, and says so: this is the one thing GraphWeaver does
   # that writes a checked-in file outside a rake task. Returns it, or nil when
   # nothing is being watched.
   def self.watch!(app)
+    # exactly one watcher per app, however many times this is called — a second
+    # one is a second reloader polling the same files
+    app.reloaders.delete(watcher) if watcher
+
     watch = app.config.graph_weaver.watch
     watch = Rails.env.development? if watch.nil?
-    # with reloading off nothing re-runs to_prepare, so a watcher could only
-    # promise something it can't do
+    # with reloading off nothing re-runs the prepare hook, so a watcher could
+    # only promise something it can't do
     return self.watcher = nil unless watch && app.config.reloading_enabled?
 
     # a directory that doesn't exist yet is still watched — FileUpdateChecker
@@ -321,51 +364,54 @@ class GraphWeaver::Railtie < Rails::Railtie
   end
 
   # A generated file `include`s the type helper it was generated with, so it
-  # can't load until that constant resolves — and both Zeitwerk's setup and
-  # the app's own to_prepare blocks (where extend_type/register_enum are told
-  # to register, Codegen::AUTOLOAD_HINT) happen after config/initializers.
-  # to_prepare, not `after:` a finisher initializer: naming one there makes
-  # tsort hoist it ahead of the app's own config/initializers. Re-running on
-  # each dev reload is free — require is idempotent — and picks up a module
-  # generated since boot.
-  initializer "graph_weaver.load_generated", after: :load_config_initializers do |app|
-    app.config.to_prepare do
-      # The graph_weaver tasks write these files and need none of them loaded.
-      # Loading them would let a stale one block its own repair: a dropped
-      # extend_type leaves a dangling include, and generate depends on
-      # :environment, so boot failed before the task that would regenerate it.
-      next if GraphWeaver.skip_generated_load
+  # can't load until that constant resolves — and both Zeitwerk's setup and the
+  # app's own to_prepare blocks (where extend_type/register_enum are told to
+  # register, Codegen::AUTOLOAD_HINT) happen after config/initializers.
+  # after_initialize is past all of them, and past the watcher above.
+  config.after_initialize do
+    GraphWeaver::Railtie.prepare_generated!
+    # and again on every dev reload, which picks up a module generated since
+    # boot and re-requires one whose namespace Zeitwerk just unloaded. On the
+    # reloader itself, not config.to_prepare: the :add_to_prepare_blocks
+    # finisher has already drained that list by now.
+    ActiveSupport::Reloader.to_prepare { GraphWeaver::Railtie.prepare_generated! }
+  end
 
-      # the app's own to_prepare blocks have run by now, so this is the first
-      # point that sees every graph — and the last before one of them loads
-      GraphWeaver::Railtie.check_generated_ignored!
+  def self.prepare_generated!
+    # The graph_weaver tasks write these files and need none of them loaded.
+    # Loading them would let a stale one block its own repair: a dropped
+    # extend_type leaves a dangling include, and generate depends on
+    # :environment, so boot failed before the task that would regenerate it.
+    return if GraphWeaver.skip_generated_load
 
-      # Regenerate first, then load — and here rather than in the watcher's own
-      # to_run, so an extend_type or register_enum the app registers in its own
-      # to_prepare is already in place (that block was registered at
-      # :load_config_initializers, so it has run by now). A run that
-      # regenerated has already reloaded what it wrote.
-      next if GraphWeaver::Railtie.watcher&.execute_if_updated
+    # every graph is declared by now, and this is the last point before one of
+    # them loads
+    check_generated_ignored!
 
-      # entries may be globs, so Dir[] rather than Dir.exist?
-      generated = GraphWeaver::Internal::Util.generated_dirs.any? do |dir|
-        Dir[GraphWeaver::Internal::Util.resolve(dir)].any?
-      end
-      next unless generated
+    # Regenerate first, then load — and here rather than in the watcher's own
+    # to_run, so an extend_type or register_enum the app registers in its own
+    # to_prepare is already in place. A run that regenerated has already
+    # reloaded what it wrote.
+    return if watcher&.execute_if_updated
 
-      # `require` no-ops on a file it has already read — which is what we want,
-      # except when the constant that file defined is gone. A graph's
-      # `namespace:` is normally a module Zeitwerk owns (app/graphql/accounts/
-      # implies Accounts), and unloading it on a dev reload takes the generated
-      # module nested inside it with it; require then restores nothing and every
-      # request 500s on "uninitialized constant Accounts::PersonQuery" until a
-      # .graphql edit happens to trigger the watcher. An un-namespaced module
-      # defines a top-level constant Zeitwerk never manages, so it survives.
-      if GraphWeaver.graphs.any?(&:namespace)
-        GraphWeaver.reload_generated!
-      else
-        GraphWeaver.load_generated!
-      end
+    # entries may be globs, so Dir[] rather than Dir.exist?
+    generated = GraphWeaver::Internal::Util.generated_dirs.any? do |dir|
+      Dir[GraphWeaver::Internal::Util.resolve(dir)].any?
+    end
+    return unless generated
+
+    # `require` no-ops on a file it has already read — which is what we want,
+    # except when the constant that file defined is gone. A graph's
+    # `namespace:` is normally a module Zeitwerk owns (app/graphql/accounts/
+    # implies Accounts), and unloading it on a dev reload takes the generated
+    # module nested inside it with it; require then restores nothing and every
+    # request 500s on "uninitialized constant Accounts::PersonQuery" until a
+    # .graphql edit happens to trigger the watcher. An un-namespaced module
+    # defines a top-level constant Zeitwerk never manages, so it survives.
+    if GraphWeaver.graphs.any?(&:namespace)
+      GraphWeaver.reload_generated!
+    else
+      GraphWeaver.load_generated!
     end
   end
 end

@@ -195,6 +195,7 @@ module GraphWeaver
 
     def generated_paths=(paths)
       @generated_paths = paths && Array(paths)
+      hide_from_autoloading(generated_paths)
     end
 
     def fragments_paths=(paths)
@@ -287,8 +288,23 @@ module GraphWeaver
       # generate! reports in however many times the initializer has re-run
       existing = @graphs.index { |candidate| candidate.name == name }
       existing ? @graphs[existing] = graph : @graphs << graph
+      hide_from_autoloading([graph.output])
       graph
     end
+
+    # Rails only: where a graph writes is hidden from Zeitwerk the moment the
+    # graph says it. Knowing it any later needed an initializer edge waiting on
+    # config/initializers, and such an edge reorders the whole app's boot (see
+    # the Railtie). Registered first, so a refusal can name the graph.
+    def hide_from_autoloading(paths)
+      # by name, not spelled: the railtie is Rails-only and `typed: ignore`, so
+      # sorbet has no constant to resolve
+      return unless const_defined?(:Railtie, false)
+
+      railtie = const_get(:Railtie, false)
+      paths.each { |path| railtie.ignore_output!(path) }
+    end
+    private :hide_from_autoloading
 
     # Every graph an entry point walks: the declared ones, or the single graph
     # the top-level settings describe. Never empty.
