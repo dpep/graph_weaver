@@ -234,11 +234,11 @@ module RoundTrip
       "Boolean" => [true, false],
       # by the Ruby type a scalar is registered as, since that is what casts
       "Date" => ["2024-01-15", "2024-02-29", "20240115"],
-      # RFC 3339 leaves the offset, fractional seconds and the seconds field
-      # itself to the server, and real ones differ on all three
+      # RFC 3339 leaves the offset and fractional seconds to the server, and
+      # real ones differ on both; the seconds field it requires
       "Time" => [
         "2024-01-15T10:20:30Z", "2024-01-15T10:20:30+02:00", "2024-01-15T10:20:30-05:30",
-        "2024-01-15T10:20:30.123Z", "2024-01-15T10:20:30.123456789Z", "2024-01-15T10:20Z",
+        "2024-01-15T10:20:30.123Z", "2024-01-15T10:20:30.123456789Z",
       ],
       "Integer" => [0, -1, 7, 2**63, ->(r) { r.rand(10_000) }],
       # graphql-ruby writes a BigInt as a string (JSON numbers stop being
@@ -256,7 +256,9 @@ module RoundTrip
       "Float" => ["not a number", true, [], { "a" => 1 }],
       "Boolean" => ["true", 1, 0, "yes"],
       "Date" => ["not a date", "2024-13-01", 1704067200, true],
-      "Time" => ["not a time", 1704067200, true],
+      # a bare date, seconds omitted and ISO 8601 basic format are all
+      # Time.parse's, and none is a spelling coerce_result writes
+      "Time" => ["not a time", 1704067200, true, "2024-01-15", "2024-01-15T10:20Z", "20240115T102030Z"],
       "Integer" => ["1", 1.5, true],
       # a decimal string is the spelling BigInt is FOR, so only these are wrong
       "BigInt" => ["1.5", "nine", 1.5, true, {}],

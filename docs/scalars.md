@@ -68,14 +68,15 @@ alone.
 | `BigDecimal` | `BigDecimal(v)` | `v.to_s("F")` | `bigdecimal` |
 | `Float` | `GraphWeaver::Coerce.float(v)` | — | — |
 | `Date` | `Date.iso8601(v)` | `v.strftime("%F")` | `date` |
-| `Time` | `Time.parse(v)` | `GraphWeaver::Coerce.timestamp(v)` | `time` |
+| `Time` | `Time.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `time` |
 | `DateTime` | `DateTime.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `date` |
 
 For a timestamp reach for `Time`; Ruby's own `DateTime` is accepted if you
-register it, but never assumed. `Time.parse` is the tolerant reader, and about 7×
-the cost of a strict one — noise until you are casting thousands of timestamps per
-response, where `register_scalar("Timestamp", Time, cast: :iso8601)` is both
-cheaper and narrower.
+register it, but never assumed. All three read ISO 8601 and nothing else, which
+is the one spelling a spec-compliant server writes. To take `Time.parse`'s looser
+forms as well — a space instead of the `T`, a zone name, `"Jan 15 2024 10:20"` —
+say so: `register_scalar("Timestamp", Time, cast: :parse)`, at about 3× the cost
+per timestamp.
 
 **A trailing zero doesn't survive the round trip.** A `BigDecimal` holds the
 *number*, so `"10.00"` in comes back `"10.0"` — numerically identical, textually
@@ -276,7 +277,7 @@ server writing a non-integer where the spec says integer, so it is refused.
 | `ID` | any JSON string | a number or `true` — **refused with a hint**: the server didn't quote it |
 | `Boolean` | `true`, `false` | `"true"`, `1`, `0` |
 | `Date` | ISO-8601: `"2024-01-01"`, `"20240101"`, and a full timestamp (truncated) | any other spelling, an epoch integer |
-| `DateTime`/`Time` (registered as `Time`) | RFC 3339 with `Z` or an offset, with or without fractional seconds, seconds optional; also a bare date and `Time.parse`'s looser forms | an epoch integer, an unparseable string |
+| `DateTime`/`Time` (registered as `Time`) | ISO 8601 as `Time.iso8601` reads it: `Z` or an offset, with or without fractional seconds | a bare date, seconds omitted, basic format (`"20240115T102030Z"`), `Time.parse`'s looser forms, an epoch integer |
 | `BigInt` | the decimal string graphql-ruby writes, past 2⁵³ included; also a JSON integer | `1.5`, `"1.5"`, a non-numeric string, `true` |
 | an enum | a declared value, as a string | an undeclared value, a non-string |
 | `JSON`, or unregistered | anything — `T.untyped`, straight through | nothing |
@@ -303,7 +304,7 @@ sig is `.checked(:never)`).
 | `ID` | `String` | an `Integer` — `execute(id: user.id)` | the string |
 | `Boolean` | `true`/`false` | nothing | the boolean |
 | `Date` | `Date` | an ISO-8601 string | `"2024-01-15"` |
-| `Time` | `Time` | a string `Time.parse` takes, a `DateTime`, `Time.zone.now` | ISO 8601, with microseconds when the value carries a fraction |
+| `Time` | `Time` | an ISO 8601 string, a `DateTime`, `Time.zone.now` | ISO 8601, with microseconds when the value carries a fraction |
 | `BigInt` | `Integer` | a decimal string | the decimal string, which is what the server writes |
 | an enum | the member **or** its wire value | — | the wire value |
 | an input object | the struct **or** a Hash | — | the wire hash |

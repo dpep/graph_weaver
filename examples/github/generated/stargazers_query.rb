@@ -125,7 +125,7 @@ module StargazersQuery
           sig { params(data: T::Hash[String, T.untyped]).returns(Edges) }
           def self.from_h(data)
             new(
-              starred_at: GraphWeaver::Hints.field(self, "starredAt") { Time.parse(data.fetch("starredAt")) },
+              starred_at: GraphWeaver::Hints.field(self, "starredAt") { Time.iso8601(data.fetch("starredAt")) },
               node: Node.from_h(data.fetch("node")),
             )
           rescue GraphWeaver::Error

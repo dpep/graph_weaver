@@ -89,9 +89,12 @@ class GraphWeaver::Codegen
       # strftime, not #iso8601: DateTime < Date passes the is_a? guard, and its
       # #iso8601 writes a timestamp where the schema said a date goes
       "Date" => { cast: :iso8601, serialize: [:strftime, "%F"], requires: "date" },
-      # #iso8601 takes no precision, so it writes whole seconds and a
-      # sub-second timestamp goes back out poorer than it came in
-      "Time" => { cast: :parse, serialize: TIMESTAMP, call: TIMESTAMP_CALL, requires: "time" },
+      # Time.iso8601, not Time.parse: the latter also reads "Jan 15 2024
+      # 10:20", which no spec-compliant server writes, at 3× the cost.
+      # Writing back goes through Coerce.timestamp rather than #iso8601,
+      # which takes no precision — a sub-second timestamp would go out
+      # poorer than it came in.
+      "Time" => { cast: :iso8601, serialize: TIMESTAMP, call: TIMESTAMP_CALL, requires: "time" },
       "DateTime" => { cast: :iso8601, serialize: TIMESTAMP, call: TIMESTAMP_CALL, requires: "date" },
     }.freeze
 

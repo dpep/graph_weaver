@@ -577,24 +577,24 @@ describe "custom scalar deserialization" do
       expect(GraphWeaver::Codegen.scalar("ISO8601DateTime").type).to eq "Time"
     end
 
+    let(:spy) do
+      Class.new do
+        attr_reader :variables
+        def execute(_query, variables:, operation_name: nil)
+          @variables = variables
+          { "data" => { "echo" => "ok" } }
+        end
+      end.new
+    end
+    let(:on) { GraphWeaver.parse(schema:, client: spy, query: "query On($d: ISO8601Date) { echo(d: $d) }") }
+    let(:at) { GraphWeaver.parse(schema:, client: spy, query: "query At($t: ISO8601DateTime) { echo(t: $t) }") }
+    let(:noon) { Time.utc(2024, 1, 15, 12, 30, 45) }
+
     # A date stays a Date and a timestamp a Time, at the door as well as off
     # the wire: converting one into the other drops the time of day or
     # invents a midnight, and doing that quietly is how a query silently
     # widens the window it filters on.
     describe "a date and a timestamp are not each other" do
-      let(:spy) do
-        Class.new do
-          attr_reader :variables
-          def execute(_query, variables:, operation_name: nil)
-            @variables = variables
-            { "data" => { "echo" => "ok" } }
-          end
-        end.new
-      end
-      let(:on) { GraphWeaver.parse(schema:, client: spy, query: "query On($d: ISO8601Date) { echo(d: $d) }") }
-      let(:at) { GraphWeaver.parse(schema:, client: spy, query: "query At($t: ISO8601DateTime) { echo(t: $t) }") }
-      let(:noon) { Time.utc(2024, 1, 15, 12, 30, 45) }
-
       it "refuses a timestamp for a Date variable, whatever class it arrives in" do
         expect { on.execute(d: noon) }.to raise_error(
           GraphWeaver::InputError, /\$d of On: expected an ISO8601Date, got a Time — pass \.to_date/
@@ -642,6 +642,59 @@ describe "custom scalar deserialization" do
         expect(spy.variables).to eq("t" => "2024-01-15T12:30:45Z")
         at.execute(t: "2024-01-15T12:30:45Z")
         expect(spy.variables).to eq("t" => "2024-01-15T12:30:45Z")
+      end
+    end
+
+    # One reader in both directions: `Time.iso8601`, which is the coercer
+    # graphql-ruby's own ISO8601DateTime reads input with, and the only shape
+    # its coerce_result ever writes. `Time.parse` used to read the wire, and
+    # it also read "Jan 15 2024 10:20".
+    describe "a timestamp is ISO 8601, in and out" do
+      # every one of these Time.parse took, and none is a spelling a
+      # spec-compliant server writes
+      let(:refusals) do
+        [
+          "2024-01-15",              # a bare date, which is a Date's spelling
+          "2024-01-15T10:20Z",       # seconds omitted
+          "20240115T102030Z",        # ISO 8601 basic format
+          "2024-01-15 10:20:30 UTC", # a space and a zone name
+          "Jan 15 2024 10:20",       # not a wire spelling at all
+          "2024-W03-1T10:20:30Z",    # a week date
+        ]
+      end
+
+      def cast_at(wire)
+        mod = Module.new
+        mod.module_eval(GraphWeaver::Codegen.generate(
+          schema:, query: "query Seen { event { at } }", name: "SeenQuery",
+        ))
+        mod.const_get(:SeenQuery).from_response!("data" => { "event" => { "at" => wire } }).event.at
+      end
+
+      it "casts every spelling a server writes, off the wire and as a variable" do
+        {
+          "2024-01-15T10:20:30Z" => Time.utc(2024, 1, 15, 10, 20, 30),
+          "2024-01-15t10:20:30z" => Time.utc(2024, 1, 15, 10, 20, 30),
+          "2024-01-15T12:20:30+02:00" => Time.utc(2024, 1, 15, 10, 20, 30),
+          "2024-01-15T10:20:30-00:00" => Time.utc(2024, 1, 15, 10, 20, 30),
+          "2024-01-15T10:20:30.500Z" => Time.utc(2024, 1, 15, 10, 20, 30, 500_000),
+          "2024-01-15T10:20:30.123456Z" => Time.utc(2024, 1, 15, 10, 20, 30, 123_456),
+        }.each do |wire, moment|
+          expect(cast_at(wire)).to eq moment
+
+          # the same instant back out, offset and fraction as the caller wrote them
+          at.execute(t: wire)
+          expect(Time.iso8601(spy.variables["t"])).to eq moment
+        end
+      end
+
+      it "refuses a spelling no server writes, off the wire and as a variable" do
+        refusals.each do |wire|
+          expect { cast_at(wire) }
+            .to raise_error(GraphWeaver::CastError, /at: .*#{Regexp.escape(wire)}/)
+          expect { at.execute(t: wire) }
+            .to raise_error(GraphWeaver::InputError, /\$t of At: .*#{Regexp.escape(wire)}/)
+        end
       end
     end
 

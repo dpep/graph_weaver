@@ -1,3 +1,27 @@
+###  Unreleased
+
+**What you must do.**
+
+- **A timestamp is ISO 8601 now, in both directions.** `DateTime`,
+  `ISO8601DateTime` and anything else registered as `Time` read the wire with
+  `Time.iso8601` where they read it with `Time.parse` before, so a server (or a
+  variable) writing a spelling `coerce_result` never produces is refused rather
+  than parsed: a bare date (`"2024-01-15"`), seconds omitted
+  (`"2024-01-15T10:20Z"`), ISO 8601 basic format (`"20240115T102030Z"`), a space
+  and a zone name (`"2024-01-15 10:20:30 UTC"`), `"Jan 15 2024 10:20"`. To keep
+  the tolerant reader, say so: `register_scalar("DateTime", Time, cast: :parse)`.
+  **Regenerate** — the cast is emitted into generated source.
+
+- **One reader for a timestamp, and it is the server's.** `Time.iso8601` is what
+  graphql-ruby's own `ISO8601DateTime` reads input with, and its `coerce_result`
+  writes nothing else, so the rule is now the doc's one sentence with no
+  exception: generated code takes every JSON spelling a spec-compliant server may
+  write, and refuses the rest. It is also cheaper — 10k casts of
+  `"2024-01-15T10:20:30.123456Z"` take 19 ms through `Time.iso8601` against 59 ms
+  through `Time.parse`, a 3.1× difference paid on every timestamp in every
+  response. `Date` and `DateTime` already read `.iso8601`; `Time` was the odd one
+  out. ([scalars](docs/scalars.md#registering-a-stdlib-type))
+
 ###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.

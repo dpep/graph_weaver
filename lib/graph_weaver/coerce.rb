@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "date" # Date/DateTime, named below
+require "time" # Time.iso8601
 
 require_relative "errors"
 require_relative "internal/refusal"
@@ -70,12 +71,16 @@ module GraphWeaver
         end
       end
 
+      # A timestamp string is ISO 8601, read by Time.iso8601 — the coercer
+      # graphql-ruby's own ISO8601DateTime reads input with, and the only
+      # shape its coerce_result writes. Time.parse also reads "Jan 15 2024
+      # 10:20", which no server sends and no generated struct should take.
       def time(value, scalar = "Time")
         case value
         when Time then value
         when DateTime then value.to_time # the same instant in another class
         when Date then cross(value, scalar, TIME_HINT)
-        when String then parsing(scalar, value) { Time.parse(value) }
+        when String then parsing(scalar, value) { Time.iso8601(value) }
         else time_like?(value) ? value.to_time : refuse(value, scalar)
         end
       end
