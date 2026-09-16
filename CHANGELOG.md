@@ -60,6 +60,33 @@
   "nope"`. An app keying a translation off `details[:type]` gets one key per
   schema type rather than one per Sorbet type.
 
+- **`GraphWeaver::Testing.check_scalars!(schema)` checks the half no schema
+  carries.** A custom scalar has two definitions that have to agree — the
+  server's `coerce_input`/`coerce_result` and your `register_scalar` — and a
+  scalar's SDL carries neither coercer, so nothing `generate`, `verify` or
+  `schema:diff` reads can say whether they match. Where the server is a schema
+  class both halves are callable, so this runs them against each other: per
+  scalar the schema declares and your app registered, it fabricates a value the
+  way `:fake` does, casts it, sends it back out through `serialize:`, through
+  the server's coercers, and back through `cast:`. It raises naming every
+  scalar that disagreed and which way — the server refused the wire form
+  `serialize:` writes, `cast:` refused the result form `coerce_result` writes,
+  or the trip lost something (both values shown). One line in a spec covers
+  every scalar at once. The fabricated value is its reach, so pin the one that
+  matters: a two-decimal `Decimal` always survives a `Float`, which is why the
+  precision case needs
+  `config.overrides = { "Decimal" => "123456789.123456789" }`.
+  ([scalars](docs/scalars.md#checking-the-half-no-schema-carries))
+
+- **A registration's `cast:` must accept what its own `serialize:` writes**, and
+  the docs now say it as a law rather than describing the symptom. One
+  `serialize:` serves both the outbound variable and a result's `as_json`, so a
+  scalar that sends an object while accepting a string can't be served by one
+  registration — and a second keyword for the result form would be a knob where
+  a law belongs, with `as_json` still unable to choose. `check_scalars!` is
+  where the law is checked: against a schema class it is the innermost leg of
+  the same trip. ([DECISIONS.md](DECISIONS.md))
+
 ###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.

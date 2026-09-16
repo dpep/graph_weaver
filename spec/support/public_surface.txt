@@ -340,6 +340,7 @@ GraphWeaver::Testing (Module)
 GraphWeaver::Testing.cassette
 GraphWeaver::Testing.cassette_dir
 GraphWeaver::Testing.cassette_path
+GraphWeaver::Testing.check_scalars!
 GraphWeaver::Testing.config
 GraphWeaver::Testing.configure
 GraphWeaver::Testing.reset!

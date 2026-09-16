@@ -185,17 +185,18 @@ GraphWeaver.extend_type("Money") { def to_money = ::Money.from_amount(BigDecimal
 ```
 
 **One `serialize:` serves both directions** — the outbound variable *and* a
-result's [`as_json`](generated_modules.md#anatomy), which is what makes
-`from_h(JSON.parse(x.to_json)) == x` hold. So a scalar that sends an object and
-accepts a string can't have both: `as_json` writes the string the cast can't read,
-and the JSON round trip raises a `CastError` coming back (the wire itself is fine
-in both directions). The same asymmetry decides the [`:fake` pin](testing.md#pins):
-a pin stands in for a *result*, so pin what the server **sends**.
+result's [`as_json`](generated_modules.md#anatomy) — so a registration's `cast:`
+has to accept what its own `serialize:` writes, and a scalar that sends an object
+while accepting a string can't have both. That law, and where it is checked, is
+[below](#a-cast-must-accept-what-its-own-serialize-writes). The same asymmetry
+decides the [`:fake` pin](testing.md#pins): a pin stands in for a *result*, so pin
+what the server **sends**.
 
 Any of this can also be flatly wrong: the *format* a `Money` string has to match
-lives in the server's `coerce_input`, which no schema carries, so nothing before a
-real request says whether the server wants `"12.50"`, `"12.50 USD"` or the object.
-[Send one for real](#what-no-check-can-see).
+lives in the server's `coerce_input`, which no schema carries, so nothing
+`generate` reads says whether the server wants `"12.50"`, `"12.50 USD"` or the
+object — [check it against the schema
+class](#checking-the-half-no-schema-carries), or send one for real.
 
 ## Overriding one field
 
@@ -364,7 +365,7 @@ short-circuits — so a coercer written like the examples above raises
 `NoMethodError` on nil. Guard it, or `:in_process` will show it to you as a
 `ServerError`.
 
-## What no check can see
+## Checking the half no schema carries
 
 A custom scalar has two definitions that have to agree: the server's
 `coerce_input`/`coerce_result`, and your `register_scalar`. **No schema carries the
@@ -382,22 +383,56 @@ No `CastError`, no warning — just totals quietly wrong past the seventh
 significant figure, which is the precision a string-valued `Decimal` exists to
 protect.
 
-The check is a request that runs the real coercers: one `graphql: :in_process`
-example per registered scalar, round-tripping a value through the schema class.
+**Where the server runs in-process, both halves are callable, and that is the
+check.** One line, for every scalar at once:
 
 ```ruby
-it "round-trips a Money through the real server", graphql: :in_process do
-  price = Money.from_amount(BigDecimal("12.50"), "EUR")
-  expect(EchoPriceQuery.execute!(price:).echo_price).to eq price
+it "agrees with the server about every scalar" do
+  GraphWeaver::Testing.check_scalars!(Catalog::Schema)
 end
 ```
 
-Four lines, and it fails the moment either side moves. **`graphql: :fake` cannot
-stand in for it**: a fake fabricates from your *client* registration alone, so it
-hands back a value the real server would never send and accepts one the real
-server would reject. It is shape-correct, never rule-correct. A
-[cassette](cassettes.md) recorded against `:in_process` carries the rules to a
-suite that can't boot the schema class.
+Per scalar the schema declares and your app registered, it fabricates a value the
+way [`:fake`](testing.md) does, casts it, sends it back out through `serialize:`,
+through the server's `coerce_input` and `coerce_result`, and back through `cast:`.
+It raises naming every scalar that disagreed and which way:
+
+```
+2 scalar(s) disagree with Catalog::Schema:
+  Money: the server refused "12.5", the wire form serialize: writes (expected "12.50 USD")
+  Decimal: round-trips lossily — sent 0.123456789123456789e9, got back 0.1234567891234567e9
+```
+
+The fabricated value is all it has to work with, so pin the one that matters:
+`config.overrides = { "Decimal" => "123456789.123456789" }` is how the precision
+case gets exercised at all — two decimal places always survive a Float. Pass the
+schema **class**; a dump's scalars pass values through, so against one this checks
+only that a registration's `cast:` accepts what its own `serialize:` writes, which
+is a different question (see below).
+
+For a **remote** server the limit stands: nothing before a real request can say.
+Send one — a `graphql: :in_process` example against the same schema class if your
+app has one, otherwise a [cassette](cassettes.md) recorded against the real
+endpoint, which carries the server's rules to a suite that can't reach it.
+**`graphql: :fake` cannot stand in for either**: a fake fabricates from your
+*client* registration alone, so it hands back a value the real server would never
+send and accepts one the real server would reject. It is shape-correct, never
+rule-correct.
+
+### A cast must accept what its own serialize writes
+
+One `serialize:` serves both directions — the outbound variable and a result's
+[`as_json`](generated_modules.md#anatomy) — so a registration has a law to keep:
+**its `cast:` must accept what its `serialize:` writes.** That is what makes
+`from_h(JSON.parse(x.to_json)) == x` hold, and it is the innermost leg of
+`check_scalars!` above, which is where it is checked.
+
+A server whose `coerce_result` writes one shape and whose `coerce_input` accepts
+another can't be served by one `serialize:`, so don't try: write the **result**
+form, the one `cast:` reads, and have the server's `coerce_input` accept that too.
+If it can't, the asymmetry is the server's to fix — a second registration keyword
+for the result form would put a knob where a law belongs, and `as_json` would
+still have no way to choose between them.
 
 ## Enums: map onto your own T::Enum
 

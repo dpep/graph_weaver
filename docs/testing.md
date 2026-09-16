@@ -64,6 +64,13 @@ client for anything, so a
 [client-side `InputError`](errors.md#what-an-inputerror-says-without-reading-english)
 raises the same way under every tag and under none.)
 
+A fake also can't reach a **custom scalar's** rules, for the same reason: it
+fabricates from your own [registration](scalars.md), so the round trip agrees
+with itself whatever the server thinks. Where the server is a schema class,
+`GraphWeaver::Testing.check_scalars!(Catalog::Schema)` runs both halves against
+each other and names every scalar that disagrees
+([how](scalars.md#checking-the-half-no-schema-carries)).
+
 Everything here is a *client* — the one interface queries run through (the
 contract is in [transports](transports.md)) — so fakes, the router, failures and
 cassettes work outside rspec too (`require "graph_weaver/testing"`, never from
@@ -403,8 +410,10 @@ middleware wrote, the headers it sent, the retry it does on a 500, and that
 `from_h` reads real JSON off a socket. What it can't tell you is whether your
 `cast:` agrees with the real server: the fabricated bytes are written to match
 your own [scalar registrations](scalars.md), so the round trip agrees with
-itself. Put the live schema class behind the wire for that, or pin a real
-response with a [cassette](cassettes.md).
+itself. Put the live schema class behind the wire for that —
+[`check_scalars!`](scalars.md#checking-the-half-no-schema-carries) asks the same
+question of one directly — or pin a real response with a
+[cassette](cassettes.md).
 
 `GraphWeaver::Testing::Endpoint` is an ordinary Rack app wrapping anything that
 satisfies the [client contract](transports.md), so mount it yourself

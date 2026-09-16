@@ -967,3 +967,38 @@ anyway.
 The measurable form, and the spec: with graph_weaver in the Gemfile,
 `Rails.application.initializers.tsort.map(&:name)` must be the same sequence as
 without it, with our own names inserted and nothing else moved.
+
+## A scalar's two halves are checked against each other, not declared twice
+
+A custom scalar has two definitions that have to agree — the server's
+`coerce_input`/`coerce_result` and the app's `register_scalar` — and no schema
+carries the first. One `serialize:` serves both the outbound variable and a
+result's `as_json`, so a registration has a law to keep: **its `cast:` must
+accept what its own `serialize:` writes.** That is what makes
+`from_h(JSON.parse(x.to_json)) == x` hold.
+
+**Not taken: a second registration keyword for the result form.** It reads like
+the obvious fix for a server whose `coerce_result` writes an object and whose
+`coerce_input` takes a string — say both. It is a knob answering a question the
+app can't vary per call, and it doesn't work: `as_json` has to pick one, and
+neither choice is right for a result that must read back. The honest shape is
+the law — write the *result* form, and have the server's `coerce_input` accept
+it too. An asymmetry that survives that is the server's to fix.
+
+**Where the law is enforced, and why nowhere earlier.** Not at registration: a
+probe would need a sample of the Ruby type, and nothing knows what `Money.new`
+takes. Not at generation: no value is in hand. Not at `as_json`: running the
+cast on every render to check it would cost every render. The one place a value
+and both halves meet is a test, so `GraphWeaver::Testing.check_scalars!(schema)`
+is the door — it fabricates a value the way `:fake` does and runs
+`cast(coerce_result(coerce_input(serialize(sample))))`, which against a
+pass-through schema *is* the client-internal law and against a real schema class
+is the law plus the server. One check, two questions, in the order they can go
+wrong.
+
+The verdicts are what the report has to tell apart: the server refused the wire
+form `serialize:` writes; `cast:` refused the result form `coerce_result`
+writes; the trip lost something (`==`, and both values shown). Its reach is the
+fabricated value, which is why the pin is the documented lever: a two-decimal
+`Decimal` always survives a Float, so the precision case only appears for a
+value the app pins.

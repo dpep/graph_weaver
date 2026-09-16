@@ -388,6 +388,99 @@ module GraphWeaver
       # The configured directory as a real path — a rake task or an rspec run
       # starts from wherever it starts from; the cassettes don't move.
       def cassette_dir = Internal::Util.resolve(config.cassette_dir)
+
+      # Whether a scalar's two definitions agree: the server's
+      # coerce_input/coerce_result, and your register_scalar. No schema
+      # carries the server's half — a scalar's SDL is its name and a url —
+      # so nothing `verify`, `schema:diff` or `generate` reads can say. A
+      # schema CLASS carries both, and this runs them against each other.
+      #
+      # Per scalar the schema declares and your app registered: fabricate a
+      # value the way :fake does, cast it, send it back out through
+      # `serialize:`, through the server's `coerce_input` and `coerce_result`,
+      # and back through `cast:`. Raises naming every scalar that disagreed
+      # and how; silent when they all agree.
+      #
+      # Pass the schema CLASS. A dump's scalars pass values through, so
+      # against one this checks only that a registration's `cast:` accepts
+      # what its own `serialize:` writes — which is worth knowing, and is not
+      # the same question.
+      #
+      # The fabricated value is what the check has to work with, so pin the
+      # one that matters where it matters —
+      # `config.overrides = { "Decimal" => "123456789.123456789" }` is how
+      # the precision case gets exercised at all.
+      def check_scalars!(schema)
+        registry = Internal::Util.registry_for(schema)
+        values = Internal::Values.new(seed: 0, schema:, registry:)
+        context = GraphQL::Query.new(schema, "{ __typename }").context
+
+        disagreed = schema.types.values.sort_by(&:graphql_name).filter_map do |type|
+          next unless type.kind.name == "SCALAR"
+          # the built-in entries are the library's own; it is your
+          # registration that can be wrong about this server
+          next if registry.builtin_scalar?(type.graphql_name) ||
+            !registry.scalar_registry.key?(type.graphql_name)
+
+          disagreement(registry.scalar(type.graphql_name), type, values, context)
+        end
+        return if disagreed.empty?
+
+        raise GraphWeaver::Error, "#{disagreed.size} scalar(s) disagree with #{schema}:\n" +
+          disagreed.map { |line| "  #{line}" }.join("\n")
+      end
+
+      private
+
+      # One scalar's verdict, or nil when the two halves agree. Each step is
+      # a different mistake, so each says which.
+      def disagreement(scalar, type, values, context)
+        name = type.graphql_name
+        wire = values.scalar(name, name)
+        cast = cast_proc(scalar)
+        begin
+          sample = cast.call(wire)
+        rescue StandardError => e
+          return "#{name}: cast: can't read #{wire.inspect}, the value fabricated for it (#{e.message}) " \
+            "— pin the form this server sends: overrides: { #{name.inspect} => ... }"
+        end
+
+        if scalar.serialize? && !scalar.serialize_value?
+          return "#{name}: serialize: is a Proc, which builds source for the generated file rather " \
+            "than converting a value, so there is nothing here to run it against"
+        end
+
+        out = scalar.serialize_value(sample)
+        refused = "#{name}: the server refused #{out.inspect}, the wire form serialize: writes"
+        begin
+          received = type.coerce_input(out, context)
+        rescue StandardError => e
+          return "#{refused} (#{e.message})"
+        end
+        return "#{refused} (coerce_input returned nil)" if received.nil? && !out.nil?
+
+        result = type.coerce_result(received, context)
+        begin
+          back = cast.call(result)
+        rescue StandardError => e
+          return "#{name}: cast: refused #{result.inspect}, the result form the server's " \
+            "coerce_result writes (#{e.message})"
+        end
+        return if back == sample
+
+        "#{name}: round-trips lossily — sent #{sample.inspect}, got back #{back.inspect}"
+      end
+
+      # The registration's `cast:`, RUN rather than emitted. A cast builds
+      # SOURCE for the generated file, so evaluating it is the only way to
+      # run one — at the top level, where a generated file's own constants
+      # resolve from.
+      def cast_proc(scalar)
+        source = scalar.cast("wire")
+        return ->(wire) { wire } if source.nil?
+
+        eval("->(wire) { #{source} }", TOPLEVEL_BINDING, __FILE__, __LINE__) # rubocop:disable Security/Eval
+      end
     end
   end
 end

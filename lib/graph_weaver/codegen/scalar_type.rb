@@ -149,6 +149,10 @@ class GraphWeaver::Codegen
       @serialize_value.call(value)
     end
 
+    # Whether #serialize_value actually runs this registration's serializer,
+    # rather than passing the value through for want of one to run.
+    def serialize_value? = !@serialize_value.nil?
+
     # The code that normalizes a loose input — a Rails param — into this
     # scalar's Ruby type before it is serialized, or nil for nothing to do.
     # The Ruby type's own rule in Coerce is the check, which is what
