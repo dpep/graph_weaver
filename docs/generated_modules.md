@@ -544,17 +544,22 @@ selection could ever satisfy it.
 **One call does both halves.** `alias:` and a block are independent parts of the
 same registration — the accessor is emitted into the struct body, the block
 becomes a mixin the struct includes — so a block method can call an accessor the
-same call declared:
+same call declared. Inside the block the alias is spelled `alias_field`, which
+is the same keyword said next to the methods that use it: same paths, same
+errors, same accessor. Two positions, one thing.
 
 ```ruby
-GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" }) do
+GraphWeaver.extend_type("Widget") do
+  alias_field :tag, "meta.tag"     # or alias_field "meta.tag" — accessor named `tag`
   def shout = tag&.upcase
 end
 ```
 
-The block can't spell the `alias` half itself: `alias` is a Ruby keyword and the
-block is `module_eval`'d Ruby, so writing it there would define a method alias
-rather than a projection. It stays a keyword on the call.
+The verb is `alias_field` because the block can't spell `alias` itself: it is a
+Ruby keyword, and the block is `module_eval`'d Ruby, so writing it there would
+define a method alias rather than a projection. A block says one alias per line
+and nothing else — the compact `{ }`/`[ ]` forms and `optional: true` stay on
+the keyword, since leniency describes the registration rather than one accessor.
 
 For anything beyond a passthrough projection — real logic, still typed — reopen
 the generated struct in your own file and add sig'd methods; Sorbet merges the

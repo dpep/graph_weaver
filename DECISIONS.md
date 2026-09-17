@@ -1028,3 +1028,26 @@ runtime still has exactly one definition of it. Pruning and `verify_generated!`
 count the file like any other generated output, so a stale declaration can't
 keep `srb tc` green over an include that is gone, and two graphs sharing one
 output refuse rather than overwrite — the same rule `types.rb` already has.
+
+## A second spelling for the alias, because the block is where the reader is
+
+One rule beats a rule with exceptions, and two spellings for one thing is
+normally the exception. `alias_field` was accepted anyway: it is not a second
+rule but the same one said in the position the reader is already in. A block
+that writes methods over an aliased accessor had to declare it on the call and
+use it several lines below, because `alias` is a Ruby keyword and the block is
+`module_eval`'d Ruby. Both spellings feed the same `normalize_aliases`, the same
+registry entry and the same emitted accessor, so there is nothing to learn about
+the second one beyond where it may be written — and one call naming the same
+accessor both ways is refused rather than resolved, so the two can never mean
+different things. It stays that narrow on purpose: one alias per line, no
+`optional:`. The Hash/Array forms exist to say several aliases compactly, which
+a block does with several lines, and leniency is a property of the whole
+registration — a per-line `optional:` would be a real second rule.
+
+**Not `alias_method`**, which the block's module already answers to as a real
+`Module` method: shadowing it would break a helper that aliases one of its own
+methods, and a reader seeing it in a block has no reason to think it means
+anything but Ruby's. `alias_attr` was the other candidate and says less —
+these project a *field* of the selection, and `alias_field` is what the keyword
+has always described.
