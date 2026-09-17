@@ -165,11 +165,13 @@ class GraphWeaver::Codegen
       canonical = from_wire.except(*aliases.keys)
       ambiguous = canonical.group_by { |_, member| member }.select { |_, pairs| pairs.size > 1 }
       if ambiguous.any?
+        member, = ambiguous.first
         groups = ambiguous.values.map { |pairs| pairs.map(&:first) }
+        more = ambiguous.size - 1
         raise GraphWeaver::Error,
-          "enum #{graphql_name}: #{ambiguous.keys.first} is the member for both " \
-          "#{groups.first.join(" and ")} — say which spelling goes on the wire:\n  " \
-          "#{EnumType.alias_suggestion(graphql_name, groups, type)}"
+          "enum #{graphql_name}: #{groups.first.join(" and ")} both map onto the #{type} member " \
+          "#{member.serialize.to_s.inspect}#{" (and #{more} more)" unless more.zero?} — say which spelling " \
+          "goes on the wire:\n  #{EnumType.alias_suggestion(graphql_name, groups, type)}"
       end
 
       canonical.invert

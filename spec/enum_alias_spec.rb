@@ -4,6 +4,15 @@ require "tmpdir"
 # Two wire spellings, one value. A schema mid-rename emits both so old clients
 # keep working, and every generated pair collides on one Ruby constant —
 # `alias:` says which spelling goes on the wire and reads the other as it.
+module EnumAliasDemo
+  class Mode < T::Enum
+    enums do
+      Legacy = new("legacy")
+      Live = new("live")
+    end
+  end
+end
+
 describe "register_enum alias:" do
   after { GraphWeaver::Codegen.reset_registrations! }
 
@@ -85,6 +94,39 @@ describe "register_enum alias:" do
 
       expect(mod.execute!(client:, was: "active").status).to eq mod::Status::Active
       expect(client.sent).to eq("was" => "ACTIVE")
+    end
+  end
+
+  # The same rule on the mapped path: inference is case/underscore-insensitive,
+  # so a rename pair lands on ONE member of your enum and only one spelling can
+  # go back out. TO_WIRE used to be FROM_WIRE.invert, which silently kept
+  # whichever came last in the sorted mapping — the deprecated one.
+  describe "on an enum mapped onto your own" do
+    let(:sdl) do
+      <<~SDL
+        enum Mode { LEGACY legacy LIVE }
+        type Query { mode(was: Mode!): Mode }
+      SDL
+    end
+    let(:query) { "query Q($was: Mode!) { mode(was: $was) }" }
+
+    it "refuses two spellings on one member rather than picking one" do
+      GraphWeaver.register_enum("Mode", EnumAliasDemo::Mode)
+
+      expect { GraphWeaver::Codegen.generate(schema:, query:, name: "Q") }
+        .to raise_error(GraphWeaver::Error, <<~MSG.chomp)
+          enum Mode: LEGACY and legacy both map onto the EnumAliasDemo::Mode member "legacy" — say which spelling goes on the wire:
+            GraphWeaver.register_enum("Mode", EnumAliasDemo::Mode, alias: { "legacy" => "LEGACY" })
+        MSG
+    end
+
+    it "sends the target and still casts the alias" do
+      GraphWeaver.register_enum("Mode", EnumAliasDemo::Mode, alias: { "legacy" => "LEGACY" })
+      client = capturing("mode" => "legacy")
+      mod = GraphWeaver.parse(schema:, query:, name: "Q")
+
+      expect(mod.execute!(client:, was: EnumAliasDemo::Mode::Legacy).mode).to eq EnumAliasDemo::Mode::Legacy
+      expect(client.sent).to eq("was" => "LEGACY")
     end
   end
 
