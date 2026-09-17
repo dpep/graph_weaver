@@ -77,21 +77,6 @@ Taking `register_scalar("Count", <type>)` as the example:
 | `T::Boolean` | `GraphWeaver::Coerce.boolean(v, "Count")` | — | — |
 | `Hash`, `Array` | — | — | — |
 
-The bottom five are the types **JSON already holds**, so they write themselves —
-nothing to serialize — and naming one says the scalar *is* that Ruby type. The
-library's own rule for the class then runs in both directions, refusing in the
-scalar's name: `register_scalar("Count", Integer)` reads and writes exactly as
-`Int` coerces a variable, so `5`, `"5"` and `5.0` all arrive as `5`, while
-`"abc"`, `1.5` and `true` raise naming `Count`. `Hash` and `Array` pass through
-untouched — `Coerce` has no rule for either, and nothing else would be a rule
-rather than a guess.
-
-That is the **lenient** reading coming back, unlike the spec's own `Int`, which
-[refuses `"1"`](#coming-back--what-from_h-accepts): a compliant server writes an
-`Int` as a JSON number, but a custom scalar is the server's own and may well
-write the number as a string. The registration is you saying "make this an
-`Integer`"; refusing the garbage is what protects you.
-
 For a timestamp reach for `Time`; Ruby's own `DateTime` is accepted if you
 register it, but never assumed. All three read ISO 8601 and nothing else, which
 is the one spelling a spec-compliant server writes. To take `Time.parse`'s looser
@@ -103,6 +88,21 @@ per timestamp.
 *number*, so `"10.00"` in comes back `"10.0"` — numerically identical, textually
 different, which matters only where the bytes are: diffing a request body, or
 hashing one for a signature.
+
+**The last five rows are the types JSON already holds**, so they write
+themselves — nothing to serialize — and naming one says the scalar *is* that
+Ruby type. The library's own rule for the class then runs in both directions,
+refusing in the scalar's name: `register_scalar("Count", Integer)` reads and
+writes exactly as `Int` coerces a variable, so `5`, `"5"` and `5.0` all arrive
+as `5`, while `"abc"`, `1.5` and `true` raise naming `Count`. `Hash` and `Array`
+pass through untouched — `Coerce` has no rule for either, and anything else
+would be a guess.
+
+Coming back that is the **lenient** reading, unlike the spec's own `Int`, which
+[refuses `"1"`](#coming-back--what-from_h-accepts): a compliant server writes an
+`Int` as a JSON number, but a custom scalar is the server's own and may well
+write the number as a string. The registration is you saying "make this an
+`Integer`"; refusing the garbage is what protects you.
 
 ## Registering a class of your own
 
