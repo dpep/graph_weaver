@@ -101,7 +101,11 @@ module GraphWeaver
         # about the key the value arrived under, so it reads a filtered key one
         # level in as safe; this scrubs at every depth, like #value. The key is
         # optional because a coercer refusing a value hasn't been told one.
-        def shown(raw, key = nil) = filtered?(key) ? FILTERED : cap(value(key, raw).inspect)
+        def shown(raw, key = nil) = filtered?(key) ? FILTERED : cap(spell(value(key, raw)))
+
+        # How a value reads inside a sentence. inspect, except that
+        # BigDecimal#inspect is scientific ("0.25e1" for the 2.5 a caller wrote).
+        def spell(value) = defined?(BigDecimal) && value.is_a?(BigDecimal) ? value.to_s("F") : value.inspect
 
         # A short server-chosen string the library republishes inside its own
         # text — the APM's :code, the [CODE] in the one line info writes, a

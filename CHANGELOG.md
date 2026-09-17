@@ -1,3 +1,11 @@
+## Unreleased
+
+- **A `BigDecimal` in a message reads the way you wrote it.** A refusal quoted
+  `inspect`, so `BigDecimal("2.5")` came back as `got 0.25e1 — not a whole
+  number` and `check_scalars!`'s lossy round-trip as `sent
+  0.123456789123456789e9`. Both spell it plain now: `got 2.5`, `sent
+  123456789.123456789, got back 123456789.1234567`.
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only

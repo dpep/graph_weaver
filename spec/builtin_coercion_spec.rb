@@ -105,7 +105,7 @@ describe "built-in scalar coercion" do
   # Complex is the one Numeric that isn't real, and no number rule takes it
   it "refuses a Numeric no Int can hold, and one no number rule can mean" do
     expect(refused { GraphWeaver::Coerce.integer(BigDecimal("2.5")) }.message)
-      .to start_with "$v: expected an Int, got 0.25e1 — not a whole number"
+      .to start_with "$v: expected an Int, got 2.5 — not a whole number"
     expect(refused { GraphWeaver::Coerce.integer(Complex(1, 1)) }.message)
       .to start_with "$v: expected an Int, got (1+1i)"
     expect(refused { GraphWeaver::Coerce.float(Complex(1, 1)) }.message)

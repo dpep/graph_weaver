@@ -428,7 +428,7 @@ It raises naming every scalar that disagreed and which way:
 ```
 2 scalar(s) disagree with Catalog::Schema:
   Money: the server refused "12.5", the wire form serialize: writes (expected "12.50 USD")
-  Decimal: round-trips lossily — sent 0.123456789123456789e9, got back 0.1234567891234567e9
+  Decimal: round-trips lossily — sent 123456789.123456789, got back 123456789.1234567
 ```
 
 The fabricated value is all it has to work with, so pin the one that matters:

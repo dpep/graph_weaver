@@ -65,7 +65,7 @@ describe "GraphWeaver::Testing.check_scalars!" do
 
     expect { GraphWeaver::Testing.check_scalars!(LossyDemo::Schema) }.to raise_error(
       GraphWeaver::Error,
-      /Lossy: round-trips lossily — sent 0\.123456789123456789e9, got back 0\.1234567891234567e9/,
+      /Lossy: round-trips lossily — sent 123456789\.123456789, got back 123456789\.1234567/,
     )
   ensure
     GraphWeaver::Testing.reset!

@@ -476,7 +476,7 @@ module GraphWeaver
         end
         return if back == sample
 
-        "#{name}: round-trips lossily — sent #{sample.inspect}, got back #{back.inspect}"
+        "#{name}: round-trips lossily — sent #{Internal::Redact.spell(sample)}, got back #{Internal::Redact.spell(back)}"
       end
 
       # The registration's `cast:`, RUN rather than emitted. A cast builds
