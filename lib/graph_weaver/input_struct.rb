@@ -31,8 +31,10 @@ module GraphWeaver
     # rather than T::Enum.deserialize / the wire table directly: both raise a
     # bare KeyError naming an anonymous module and none of the values they
     # would have taken.
-    def self.enum(type, value)
+    def self.enum(type, value, aliases = nil)
       return value if value.is_a?(type)
+
+      value = aliases.fetch(value, value) if aliases
 
       type.try_deserialize(value) || invalid_enum!(type, value, type.values.map(&:serialize))
     end

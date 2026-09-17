@@ -68,7 +68,10 @@ module GraphWeaver
     # you generated) rather than a bad value, and T::Enum's own KeyError says
     # neither that nor which values exist. Raised bare so the enclosing
     # Hints.field brands it with the field.
-    def self.enum(type, value)
+    # aliases (register_enum alias:) is wire spelling => the value it reads as.
+    def self.enum(type, value, aliases = nil)
+      value = aliases.fetch(value, value) if aliases
+
       type.try_deserialize(value) || drifted!(type, value, type.values.map(&:serialize))
     end
 

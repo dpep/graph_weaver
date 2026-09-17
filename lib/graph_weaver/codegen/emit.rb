@@ -97,7 +97,7 @@ class GraphWeaver::Codegen
     # both reference it by that name.
     def shared_enum_names
       @mapped_enums.each_value.flat_map { |m| ["#{m.const_prefix}_FROM_WIRE", "#{m.const_prefix}_TO_WIRE"] } +
-        @enums.each_value.map(&:class_name)
+        @enums.each_value.flat_map { |e| e.aliased? ? [e.class_name, e.alias_const] : [e.class_name] }
     end
 
     # Inputs: only the variable root types — the names this module's own
@@ -340,9 +340,17 @@ class GraphWeaver::Codegen
       end
       out << "#{pad}  end"
       out << "#{pad}end"
+      return unless node.aliased?
+
+      out << "#{pad}# wire spellings read as another value of #{node.class_name} (register_enum alias:)"
+      out << "#{pad}#{node.alias_const} = T.let({"
+      node.aliases.each { |from, to| out << "#{pad}  #{from.inspect} => #{to.inspect}," }
+      out << "#{pad}}.freeze, T::Hash[String, String])"
     end
 
-    # module-level wire translation tables for an app-mapped enum
+    # module-level wire translation tables for an app-mapped enum. TO_WIRE is
+    # written out rather than inverted from FROM_WIRE: an alias puts two
+    # spellings on one member, and only one of them goes back out.
     def emit_mapped_enum(node, out, indent)
       pad = "  " * indent
       type = node.bare_type
@@ -354,7 +362,11 @@ class GraphWeaver::Codegen
         out << "#{pad}  #{wire.inspect} => #{type}.deserialize(#{member.serialize.to_s.inspect}),"
       end
       out << "#{pad}}.freeze, T::Hash[String, #{type}])"
-      out << "#{pad}#{prefix}_TO_WIRE = T.let(#{prefix}_FROM_WIRE.invert.freeze, T::Hash[#{type}, String])"
+      out << "#{pad}#{prefix}_TO_WIRE = T.let({"
+      node.to_wire.each do |member, wire|
+        out << "#{pad}  #{type}.deserialize(#{member.serialize.to_s.inspect}) => #{wire.inspect},"
+      end
+      out << "#{pad}}.freeze, T::Hash[#{type}, String])"
     end
 
     def emit_object(node, out, indent)

@@ -1406,15 +1406,18 @@ class GraphWeaver::Codegen
         "constant — map it onto one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
     end
 
-    EnumNode.new(class_name, enum_values(core))
+    aliases = @registry.enum_registry[core.graphql_name]&.aliases_for(core.values.keys.sort) || {}
+    EnumNode.new(class_name, enum_values(core, aliases), aliases)
   end
 
-  # A schema enum's wire values, sorted so output is deterministic across schema
-  # sources (SDL round-trips reorder values alphabetically). Values that differ
-  # only in case name the same T::Enum constant, which raises at LOAD time
-  # ("Enum values must be assigned to constants") — catch it here instead.
-  def enum_values(core)
-    values = core.values.keys.sort
+  # A schema enum's constant-bearing wire values, sorted so output is
+  # deterministic across schema sources (SDL round-trips reorder values
+  # alphabetically). An aliased spelling is read as another of the values, so
+  # it gets no constant. Values that differ only in case name the same T::Enum
+  # constant, which raises at LOAD time ("Enum values must be assigned to
+  # constants") — catch it here instead.
+  def enum_values(core, aliases = {})
+    values = core.values.keys.sort - aliases.keys
     # `_` and `__` are legal GraphQL enum values and camelize to nothing, so
     # the emitted `= new("_")` isn't even parseable — the file fails at load
     # with a syntax error pointing into generated source
@@ -1425,12 +1428,18 @@ class GraphWeaver::Codegen
         "one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
     end
 
-    collision = values.group_by { |value| camelize(value.downcase) }.find { |_, group| group.size > 1 }
-    if collision
+    # A schema mid-rename declares every value twice, so every pair collides:
+    # name one, count the rest, and print the registration that fixes them all.
+    collisions = values.group_by { |value| camelize(value.downcase) }.select { |_, group| group.size > 1 }
+    if collisions.any?
+      constant, group = collisions.first
+      more = collisions.size - 1
       raise GraphWeaver::Error,
-        "enum #{core.graphql_name} values #{collision.last.join(" and ")} both become the constant " \
-        "#{collision.first} — map the enum onto one of yours: " \
-        "register_enum(#{core.graphql_name.inspect}, YourEnum)"
+        "enum #{core.graphql_name} values #{group.join(" and ")} both become the constant #{constant}" \
+        "#{" (and #{more} more colliding pair#{"s" if more > 1})" unless more.zero?} — if each pair is one " \
+        "value, say which spelling goes on the wire:\n  " \
+        "#{EnumType.alias_suggestion(core.graphql_name, collisions.values)}\n" \
+        "or map the enum onto one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
     end
 
     values
@@ -1471,10 +1480,11 @@ class GraphWeaver::Codegen
   private :abstract_mixin_members
 
   # The MappedEnum node for a schema enum with a registered app-enum
-  # mapping; nil when unregistered, falling back to a generated T::Enum.
+  # mapping; nil when unregistered — or registered for alias: alone, which
+  # says nothing about the Ruby type — falling back to a generated T::Enum.
   def mapped_enum_node(core)
     enum_type = @registry.enum_registry[core.graphql_name]
-    return unless enum_type
+    return unless enum_type&.type
 
     @requires.concat(enum_type.requires)
     @mapped_enums[core.graphql_name] ||= MappedEnum.new(enum_type, core.values.keys.sort)

@@ -1044,8 +1044,18 @@ module GraphWeaver
     # strict), requires: names files the generated code should require.
     # Generation fails naming any schema value that doesn't resolve —
     # exhaustiveness checked ahead of runtime.
-    def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
-      Codegen.register_enum(graphql_name, type, positional_map, map:, fallback:, requires:)
+    #
+    # alias: says two of the schema's wire values are one value — both cast,
+    # the target is what goes back on the wire. It is the whole registration
+    # when there is no enum of your own to map onto, which is what a schema
+    # mid-rename needs:
+    #
+    #      GraphWeaver.register_enum("Status", alias: { "legacy_mode" => "LEGACY_MODE" })
+    def register_enum(graphql_name, type = nil, positional_map = nil, map: nil, fallback: nil, requires: nil,
+      alias: nil)
+      # `alias` is a Ruby keyword, so the parameter is only readable through binding
+      Codegen.register_enum(graphql_name, type, positional_map, map:, fallback:, requires:,
+        alias: binding.local_variable_get(:alias))
     end
 
     # Include app-owned helper modules into every struct generated from a

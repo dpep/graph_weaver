@@ -205,17 +205,23 @@ class GraphWeaver::Codegen
   end
 
   class EnumNode < Node
-    attr_reader :class_name, :values
+    attr_reader :class_name, :values, :aliases
 
-    def initialize(class_name, values)
+    def initialize(class_name, values, aliases = {})
       @class_name = class_name
       @values = values
+      @aliases = aliases
     end
 
     def bare_type = class_name
 
+    # wire spellings this enum reads as another of its values (register_enum
+    # alias:) — a module-level table, emitted beside the class
+    def aliased? = !@aliases.empty?
+    def alias_const = "#{GraphWeaver::Inflect.underscore(class_name).upcase}_ALIASES"
+
     def cast(expr, _depth)
-      "GraphWeaver::Hints.enum(#{class_name}, #{expr})"
+      "GraphWeaver::Hints.enum(#{class_name}, #{expr}#{", #{alias_const}" if aliased?})"
     end
 
     def serialize(expr, _depth)
@@ -229,7 +235,7 @@ class GraphWeaver::Codegen
     def coerce? = true
 
     def coerce(expr)
-      "GraphWeaver::InputStruct.enum(#{class_name}, #{expr})"
+      "GraphWeaver::InputStruct.enum(#{class_name}, #{expr}#{", #{alias_const}" if aliased?})"
     end
 
     def input_type = "T.any(#{class_name}, String)"
@@ -242,13 +248,13 @@ class GraphWeaver::Codegen
   # <NAME>_TO_WIRE constants translate at the boundary. fallback: makes
   # casting absorb unknown wire values (inputs stay strict).
   class MappedEnum < Node
-    attr_reader :graphql_name, :mapping
+    attr_reader :graphql_name, :mapping, :to_wire
 
     def initialize(enum_type, wire_values)
       @graphql_name = enum_type.graphql_name
       @type_name = enum_type.type.name
       @fallback = enum_type.fallback
-      @mapping = enum_type.mapping_for(wire_values)
+      @mapping, @to_wire = enum_type.tables_for(wire_values)
     end
 
     def const_prefix = GraphWeaver::Inflect.underscore(@graphql_name).upcase

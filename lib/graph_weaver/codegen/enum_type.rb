@@ -2,8 +2,8 @@
 # frozen_string_literal: true
 
 class GraphWeaver::Codegen
-  # How one GraphQL enum maps onto an app-owned T::Enum, so generated
-  # code speaks YOUR enum instead of generating one per module:
+  # What a register_enum said about one GraphQL enum: the app-owned T::Enum
+  # its values map onto, and which wire spellings are the same value.
   #
   #      class PetKind < T::Enum
   #        enums { Cat = new("cat"); Dog = new("dog") }
@@ -17,11 +17,23 @@ class GraphWeaver::Codegen
   # value the schema declares must resolve — generation fails naming the
   # gaps — unless fallback: names a member to absorb unknown values
   # (forward-compat for servers that add members; inputs stay strict).
+  #
+  # alias: { "legacy_mode" => "LEGACY_MODE" } says two wire values are one
+  # value — both spellings cast, the target is what serializes. It is the
+  # whole registration when there is no T::Enum to map onto, and then the
+  # generated enum gets one constant for the target and none for the alias.
   class EnumType
-    attr_reader :graphql_name, :type, :fallback, :requires
+    attr_reader :graphql_name, :type, :fallback, :requires, :aliases
 
-    def initialize(graphql_name, type, map: nil, fallback: nil, requires: nil)
+    def initialize(graphql_name, type, map: nil, fallback: nil, requires: nil, aliases: nil)
       @graphql_name = graphql_name.to_s
+      @aliases = normalize_aliases!(aliases)
+      @type = type
+      @map = map || {}
+      @fallback = fallback
+
+      return alias_only!(map, fallback, requires) if type.nil?
+
       # A name, not the class, is what you write when the constant won't
       # resolve yet — which in Rails means a config/initializers file, since
       # autoloading is set up after those run. Say where it does resolve.
@@ -36,9 +48,6 @@ class GraphWeaver::Codegen
         raise ArgumentError, "type: must be a named constant (anonymous classes can't appear in generated source)"
       end
 
-      @type = type
-      @map = map || {}
-      @fallback = fallback
       @requires = GraphWeaver::Codegen.normalize_requires!(requires, load: true)
 
       if fallback && !type.values.include?(fallback)
@@ -46,27 +55,125 @@ class GraphWeaver::Codegen
       end
     end
 
-    # wire value => member for every value the schema declares; raises
-    # naming the unmappable ones (unless fallback: absorbs them)
-    def mapping_for(wire_values)
-      mapping = {}
+    # The wire tables for a mapped enum: [wire value => member, member => the
+    # wire value that goes out]. Every spelling casts; an alias's target is the
+    # one that serializes.
+    def tables_for(wire_values)
+      aliases = aliases_for(wire_values)
+      from_wire = {}
       missing = []
 
       wire_values.each do |wire|
-        member = @map[wire] || infer(wire)
-        member ? mapping[wire] = member : missing << wire
+        canonical = aliases.fetch(wire, wire)
+        member = @map[canonical] || infer(canonical)
+        member ? from_wire[wire] = member : missing << canonical
       end
 
       if missing.any? && !fallback
         raise GraphWeaver::Error,
-          "#{type} has no member for #{graphql_name} value(s) #{missing.join(", ")} — " \
+          "#{type} has no member for #{graphql_name} value(s) #{missing.uniq.join(", ")} — " \
           "add them, pin with map:, or absorb with fallback:"
       end
 
-      mapping
+      [from_wire, to_wire(from_wire, aliases)]
+    end
+
+    # alias spelling => the value it is read as, checked against what the
+    # schema declares — an alias for or onto a value that isn't there is a
+    # registration this schema disproves.
+    def aliases_for(wire_values)
+      declared = wire_values.sort.join(", ")
+
+      @aliases.each do |from, to|
+        unless wire_values.include?(from)
+          raise GraphWeaver::Error,
+            "enum #{graphql_name} has no value #{from.inspect} to alias — its values are #{declared}; " \
+            "fix the spelling or drop the alias"
+        end
+        unless wire_values.include?(to)
+          raise GraphWeaver::Error,
+            "enum #{graphql_name}: alias #{from.inspect} => #{to.inspect} names no value of #{graphql_name} — " \
+            "its values are #{declared}; the target is the spelling that goes on the wire"
+        end
+      end
+
+      @aliases
+    end
+
+    # The register_enum a set of indistinguishable wire values needs, ready to
+    # paste. SCREAMING_CASE is the GraphQL convention, so the odd spelling is
+    # guessed as the alias — every caller's sentence says to check the direction.
+    def self.alias_suggestion(graphql_name, groups, type = nil)
+      pairs = groups.flat_map { |group|
+        target = group.find { |value| value == value.upcase } || group.first
+        (group - [target]).map { |value| "#{value.inspect} => #{target.inspect}" }
+      }
+
+      "GraphWeaver.register_enum(#{graphql_name.inspect}#{type ? ", #{type}" : ""}, " \
+        "alias: { #{pairs.join(", ")} })"
     end
 
     private
+
+    # Without a T::Enum there is nothing for map:/fallback:/requires: to
+    # describe, so alias: is the whole registration.
+    def alias_only!(map, fallback, requires)
+      if @aliases.empty?
+        raise ArgumentError, "register_enum(#{graphql_name.inspect}) says nothing about #{graphql_name} — " \
+          "pass the T::Enum to map it onto, or alias: { \"old\" => \"NEW\" } to read two wire values as one"
+      end
+
+      extra = { map:, fallback:, requires: }.compact.keys.first
+      if extra
+        raise ArgumentError,
+          "register_enum(#{graphql_name.inspect}, alias: {...}) takes no #{extra}: — that describes a T::Enum " \
+          "of your own, so pass one: register_enum(#{graphql_name.inspect}, YourEnum, alias: {...})"
+      end
+
+      @requires = []
+    end
+
+    # Sorted so generated source is stable across registration order.
+    def normalize_aliases!(aliases)
+      return {} if aliases.nil?
+
+      unless aliases.is_a?(Hash)
+        raise ArgumentError, "alias: is a hash of wire value => wire value, got #{aliases.inspect}"
+      end
+
+      pairs = aliases.to_h { |from, to| [from.to_s, to.to_s] }
+
+      self_alias = pairs.find { |from, to| from == to }
+      if self_alias
+        raise ArgumentError, "register_enum(#{graphql_name.inspect}): alias #{self_alias.first.inspect} => " \
+          "#{self_alias.last.inspect} reads a value as itself — drop it"
+      end
+
+      chained = pairs.keys.find { |from| pairs.value?(from) }
+      if chained
+        raise ArgumentError, "register_enum(#{graphql_name.inspect}): #{chained.inspect} is both an alias and " \
+          "the value an alias points at — an alias can't chain; point every spelling at the one that goes on the wire"
+      end
+
+      pairs.sort.to_h
+    end
+
+    # member => the one wire value it serializes to. Two spellings on one
+    # member with no alias saying which goes out is ambiguous — invert used to
+    # pick whichever came last, which for a deprecation pair was the dead one.
+    def to_wire(from_wire, aliases)
+      canonical = from_wire.except(*aliases.keys)
+      ambiguous = canonical.group_by { |_, member| member }.select { |_, pairs| pairs.size > 1 }
+      if ambiguous.any?
+        groups = ambiguous.values.map { |pairs| pairs.map(&:first) }
+        raise GraphWeaver::Error,
+          "enum #{graphql_name}: #{ambiguous.keys.first} is the member for both " \
+          "#{groups.first.join(" and ")} — say which spelling goes on the wire:\n  " \
+          "#{EnumType.alias_suggestion(graphql_name, groups, type)}"
+      end
+
+      canonical.invert
+    end
 
     # "CAT" matches serialize "cat"; "NOT_FOUND" matches "not_found"
     def infer(wire)
@@ -80,19 +187,23 @@ class GraphWeaver::Codegen
 
   # The enum half of one graph's registrations — see Codegen::Registry.
   class Registry
-    # Map a GraphQL enum onto an app-owned T::Enum (see EnumType). The one
-    # implementation — GraphWeaver.register_enum is a delegate, so the same
-    # call reaches it whichever door you came in by.
+    # Map a GraphQL enum onto an app-owned T::Enum, or fold two of its wire
+    # spellings into one value (see EnumType). The one implementation —
+    # GraphWeaver.register_enum is a delegate, so the same call reaches it
+    # whichever door you came in by.
     #
     # A value map is a natural third *positional* guess, and Ruby's arity
     # complaint ("given 3, expected 2") never mentions the keyword.
-    def register_enum(graphql_name, type, positional_map = nil, map: nil, fallback: nil, requires: nil)
+    def register_enum(graphql_name, type = nil, positional_map = nil, map: nil, fallback: nil, requires: nil,
+      alias: nil)
       if positional_map
         raise GraphWeaver::Error, "register_enum: the value map is a keyword — " \
           "register_enum(#{graphql_name.inspect}, #{type}, map: {...})"
       end
 
-      enum_registry[graphql_name.to_s] = EnumType.new(graphql_name, type, map:, fallback:, requires:)
+      # `alias` is a Ruby keyword, so the parameter is only readable through binding
+      aliases = binding.local_variable_get(:alias)
+      enum_registry[graphql_name.to_s] = EnumType.new(graphql_name, type, map:, fallback:, requires:, aliases:)
     end
 
     def enum_registry
