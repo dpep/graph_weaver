@@ -198,7 +198,10 @@ class GraphWeaver::Codegen
         { name => path }
       end
       if input.nil?
-        given = [name, path].compact.map(&:inspect).join(", ")
+        # spelled as a caller writes it — Hash#inspect changed between Ruby 3.3 and 3.4
+        given = [name, path].compact.map do |arg|
+          arg.is_a?(Hash) ? "{#{arg.map { |k, v| "#{k}: #{v.inspect}" }.join(", ")}}" : arg.inspect
+        end.join(", ")
         raise ArgumentError, "alias_field #{given}: #{ALIAS_FIELD_FORMS}"
       end
 
