@@ -190,6 +190,29 @@ class GraphWeaver::Client
     run(query, **variables).data!
   end
 
+  # Does this query validate? The string form of GraphWeaver.check_queries,
+  # answering with the same JSON-ready hashes — `message`, `line`, `column`,
+  # plus `subgraphs` where a supergraph brands them — so an empty array means
+  # it validates:
+  #
+  #      client.check_query("query { viewer { login } }")   # => []
+  #      client.check_query("query { viewer { lgoin } }")
+  #      # => [{ "message" => "Field 'lgoin' doesn't exist on type 'User'",
+  #      #      "line" => 1, "column" => 17 }]
+  #
+  # Checked against this client's own schema — what `execute` would run
+  # against — so a url client introspects on first use as it always does, and
+  # nothing re-introspects the way check_queries defaults to. An unparseable
+  # source is an entry like any other; nothing here raises for a bad query.
+  # Shared fragments are inlined from fragments: the same way every other door
+  # inlines them.
+  def check_query(source, fragments: GraphWeaver.fragments_paths)
+    GraphWeaver::Internal::QueryCheck.errors(
+      schema, source, GraphWeaver::Codegen.load_fragments(fragments),
+      GraphWeaver::Internal::QueryCheck.routing_table_for(schema_source),
+    )
+  end
+
   private
 
   # Anything already speaking the client contract — another Client,

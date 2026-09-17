@@ -623,6 +623,9 @@ module GraphWeaver
     # (products, reviews)", plus a "subgraphs" key — since knowing whose
     # code to look at is half the answer. A plain schema is unaffected.
     #
+    # One query you have as a *string* is Client#check_query — the same
+    # entries, against that client's own schema.
+    #
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
     # graph_weaver:queries:check` prints this and exits non-zero.
@@ -633,7 +636,7 @@ module GraphWeaver
         checked = checked_schema(graph)
         table = checked_routing_table(graph)
         Internal::Util.query_files(graph.queries).each do |path|
-          errors = validation_errors(checked, File.read(path), shared, table)
+          errors = Internal::QueryCheck.errors(checked, File.read(path), shared, table)
           next if errors.empty?
 
           # keyed by file, as it has always been — and two graphs may share a
@@ -652,20 +655,11 @@ module GraphWeaver
     def checked_schema(graph) = graph.named_schema? ? graph.schema : refreshed_schema
     private :checked_schema
 
-    # The routing table behind the schema check_queries is about to use,
-    # when there is one: a composed supergraph dump says who resolves what,
-    # so a validation error can name the subgraph whose code to look at. nil
-    # for every other source — a plain schema is entirely unaffected — and
-    # nil when a live schema class is what gets checked, since the dump then
-    # isn't what the errors came from.
+    # The routing table behind the schema check_queries is about to use, when
+    # there is one — nil when a live schema class is what gets checked, since
+    # the dump then isn't what the errors came from.
     def checked_routing_table(graph)
-      return if graph.live_schema
-
-      path = graph.dump_path
-      return unless path&.end_with?(".graphql", ".gql")
-
-      sdl = File.read(path)
-      SchemaLoader.routing_table(sdl) if SchemaLoader.federation_sdl?(sdl)
+      Internal::QueryCheck.routing_table_for(graph.dump_path) unless graph.live_schema
     end
     private :checked_routing_table
 
@@ -690,53 +684,6 @@ module GraphWeaver
       SchemaLoader.introspect(SchemaLoader.source_transport(path))
     end
     private :refreshed_schema
-
-    # One query's schema-validation errors as JSON-ready hashes, with the
-    # source position graphql-ruby reports. Unparseable counts as an error
-    # too — it doesn't validate either, and inline_fragments (which parses
-    # first) has already branded it with its position.
-    def validation_errors(schema, source, shared, table = nil)
-      # path omitted: the caller keys the report by file, so branding the
-      # message with it too would just print the path twice
-      schema.validate(Codegen.inline_fragments(source, shared)).map do |error|
-        detail = error.to_h
-        location = detail["locations"]&.first || {}
-        subgraphs = table ? attribute(table, detail["extensions"]) : []
-        entry = {
-          "message" => subgraphs.empty? ? error.message : "#{error.message} (#{subgraphs.join(", ")})",
-          "line" => location["line"],
-          "column" => location["column"],
-        }
-        subgraphs.empty? ? entry : entry.merge("subgraphs" => subgraphs)
-      end
-    rescue GraphWeaver::QueryValidationError => e
-      # an unparseable query: codegen folds the position (and the file) into
-      # the message, and this report keeps them separate — same splitter the
-      # rendered error uses, so the two can't drift apart
-      e.errors.map do |detail|
-        _path, _position, message = QueryValidationError.split(detail)
-        detail.transform_keys(&:to_s).merge("message" => message)
-      end
-    end
-    private :validation_errors
-
-    # Which subgraphs a validation error is about, on a federated schema:
-    # "Field 'weight' doesn't exist on type 'Product'" is much less useful
-    # than the same line plus "(products)" — whose code to look at, whose
-    # team to talk to. graphql-ruby reports the coordinate structurally, so
-    # this is a lookup rather than message parsing. Both halves of the
-    # coordinate are required: an argument error reports typeName "Field"
-    # (the AST node kind, not a type), and looking that up would attribute
-    # confidently and wrongly.
-    def attribute(table, extensions)
-      return [] unless extensions
-
-      type_name, field_name = extensions.values_at("typeName", "fieldName")
-      return [] unless type_name && field_name
-
-      table.responsible(type_name, field_name)
-    end
-    private :attribute
 
     # Load the generated modules — one line in an initializer or spec
     # helper (loading happens only when you call this; skip it and

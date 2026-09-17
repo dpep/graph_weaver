@@ -299,6 +299,73 @@ module GraphWeaver
       end
     end
 
+    # One query, checked against one schema. Both doors onto it —
+    # GraphWeaver.check_queries (every file on disk) and Client#check_query
+    # (a string) — report the same hashes and brand subgraphs the same way,
+    # because the implementation lives here rather than once each.
+    module QueryCheck
+      class << self
+        # A query's schema-validation errors as JSON-ready hashes, with the
+        # source position graphql-ruby reports. Unparseable counts as an error
+        # too — it doesn't validate either, and inline_fragments (which parses
+        # first) has already branded it with its position.
+        def errors(schema, source, shared, table = nil)
+          # path omitted: check_queries keys its report by file, so branding the
+          # message with it too would just print the path twice
+          schema.validate(Codegen.inline_fragments(source, shared)).map do |error|
+            detail = error.to_h
+            location = detail["locations"]&.first || {}
+            subgraphs = table ? attribute(table, detail["extensions"]) : []
+            entry = {
+              "message" => subgraphs.empty? ? error.message : "#{error.message} (#{subgraphs.join(", ")})",
+              "line" => location["line"],
+              "column" => location["column"],
+            }
+            subgraphs.empty? ? entry : entry.merge("subgraphs" => subgraphs)
+          end
+        rescue GraphWeaver::QueryValidationError => e
+          # an unparseable query: codegen folds the position (and the file) into
+          # the message, and this report keeps them separate — same splitter the
+          # rendered error uses, so the two can't drift apart
+          e.errors.map do |detail|
+            _path, _position, message = GraphWeaver::QueryValidationError.split(detail)
+            detail.transform_keys(&:to_s).merge("message" => message)
+          end
+        end
+
+        # The routing table behind a dump path, when the dump is a composed
+        # supergraph: it says who resolves what, so a validation error can name
+        # the subgraph whose code to look at. nil for anything else — a plain
+        # schema, a url client, a live class are all unaffected.
+        def routing_table_for(path)
+          path = path.to_path if path.respond_to?(:to_path)
+          return unless path&.end_with?(".graphql", ".gql")
+
+          sdl = File.read(path)
+          SchemaLoader.routing_table(sdl) if SchemaLoader.federation_sdl?(sdl)
+        end
+
+        private
+
+        # Which subgraphs a validation error is about, on a federated schema:
+        # "Field 'weight' doesn't exist on type 'Product'" is much less useful
+        # than the same line plus "(products)" — whose code to look at, whose
+        # team to talk to. graphql-ruby reports the coordinate structurally, so
+        # this is a lookup rather than message parsing. Both halves of the
+        # coordinate are required: an argument error reports typeName "Field"
+        # (the AST node kind, not a type), and looking that up would attribute
+        # confidently and wrongly.
+        def attribute(table, extensions)
+          return [] unless extensions
+
+          type_name, field_name = extensions.values_at("typeName", "fieldName")
+          return [] unless type_name && field_name
+
+          table.responsible(type_name, field_name)
+        end
+      end
+    end
+
     # What makes two GraphQL requests the same request — and how one reads
     # when an error has to quote it. A cassette matches on this, so the
     # rules belong somewhere both the cassette and the error that reports a

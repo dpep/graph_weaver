@@ -228,3 +228,93 @@ RSpec.describe "#{GraphWeaver}.check_queries schema sources" do
     end
   end
 end
+
+# The string half of the same question: check_queries asks it of every file on
+# disk, this asks it of one query you have in hand, and both answer with the
+# same entries.
+RSpec.describe "#{GraphWeaver::Client}#check_query" do
+  let(:client) do
+    GraphWeaver.new("type Media { id: ID! title: String }\ntype Query { media(id: ID!): Media }\n")
+  end
+
+  it "answers empty for a query that validates" do
+    expect(client.check_query(%({ media(id: "1") { title } }))).to eq []
+  end
+
+  it "names the field, with the position graphql-ruby reports" do
+    expect(client.check_query(%({\n  media(id: "1") { titel }\n})))
+      .to eq [{
+        "message" => "Field 'titel' doesn't exist on type 'Media' (Did you mean `title`?)",
+        "line" => 2, "column" => 20,
+      }]
+  end
+
+  it "reports an unparseable query rather than raising" do
+    expect(client.check_query("{ media {{ id } }"))
+      .to eq [{ "message" => "Expected NAME, actual: LCURLY (\"{\") at [1, 10]", "line" => 1, "column" => 10 }]
+  end
+
+  it "inlines the shared fragments a query spreads" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "media.graphql"), "fragment MediaBits on Media { title }\n")
+
+      expect(client.check_query(%({ media(id: "1") { ...MediaBits } }), fragments: [dir])).to eq []
+    end
+  end
+
+  # the default is the one GraphWeaver.parse reads, so a query that generates
+  # also checks
+  it "reads fragments_paths when none is passed" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "media.graphql"), "fragment MediaBits on Media { title }\n")
+      GraphWeaver.fragments_paths = [dir]
+
+      expect(client.check_query(%({ media(id: "1") { ...MediaBits } }))).to eq []
+    ensure
+      GraphWeaver.fragments_paths = nil
+    end
+  end
+
+  it "brands the subgraphs behind an error when the client was built from a supergraph dump" do
+    federated = GraphWeaver.new(RouterGraph::SUPERGRAPH)
+
+    expect(federated.check_query(%({ product(upc: "1") { colour } })))
+      .to eq [{
+        "message" => "Field 'colour' doesn't exist on type 'Product' (products, reviews)",
+        "line" => 1, "column" => 23, "subgraphs" => %w[products reviews],
+      }]
+  end
+
+  # the routing table lives in the file, not in the loaded schema — so the same
+  # supergraph handed over as SDL content has nothing to attribute with
+  it "brands nothing when the client names no dump" do
+    inline = GraphWeaver.new(File.read(RouterGraph::SUPERGRAPH))
+
+    expect(inline.check_query(%({ product(upc: "1") { colour } })))
+      .to eq [{ "message" => "Field 'colour' doesn't exist on type 'Product'", "line" => 1, "column" => 23 }]
+  end
+
+  it "checks against the client's own schema, introspecting no further" do
+    remote = GraphWeaver.new("https://api.example.com/graphql")
+    live = GraphWeaver::SchemaLoader.load("type Query { media: Media }\ntype Media { id: ID! }\n")
+    expect(GraphWeaver::SchemaLoader).to receive(:introspect).once.and_return(live)
+
+    expect(remote.check_query("{ media { id } }")).to eq []
+    expect(remote.check_query("{ media { title } }").first["message"])
+      .to eq "Field 'title' doesn't exist on type 'Media'"
+  end
+
+  # the app-wide dump is what check_queries falls back to; a client carries its
+  # own schema, and reaching past it would check a query against a graph it is
+  # never sent to
+  it "ignores the app-wide schema_path" do
+    Dir.mktmpdir do |dir|
+      File.write("#{dir}/schema.graphql", "type Query { other: String }\n")
+      GraphWeaver.schema_path = "#{dir}/schema.graphql"
+
+      expect(client.check_query(%({ media(id: "1") { title } }))).to eq []
+    ensure
+      GraphWeaver.schema_path = nil
+    end
+  end
+end
