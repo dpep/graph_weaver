@@ -26,14 +26,15 @@ worth reading rather than rubber-stamping.
 ## Upgrading from 0.7.3
 
 A patch release. One change can reach an app that never touched it — how a
-timestamp is read off the wire — and the rest is in the regenerate. Read the
-left column and skip what isn't yours; the [changelog](../CHANGELOG.md) says why
-each one moved.
+timestamp is read off the wire — one more reaches an app that maps an enum onto
+its own, and the rest is in the regenerate. Read the left column and skip what
+isn't yours; the [changelog](../CHANGELOG.md) says why each one moved.
 
 | applies if you… | what changed |
 |---|---|
 | register a timestamp scalar — `grep -rn 'register_scalar.*Time' app config lib`, which finds `Time` and `DateTime` alike | it reads the wire with `Time.iso8601` rather than `Time.parse`, so a spelling graphql-ruby's `coerce_result` never writes is refused: a bare date, seconds omitted, basic format (`"20240115T102030Z"`), a space and a zone name, `"Jan 15 2024 10:20"`. Same for a variable going out. **A server that writes one of those starts failing the cast** — `cast: :parse` keeps the tolerant reader: `register_scalar("DateTime", Time, cast: :parse)` |
 | have `DateTime` or `ISO8601DateTime` in your schema and register neither | same change: the gem registers both as `Time`, so the row above is yours without a line of your own |
+| map an enum onto your own `T::Enum` — `grep -rn 'register_enum' app config lib` — where the schema declares one value under two spellings (`LEGACY_MODE` beside `legacy_mode`) | inference is case/underscore-insensitive, so both landed on one member and the wire table silently sent whichever sorted last: the deprecated one. **Generation refuses now**, naming the pair — `alias: { "legacy_mode" => "LEGACY_MODE" }` says which spelling goes out |
 
 Then regenerate, and the gate:
 

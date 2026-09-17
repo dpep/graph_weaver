@@ -308,6 +308,19 @@ camelizes to nothing — `_` and `__` are both legal GraphQL — is refused at
 generation: there is no constant to name it. Map the enum onto one of yours
 instead.
 
+Two values that camelize to the *same* constant are refused for the same reason.
+A schema mid-rename declares exactly that — `LEGACY_MODE` alongside
+`legacy_mode`, so old clients keep working — and if they are one value, say
+which spelling goes on the wire:
+
+```ruby
+GraphWeaver.register_enum("Status", alias: { "legacy_mode" => "LEGACY_MODE" })
+```
+
+Both spellings then cast to `Status::LegacyMode`, only the target gets a
+constant, and a variable sends the target — see
+[scalars.md](scalars.md#two-spellings-one-value).
+
 `register_enum` replaces the generated `T::Enum` with your own app enum — see
 [scalars.md](scalars.md#enums-map-onto-your-own-tenum). Dynamic `parse` emits the
 enums into the query module itself; there's no cross-query set to share against,

@@ -1,8 +1,8 @@
 ###  v0.7.4  (2026-09-16)
 
-**What you must do.** Both are 0.7.3 → 0.7.4, and a typical app does only the
-first. [upgrading](docs/upgrading.md#upgrading-from-073) has the same list with
-what each one applies to.
+**What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only
+the first. [upgrading](docs/upgrading.md#upgrading-from-073) has the same list
+with what each one applies to.
 
 - **Regenerate** (`rake graph_weaver:generate`), for two reasons: the timestamp
   cast is emitted into generated source, and the input-struct `FIELDS` table
@@ -18,6 +18,13 @@ what each one applies to.
   (`"20240115T102030Z"`), a space and a zone name (`"2024-01-15 10:20:30 UTC"`),
   `"Jan 15 2024 10:20"`. The same goes for a variable. To keep the tolerant
   reader: `register_scalar("DateTime", Time, cast: :parse)`.
+
+- **Check any `register_enum` against a schema that declares one value under two
+  spellings** — `LEGACY_MODE` beside `legacy_mode`, which is what a server
+  mid-rename publishes. Inference is case/underscore-insensitive, so both landed
+  on one member of your enum and the wire table silently sent whichever sorted
+  last: the deprecated one. Generation refuses now, naming the pair, and
+  `alias: { "legacy_mode" => "LEGACY_MODE" }` says which spelling goes out.
 
 - **One reader for a timestamp, and it is the server's.** `Time.iso8601` is what
   graphql-ruby's own `ISO8601DateTime` reads input with, and its `coerce_result`
@@ -96,6 +103,23 @@ what each one applies to.
   entry rather than an exception, and shared fragments inline from
   `GraphWeaver.fragments_paths` as everywhere else.
   ([getting started](docs/getting_started.md#5-verify-in-ci))
+
+- **`alias:` reads two wire spellings as one enum value.** A schema mid-rename
+  declares `LEGACY_MODE` and `legacy_mode` together so old clients keep working,
+  and every such pair camelized to one Ruby constant — so the enum could not be
+  generated at all, and the only way out was a mirror `T::Enum` kept in sync for
+  the length of the deprecation window. Say which spelling goes on the wire
+  instead: `GraphWeaver.register_enum("Status", alias: { "legacy_mode" =>
+  "LEGACY_MODE" })`. Both spellings cast to the one member, the target is what a
+  variable sends, and the alias gets no constant. It applies to any two values,
+  not only case-differing or deprecated ones, and it rides along with a mapping
+  onto your own enum (`register_enum("Status", MyStatus, alias: {…})`), where it
+  is also what settles the member's outgoing spelling — inference put a rename
+  pair on one member and `TO_WIRE` used to pick whichever sorted last, silently
+  sending the deprecated one. Without an alias both cases now refuse at
+  generation rather than guess, and the collision refusal lists every pair and
+  prints the registration ready to paste.
+  ([scalars](docs/scalars.md#two-spellings-one-value))
 
 - **`#details[:type]` is the GraphQL type for an input field nothing coerces
   too.** [i18n](docs/i18n.md) says that field is the schema's name for the type,

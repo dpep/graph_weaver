@@ -512,5 +512,23 @@ Two safety properties do the real work:
 The translation tables are emitted into the generated source (`SPECIES_FROM_WIRE` /
 `SPECIES_TO_WIRE`) — reviewable in the diff, no runtime registry.
 
+### Two spellings, one value
+
+A schema mid-rename declares both `LEGACY_MODE` and `legacy_mode` so old clients
+keep working. `alias:` says they are one value — both spellings cast, and the
+target is what goes back on the wire:
+
+```ruby
+GraphWeaver.register_enum("Status", alias: { "legacy_mode" => "LEGACY_MODE" })
+```
+
+That is the whole registration when there is no enum of your own to map onto; it
+rides along with one when there is, where it also settles which spelling a
+member serializes to — inference is case/underscore-insensitive, so a rename
+pair lands on a single member. Either way generation refuses rather than pick:
+two values that name one Ruby constant, or that map onto one member, are
+ambiguous until you say. Delete the alias when the server drops the old
+spelling.
+
 Decorating a generated *struct* with your own methods is the sibling API —
 `extend_type`, in [generated modules](generated_modules.md#type-helpers).
