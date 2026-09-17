@@ -317,4 +317,30 @@ RSpec.describe "#{GraphWeaver::Client}#check_query" do
       GraphWeaver.schema_path = nil
     end
   end
+
+  # check_query and parse are two calls into the schema's validator; this
+  # holds them to one answer. What parse refuses AFTER validation (a query
+  # codegen can't generate) is not validation and is not compared.
+  it "reports exactly what parse raises, for every kind of query" do
+    parsed = lambda do |source|
+      client.parse(source)
+      []
+    rescue GraphWeaver::QueryValidationError => e
+      e.errors.map do |detail|
+        _path, _position, message = GraphWeaver::QueryValidationError.split(detail)
+        { "message" => message, "line" => detail[:line], "column" => detail[:column] }
+      end
+    end
+
+    [
+      %({ media(id: "1") { title } }),
+      %({\n  media(id: "1") { titel }\n}),
+      %({ media(id: 1) { id } }),
+      %({ media(id: "1") { id } nope }),
+      "{ media {{ id } }",
+      %({ media(id: "1") { ... on Media { title } ...Missing } }),
+    ].each do |source|
+      expect(client.check_query(source)).to eq(parsed.call(source)), source
+    end
+  end
 end
