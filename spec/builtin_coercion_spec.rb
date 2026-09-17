@@ -1,4 +1,5 @@
 # typed: false
+require "bigdecimal"
 require "graphql"
 
 # A tiny schema whose query takes one variable of each built-in scalar and
@@ -87,6 +88,45 @@ describe "built-in scalar coercion" do
     expect { echo(count: 2.5) }.to raise_error(GraphWeaver::InputError, /not a whole number/)
     expect { echo(count: "2.5") }.to raise_error(GraphWeaver::InputError, /\$count/)
     expect(echo(count: 3.0)).to include "Integer:3"
+  end
+
+  # An ActiveRecord decimal column hands the app a BigDecimal, and exact
+  # arithmetic a Rational. Both are the number they print as, so both are an
+  # ordinary argument; Float takes them at Float's own precision.
+  it "takes any real Numeric, as the number the scalar names" do
+    expect(GraphWeaver::Coerce.float(BigDecimal("1.5"))).to eql 1.5
+    expect(GraphWeaver::Coerce.float(Rational(3, 2))).to eql 1.5
+    expect(GraphWeaver::Coerce.float(BigDecimal("2"))).to eql 2.0
+    expect(GraphWeaver::Coerce.integer(BigDecimal("2"))).to eql 2
+    expect(GraphWeaver::Coerce.integer(Rational(4, 2))).to eql 2
+  end
+
+  # whole is asked of the VALUE, so a BigDecimal refuses exactly as 2.5 does;
+  # Complex is the one Numeric that isn't real, and no number rule takes it
+  it "refuses a Numeric no Int can hold, and one no number rule can mean" do
+    expect(refused { GraphWeaver::Coerce.integer(BigDecimal("2.5")) }.message)
+      .to start_with "$v: expected an Int, got 0.25e1 — not a whole number"
+    expect(refused { GraphWeaver::Coerce.integer(Complex(1, 1)) }.message)
+      .to start_with "$v: expected an Int, got (1+1i)"
+    expect(refused { GraphWeaver::Coerce.float(Complex(1, 1)) }.message)
+      .to start_with "$v: expected a Float, got (1+1i)"
+    expect(refused { GraphWeaver::Coerce.float(BigDecimal("Infinity")) }.message)
+      .to start_with "$v: expected a Float, got Infinity — not a finite number"
+    expect(refused { GraphWeaver::Coerce.float(BigDecimal("NaN")) }.message)
+      .to start_with "$v: expected a Float, got NaN — not a finite number"
+  end
+
+  # the report: Coerce.float(BigDecimal("1.5")) raised where a decimal column's
+  # value was passed straight to a Float variable
+  it "takes a BigDecimal or a Rational through a generated execute" do
+    typed = "Float:1.5 Integer:3 TrueClass:true String:42 String:x"
+
+    expect(echo(amount: BigDecimal("1.5"), count: BigDecimal("3"))).to eq typed
+    expect(echo(amount: Rational(3, 2), count: Rational(6, 2))).to eq typed
+    expect { echo(count: BigDecimal("2.5")) }
+      .to raise_error(GraphWeaver::InputError, /\$count of Compute: expected an Int.*not a whole number/)
+    expect { echo(amount: Complex(1, 1)) }
+      .to raise_error(GraphWeaver::InputError, /\$amount of Compute: expected a Float, got \(1\+1i\)/)
   end
 
   # Kernel#Integer reads "010" as octal; a zero-padded form field is a real input

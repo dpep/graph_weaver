@@ -611,6 +611,26 @@ describe "custom scalar deserialization" do
       expect([price(5), price("5"), price(5.0)]).to eq [5, 5, 5]
     end
 
+    # a decimal column's value handed straight to a variable of the scalar
+    it "takes a BigDecimal variable, and refuses one no number rule can mean" do
+      GraphWeaver.register_scalar("Money", Float)
+      capture = Class.new do
+        attr_reader :variables
+
+        def execute(_query, variables:, operation_name: nil)
+          @variables = variables
+          { "data" => nil, "errors" => [{ "message" => "captured" }] }
+        end
+      end.new
+      mod = GraphWeaver.parse(schema: MoneyDemo::Schema, client: capture, query:)
+
+      mod.execute(name: "W", budget: BigDecimal("12.5"))
+
+      expect(capture.variables["budget"]).to eql 12.5
+      expect { mod.execute(name: "W", budget: Complex(1, 1)) }
+        .to raise_error(GraphWeaver::InputError, /\$budget of Store: expected a Money, got \(1\+1i\)/)
+    end
+
     it "refuses in the scalar's own vocabulary rather than Sorbet's setter" do
       GraphWeaver.register_scalar("Money", Integer)
 

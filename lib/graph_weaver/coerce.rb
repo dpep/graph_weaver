@@ -39,19 +39,24 @@ module GraphWeaver
       # app translates for a user. It defaults to the GraphQL scalar the rule
       # is named for; generated code passes the schema's own name, so a
       # `register_scalar("BigInt", Integer)` field refuses as a BigInt.
+      #
+      # A real number converts to the number the scalar names, and whether it
+      # is whole is asked of the value — so a BigDecimal off a decimal column
+      # and a Rational are ordinary arguments.
       def integer(value, scalar = "Int")
         case value
         when Integer then value
-        when Float then whole(value, scalar)
+        when Numeric then whole(real(value, scalar), scalar)
         when String then INTEGER.match?(value.strip) ? Integer(value.strip, 10) : unparseable(value, scalar)
         else refuse(value, scalar)
         end
       end
 
+      # Float's own precision is what asking for a Float means, so a BigDecimal
+      # past it loses digits here rather than being refused.
       def float(value, scalar = "Float")
         case value
-        when Float then finite(value, scalar)
-        when Integer then finite(value.to_f, scalar)
+        when Numeric then finite(real(value, scalar).to_f, scalar)
         when String then NUMBER.match?(value.strip) ? finite(Float(value.strip), scalar) : unparseable(value, scalar)
         else refuse(value, scalar)
         end
@@ -199,8 +204,17 @@ module GraphWeaver
         raise mismatch(ArgumentError, "#{expected(scalar)}, got #{shown(value)} — not a finite number", scalar)
       end
 
+      # Complex is the one Numeric that is not a number a scalar can name, and
+      # #real? is the predicate for it — no class list to keep up to date.
+      def real(value, scalar)
+        return value if value.real?
+
+        refuse(value, scalar)
+      end
+
       def whole(value, scalar = "Int")
-        # Integer(2.5) is 2 — a silent loss where refusing costs nothing
+        # Integer(2.5) is 2 — a silent loss where refusing costs nothing. `% 1`
+        # is exact for a BigDecimal and a Rational; asking Float would not be.
         return value.to_i if value.finite? && (value % 1).zero?
 
         raise mismatch(ArgumentError, "#{expected(scalar)}, got #{shown(value)} — not a whole number", scalar)
