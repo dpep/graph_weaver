@@ -337,7 +337,7 @@ sig is `.checked(:never)`).
 | `Boolean` | `true`/`false` | nothing | the boolean |
 | `Date` | `Date` | an ISO-8601 string | `"2024-01-15"` |
 | `Time` | `Time` | an ISO 8601 string, a `DateTime`, `Time.zone.now` | ISO 8601, with microseconds when the value carries a fraction |
-| `BigInt` | `Integer` | a decimal string | the decimal string, which is what the server writes |
+| `BigInt` | `Integer` | a decimal string, a whole real `Numeric` | the decimal string, which is what the server writes |
 | an enum | the member **or** its wire value | — | the wire value |
 | an input object | the struct **or** a Hash | — | the wire hash |
 | a registered custom scalar | its Ruby type | whatever its cast takes | what its serialize writes |
