@@ -300,6 +300,21 @@ it into a spec, a Slack ping, an issue. Pass it `schema:` a *loaded* schema (not
 a path) and nothing touches the network, which is how you check your queries
 against a proposed subgraph before it's live.
 
+A query you have as a **string** rather than on disk asks the same client the
+same question, and gets the same entries back:
+
+```ruby
+client.check_query('query($id: ID!) { person(id: $id) { nmae } }')
+# => [{ "message" => "Field 'nmae' doesn't exist on type 'Person' (Did you mean `name`?)",
+#       "line" => 1, "column" => 37 }]
+```
+
+Empty means it validates. It checks against that client's own schema — the one
+`execute` would run against — so nothing re-introspects, and an unparseable
+source comes back as an entry rather than an exception. Shared fragments are
+inlined from `fragments:`, defaulting to `GraphWeaver.fragments_paths` the way
+`parse` does.
+
 ### The selections nothing reads
 
 `rake graph_weaver:unused` asks the one question the others can't: not "is the

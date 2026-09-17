@@ -644,6 +644,16 @@ the fly? The client in play exposes it as `GraphWeaver.client.schema`, and
 `GraphWeaver::Testing.config.schema` reads back what `config.schema =` set,
 falling back to the committed dump.
 
+A query built that way is worth an assertion of its own:
+
+```ruby
+expect(GraphWeaver.client.check_query(source)).to be_empty
+```
+
+[`check_query`](getting_started.md#5-verify-in-ci) answers with the
+errors rather than a boolean, so a failure prints what is wrong and where; a
+predicate would only say the query isn't valid.
+
 ## Test-only generated modules
 
 They don't have to live in `app/` — `generated_paths` is an appendable list, so a

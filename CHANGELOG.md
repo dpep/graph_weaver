@@ -82,6 +82,21 @@ what each one applies to.
   and `NAN` refuse as a non-finite `Float` does.
   ([scalars](docs/scalars.md#going-out--what-a-variable-kwarg-accepts))
 
+- **`client.check_query(source)` asks of a query string what `check_queries`
+  asks of a file.** Same JSON-ready entries — `message`, `line`, `column`, plus
+  `subgraphs` when the client was built from a composed supergraph dump — and
+  empty means it validates, so `expect(client.check_query(src)).to be_empty`
+  prints the errors when it doesn't. There was no way to ask it of a query you
+  had in hand: `check_queries` reads files on disk, and the only other answer
+  was `client.parse`, which raises a `QueryValidationError` and builds a module
+  you didn't want — so a query assembled at runtime, or pasted into a console,
+  had to be written to a file first. This checks against `client.schema` — what
+  `execute` would run against — so nothing
+  re-introspects the way `check_queries` defaults to, an unparseable source is an
+  entry rather than an exception, and shared fragments inline from
+  `GraphWeaver.fragments_paths` as everywhere else.
+  ([getting started](docs/getting_started.md#5-verify-in-ci))
+
 - **`#details[:type]` is the GraphQL type for an input field nothing coerces
   too.** [i18n](docs/i18n.md) says that field is the schema's name for the type,
   and it was — except where only Sorbet stood between the value and the struct

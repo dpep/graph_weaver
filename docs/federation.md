@@ -690,8 +690,9 @@ the rest.
 
 The table is also what a good error message wants. When the schema dump is a
 composed supergraph, `rake graph_weaver:queries:check` brands each validation error
-with the subgraphs behind the type it names, and `check_queries` carries the same
-list as a `"subgraphs"` key:
+with the subgraphs behind the type it names, and `check_queries` — or
+`client.check_query(source)`, for a client built from that dump — carries the
+same list as a `"subgraphs"` key:
 
 ```
 app/graphql/queries/product.graphql
