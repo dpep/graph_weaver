@@ -119,6 +119,28 @@ module GraphWeaver
         end
       end
 
+      # The same thing the header and the Exclude above say, told to GitHub:
+      # linguist-generated collapses these files in a diff ("Load diff") and
+      # drops them from the language breakdown. Display only — they stay
+      # versioned, expandable, and `git diff` here is untouched.
+      #
+      # Written even when there is no .gitattributes, unlike .rubocop.yml: a
+      # .gitattributes turns no tooling on, so there is no app this surprises.
+      def mark_generated_for_github
+        body = File.read(gitattributes) if File.exist?(gitattributes)
+        # already marked — a re-run, or done by hand
+        globs = linguist_globs.reject { |glob| body&.include?(glob) }
+        return if globs.empty?
+
+        lines = globs.map { |glob| "#{glob} linguist-generated" }.join("\n")
+        marks = <<~TEXT + lines + "\n"
+          # Machine-written by `rake graph_weaver:generate` — GitHub collapses it in
+          # diffs and leaves it out of the language breakdown.
+        TEXT
+
+        body ? append_to_file(GITATTRIBUTES, "\n#{marks}") : create_file(GITATTRIBUTES, marks)
+      end
+
       # The `graphql:` tags need this require, and it has to be somewhere
       # rspec actually loads. A spec/support file is not: rspec-rails ships
       # the spec/support glob commented out, so the require sat there doing
@@ -191,6 +213,7 @@ module GraphWeaver
       private
 
       RUBOCOP_CONFIG = ".rubocop.yml"
+      GITATTRIBUTES = ".gitattributes"
 
       # rails_helper first: rspec-rails writes both, and only rails_helper
       # has Rails booted by the time the require runs.
@@ -203,6 +226,8 @@ module GraphWeaver
 
       def rubocop_config = File.join(GraphWeaver.root, RUBOCOP_CONFIG)
 
+      def gitattributes = File.join(GraphWeaver.root, GITATTRIBUTES)
+
       # Parsed, not counted: a `---` can also be a line inside a block scalar.
       # A file rubocop itself can't read is left to rubocop to complain about.
       def yaml_documents(body)
@@ -213,9 +238,13 @@ module GraphWeaver
 
       # Every graph's output directory, so a multi-schema app is covered by
       # the same run — read off the graphs rather than restated here.
-      def generated_globs
-        GraphWeaver.graphs.map { |graph| File.join(graph.output, "**/*") }.uniq
-      end
+      def generated_outputs = GraphWeaver.graphs.map(&:output).uniq
+
+      def generated_globs = generated_outputs.map { |dir| File.join(dir, "**/*") }
+
+      # gitattributes patterns are gitignore-style, where `dir/**` is
+      # everything beneath dir — spelled as git reads it, not as rubocop does.
+      def linguist_globs = generated_outputs.map { |dir| File.join(dir, "**") }
 
       # This install run is the one moment the user is guaranteed to be
       # reading, and a composed supergraph changes what the next steps are:

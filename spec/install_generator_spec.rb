@@ -108,6 +108,7 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       "app/graphql/fragments/.keep",
       "app/graphql/generated/.keep",
       "graphql.config.yml",
+      ".gitattributes",
     ]
   end
 
@@ -392,6 +393,61 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       expect(wiring(run_generator)).to be_empty
       expect(run_generator.filter_map { |kind, text| text if kind == :say }.join)
         .to include(REQUIRE_LINE)
+    end
+  end
+
+  # The third telling of "generated/ is generated", after the do-not-edit
+  # header and the rubocop Exclude — this one for GitHub's review UI. Display
+  # only: the files stay versioned, and a local `git diff` is untouched.
+  describe "the linguist mark" do
+    GITATTRIBUTES = ".gitattributes"
+    MARK = "app/graphql/generated/** linguist-generated"
+
+    def gitattributes(body) = File.write(File.join(@app, GITATTRIBUTES), body)
+
+    def written(actions)
+      actions.filter_map do |kind, path, content|
+        content if %i[create_file append_to_file].include?(kind) && path == GITATTRIBUTES
+      end
+    end
+
+    # unlike .rubocop.yml, a .gitattributes turns nothing on — so there is no
+    # app whose tooling writing one could surprise
+    it "creates the file when the app has none" do
+      expect(written(run_generator).join).to include MARK
+    end
+
+    it "keeps what an existing file says and adds the mark under it" do
+      gitattributes("*.rb text eol=lf\n")
+      actions = run_generator
+
+      expect(actions).to include([:append_to_file, GITATTRIBUTES, a_string_including(MARK)])
+      # appended, not rewritten — the app's own lines aren't ours to restate
+      expect(written(actions).join).not_to include "text eol=lf"
+    end
+
+    it "does nothing on a re-run" do
+      gitattributes("#{MARK}\n")
+
+      expect(written(run_generator)).to be_empty
+    end
+
+    it "marks every graph's output directory" do
+      GraphWeaver.graph(:pets) { output "app/graphql/pets/generated" }
+      GraphWeaver.graph(:billing) { output "app/graphql/billing/generated" }
+
+      expect(written(run_generator).join.scan(/^\S+ linguist-generated$/)).to eq [
+        "app/graphql/pets/generated/** linguist-generated",
+        "app/graphql/billing/generated/** linguist-generated",
+      ]
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    # `-diff` would change what `git diff` shows locally; linguist is GitHub's
+    # reader and nothing else's
+    it "changes nothing about a local diff" do
+      expect(written(run_generator).join).not_to include "-diff"
     end
   end
 
