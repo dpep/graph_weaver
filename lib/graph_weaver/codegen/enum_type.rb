@@ -23,7 +23,7 @@ class GraphWeaver::Codegen
   # whole registration when there is no T::Enum to map onto, and then the
   # generated enum gets one constant for the target and none for the alias.
   class EnumType
-    attr_reader :graphql_name, :type, :fallback, :requires, :aliases
+    attr_reader :graphql_name, :type, :fallback, :requires
 
     def initialize(graphql_name, type, map: nil, fallback: nil, requires: nil, aliases: nil)
       @graphql_name = graphql_name.to_s
