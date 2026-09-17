@@ -48,6 +48,9 @@ module PetShoutQuery
             "name" => name,
           }
         end
+
+        sig { returns(String) }
+        def moniker = name
       end
 
       const :pets, T::Array[Pets]

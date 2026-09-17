@@ -20,7 +20,12 @@ module TypecheckFixture
 
   # Write the pair (or check it is current, for verify_generated!'s own answer).
   def self.generate!(verify: false)
-    GraphWeaver.extend_type("Pet") { def shout = "#{name}!" }
+    # alias_field too: the accessor it emits carries a sig, so this pair is
+    # where the repo's own srb tc reads one written from inside a block
+    GraphWeaver.extend_type("Pet") do
+      alias_field :moniker, "name"
+      def shout = "#{moniker}!"
+    end
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "pet_shout.graphql"), QUERY)
       args = { schema: Demo::Schema, queries: dir, output: OUTPUT }
