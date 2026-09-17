@@ -68,6 +68,20 @@ what each one applies to.
   anything else would be a guess.
   ([scalars](docs/scalars.md#registering-a-stdlib-type))
 
+- **A real `Numeric` coerces to the number the scalar names.**
+  `Coerce.float(BigDecimal("1.5"))` raised `expected a Float, got 0.15e1`: `Int`
+  and `Float` took a `Float`, an `Integer` and a numeric string and refused
+  every other `Numeric`, so a `BigDecimal` off an ActiveRecord decimal column —
+  handed to a `Float` variable, or to a scalar registered as one — had to be
+  converted at the call site, and a `Rational` the same. Both rules now take any
+  real `Numeric`: `Float` converts with `to_f`, at Float's own precision (a
+  `BigDecimal` past it loses digits, which is what asking for a `Float` means),
+  and `Int` only when the value is whole, asked of the value — `BigDecimal("2")`
+  is `2`, and `BigDecimal("2.5")` is refused the way `2.5` already was. `Complex`
+  is the one `Numeric` that is not real, and is refused; `BigDecimal::INFINITY`
+  and `NAN` refuse as a non-finite `Float` does.
+  ([scalars](docs/scalars.md#going-out--what-a-variable-kwarg-accepts))
+
 - **`#details[:type]` is the GraphQL type for an input field nothing coerces
   too.** [i18n](docs/i18n.md) says that field is the schema's name for the type,
   and it was — except where only Sorbet stood between the value and the struct

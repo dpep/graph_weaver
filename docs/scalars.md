@@ -330,8 +330,8 @@ sig is `.checked(:never)`).
 
 | scalar | kwarg is typed | also accepts, at runtime | on the wire |
 |---|---|---|---|
-| `Int` | `Integer` | a decimal string, a whole `Float` | the integer |
-| `Float` | `Float` | a decimal string, an `Integer` | the float |
+| `Int` | `Integer` | a decimal string, a whole real `Numeric` — `2.0`, `BigDecimal("2")` | the integer |
+| `Float` | `Float` | a decimal string, a real `Numeric` — an `Integer`, a `BigDecimal`, a `Rational` | the float |
 | `String` | `String` | nothing | the string |
 | `ID` | `String` | an `Integer` — `execute(id: user.id)` | the string |
 | `Boolean` | `true`/`false` | nothing | the boolean |
@@ -353,6 +353,12 @@ off a model is the everyday call; `String` gets no such license. **`Boolean` tak
 no string**, because every rule for reading `"0"`, `"off"`, `"no"` is somebody's
 convention. **A `Date` and a `Time` are not each other**, as above; what *is*
 accepted for a `Time` is anything that already is one.
+
+A **real `Numeric`** is the number it prints as, so a `BigDecimal` off a decimal
+column needs no conversion at the call site: it reaches a `Float` through `to_f`,
+at Float's own precision, and an `Int` only when the value is whole —
+`BigDecimal("2")` is `2` and `BigDecimal("2.5")` is refused, exactly as `2.5` is.
+`Complex` is the one `Numeric` that is not real, and no number rule takes it.
 
 Anything the table refuses raises `GraphWeaver::InputError` naming the variable,
 the operation and the value — `$count of Compute: expected an Int, got "lots"` —
