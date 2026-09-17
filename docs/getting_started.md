@@ -96,6 +96,11 @@ What it wrote:
   marked "do not edit," so the output directory is added to `AllCops: Exclude:`.
   An `AllCops:` you already have is left alone (a second one would replace it,
   not merge); the generator prints the line to add.
+- **`.gitattributes`** — `app/graphql/generated/** linguist-generated`, which is
+  how GitHub is told the same thing: it collapses those files in a pull-request
+  diff and leaves them out of the repository's language breakdown. Display only,
+  so they stay versioned and expandable
+  ([the three tellings](generated_modules.md#make-your-tooling-treat-generated-as-generated)).
 
 Rake needs no wiring: in Rails the `graph_weaver:*` tasks register themselves and
 depend on `:environment`, so your initializer runs first. The generated modules

@@ -6,6 +6,17 @@
   0.123456789123456789e9`. Both spell it plain now: `got 2.5`, `sent
   123456789.123456789, got back 123456789.1234567`.
 
+- **GitHub is told that `generated/` is generated.** `rails g
+  graph_weaver:install` now writes `app/graphql/generated/** linguist-generated`
+  to `.gitattributes` — one line per graph, skipped where the path is already
+  marked — so GitHub collapses generated modules in a pull-request diff ("Load
+  diff") and leaves them out of the repository's language breakdown. Display
+  only: the files stay versioned and expandable, and a local `git diff` is
+  unchanged. An already-installed app adds the line by hand or re-runs the
+  generator; [generated
+  modules](docs/generated_modules.md#make-your-tooling-treat-generated-as-generated)
+  now groups it with the do-not-edit header and the rubocop `Exclude`.
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only
