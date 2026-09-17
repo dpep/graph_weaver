@@ -180,6 +180,14 @@ describe "register_enum alias:" do
         )
     end
 
+    it "refuses an alias that isn't a hash of wire values" do
+      expect { GraphWeaver.register_enum("Status", alias: %w[legacy_mode LEGACY_MODE]) }
+        .to raise_error(
+          ArgumentError,
+          'alias: is a hash of wire value => wire value, got ["legacy_mode", "LEGACY_MODE"]',
+        )
+    end
+
     it "refuses an alias onto itself" do
       expect { GraphWeaver.register_enum("Status", alias: { "ACTIVE" => "ACTIVE" }) }
         .to raise_error(
