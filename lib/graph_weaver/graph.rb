@@ -54,12 +54,15 @@ module GraphWeaver
     # block runs once, at the declaration (GraphBuilder.build reads the
     # registry there), and every read after replays the module it made.
     def replay(registry, registration)
-      call, args, kwargs, block = registration
+      call, args, kwargs, block, aliases = registration
       entry = registry.public_send(call, *args, **kwargs, &block)
+      # the block's alias_field lines ran with it, so replay them too
+      entry[:aliases].merge!(aliases) if aliases
       return unless block && call == :extend_type
 
       registration[1] = args + [entry[:mixins].last]
       registration[3] = nil
+      registration[4] = entry[:aliases].dup
     end
     private :replay
 

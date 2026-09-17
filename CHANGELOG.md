@@ -136,6 +136,21 @@ what each one applies to.
   One more derivation codegen makes from what it already has in hand, like an
   alias's type.
 
+- **`alias_field` says `alias:` inside the block.** An `extend_type` block was
+  the one place the alias couldn't be written: `alias` is a Ruby keyword, so a
+  registration that does both halves had to declare the accessor on the call
+  and use it several lines below. `alias_field :tag, "meta.tag"` (or
+  `alias_field "meta.tag"`, naming the accessor after the last segment) is the
+  same alias in the position the reader is already in — same paths, same
+  normalization, same registry entry, same refusals, same emitted accessor.
+  One alias per line and nothing else: the compact Hash/Array forms stay on the
+  keyword, and so does `optional: true`, because leniency is a property of the
+  registration rather than of one accessor — `alias_field` says so instead of
+  taking it. A keyword `alias:` and an `alias_field` naming the same accessor in
+  one call is refused naming both. It exists only while the block runs, so the
+  module a struct includes never answers to it.
+  ([generated modules](docs/generated_modules.md#flat-accessors-with-alias))
+
 ###  v0.7.3  (2026-09-15)
 
 **What you must do.** Nothing — no app-visible behaviour moved.

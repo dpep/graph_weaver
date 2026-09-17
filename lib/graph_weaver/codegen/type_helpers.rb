@@ -45,10 +45,21 @@ class GraphWeaver::Codegen
     # fit the path just omits the accessor instead of failing generation. Use it
     # for a root-type accessor (a Query alias every query would otherwise have to
     # satisfy) or one that only fits some selections.
+    #
+    # Inside the block, `alias_field` is the same keyword said next to the
+    # methods that use it — one alias per line, always strict:
+    #
+    #      GraphWeaver.extend_type("Widget") do
+    #        alias_field :tag, "meta.tag"
+    #        def shout = tag&.upcase
+    #      end
     def extend_type(graphql_name, *mixins, requires: nil, **kw, &block)
-      aliases = take_aliases(kw)
+      optional = !!kw.delete(:optional)
+      aliases = normalize_aliases(kw.delete(:alias), optional:)
+      raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
+
       mixins = mixins.dup
-      mixins << helper_module(graphql_name, block) if block
+      mixins << helper_module(graphql_name, block, aliases) if block
 
       raise ArgumentError, "pass one or more helper modules, a block, or alias:" if mixins.empty? && aliases.empty?
       mixins.each do |mixin|
@@ -69,15 +80,6 @@ class GraphWeaver::Codegen
       entry[:aliases].merge!(aliases)
       entry
     end
-
-    # Pull alias:/optional: out of the keyword rest and normalize; any other
-    # keyword is a typo worth flagging rather than silently dropping.
-    def take_aliases(kw)
-      aliases = normalize_aliases(kw.delete(:alias), optional: !!kw.delete(:optional))
-      raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
-      aliases
-    end
-    private :take_aliases
 
     # accessor names and path segments are interpolated verbatim into generated
     # source, so — like module_name — they must be plain identifiers, never
@@ -138,7 +140,7 @@ class GraphWeaver::Codegen
     # naming it after whichever constants happened to exist made it a function
     # of how many times THIS process had read the registry, and `generate`
     # wrote a name a plain boot never creates.
-    def helper_module(graphql_name, block)
+    def helper_module(graphql_name, block, aliases)
       namespace = helper_namespace
       type = GraphWeaver::Inflect.camelize(graphql_name.to_s)
       index = (helper_counts[[namespace.name, type]] += 1)
@@ -146,10 +148,63 @@ class GraphWeaver::Codegen
       # reused rather than replaced, so re-declaring the same source (a Rails
       # to_prepare reload) keeps the module already-loaded structs include
       mod = const_under(namespace, name) { Module.new }
-      mod.module_eval(&block)
+      aliases.merge!(collect_aliases(graphql_name, mod, aliases, &block))
       mod
     end
     private :helper_module
+
+    # Run the block with `alias_field` available — the alias: keyword said one
+    # line at a time — and hand back what it collected.
+    #
+    # It lives on the module's singleton for the length of the block and is
+    # removed after: a generated struct includes this module, and an
+    # `alias_field` left behind would be an instance method the wire never named.
+    def collect_aliases(graphql_name, mod, keyword_aliases, &block)
+      registry, collected = self, {}
+      mod.define_singleton_method(:alias_field) do |name, path = nil, **kw|
+        collected.merge!(registry.send(:one_alias, graphql_name, name, path, kw))
+      end
+      mod.module_eval(&block)
+
+      twice = keyword_aliases.keys & collected.keys
+      unless twice.empty?
+        raise ArgumentError, "extend_type(#{graphql_name.to_s.inspect}) declares alias " \
+          "#{twice.first.inspect} twice — once as alias:, once as alias_field; keep one"
+      end
+      collected
+    ensure
+      mod.singleton_class.send(:remove_method, :alias_field)
+    end
+    private :collect_aliases
+
+    ALIAS_FIELD_FORMS = %(one alias per line — alias_field "meta.tag", or alias_field :tag, "meta.tag"; ) +
+      %(a Hash or Array of paths goes on the alias: keyword)
+    private_constant :ALIAS_FIELD_FORMS
+
+    # One `alias_field` line, normalized the way the keyword's own paths are.
+    # The block takes no optional: — leniency has one spelling, on the keyword,
+    # because it is a property of the registration and not of one accessor.
+    def one_alias(graphql_name, name, path, kw)
+      if kw.key?(:optional)
+        keyword = path ? "alias: { #{name}: #{path.inspect} }" : "alias: #{name.inspect}"
+        raise ArgumentError, "alias_field is always strict — for a lenient alias use the keyword: " \
+          "extend_type(#{graphql_name.to_s.inspect}, #{keyword}, optional: true)"
+      end
+      raise ArgumentError, "unknown keyword: #{kw.keys.first}" unless kw.empty?
+
+      input = if path.nil? && name.is_a?(String)
+        name
+      elsif path.is_a?(String) && (name.is_a?(String) || name.is_a?(Symbol))
+        { name => path }
+      end
+      if input.nil?
+        given = [name, path].compact.map(&:inspect).join(", ")
+        raise ArgumentError, "alias_field #{given}: #{ALIAS_FIELD_FORMS}"
+      end
+
+      normalize_aliases(input, optional: false)
+    end
+    private :one_alias
 
     # Where this registry's block-built helpers live: under a module named for
     # the graph, so two graphs extending the same type get two constants and

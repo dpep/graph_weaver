@@ -85,6 +85,118 @@ RSpec.describe "extend_type alias: (path-projection accessors)" do
     expect(widget.shout).to eq "T"
   end
 
+  # `alias_field` IS the alias: keyword, said next to the methods that use it:
+  # same paths, same normalization, same registry entry, same refusals. The
+  # block spells one alias per line; the keyword keeps the compact Hash/Array
+  # forms, and owns `optional:`.
+  describe "alias_field (the keyword, said in the block)" do
+    it "names the accessor after the last segment, given a bare path" do
+      GraphWeaver.extend_type("Widget") { alias_field "meta.tag" }
+      expect(generate).to include("sig { returns(T.nilable(String)) }", "def tag = meta&.tag")
+    end
+
+    it "names the accessor outright, given an accessor and a path" do
+      GraphWeaver.extend_type("Widget") { alias_field :label, "name" }
+      expect(generate).to include("sig { returns(String) }", "def label = name")
+    end
+
+    it "takes several aliases as several lines" do
+      GraphWeaver.extend_type("Widget") do
+        alias_field :tag, "meta.tag"
+        alias_field "meta.color"
+      end
+      expect(generate).to include("def tag = meta&.tag", "def color = meta&.color")
+    end
+
+    it "mixes with the keyword on one call, and a block method calls both" do
+      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" }) do
+        alias_field :label, "name"
+        def shout = "#{label}:#{tag&.upcase}"
+      end
+      src = generate
+      expect(src).to include("def tag = meta&.tag", "def label = name")
+
+      mod = GraphWeaver::Codegen.parse(schema:, query:, name: "WBlockAlias")
+      widget = mod.from_response!(
+        "data" => { "widget" => { "id" => "1", "name" => "n", "meta" => { "tag" => "t", "color" => nil } } },
+      ).widget
+
+      expect(widget.label).to eq "n"
+      expect(widget.shout).to eq "n:T"
+    end
+
+    it "refuses the same accessor from both spellings in one call, naming both" do
+      expect do
+        GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" }) { alias_field :tag, "name" }
+      end.to raise_error(ArgumentError,
+        %(extend_type("Widget") declares alias "tag" twice — once as alias:, once as alias_field; keep one))
+    end
+
+    it "still stacks the same accessor across separate registrations" do
+      GraphWeaver.extend_type("Widget", alias: { tag: "meta.tag" })
+      GraphWeaver.extend_type("Widget") { alias_field :tag, "name" }
+      expect(generate).to include("def tag = name")
+    end
+
+    it "refuses a Hash or Array argument, showing the two forms" do
+      forms = %(one alias per line — alias_field "meta.tag", or alias_field :tag, "meta.tag"; ) +
+        %(a Hash or Array of paths goes on the alias: keyword)
+
+      expect { GraphWeaver.extend_type("Widget") { alias_field({ tag: "meta.tag" }) } }
+        .to raise_error(ArgumentError, %(alias_field {tag: "meta.tag"}: #{forms}))
+      expect { GraphWeaver.extend_type("Widget") { alias_field ["meta.tag", "meta.color"] } }
+        .to raise_error(ArgumentError, %(alias_field ["meta.tag", "meta.color"]: #{forms}))
+      expect { GraphWeaver.extend_type("Widget") { alias_field :tag } }
+        .to raise_error(ArgumentError, %(alias_field :tag: #{forms}))
+    end
+
+    it "refuses optional:, pointing at the keyword that owns it" do
+      expect { GraphWeaver.extend_type("Widget") { alias_field "meta.tag", optional: true } }
+        .to raise_error(ArgumentError, %(alias_field is always strict — for a lenient alias use the keyword: ) +
+          %(extend_type("Widget", alias: "meta.tag", optional: true)))
+    end
+
+    it "is strict: a selection the path doesn't fit fails generation" do
+      GraphWeaver.extend_type("Widget") { alias_field "meta.tag" }
+      expect { generate("query W { widget { id } }") }
+        .to raise_error(GraphWeaver::Error, /not a selected field/)
+    end
+
+    it "refuses an invalid accessor name the same way the keyword does" do
+      expect { GraphWeaver.extend_type("Widget") { alias_field "x; puts :pwn", "name" } }
+        .to raise_error(ArgumentError, /valid method name/)
+      expect { GraphWeaver.extend_type("Widget") { alias_field :x, "meta. " } }
+        .to raise_error(ArgumentError, /invalid path segment/)
+    end
+
+    # it lives on the minted module's singleton for the length of the block and
+    # is removed after: a struct includes that module, and an `alias_field`
+    # leaking in as an instance method would be a method the wire never named
+    it "leaves no alias_field behind on the module a struct includes" do
+      GraphWeaver.extend_type("Widget") { alias_field "meta.tag" }
+      mod = GraphWeaver::Codegen.type_registry.dig("Widget", :mixins).last
+
+      expect(mod.instance_methods).not_to include(:alias_field)
+      expect(mod).not_to respond_to(:alias_field)
+    end
+
+    # a graph runs a block-form registration once and replays what it made on
+    # every read after — the module, and the aliases the block collected
+    it "survives a graph replaying the registration" do
+      GraphWeaver.graph(:widgets) do
+        schema Demo::Schema
+        extend_type("Widget") { alias_field :tag, "meta.tag" }
+      end
+      graph = GraphWeaver.graphs.first
+
+      2.times do
+        expect(graph.registry.type_registry.dig("Widget", :aliases)).to include("tag")
+      end
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+  end
+
   it "field-traversing a list points you at .first/.last" do
     GraphWeaver.extend_type("Widget", alias: { code: "bits.code" })
     expect { generate("query W { widget { bits { code } } }") }
