@@ -218,6 +218,23 @@ describe "round trip" do
       expect(failures).to be_empty, -> { failures.join("\n\n") }
     end
 
+    # A scalar registered as a wire class reads through the library's own rule
+    # for that class, so unlike an unregistered one it HAS a contract to
+    # refuse against — and a decimal string is legal, the server's own scalar
+    # being free to write one.
+    it "reads and refuses a scalar registered as a wire class" do
+      schema = GraphQL::Schema.from_definition("scalar Count\ntype Query { n: Count }")
+      GraphWeaver.register_scalar("Count", Integer)
+
+      failures = (0...20).flat_map do |i|
+        [RoundTrip.check(schema:, query: "{ n }", name: "Count#{i}", rng: Random.new(i)),
+          RoundTrip.check_hostile(schema:, query: "{ n }", name: "HostileCount#{i}", rng: Random.new(i))]
+          .flat_map { |trip| trip.failures.map { |failure| report(failure, trip, i) } }
+      end
+
+      expect(failures).to be_empty, -> { failures.join("\n\n") }
+    end
+
     it "keeps sub-second precision through a registered one" do
       RoundTrip.register_scalars!(CORPUS_SCALARS)
       failures = (0...40).flat_map do |i|

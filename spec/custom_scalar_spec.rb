@@ -299,12 +299,12 @@ describe "custom scalar deserialization" do
     expect(scalar.serialize("v")).to eq "Blob.dump(v)"
   end
 
-  it "does not infer anything for plain types (no spurious #to_s serializer)" do
+  it "does not infer a serializer for plain types (no spurious #to_s)" do
     GraphWeaver.register_scalar("Money", String) # String has no .parse/.load
 
     scalar = GraphWeaver::Codegen.scalar("Money")
-    expect(scalar.cast?).to be false
-    expect(scalar.serialize?).to be false
+    expect(scalar.cast("v")).to eq %(GraphWeaver::Coerce.string(v, "Money")) # the class's own rule
+    expect(scalar.serialize?).to be false # a String already is its wire form
   end
 
   it "opts out of inference with :itself" do
@@ -579,16 +579,97 @@ describe "custom scalar deserialization" do
       expect(GraphWeaver::Codegen.scalar("Decimal").serialize("v")).to eq "v.to_i"
     end
 
-    it "leaves a wire class alone, Kernel conversion or not" do
+    it "reads a wire class through its Coerce rule, not Kernel's conversion" do
       GraphWeaver.register_scalar("Cents", Integer) # not Integer(v) — see Coerce
 
-      expect(GraphWeaver::Codegen.scalar("Cents").cast?).to be false
+      expect(GraphWeaver::Codegen.scalar("Cents").cast("v")).to eq %(GraphWeaver::Coerce.integer(v, "Cents"))
       expect(GraphWeaver::Codegen.scalar("Cents").coerce_input("v")).to eq %(GraphWeaver::Coerce.integer(v, "Cents"))
     end
 
     it "rejects a malformed serialize: Array" do
       expect { GraphWeaver.register_scalar("X", "X", serialize: ["to_s"]) }
         .to raise_error(ArgumentError, /serialize:/)
+    end
+  end
+
+  # register_scalar("Count", Integer) is the app saying "this scalar is an
+  # Integer", so the library's own rule for that class runs in BOTH
+  # directions — the same Coerce entry Int/Float/String/Boolean use, under the
+  # registered name. Inbound takes the lenient (outbound) rule: `Int` refuses
+  # "1" coming back because the spec says a server writes a number, but a
+  # custom scalar is the server's own and may well write a string.
+  describe "a registration whose type is a wire class" do
+    def price(wire)
+      GraphWeaver.parse(schema: MoneyDemo::Schema, query:, name: "StoreQuery")
+        .from_response!("data" => { "product" => { "name" => "W", "price" => wire } })
+        .product.price
+    end
+
+    it "reads an Integer the way a variable of it coerces" do
+      GraphWeaver.register_scalar("Money", Integer)
+
+      expect([price(5), price("5"), price(5.0)]).to eq [5, 5, 5]
+    end
+
+    it "refuses in the scalar's own vocabulary rather than Sorbet's setter" do
+      GraphWeaver.register_scalar("Money", Integer)
+
+      expect { price("abc") }
+        .to raise_error(GraphWeaver::CastError, /price: expected a Money, got "abc"/)
+      expect { price(1.5) }.to raise_error(GraphWeaver::CastError, /got 1.5 — not a whole number/)
+    end
+
+    it "reads a decimal string, wire syntax not Ruby literal syntax" do
+      GraphWeaver.register_scalar("Money", Integer)
+
+      expect(price("010")).to eq 10
+      ["0x1f", "1_0"].each { |spelling| expect { price(spelling) }.to raise_error(GraphWeaver::CastError) }
+    end
+
+    it "brands a Float, a String and a Boolean registration the same way" do
+      { Float => "float", String => "string", "T::Boolean" => "boolean" }.each do |type, fn|
+        GraphWeaver.register_scalar("Money", type)
+
+        expect(GraphWeaver::Codegen.scalar("Money").cast("v")).to eq %(GraphWeaver::Coerce.#{fn}(v, "Money"))
+      end
+    end
+
+    it "leaves a Hash or an Array registration passing through — Coerce has no rule for one" do
+      [Hash, Array].each do |type|
+        GraphWeaver.register_scalar("Money", type)
+
+        expect(GraphWeaver::Codegen.scalar("Money").cast?).to be false
+      end
+    end
+
+    it "coerces a variable of one, naming the scalar" do
+      GraphWeaver.register_scalar("Money", Integer)
+      capture = Class.new do
+        attr_reader :variables
+
+        def execute(_query, variables:, operation_name: nil)
+          @variables = variables
+          { "data" => nil, "errors" => [{ "message" => "captured" }] }
+        end
+      end.new
+      mod = GraphWeaver.parse(schema: MoneyDemo::Schema, client: capture, query:)
+
+      mod.execute(name: "W", budget: "5")
+      expect(capture.variables["budget"]).to eq 5
+      expect { mod.execute(name: "W", budget: "abc") }
+        .to raise_error(GraphWeaver::InputError, /\$budget of Store: expected a Money, got "abc"/)
+    end
+
+    # The spec guarantees the JSON type of the five it names, so they stay
+    # pass-through on the way back — no per-leaf call on the commonest fields
+    # in every response. Float is the documented exception: JSON has one
+    # number type, so a whole float arrives as an integer.
+    it "leaves the spec's own scalars strict coming back" do
+      expect(GraphWeaver::Codegen.scalar("Int").cast?).to be false
+      expect(GraphWeaver::Codegen.scalar("String").cast?).to be false
+      expect(GraphWeaver::Codegen.scalar("Boolean").cast?).to be false
+      expect(GraphWeaver::Codegen.scalar("ID").cast?).to be false
+      expect(GraphWeaver::Codegen.scalar("Float").cast("v")).to eq %(GraphWeaver::Coerce.float(v, "Float"))
     end
   end
 
@@ -794,18 +875,20 @@ describe "custom scalar deserialization" do
 
     it "shows the codec each stdlib type actually infers" do
       table = rows("Registering a stdlib type")
-      expect(table.map(&:first)).to include("BigDecimal", "Date", "Time")
+      expect(table.map(&:first)).to include("BigDecimal", "Date", "Time", "Integer", "T::Boolean")
 
-      table.each do |type, cast, serialize, requires|
-        GraphWeaver.register_scalar("Probe", Object.const_get(type))
-        scalar = GraphWeaver::Codegen.scalar("Probe")
+      table.flat_map { |type, *rest| type.split(", ").map { |one| [one, *rest] } }
+        .each do |type, cast, serialize, requires|
+          # T::Boolean is a type alias, so it is registered the way it is written
+          GraphWeaver.register_scalar("Count", type.start_with?("T::") ? type : Object.const_get(type))
+          scalar = GraphWeaver::Codegen.scalar("Count")
 
-        # an em dash is the table's "nothing here"
-        serialize, requires = [serialize, requires].map { |cell| cell unless cell == "—" }
+          # an em dash is the table's "nothing here"
+          cast, serialize, requires = [cast, serialize, requires].map { |cell| cell unless cell == "—" }
 
-        expect([scalar.cast("v"), scalar.serialize("v"), scalar.requires])
-          .to eq [cast, serialize, Array(requires)]
-      end
+          expect([scalar.cast("v"), scalar.serialize("v"), scalar.requires])
+            .to eq [cast, serialize, Array(requires)]
+        end
     end
   end
 

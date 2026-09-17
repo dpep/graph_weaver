@@ -240,7 +240,9 @@ module RoundTrip
         "2024-01-15T10:20:30Z", "2024-01-15T10:20:30+02:00", "2024-01-15T10:20:30-05:30",
         "2024-01-15T10:20:30.123Z", "2024-01-15T10:20:30.123456789Z",
       ],
-      "Integer" => [0, -1, 7, 2**63, ->(r) { r.rand(10_000) }],
+      # a scalar registered as an Integer is the server's OWN, so a decimal
+      # string is a spelling it may write — unlike the spec's Int above
+      "Integer" => [0, -1, 7, 2**63, "1", "-42", ->(r) { r.rand(10_000) }],
       # graphql-ruby writes a BigInt as a string (JSON numbers stop being
       # exact at 2^53); a JS server writes the number
       "BigInt" => ["0", "-1", "9007199254740993", 7, 2**63, ->(r) { r.rand(10_000) }],
@@ -259,7 +261,8 @@ module RoundTrip
       # a bare date, seconds omitted and ISO 8601 basic format are all
       # Time.parse's, and none is a spelling coerce_result writes
       "Time" => ["not a time", 1704067200, true, "2024-01-15", "2024-01-15T10:20Z", "20240115T102030Z"],
-      "Integer" => ["1", 1.5, true],
+      # Ruby literal syntax is not wire syntax: "0x1f" and "1_0" are refused
+      "Integer" => [1.5, true, "nine", "0x1f", "1_0", {}],
       # a decimal string is the spelling BigInt is FOR, so only these are wrong
       "BigInt" => ["1.5", "nine", 1.5, true, {}],
       "T::Boolean" => ["true", 1],

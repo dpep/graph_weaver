@@ -63,13 +63,34 @@ reach: the wire spelling (`BigDecimal#to_s` writes `"0.125e2"`, which is not wha
 any server means by 12.5) and the file to require, so the generated source stands
 alone.
 
+Taking `register_scalar("Count", <type>)` as the example:
+
 | Ruby type | cast | serialize | require |
 |---|---|---|---|
 | `BigDecimal` | `BigDecimal(v)` | `v.to_s("F")` | `bigdecimal` |
-| `Float` | `GraphWeaver::Coerce.float(v)` | — | — |
 | `Date` | `Date.iso8601(v)` | `v.strftime("%F")` | `date` |
 | `Time` | `Time.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `time` |
 | `DateTime` | `DateTime.iso8601(v)` | `GraphWeaver::Coerce.timestamp(v)` | `date` |
+| `Integer` | `GraphWeaver::Coerce.integer(v, "Count")` | — | — |
+| `Float` | `GraphWeaver::Coerce.float(v, "Count")` | — | — |
+| `String` | `GraphWeaver::Coerce.string(v, "Count")` | — | — |
+| `T::Boolean` | `GraphWeaver::Coerce.boolean(v, "Count")` | — | — |
+| `Hash`, `Array` | — | — | — |
+
+The bottom five are the types **JSON already holds**, so they write themselves —
+nothing to serialize — and naming one says the scalar *is* that Ruby type. The
+library's own rule for the class then runs in both directions, refusing in the
+scalar's name: `register_scalar("Count", Integer)` reads and writes exactly as
+`Int` coerces a variable, so `5`, `"5"` and `5.0` all arrive as `5`, while
+`"abc"`, `1.5` and `true` raise naming `Count`. `Hash` and `Array` pass through
+untouched — `Coerce` has no rule for either, and nothing else would be a rule
+rather than a guess.
+
+That is the **lenient** reading coming back, unlike the spec's own `Int`, which
+[refuses `"1"`](#coming-back--what-from_h-accepts): a compliant server writes an
+`Int` as a JSON number, but a custom scalar is the server's own and may well
+write the number as a string. The registration is you saying "make this an
+`Integer`"; refusing the garbage is what protects you.
 
 For a timestamp reach for `Time`; Ruby's own `DateTime` is accepted if you
 register it, but never assumed. All three read ISO 8601 and nothing else, which
@@ -290,6 +311,7 @@ server writing a non-integer where the spec says integer, so it is refused.
 | `DateTime`/`Time` (registered as `Time`) | ISO 8601 as `Time.iso8601` reads it: `Z` or an offset, with or without fractional seconds | a bare date, seconds omitted, basic format (`"20240115T102030Z"`), `Time.parse`'s looser forms, an epoch integer |
 | `BigInt` | the decimal string graphql-ruby writes, past 2⁵³ included; also a JSON integer | `1.5`, `"1.5"`, a non-numeric string, `true` |
 | an enum | a declared value, as a string | an undeclared value, a non-string |
+| a scalar registered as `Integer`, `Float`, `String` or `T::Boolean` | that Ruby type's rule, *leniently* — a decimal string reads as an `Integer` | what the rule refuses, naming your scalar |
 | `JSON`, or unregistered | anything — `T.untyped`, straight through | nothing |
 
 A refusal is a [`GraphWeaver::CastError`](errors.md) naming the field and the

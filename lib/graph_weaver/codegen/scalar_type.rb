@@ -56,6 +56,8 @@ class GraphWeaver::Codegen
     # is the whole rule, so key on that — a custom scalar registered as a
     # plain String gets the same check. ID is the exception GraphQL itself
     # names (see Coerce.id), matched by GraphQL name in #coercer.
+    # Read back off the wire too, where the type is one JSON already holds
+    # (see #wire_cast).
     COERCERS = {
       "Integer" => "integer",
       "Float" => "float",
@@ -83,9 +85,6 @@ class GraphWeaver::Codegen
 
     STDLIB = {
       "BigDecimal" => { serialize: [:to_s, "F"], requires: "bigdecimal" },
-      # JSON has one number type, so a whole Float arrives as `1` from every
-      # encoder that drops the trailing zero (graphql-js and Go both do)
-      "Float" => { cast: ->(expr) { "GraphWeaver::Coerce.float(#{expr})" } },
       # strftime, not #iso8601: DateTime < Date passes the is_a? guard, and its
       # #iso8601 writes a timestamp where the schema said a date goes
       "Date" => { cast: :iso8601, serialize: [:strftime, "%F"], requires: "date" },
@@ -125,7 +124,7 @@ class GraphWeaver::Codegen
         end
       @cast_given = cast unless cast == :itself
       codec = @klass && CODECS.find { |c| @klass.respond_to?(c.probe) }
-      @cast = normalize_cast(cast || known[:cast], codec&.cast || kernel_cast)
+      @cast = normalize_cast(cast || known[:cast], wire_cast || codec&.cast || kernel_cast)
       @serialize = normalize_serialize(serialize || known[:serialize], codec&.serialize)
       @serialize_value = (known[:call] if serialize.nil?) ||
         runtime_serialize(serialize || known[:serialize], codec)
@@ -237,7 +236,9 @@ class GraphWeaver::Codegen
     end
 
     # A Ruby type JSON already holds writes itself, subclasses included
-    def json_shaped? = !@klass.nil? && WIRE_CLASSES.any? { |native| @klass <= native }
+    def json_shaped?
+      wire_class?(@type) || (!@klass.nil? && WIRE_CLASSES.any? { |native| @klass <= native })
+    end
 
     def defines?(method)
       ![BasicObject, Kernel, Object].include?(@klass.instance_method(method).owner)
@@ -263,13 +264,31 @@ class GraphWeaver::Codegen
       end
     end
 
+    # `register_scalar("Count", Integer)` says the scalar IS an Integer, so the
+    # library's own rule for that class runs in both directions — the entry
+    # #coercer brands a variable with, reading the wire as well. It is the
+    # lenient reading: a custom scalar is the server's own, and may write the
+    # number as a string where the spec's `Int` may not (which is why the
+    # pre-registered Int/String/Boolean/ID opt out with `cast: :itself`).
+    # Only the wire class itself — Coerce hands back the plain type, so a
+    # subclass would land in a prop it doesn't satisfy — and only where Coerce
+    # has a rule, leaving Hash and Array passing through.
+    def wire_cast
+      return unless wire_class?(@type) && (fn = COERCERS[@type])
+
+      ->(_type, expr) { "GraphWeaver::Coerce.#{fn}(#{expr}, #{@graphql_name.inspect})" }
+    end
+
+    # T::Boolean is the pair TrueClass/FalseClass, spelled as Sorbet types it
+    def wire_class?(name) = name == "T::Boolean" || WIRE_CLASSES.any? { |native| native.name == name }
+
     # Kernel's conversion functions are how a wire value becomes one of these
     # — BigDecimal defines neither .parse nor .load, but Kernel#BigDecimal has
     # read a decimal string all along. Only for a type the wire can't already
     # be: Kernel#String and Kernel#Array wrap a value rather than convert it.
     def kernel_cast
       return unless Kernel.private_method_defined?(@type.to_sym)
-      return if WIRE_CLASSES.any? { |native| native.name == @type }
+      return if wire_class?(@type)
 
       ->(type, expr) { "#{type}(#{expr})" }
     end
@@ -405,12 +424,15 @@ class GraphWeaver::Codegen
     # Pre-registered scalars — ordinary entries in the one registry, so a
     # later register_scalar overrides any of them.
     #
-    # The five the spec names stay pass-through: their Ruby classes (String,
-    # Integer) define neither .parse nor .load, so inference matches nothing
-    # and leaves them identity — which is exactly why we can name them with
-    # the real class constants. Float is the exception, and its rule lives in
-    # STDLIB with the others, so `register_scalar "Ratio", Float` reads the
-    # wire exactly as the built-in Float does.
+    # Four of the five the spec names stay pass-through coming back —
+    # `cast: :itself` — because the spec guarantees their JSON type, so
+    # checking it would cost a call on the commonest leaves in every response
+    # and refuse nothing a compliant server sends. (Going out is another
+    # matter: a Rails param is a String whatever the sig says, so the same
+    # scalars still coerce there.) A scalar an app registers as one of those
+    # classes is the server's own, and gets the rule in both directions.
+    # Float is the exception even coming back: JSON has one number type, so
+    # `1.0` arrives as `1` from graphql-js and from Go.
     #
     # The rest are names, not guesses: graphql-ruby ships all but DateTime as
     # its own scalars, and this library runs a graphql-ruby schema in-process.
@@ -420,11 +442,11 @@ class GraphWeaver::Codegen
     # away. Date and datetime are told apart by their Ruby type — a Date cast
     # to Time would invent a midnight the server never sent.
     def register_builtin_scalars!
-      register_scalar "ID", String
-      register_scalar "String", String
-      register_scalar "Int", Integer
+      register_scalar "ID", String, cast: :itself
+      register_scalar "String", String, cast: :itself
+      register_scalar "Int", Integer, cast: :itself
       register_scalar "Float", Float
-      register_scalar "Boolean", "T::Boolean"
+      register_scalar "Boolean", "T::Boolean", cast: :itself
       register_scalar "Date", Date
       register_scalar "ISO8601Date", Date
       register_scalar "ISO8601DateTime", Time

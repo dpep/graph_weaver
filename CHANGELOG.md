@@ -51,6 +51,23 @@ what each one applies to.
   `Integer`, `Float`, `Hash` or `Array`, or a subclass) and where
   `serialize: :itself` said so. ([scalars](docs/scalars.md#registering-a-class-of-your-own))
 
+- **A scalar registered as a wire class gets that class's rule, both ways.**
+  `register_scalar("Count", Integer)` typed the prop `Integer` and then cast
+  nothing, on the reasoning that JSON already holds an `Integer` — so `from_h`
+  handed the value to the struct untouched and a `"5"` came back as a Sorbet
+  setter complaint (`Can't set …::Result.n to "5" (instance of String) - need a
+  Integer`) rather than anything naming the scalar. Naming the class now means
+  the library's own rule for it, in both directions: `Integer`, `Float`,
+  `String` and `T::Boolean` read the wire through the same `Coerce` entry that
+  already coerced a variable of them, branded with your scalar's name. `Count`
+  reads `5`, `"5"` and `5.0` all as `5`, and refuses `"abc"` with `expected a
+  Count, got "abc"`. That is the *lenient* reading: the spec's own `Int` still
+  refuses `"1"` coming back, because a compliant server writes a number, but a
+  custom scalar is the server's own and may well write a string. `Hash` and
+  `Array` pass through as before — `Coerce` has no rule for either, and
+  anything else would be a guess.
+  ([scalars](docs/scalars.md#registering-a-stdlib-type))
+
 - **`#details[:type]` is the GraphQL type for an input field nothing coerces
   too.** [i18n](docs/i18n.md) says that field is the schema's name for the type,
   and it was — except where only Sorbet stood between the value and the struct

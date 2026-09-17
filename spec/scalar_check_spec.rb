@@ -85,6 +85,17 @@ describe "GraphWeaver::Testing.check_scalars!" do
     expect { check }.to raise_error(GraphWeaver::Error, /Date: can't fabricate a Date .*Pin the type/)
   end
 
+  # A wire-class registration casts through the library's own rule for that
+  # class, and Metadata's coercers do nothing at all — so the whole loop is
+  # that rule against itself.
+  it "agrees about a scalar registered as a wire class, against a pass-through server" do
+    [Integer, Float, String, "T::Boolean"].each do |type|
+      GraphWeaver.register_scalar("Metadata", type)
+
+      expect { check }.not_to(raise_error, "expected agreement for #{type}")
+    end
+  end
+
   it "says nothing about a scalar the app never registered, or the library's own entries" do
     # Metadata is declared and unregistered; Date holds the pre-registered entry
     expect { check }.not_to raise_error
