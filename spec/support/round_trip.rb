@@ -6,6 +6,8 @@
 # The response builder follows the GraphQL spec's CollectFields /
 # ExecuteSelectionSet / CompleteValue directly rather than reusing
 # GraphWeaver::Selection, so the two never agree by construction.
+require "bigdecimal"
+
 module RoundTrip
   # A non-null field resolving to null: the error propagates up to the nearest
   # nullable position, which becomes null (spec: "Errors and Non-Nullability").
@@ -531,7 +533,15 @@ module RoundTrip
 
     def loose? = @rng.rand < 0.4
     def twice(value) = [value, value]
-    def numeric(value) = loose? ? [value.to_s, value] : twice(value)
+
+    # The ways an app really holds a number that isn't the class the sig names:
+    # a String off a form, a BigDecimal off a decimal column, a Rational out of
+    # exact arithmetic. All three have to land on the wire as the same number.
+    def numeric(value)
+      return twice(value) unless loose?
+
+      [[value.to_s, BigDecimal(value.to_s), value.to_r].sample(random: @rng), value]
+    end
     def id_from_integer = @rng.rand(1000).then { |n| [n, n.to_s] }
   end
 
@@ -771,8 +781,12 @@ module RoundTrip
     # coercers are Coerce.* and InputStruct.enum whatever the app registers,
     # so the verdict is knowable from the schema alone.
     CORRUPTIONS = {
-      "Int" => [["lots", :unparseable], [1.5, :type_mismatch], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
-      "Float" => [["lots", :unparseable], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+      # a whole BigDecimal is legal above, so only one an Int would lose is here
+      "Int" => [["lots", :unparseable], [1.5, :type_mismatch], [true, :type_mismatch],
+                [BigDecimal("2.5"), :type_mismatch], [Complex(1, 1), :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
+      # Complex is the one Numeric no number rule can mean
+      "Float" => [["lots", :unparseable], [true, :type_mismatch],
+                  [Complex(1, 1), :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
       "String" => [[7, :type_mismatch], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
       # an Integer is legal for ID (execute(id: user.id)), so it isn't here
       "ID" => [[1.5, :type_mismatch], [true, :type_mismatch], [{ "a" => 1 }, :type_mismatch]],
