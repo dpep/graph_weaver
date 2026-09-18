@@ -61,6 +61,18 @@ name your operations**: an anonymous document is named after the module in the
 emitted `QUERY` *and* in `OPERATION_NAME` — both, since a server rejects an
 `operationName` its document doesn't declare.
 
+Code that takes *any* generated module — a persisted-query manifest, a
+transport of your own — types it as `GraphWeaver::QueryModule` and reads the
+same two through `query_string` and `operation_name`, which carry sigs. That is
+the spelling rubocop-sorbet allows: `mod.const_get(:QUERY)` on a `Module` is
+`Sorbet/ConstantsFromStrings`, and the `T.unsafe` that gets around it is
+`Sorbet/ForbidTUnsafe`.
+
+```ruby
+sig { params(mod: GraphWeaver::QueryModule).returns(String) }
+def manifest_line(mod) = "#{mod.operation_name}: #{mod.query_string.bytesize} bytes"
+```
+
 A `Result` is an **ordinary Ruby object**: value `==` (with `eql?` and `hash`,
 so a result works as a hash key), `deconstruct_keys` for pattern matching,
 `#to_h`, and `#to_json`/`#as_json`. All of them go the whole way down a nested

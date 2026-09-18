@@ -7,14 +7,19 @@ require_relative "internal"
 require_relative "internal/test_clients"
 
 module GraphWeaver
-  # Called by generated code — not semver'd for direct use.
-  #
   # Runtime for generated query modules: the client plumbing, which is the
   # one part of a generated module that carries no per-query type
   # information — every module's copy was identical. `extend
   # GraphWeaver::QueryModule` supplies `client`; execute and from_response
   # stay generated, since their sigs are the query's types and those are the
   # point.
+  #
+  # It is also the type every generated module satisfies, so code that takes
+  # any of them says `GraphWeaver::QueryModule` and reads `query_string` /
+  # `operation_name` with a sig behind each — rather than `const_get(:QUERY)`
+  # on a Module, which is what rubocop-sorbet forbids (ConstantsFromStrings,
+  # and ForbidTUnsafe for the T.unsafe that gets around it). Those readers
+  # and `client` are the supported surface; the rest is generated code's.
   #
   # Resolution order, per the docs: per call → a test mode's stand-in
   # (Internal::TestClients) → the client the module's graph names →
@@ -30,6 +35,18 @@ module GraphWeaver
     sig { returns(T.untyped) }
     def client
       @client || default_client
+    end
+
+    # The operation, verbatim — what goes on the wire as `query`.
+    sig { returns(String) }
+    def query_string
+      T.unsafe(self).const_get(:QUERY)
+    end
+
+    # What goes on the wire as `operationName`; nil for an anonymous operation.
+    sig { returns(T.nilable(String)) }
+    def operation_name
+      T.unsafe(self).const_get(:OPERATION_NAME)
     end
 
     private
@@ -59,12 +76,10 @@ module GraphWeaver
       # comes through here.)
       GraphWeaver::Internal::Wire.check_variables!(variables)
 
-      mod = T.unsafe(self)
       # the graph codegen baked in, never one inferred from the client — a
       # wrong label on a request is worse than no label
       GraphWeaver::Internal::Log.with_graph(graph_name) do
-        client_for(client).execute(mod.const_get(:QUERY), variables:,
-          operation_name: mod.const_get(:OPERATION_NAME))
+        client_for(client).execute(query_string, variables:, operation_name:)
       end
     end
 

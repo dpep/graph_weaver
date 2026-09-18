@@ -1,5 +1,13 @@
 ## Unreleased
 
+- **`query_string` and `operation_name` on every generated module.** Code over
+  any generated module — a persisted-query manifest, a transport of your own —
+  had to read the constants off a `Module`, and `mod.const_get(:QUERY)` is
+  `Sorbet/ConstantsFromStrings` while `T.unsafe(mod)::QUERY` is
+  `Sorbet/ForbidTUnsafe`. A generated module is a `GraphWeaver::QueryModule`,
+  so a sig can say so, and the two readers carry sigs of their own.
+  ([generated modules](docs/generated_modules.md#anatomy))
+
 - **A routed query reads its context once.** `Testing::Router` read `#context`
   at every subgraph fetch, so a query hopping accounts → reviews → products could
   run the first hop as one user and the last as another if `router.context =`

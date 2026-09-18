@@ -29,6 +29,23 @@ describe GraphWeaver::QueryModule do
     end.new
   end
 
+  # A generated module is a GraphWeaver::QueryModule, so code over any of them
+  # can say so in a sig and read the operation through typed accessors —
+  # rubocop-sorbet forbids both `const_get(:QUERY)` and the T.unsafe around it.
+  describe "#query_string and #operation_name" do
+    it "read what the module was generated with, through a sig" do
+      mod = query_module(query: "query Named { ok }", operation: "Named")
+      manifest = Class.new do
+        extend T::Sig
+        sig { params(mod: GraphWeaver::QueryModule).returns(T::Array[T.nilable(String)]) }
+        def self.entry(mod) = [mod.operation_name, mod.query_string]
+      end
+
+      expect(manifest.entry(mod)).to eq ["Named", "query Named { ok }"]
+      expect(query_module(operation: nil).operation_name).to be_nil
+    end
+  end
+
   describe "#dispatch" do
     it "runs the module's own QUERY and OPERATION_NAME through the client" do
       client = recorder

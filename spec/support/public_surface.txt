@@ -245,6 +245,8 @@ GraphWeaver::QueryError#to_h
 GraphWeaver::QueryError::DRIFT_HINT = String
 GraphWeaver::QueryModule (Module)
 GraphWeaver::QueryModule#client
+GraphWeaver::QueryModule#operation_name
+GraphWeaver::QueryModule#query_string
 GraphWeaver::QueryValidationError (Class)
 GraphWeaver::QueryValidationError#errors
 GraphWeaver::QueryValidationError#to_h
