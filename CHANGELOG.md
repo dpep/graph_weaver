@@ -1,5 +1,12 @@
 ## Unreleased
 
+- **A routed query reads its context once.** `Testing::Router` read `#context`
+  at every subgraph fetch, so a query hopping accounts → reviews → products could
+  run the first hop as one user and the last as another if `router.context =`
+  was assigned underneath it — a thread sharing the router, a resolver reaching
+  back. It is read once per `execute` now and handed to every hop, which is
+  what `InProcess` already did.
+
 - **A `BigDecimal` in a message reads the way you wrote it.** A refusal quoted
   `inspect`, so `BigDecimal("2.5")` came back as `got 0.25e1 — not a whole
   number` and `check_scalars!`'s lossy round-trip as `sent

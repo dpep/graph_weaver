@@ -423,7 +423,9 @@ time** — answering one means setting the client's context for the length of th
 dispatch, so the identity a request asked for is the identity it gets, whatever
 else is in flight. The lock is the client's own, so it holds however the endpoint
 is mounted. A `context:` hash is served **concurrently**: nothing writes it, so
-there is nothing to serialize.
+there is nothing to serialize. Either way a query reads its context once, so
+every subgraph it hops through runs as the identity it started with, even if
+the router's context is reassigned while it is in flight.
 
 ### Making the served endpoint fail
 

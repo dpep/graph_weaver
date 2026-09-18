@@ -112,6 +112,35 @@ describe GraphWeaver::Testing::Router do
       expect(as_ada.execute("{ me { username } }").dig("data", "me", "username")).to eq "ada"
     end
 
+    # The context is read once per query, so every hop runs as the identity
+    # the query started with — even if the router's context is reassigned
+    # underneath it (a thread sharing the router, a resolver reaching back).
+    it "hands every hop the context the query started with" do
+      seen = []
+      recording = Class.new(RouterGraph::Reviews::Schema)
+      recording.define_singleton_method(:execute) do |query, **kw|
+        seen << kw[:context][:current_user_id]
+        super(query, **kw)
+      end
+      router = nil
+      swapping = Class.new(RouterGraph::Accounts::Schema)
+      swapping.define_singleton_method(:execute) do |query, **kw|
+        router.context = { current_user_id: "9" }
+        super(query, **kw)
+      end
+      router = described_class.new(
+        supergraph: RouterGraph::SUPERGRAPH,
+        subgraphs: RouterGraph::SUBGRAPHS.merge("accounts" => swapping, "reviews" => recording),
+        context: { current_user_id: "2" },
+      )
+
+      response = router.execute("{ me { username reviews { body } } }")
+
+      expect(response.dig("data", "me", "username")).to eq "ada"
+      expect(router).to have_fetched_subgraphs "accounts", "reviews"
+      expect(seen).to eq ["2"]
+    end
+
     it "plans a union, a fragment, and an alias that never leave the subgraph" do
       feed = router.execute("{ feed { ... on Review { body } ... on Announcement { headline } } }")
       expect(feed.dig("data", "feed")).to eq [{ "body" => "Love it" }, { "headline" => "New in stock" }]

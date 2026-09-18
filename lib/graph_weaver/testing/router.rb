@@ -326,11 +326,14 @@ module GraphWeaver
 
         plan = @planner.plan(document, operation_name:)
         return introspect(query, variables, plan.operation_name) if plan.introspection
+        # read once, so every hop runs as the identity the query started
+        # with, whatever writes #context= while it is in flight
+        context = Internal::Util.context!(@context)
         # one subgraph answers the whole thing: hand it the document as
         # written, so nothing is rewritten that didn't have to be
-        return fetch(plan.entry, query, variables, plan.operation_name) if plan.verbatim
+        return fetch(plan.entry, query, variables, plan.operation_name, context) if plan.verbatim
 
-        run(plan, variables)
+        run(plan, variables, context)
       end
 
       # never leak the context (tokens, current_user) through logs or errors
@@ -374,7 +377,7 @@ module GraphWeaver
 
       # ---- execution ----------------------------------------------------
 
-      def run(plan, variables)
+      def run(plan, variables, context)
         errors = []
         data = {}
         # An operation's declared defaults are part of the variables, and
@@ -384,7 +387,7 @@ module GraphWeaver
           .merge(variables.to_h { |name, value| [name.to_s, value] })
 
         plan.steps.each do |step|
-          result = fetch_step(step, plan.operation, given)
+          result = fetch_step(step, plan.operation, given, context)
           Array(result["errors"]).each { |error| errors << rewrite(error, step.subgraph) }
           payload = result["data"]
           if payload.nil?
@@ -397,7 +400,7 @@ module GraphWeaver
           end
         end
 
-        plan.steps.each { |step| stitch(step, [[data, []]], plan.operation, given, errors) }
+        plan.steps.each { |step| stitch(step, [[data, []]], plan.operation, given, context, errors) }
 
         # A stitched fetch can leave a null where the composed schema says
         # non-null, and nothing re-applies GraphQL's propagation rules over a
@@ -443,7 +446,7 @@ module GraphWeaver
       # Everything the plan applies at this level: one _entities fetch per
       # subgraph the level defers to (all nodes at once — _entities answers
       # in representation order), then the same again one level down.
-      def stitch(step, nodes, operation, variables, errors)
+      def stitch(step, nodes, operation, variables, context, errors)
         return if nodes.empty?
 
         # An abstract position: the plan holds one branch per concrete type
@@ -454,12 +457,12 @@ module GraphWeaver
         if step.is_a?(Internal::Planner::Branches)
           step.steps.each do |type_name, branch|
             stitch(branch, nodes.select { |(node, _)| node[TYPENAME] == type_name },
-              operation, variables, errors)
+              operation, variables, context, errors)
           end
           return
         end
 
-        blocked = prefetch(step, nodes, operation, variables, errors)
+        blocked = prefetch(step, nodes, operation, variables, context, errors)
 
         # A fetch for a selection the operation excluded is a fetch a real
         # router never makes, and `trace` is something specs assert on. The
@@ -478,7 +481,8 @@ module GraphWeaver
 
           entities = []
           if fetched.any?
-            result = entities_fetch(target, step.type_name, deferrals.map(&:node), representations, operation, variables)
+            result = entities_fetch(target, step.type_name, deferrals.map(&:node), representations, operation,
+              variables, context)
             entities = result.dig("data", "_entities") || []
             Array(result["errors"]).each { |error| errors << rewrite(error, target, fetched) }
           end
@@ -502,12 +506,12 @@ module GraphWeaver
           deferrals.each do |deferral|
             next unless deferral.step
 
-            stitch(deferral.step, descend(nodes, deferral.response_key), operation, variables, errors)
+            stitch(deferral.step, descend(nodes, deferral.response_key), operation, variables, context, errors)
           end
         end
 
         step.children.each do |key, child|
-          stitch(child, descend(nodes, key), operation, variables, errors)
+          stitch(child, descend(nodes, key), operation, variables, context, errors)
         end
 
         nodes.each { |(node, _)| strip!(node, step) }
@@ -517,7 +521,7 @@ module GraphWeaver
       # keys before the fetch whose representation carries them. Returns the
       # nodes the holding subgraph didn't recognize: their required fields
       # don't exist, so nothing depending on them can resolve.
-      def prefetch(step, nodes, operation, variables, errors)
+      def prefetch(step, nodes, operation, variables, context, errors)
         blocked = []
         # the field it feeds was excluded, so this is a fetch a real router
         # never makes — and a test double that runs a resolver production
@@ -533,7 +537,7 @@ module GraphWeaver
           selections = Internal::Planner.injected_selections(group.flat_map(&:paths).uniq)
           roots = selections.map(&:alias)
 
-          result = entities_fetch(subgraph, step.type_name, selections, representations, operation, variables)
+          result = entities_fetch(subgraph, step.type_name, selections, representations, operation, variables, context)
           entities = result.dig("data", "_entities") || []
           Array(result["errors"]).each { |error| errors << rewrite(error, subgraph, nodes) }
 
@@ -621,16 +625,16 @@ module GraphWeaver
         Array(path).map { |segment| segment.is_a?(String) ? segment.delete_prefix(PREFIX) : segment }
       end
 
-      def fetch_step(step, operation, variables)
+      def fetch_step(step, operation, variables, context)
         document = GraphQL::Language::Nodes::OperationDefinition.new(
           operation_type: operation.operation_type || "query",
           variables: used_variables(step.selections, operation),
           selections: step.selections,
         )
-        run_subgraph(step.subgraph, document, variables)
+        run_subgraph(step.subgraph, document, variables, context)
       end
 
-      def entities_fetch(subgraph, type_name, nodes, representations, operation, variables)
+      def entities_fetch(subgraph, type_name, nodes, representations, operation, variables, context)
         entities = GraphQL::Language::Nodes::Field.new(
           name: "_entities",
           arguments: [GraphQL::Language::Nodes::Argument.new(
@@ -647,7 +651,7 @@ module GraphWeaver
           variables: [REPRESENTATIONS_DEFINITION] + used_variables(nodes, operation),
           selections: [entities],
         )
-        run_subgraph(subgraph, document, variables.merge(REPRESENTATIONS => representations))
+        run_subgraph(subgraph, document, variables.merge(REPRESENTATIONS => representations), context)
       end
 
       REPRESENTATIONS = "representations"
@@ -682,12 +686,12 @@ module GraphWeaver
         end
       end
 
-      def run_subgraph(subgraph, document, variables)
+      def run_subgraph(subgraph, document, variables, context)
         declared = document.variables.map(&:name)
-        fetch(subgraph, document.to_query_string, variables.slice(*declared), nil)
+        fetch(subgraph, document.to_query_string, variables.slice(*declared), nil, context)
       end
 
-      def fetch(name, query, variables, operation_name)
+      def fetch(name, query, variables, operation_name, context)
         faked = @faked.include?(name)
         entry = { subgraph: name, query:, variables: variables.to_h }
         entry[:faked] = true if faked
@@ -707,8 +711,7 @@ module GraphWeaver
         end
 
         GraphWeaver::Internal::Log.log_timed(:debug, "router -> #{name} #{tag} completed") do
-          @subgraphs.fetch(name).execute(query, variables:, operation_name:,
-            context: Internal::Util.context!(@context)).to_h
+          @subgraphs.fetch(name).execute(query, variables:, operation_name:, context:).to_h
         end
       end
 
