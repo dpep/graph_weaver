@@ -921,11 +921,7 @@ class GraphWeaver::Codegen
     shared = abstract_level_fields(field.core, field.selections)
 
     if conditions.empty?
-      # abstract-level fields only — every member shares them, so one
-      # struct suffices and no __typename dispatch is needed (for a
-      # union that selection can only be __typename)
-      name = pick_name(field.key, field.taken)
-      type_ref(field.type) { object_node(field.core, field.selections, name) }
+      abstract_level_struct(field)
     elsif conditions.size == 1 && shared.empty? &&
         (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
       # a single `... on X` condition: narrow to X's struct — nil
@@ -967,6 +963,14 @@ class GraphWeaver::Codegen
       end
       type_ref(field.type) { union }
     end
+  end
+
+  # Every member carries the abstract-level fields, so one struct answers for
+  # all of them and there is nothing to dispatch on — for a union, the only
+  # selection that can get here is __typename.
+  def abstract_level_struct(field)
+    name = pick_name(field.key, field.taken)
+    type_ref(field.type) { object_node(field.core, field.selections, name) }
   end
 
   # A generated class name is only ever a name; Ruby resolves it lexically. So
