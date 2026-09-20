@@ -47,6 +47,11 @@ module GraphWeaver
       # .json.erb's sibling JS — is a blind spot, and the footer says so.
       # .rake and .builder are Ruby too.
       EXTENSIONS = %w[.rb .rake .builder .erb .slim .haml .jbuilder].freeze
+      # Ruby that carries no extension to recognise it by. In a non-Rails
+      # project the entry points live here, so skipping them skipped the
+      # files that read the query.
+      SCRIPT_DIRS = Set["bin", "exe"].freeze
+      RUBY_SHEBANG = /\A#!.*\bruby\b/
       # Directories that hold no app source. "generated" covers both a graph's
       # own output under the convention and a spec/generated fixture dir; a
       # graph that writes somewhere else is pruned by #outputs.
@@ -60,8 +65,9 @@ module GraphWeaver
       # difference between a lint and a number somebody trusts.
       FOOTER = "This is a lint, not a proof — it matches prop names as text, so a common name reads " \
         "as\nused the moment anything says it. It can't see a prop reached by public_send, or a " \
-        "read\nin a file type it doesn't sweep (#{EXTENSIONS.join(", ")}). On a real app half to " \
-        "two\nthirds of genuinely unread selections go unreported; silence is the safe direction."
+        "read\nin a file type it doesn't sweep — #{EXTENSIONS.join(", ")},\nplus Ruby with no " \
+        "extension (any name under bin/ or exe/, a ruby shebang elsewhere). On\na real app half to " \
+        "two thirds of genuinely unread selections go unreported; silence is\nthe safe direction."
 
       # query: the .graphql that selected it. struct/prop: where it landed.
       # wire: how the query spells that prop, when it differs.
@@ -244,25 +250,44 @@ module GraphWeaver
       end
 
       def files
-        @files ||= @roots.flat_map { |root| collect(root, []) }.uniq.sort
+        @files ||= @roots
+          .flat_map { |root| collect(root, [], SCRIPT_DIRS.include?(File.basename(root))) }
+          .uniq.sort
       end
 
       # Pruned as it walks rather than globbed and filtered: node_modules is
-      # the directory you most want never to descend into.
-      def collect(dir, found)
+      # the directory you most want never to descend into. scripts says we are
+      # inside bin/ or exe/, which the walk knows and a path doesn't.
+      def collect(dir, found, scripts)
         Dir.children(dir).sort.each do |entry|
           path = File.join(dir, entry)
           # lstat, so a symlinked directory can't loop the walk
           stat = File.lstat(path)
           if stat.directory?
-            collect(path, found) unless skip_dir?(entry, path)
-          elsif stat.file? && EXTENSIONS.include?(File.extname(entry))
+            collect(path, found, scripts || SCRIPT_DIRS.include?(entry)) unless skip_dir?(entry, path)
+          elsif stat.file? && ruby?(path, entry, scripts)
             found << path
           end
         end
         found
       rescue SystemCallError
         found
+      end
+
+      # An extension names most of it. A file with none is Ruby if it sits
+      # under bin/ or exe/ — that is what those directories are for — or if
+      # its first line says so.
+      def ruby?(path, entry, scripts)
+        return true if EXTENSIONS.include?(File.extname(entry))
+        return false unless File.extname(entry).empty?
+
+        scripts || shebang?(path)
+      end
+
+      def shebang?(path)
+        File.open(path) { |file| file.gets(chomp: true) }&.match?(RUBY_SHEBANG) || false
+      rescue SystemCallError, ArgumentError
+        false
       end
 
       def skip_dir?(entry, path) = entry.start_with?(".") || SKIP.include?(entry) || outputs.include?(path)

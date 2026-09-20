@@ -62,6 +62,12 @@
   graph_weaver:schema:diff asks whether the server moved)`. Same exit code;
   `GraphWeaver.check_queries` is unchanged.
 
+- **`unused` reads Ruby that carries no extension.** A non-Rails project keeps
+  its entry points in `bin/`, and the sweep skipped exactly the files that read
+  the query — so props `bin/atlas` reads were reported as never read. It now
+  sweeps any name under `bin/` or `exe/`, and a file with no extension whose
+  first line is a ruby shebang anywhere else. The footer says so.
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only

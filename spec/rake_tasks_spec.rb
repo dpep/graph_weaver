@@ -1107,6 +1107,20 @@ describe "graph_weaver rake tasks" do
       expect(result.out).not_to include "Person.name"
     end
 
+    # In a non-Rails project the entry points are in bin/ and carry no
+    # extension, so the sweep skipped exactly the files that read the query
+    # and reported every prop they read as unread.
+    it "reads Ruby with no extension — a shebang anywhere, any name under bin/" do
+      generate_query("unused_scripts", "name birthday")
+      write_app("bin/report", "puts result.person.name\n")
+      write_app("script/nightly", "#!/usr/bin/env ruby\nputs result.person.birthday\n")
+
+      result = invoke("unused")
+
+      expect(result.status).to eq 0
+      expect(result.out).not_to include "never read"
+    end
+
     # the four forms the sweep accepts, one file each — a prop read as a
     # pattern-match key is as read as one read through a method call
     it "counts a symbol, a string and a hash key as reads" do
