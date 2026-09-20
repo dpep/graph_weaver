@@ -352,7 +352,6 @@ module GraphWeaver
       def runnable(schema)
         schema if schema.is_a?(Class) && schema <= GraphQL::Schema
       end
-
     end
 
     class << self

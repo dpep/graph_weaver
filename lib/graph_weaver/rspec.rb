@@ -592,7 +592,6 @@ module GraphWeaver
           "may itself be a proc, so it can vary per request."
       end
       private_class_method :wire_context!
-
     end
   end
 end

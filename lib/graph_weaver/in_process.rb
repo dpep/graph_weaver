@@ -72,14 +72,12 @@ class GraphWeaver::InProcess
         "#{GraphWeaver::Internal::Wire.truncate_for_log(query)}"
     end
 
-    result = GraphWeaver::Internal::Log.log_timed(:debug, "in-process #{schema_label} #{tag} completed") do
+    GraphWeaver::Internal::Log.log_timed(:debug, "in-process #{schema_label} #{tag} completed") do
       # a copy per query: graphql-ruby writes a resolver's `context[...] =`
       # into the hash it is handed, and one client serves every request
       @schema.execute(query, variables:, operation_name:,
         context: GraphWeaver::Internal::Util.context!(@context).dup)
     end
-
-    result
   rescue GraphWeaver::Error
     raise
   rescue => e
