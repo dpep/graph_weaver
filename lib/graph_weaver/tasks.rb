@@ -184,7 +184,23 @@ module GraphWeaver
       # rewrites it from the graph's source, `diff` says how far that source
       # has drifted from it, whichever the source is. A graph whose schema IS
       # a live class reads no dump at all, so it has neither.
-      def self.dumps = GraphWeaver.graphs.map { |graph| [graph, graph.dump_path, graph.dump_source] }
+      #
+      # The dump's own record of where it came from first, then the client the
+      # graph's modules already call: a dump inherited with no provenance, or a
+      # schema kept by hand, still has a server behind it, and refusing one
+      # took every other graph's refresh down with it.
+      def self.dumps
+        GraphWeaver.graphs.map { |graph| [graph, graph.dump_path, graph.dump_source || graph.client_url] }
+      end
+
+      # A dump with no recorded url whose graph names no client: nothing
+      # behind the file to re-read, so the file is the schema. Said and
+      # stepped over rather than refused — the task's job is the graphs it
+      # CAN refresh.
+      def self.no_source(path)
+        "#{GraphWeaver::Internal::Util.relative(path)} records no source url and the graph names " \
+          "no client — left as checked in"
+      end
 
       # A graph that generates straight from a schema class has no dump
       # between the code and the output — so there is nothing here to
@@ -398,6 +414,9 @@ namespace :graph_weaver do
         # below and refresh! bootstraps its first dump (or says how).
         path ||= graph.named_dump_path
         next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) if !path && graph.named_schema?
+        # a supergraph has no source by construction — nothing serves one —
+        # and refresh! answers that with "recompose", which is not a skip
+        next puts GraphWeaver::Internal::Tasks.no_source(path) if path && !source && !graph.supergraph
 
         written, from = GraphWeaver::SchemaLoader.refresh!(url: (source unless source.is_a?(Module)),
           schema: (source if source.is_a?(Module)), path:)

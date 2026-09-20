@@ -523,6 +523,55 @@ describe "graph_weaver rake tasks" do
             "rake graph_weaver:schema:refresh"
       end
     end
+
+    # A dump with no provenance is what migrating off graphql-client leaves
+    # behind, and a hand-kept SDL never had any — but the graph still says
+    # where its schema lives. Refusing there exited 1 and took every other
+    # graph's refresh down with it.
+    context "when a dump records no source url" do
+      it "re-introspects it from the graph's own client" do
+        path = File.join(@root, "manual.graphql")
+        File.write(path, "type Query { a: String }")
+        stub_const("ManualClient", GraphWeaver.new("https://manual.example/graphql"))
+        GraphWeaver.graph(:manual) do
+          schema path
+          client "ManualClient"
+        end
+        allow(GraphWeaver::SchemaLoader).to receive(:refresh!)
+          .and_return([path, "https://manual.example/graphql"])
+
+        result = invoke("schema:refresh")
+
+        expect(GraphWeaver::SchemaLoader).to have_received(:refresh!)
+          .with(url: "https://manual.example/graphql", schema: nil, path:)
+        expect(result).to have_attributes(status: 0, out: <<~OUT)
+          graph :manual
+          refreshed #{path} from https://manual.example/graphql
+        OUT
+      ensure
+        GraphWeaver.reset_graphs!
+      end
+
+      it "skips a graph that names no client, refreshes the rest, and exits zero" do
+        manual = File.join(@root, "manual.graphql")
+        File.write(manual, "type Query { a: String }")
+        write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
+        api = GraphWeaver.schema_path
+        GraphWeaver.graph(:api) { schema api }
+        GraphWeaver.graph(:manual) { schema manual }
+        allow(GraphWeaver::SchemaLoader).to receive(:refresh!)
+          .and_return([api, "https://api.example.com/graphql"])
+
+        expect(invoke("schema:refresh")).to have_attributes(status: 0, out: <<~OUT)
+          graph :api
+          refreshed #{api} from https://api.example.com/graphql
+          graph :manual
+          #{manual} records no source url and the graph names no client — left as checked in
+        OUT
+      ensure
+        GraphWeaver.reset_graphs!
+      end
+    end
   end
 
   describe "graph_weaver:queries:check" do

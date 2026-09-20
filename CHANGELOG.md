@@ -37,6 +37,17 @@
   modules](docs/generated_modules.md#make-your-tooling-treat-generated-as-generated)
   now groups it with the do-not-edit header and the rubocop `Exclude`.
 
+- **`schema:refresh` and `schema:diff` use the client a graph already names.**
+  Both read each graph's source as "the url the dump recorded, else the client
+  the graph's modules call" — so a dump inherited with no provenance (what
+  migrating off graphql-client leaves behind) is re-adopted without anyone
+  having to work out `URL=`. A graph with neither is skipped by `refresh` with
+  a line saying so, rather than aborting: one such graph used to take every
+  other graph's refresh down with it, and the task now exits non-zero only when
+  a refresh it could attempt failed. The consequence to know is that a graph
+  which names a client has its dump rewritten from that client even when the
+  file was maintained by hand.
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only
