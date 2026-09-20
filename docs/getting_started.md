@@ -533,6 +533,106 @@ per-struct `extend T::Sig` in generated files is redundant — rubocop's
 time and skips the `extend`; override with `GraphWeaver.extend_t_sig =
 true`/`false`.
 
+### The types stop where your sigs do
+
+That typo is caught where the struct comes back. Hand the struct to one method
+without a sig and it is `T.untyped` from there on — the same typo, one layer in,
+is silent — and a sig on the method that produced it is no help either:
+
+```ruby
+# typed: true
+class PersonDirectory
+  extend T::Sig
+
+  sig { returns(T.nilable(PersonQuery::Result::Person)) }
+  def person = PersonQuery.execute!(id: "1").person
+end
+
+class Profile
+  def initialize(person)   # no sig, so @person is untyped
+    @person = person
+  end
+
+  def title = @person.nmae   # "No errors! Great job."
+end
+
+class Page
+  def initialize(directory)   # nor is the sig above any help here
+    @directory = directory
+  end
+
+  def title = @directory.person&.nmae   # also clean
+end
+```
+
+Every hop has to be sig'd: the method that produces the struct, any wrapper it
+passes through, and the constructor that stored the collaborator. Two shapes
+cover most of an app.
+
+A wrapper that only passes a block through keeps the block's type with
+`type_parameters`:
+
+```ruby
+# a rescue wrapper that keeps the block's type
+sig do
+  type_parameters(:T).params(blk: T.proc.returns(T.type_parameter(:T)))
+   .returns(T.type_parameter(:T))
+end
+def people(&blk) = yield
+```
+
+A service boundary spells the struct it hands out, and whoever holds that
+service types the ivar:
+
+```ruby
+class Page
+  extend T::Sig
+
+  sig { params(directory: PersonDirectory).void }
+  def initialize(directory)
+    @directory = directory   # the sig is what types this ivar
+  end
+
+  sig { returns(T.nilable(String)) }
+  def title = @directory.person&.nmae   # now srb tc has it
+end
+```
+
+That is sigs on half a dozen service methods and a couple of constructors before
+the first typo in a layered app is caught. Budget it as its own piece of work
+rather than as part of generating the types — and if it isn't work you're going
+to do, the runtime half still holds: a bad field is a `NoMethodError` the first
+time the line runs.
+
+### Give a struct a short name where you name one
+
+A generated struct's constant path spells out the query that produced it, which
+is what makes it stable — and long. Where your own code names one in a sig, alias
+it once, in the class that hands it out:
+
+```ruby
+# before
+sig { params(code: String).returns(T.nilable(Countries::CountryProfileQuery::Result::Country)) }
+
+# after
+class Directory
+  Country = Countries::CountryProfileQuery::Result::Country
+
+  sig { params(code: String).returns(T.nilable(Country)) }
+end
+```
+
+Use a plain constant, not `T.type_alias`: the constant works in a sig *and* as a
+value (`Country.from_h`), and in a `# typed: strict` file it needs no `T.let`
+around it. Reach for `T.type_alias` only where a constant can't express the type
+— a union of two queries' structs.
+
+That takes the worst sig in one migrated app from 116 characters to 72, and the
+callers get the short name too: a presenter takes a `Directory::Country` and
+stops knowing which `.graphql` file produced it. It is also what makes the sig
+chain above affordable, since a sig usually goes unwritten because the line is
+too long to want to write.
+
 ## Not Rails?
 
 There's no generator, but what it writes is short — a few lines wherever your
