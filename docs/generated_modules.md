@@ -334,6 +334,12 @@ Both spellings then cast to `Status::LegacyMode`, only the target gets a
 constant, and a variable sends the target — see
 [scalars.md](scalars.md#two-spellings-one-value).
 
+A value the *server* adds after you generate is drift, and casting it raises by
+default. `register_enum("Species", fallback: true)` gives the generated enum one
+extra member, `Other`, that every undeclared wire value casts to — the same
+catch-all an abstract type's dispatch always carries. A variable can't send it;
+see [scalars.md](scalars.md#values-the-server-hasnt-told-you-about-yet).
+
 `register_enum` replaces the generated `T::Enum` with your own app enum — see
 [scalars.md](scalars.md#enums-map-onto-your-own-tenum). Dynamic `parse` emits the
 enums into the query module itself; there's no cross-query set to share against,

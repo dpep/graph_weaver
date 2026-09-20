@@ -505,12 +505,47 @@ Two safety properties do the real work:
 - **`fallback:` for forward-compat**: `fallback: PetKind::Unknown` makes *casting*
   absorb wire values the server added after you generated, so responses keep
   flowing instead of raising. Inputs stay strict either way: a typo'd input is your
-  bug, not drift. A union or interface absorbs the same drift with no registration
-  — a member added upstream lands in the catch-all `Other` its dispatch always
-  carries ([generated modules](generated_modules.md#abstract-types)).
+  bug, not drift. You don't need an enum of your own for that:
+  `GraphWeaver.register_enum("Species", fallback: true)` gives the *generated* enum
+  the same forward-compat, [below](#values-the-server-hasnt-told-you-about-yet).
 
 The translation tables are emitted into the generated source (`SPECIES_FROM_WIRE` /
 `SPECIES_TO_WIRE`) — reviewable in the diff, no runtime registry.
+
+### Values the server hasn't told you about yet
+
+A server adding an enum value is a deploy you weren't part of, and by default the
+next response carrying it raises. `fallback: true` says take it anyway:
+
+```ruby
+GraphWeaver.register_enum("Species", fallback: true)
+```
+
+The generated `Species` gains one member, `Other`, and every wire value the schema
+doesn't declare casts to it — the leniency a union or interface already has for
+free, where a member added upstream lands in the catch-all `Other` its dispatch
+always carries ([generated modules](generated_modules.md#abstract-types)).
+
+```ruby
+pet.species                    # => GraphQLTypes::Species::Other, for "AXOLOTL"
+```
+
+Three things follow from that, and they are the whole rule:
+
+- **`Other` doesn't carry the value it absorbed.** A `T::Enum` member is a
+  singleton, so there is nowhere to put it; the cast writes one debug line
+  (`GraphQLTypes::Species absorbed "AXOLOTL" into Other`) and that is the record
+  — so a presenter humanising the server's spelling can't, and falls back to a
+  label of its own.
+- **Inputs stay strict.** No wire value means `Other`, so a variable carrying it
+  is refused rather than sent. Everything else is unchanged: a typo'd input is
+  your bug, not drift.
+- **Generation refuses a schema that already declares `OTHER`** — the member the
+  server sent and the one it didn't would be the same constant. Map that enum onto
+  one of yours and name the fallback there.
+
+It rides along with `alias:` on the one registration, and like every registration
+it belongs to one graph.
 
 ### Two spellings, one value
 
