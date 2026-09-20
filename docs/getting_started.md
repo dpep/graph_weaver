@@ -6,6 +6,8 @@ Follow it once when you add the gem to an app. Rails is assumed;
 [not Rails?](#not-rails) covers the differences. Exploring an API from a console
 instead? Start with [dynamic mode](real_world.md) — no build step. No Sorbet in
 your app? None needed — [Sorbet, with or without](#sorbet-with-or-without).
+Already have a GraphQL client? [Migrating](migrating.md) is the order to move
+off it in.
 
 ## 1. Install
 
