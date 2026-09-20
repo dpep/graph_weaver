@@ -170,6 +170,30 @@ module GraphWeaver
         }.filter_map { |kind, names| "  #{kind}: #{names.sort.join(", ")}" if names.any? }
       end
 
+      # What `queries:check` just answered. It re-introspects the url a dump
+      # records and asks a live class directly; anything else it checks as it
+      # stands on disk, which is `verify`'s question — and both exited 0
+      # saying "against the schema".
+      def self.validated
+        dumps = GraphWeaver.graphs.filter_map { |graph| as_committed(graph) }
+        return "every query validates against the schema" if dumps.empty?
+
+        "every query validates against #{dumps.join(", ")} as committed — not the server " \
+          "(rake graph_weaver:schema:diff asks whether the server moved)"
+      end
+
+      # A graph whose queries were checked against the file rather than the
+      # server: a graph that names its own schema is checked against exactly
+      # that, and a dump with no recorded url has nothing to re-read.
+      def self.as_committed(graph)
+        path = graph.dump_path
+        return unless path && graph.live_schema.nil?
+        return if !graph.named_schema? && GraphWeaver::SchemaLoader.provenance(path)&.key?("url")
+
+        GraphWeaver::Internal::Util.relative(path)
+      end
+      private_class_method :as_committed
+
       # Neither task that needs the committed dump can take one itself, so both
       # say which task can — the same sentence SchemaLoader gives on refresh.
       def self.no_dump
@@ -456,7 +480,7 @@ namespace :graph_weaver do
       # block-buffered stdout, so a piped CI log shows the verdict first
       $stdout.flush
       abort "#{failures.size} invalid #{(failures.size == 1) ? "query" : "queries"}" if failures.any?
-      puts "every query validates against the schema"
+      puts GraphWeaver::Internal::Tasks.validated
     end
   end
 

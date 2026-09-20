@@ -53,6 +53,15 @@
   a library keyword, to someone who had typed a rake task. Both tasks now give
   `schema:refresh`'s sentence: the `URL=` form, and the graph's client.
 
+- **`queries:check` says which schema it validated against.** It re-introspects
+  the url a dump records and asks a live class directly, but a dump with
+  neither — and any dump a graph names itself — is checked as it stands on
+  disk. That is `verify`'s question, and both answers read `every query
+  validates against the schema`. The second now reads `every query validates
+  against db/petstore_schema.json as committed — not the server (rake
+  graph_weaver:schema:diff asks whether the server moved)`. Same exit code;
+  `GraphWeaver.check_queries` is unchanged.
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only

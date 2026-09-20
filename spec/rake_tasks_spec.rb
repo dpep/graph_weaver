@@ -636,6 +636,43 @@ describe "graph_weaver rake tasks" do
       expect(invoke("queries:check"))
         .to have_attributes(status: 0, out: "every query validates against the schema\n", err: "")
     end
+
+    # The task re-introspects the url a dump records. With none recorded and
+    # no live class there is nothing to re-read, so it checks the file as
+    # committed — a real check, but `verify`'s question, and it exited 0 in
+    # the same words as the check against the server.
+    it "names the dump when the file is all it could check against" do
+      write_schema
+      allow(GraphWeaver).to receive(:check_queries).and_return({})
+
+      expect(invoke("queries:check")).to have_attributes(status: 0, out: <<~OUT)
+        every query validates against #{GraphWeaver.schema_path} as committed — not the server (rake graph_weaver:schema:diff asks whether the server moved)
+      OUT
+    end
+
+    # a graph that names its own schema is checked against exactly that,
+    # whatever the file records — so the verdict names it too
+    it "names a graph's own dump, which is never re-introspected" do
+      write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
+      path = GraphWeaver.schema_path
+      GraphWeaver.graph(:api) { schema path }
+      allow(GraphWeaver).to receive(:check_queries).and_return({})
+
+      expect(invoke("queries:check").out)
+        .to eq "every query validates against #{path} as committed — not the server " \
+          "(rake graph_weaver:schema:diff asks whether the server moved)\n"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    # the dump records where it came from, so the task re-introspected it —
+    # this is the check the sentence has always claimed
+    it "says nothing extra when the dump records a source url" do
+      write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
+      allow(GraphWeaver).to receive(:check_queries).and_return({})
+
+      expect(invoke("queries:check").out).to eq "every query validates against the schema\n"
+    end
   end
 
   describe "graph_weaver:federation:diff" do
