@@ -137,12 +137,6 @@ class GraphWeaver::Testing::FakeClient
     null_chance: nil, errors: nil, fail_at: nil, corrupt: nil,
   }.freeze
 
-  # JSON's own types are already on the wire: at a leaf they skip the
-  # registry's serializer (Values#wire), and at a composite position (a Hash
-  # aside, which is response keys) they pin the field as written — nil is
-  # null, the rest is the corrupt payload the example asked for.
-  WIRE = GraphWeaver::Internal::Values::WIRE
-
   # Methods every Ruby object answers aren't fields: a schema does have a
   # `hash` or a `count`, and a Struct answers both with plausible nonsense
   # where fabricating is right.
@@ -151,7 +145,7 @@ class GraphWeaver::Testing::FakeClient
   # The scalars the GraphQL spec serializes as JSON strings, whatever Ruby
   # holds them.
   STRING_SCALARS = %w[ID String].freeze
-  private_constant :OPTIONS, :WIRE, :RUBY_OWN, :STRING_SCALARS
+  private_constant :OPTIONS, :RUBY_OWN, :STRING_SCALARS
 
   def initialize(pins = {}, **options)
     config = GraphWeaver::Testing.config
@@ -467,7 +461,9 @@ class GraphWeaver::Testing::FakeClient
   # reads them off — a FactoryBot build, a model, a Struct. Either way it
   # MERGES: what it doesn't answer is fabricated.
   def pinned_object(type, selections, value, source)
-    return value if !value.is_a?(Hash) && wire?(value)
+    # what JSON already holds is the pin as written — nil is null, and the rest
+    # is the corrupt payload the example asked for (a Hash is response keys)
+    return value if !value.is_a?(Hash) && GraphWeaver::Internal::Values.wire?(value)
 
     concrete = pinned_type(type, value, source)
     pins = value.is_a?(Hash) ? value : read_fields(concrete, selections, value)
@@ -496,8 +492,6 @@ class GraphWeaver::Testing::FakeClient
   def reader?(object, name)
     object.respond_to?(name) && !RUBY_OWN.include?(object.method(name).owner)
   end
-
-  def wire?(value) = WIRE.any? { |klass| value.is_a?(klass) }
 
   # An object pin holds Ruby values — a Time, a Money, a T::Enum — where the
   # wire holds what the registration says they serialize to. A value that

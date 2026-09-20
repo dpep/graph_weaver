@@ -57,6 +57,11 @@ class GraphWeaver::Internal::Values
   # registration says the server writes "12.5".
   WIRE = [NilClass, TrueClass, FalseClass, Integer, Float, String, Symbol, Array, Hash].freeze
 
+  # Whether a value is already one of those. At a leaf it means the registry's
+  # serializer has nothing to do; at a composite position (FakeClient) it means
+  # the pin stands as written.
+  def self.wire?(value) = WIRE.any? { |klass| value.is_a?(klass) }
+
   # The fallback, for a scalar nobody registered: its prop is T.untyped, so
   # anything holds and a plausible shape beats a placeholder.
   NAMED_SHAPES = {
@@ -146,10 +151,10 @@ class GraphWeaver::Internal::Values
   # as written. Shared with the object-pin door, so both read a pin the same
   # way.
   def wire(type_name, value, coordinate = nil)
-    return value if WIRE.any? { |klass| value.is_a?(klass) }
+    return value if self.class.wire?(value)
 
     serialized = @registry.scalar(type_name, coordinate).serialize_value(value)
-    return serialized if WIRE.any? { |klass| serialized.is_a?(klass) }
+    return serialized if self.class.wire?(serialized)
 
     article = GraphWeaver::Internal::Util.article(value.class.to_s)
     raise GraphWeaver::Error, "the pin for #{type_name.inspect} is #{article} #{value.class}, and a pin " \
