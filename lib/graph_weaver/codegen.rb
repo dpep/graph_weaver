@@ -875,56 +875,9 @@ class GraphWeaver::Codegen
           name = pick_name(key, taken)
           type_ref(field_type) { object_node(core, sub_selections, name) }
         when "UNION", "INTERFACE"
-          conditions = concrete_conditions(core, sub_selections)
-          shared = abstract_level_fields(core, sub_selections)
-
-          if conditions.empty?
-            # abstract-level fields only — every member shares them, so one
-            # struct suffices and no __typename dispatch is needed (for a
-            # union that selection can only be __typename)
-            name = pick_name(key, taken)
-            type_ref(field_type) { object_node(core, sub_selections, name) }
-          elsif conditions.size == 1 && shared.empty? &&
-              (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
-            # a single `... on X` condition: narrow to X's struct — nil
-            # when the runtime type doesn't match (narrowing filters).
-            # With `__typename` selected the match is read off the tag;
-            # without one there is nothing to read but emptiness, and a
-            # fragment whose every field hides behind @skip/@include would
-            # make a real match indistinguishable from a miss ({} either
-            # way) — refuse rather than guess.
-            tag = member.graphql_name if dispatchable_typename?(core, sub_selections)
-            unless tag || unconditional_field?(member, sub_selections)
-              raise GraphWeaver::Error,
-                "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
-                "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
-                "makes a match indistinguishable from nil"
-            end
-
-            name = pick_name(key, taken)
-            nilable_type_ref(field_type) { NarrowedNode.new(object_node(member, sub_selections, name), typename: tag) }
-          elsif @types_namespace && (frag = lone_shared_spread(sub_selections)) &&
-              @hoistable_unions.include?(frag)
-            # a whole-union field spread as a named shared fragment: hoist to
-            # the shared types module so the same union across queries is one
-            # Ruby type family (one exhaustive `case ... T.absurd`).
-            @used_unions << frag unless @used_unions.include?(frag)
-            ref = UnionRefNode.new(camelize(frag))
-            type_ref(field_type) { ref }
-          else
-            members = union_members(core, sub_selections)
-            catch_all = catch_all_member(core, sub_selections, members)
-            # reuse an identical sibling union — the shared type takes the
-            # first of the sharing keys alphabetically, not in walk order
-            signature = union_signature(members, catch_all)
-            union = union_cache[signature]
-            if union
-              rename_union(union, key, taken) if camelize(key) < union.class_name
-            else
-              union = union_cache[signature] = UnionNode.new(pick_name(key, taken), members, catch_all)
-            end
-            type_ref(field_type) { union }
-          end
+          abstract_field(AbstractField.new(
+            type: field_type, selections: sub_selections, key:, taken:, union_cache:,
+          ))
         when "ENUM"
           # one schema enum is one Ruby type: module-level, named for the enum,
           # shared by every result field and variable that reaches it (and, on
@@ -951,6 +904,69 @@ class GraphWeaver::Codegen
 
     node.aliases = resolve_aliases(node)
     node
+  end
+
+  # An abstract-typed (union or interface) field: what was selected through it,
+  # and the two ledgers the struct being built keeps — the names already claimed
+  # in its scope, and the unions it has already emitted.
+  AbstractField = Data.define(:type, :selections, :key, :taken, :union_cache) do
+    def core = type.unwrap
+  end
+  private_constant :AbstractField
+
+  # Which of four shapes an abstract-typed field generates. The selection
+  # decides, not the schema: what it narrows to, and how it was spread.
+  def abstract_field(field)
+    conditions = concrete_conditions(field.core, field.selections)
+    shared = abstract_level_fields(field.core, field.selections)
+
+    if conditions.empty?
+      # abstract-level fields only — every member shares them, so one
+      # struct suffices and no __typename dispatch is needed (for a
+      # union that selection can only be __typename)
+      name = pick_name(field.key, field.taken)
+      type_ref(field.type) { object_node(field.core, field.selections, name) }
+    elsif conditions.size == 1 && shared.empty? &&
+        (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
+      # a single `... on X` condition: narrow to X's struct — nil
+      # when the runtime type doesn't match (narrowing filters).
+      # With `__typename` selected the match is read off the tag;
+      # without one there is nothing to read but emptiness, and a
+      # fragment whose every field hides behind @skip/@include would
+      # make a real match indistinguishable from a miss ({} either
+      # way) — refuse rather than guess.
+      tag = member.graphql_name if dispatchable_typename?(field.core, field.selections)
+      unless tag || unconditional_field?(member, field.selections)
+        raise GraphWeaver::Error,
+          "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
+          "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
+          "makes a match indistinguishable from nil"
+      end
+
+      name = pick_name(field.key, field.taken)
+      nilable_type_ref(field.type) { NarrowedNode.new(object_node(member, field.selections, name), typename: tag) }
+    elsif @types_namespace && (frag = lone_shared_spread(field.selections)) &&
+        @hoistable_unions.include?(frag)
+      # a whole-union field spread as a named shared fragment: hoist to
+      # the shared types module so the same union across queries is one
+      # Ruby type family (one exhaustive `case ... T.absurd`).
+      @used_unions << frag unless @used_unions.include?(frag)
+      ref = UnionRefNode.new(camelize(frag))
+      type_ref(field.type) { ref }
+    else
+      members = union_members(field.core, field.selections)
+      catch_all = catch_all_member(field.core, field.selections, members)
+      # reuse an identical sibling union — the shared type takes the
+      # first of the sharing keys alphabetically, not in walk order
+      signature = union_signature(members, catch_all)
+      union = field.union_cache[signature]
+      if union
+        rename_union(union, field.key, field.taken) if camelize(field.key) < union.class_name
+      else
+        union = field.union_cache[signature] = UnionNode.new(pick_name(field.key, field.taken), members, catch_all)
+      end
+      type_ref(field.type) { union }
+    end
   end
 
   # A generated class name is only ever a name; Ruby resolves it lexically. So
