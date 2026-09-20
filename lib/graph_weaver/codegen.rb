@@ -924,23 +924,7 @@ class GraphWeaver::Codegen
       abstract_level_struct(field)
     elsif conditions.size == 1 && shared.empty? &&
         (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
-      # a single `... on X` condition: narrow to X's struct — nil
-      # when the runtime type doesn't match (narrowing filters).
-      # With `__typename` selected the match is read off the tag;
-      # without one there is nothing to read but emptiness, and a
-      # fragment whose every field hides behind @skip/@include would
-      # make a real match indistinguishable from a miss ({} either
-      # way) — refuse rather than guess.
-      tag = member.graphql_name if dispatchable_typename?(field.core, field.selections)
-      unless tag || unconditional_field?(member, field.selections)
-        raise GraphWeaver::Error,
-          "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
-          "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
-          "makes a match indistinguishable from nil"
-      end
-
-      name = pick_name(field.key, field.taken)
-      nilable_type_ref(field.type) { NarrowedNode.new(object_node(member, field.selections, name), typename: tag) }
+      narrowed_struct(field, member)
     elsif @types_namespace && (frag = lone_shared_spread(field.selections)) &&
         @hoistable_unions.include?(frag)
       # a whole-union field spread as a named shared fragment: hoist to
@@ -971,6 +955,25 @@ class GraphWeaver::Codegen
   def abstract_level_struct(field)
     name = pick_name(field.key, field.taken)
     type_ref(field.type) { object_node(field.core, field.selections, name) }
+  end
+
+  # Narrowing to the one member a `... on X` names filters: the field is nil
+  # whenever the runtime type doesn't match. With `__typename` selected the
+  # match is read off the tag; without one there is nothing to read but
+  # emptiness, and a fragment whose every field hides behind @skip/@include
+  # would make a real match indistinguishable from a miss ({} either way) —
+  # refuse rather than guess.
+  def narrowed_struct(field, member)
+    tag = member.graphql_name if dispatchable_typename?(field.core, field.selections)
+    unless tag || unconditional_field?(member, field.selections)
+      raise GraphWeaver::Error,
+        "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
+        "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
+        "makes a match indistinguishable from nil"
+    end
+
+    name = pick_name(field.key, field.taken)
+    nilable_type_ref(field.type) { NarrowedNode.new(object_node(member, field.selections, name), typename: tag) }
   end
 
   # A generated class name is only ever a name; Ruby resolves it lexically. So
