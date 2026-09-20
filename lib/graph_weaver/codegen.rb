@@ -927,12 +927,7 @@ class GraphWeaver::Codegen
       narrowed_struct(field, member)
     elsif @types_namespace && (frag = lone_shared_spread(field.selections)) &&
         @hoistable_unions.include?(frag)
-      # a whole-union field spread as a named shared fragment: hoist to
-      # the shared types module so the same union across queries is one
-      # Ruby type family (one exhaustive `case ... T.absurd`).
-      @used_unions << frag unless @used_unions.include?(frag)
-      ref = UnionRefNode.new(camelize(frag))
-      type_ref(field.type) { ref }
+      hoisted_union_ref(field, frag)
     else
       members = union_members(field.core, field.selections)
       catch_all = catch_all_member(field.core, field.selections, members)
@@ -974,6 +969,15 @@ class GraphWeaver::Codegen
 
     name = pick_name(field.key, field.taken)
     nilable_type_ref(field.type) { NarrowedNode.new(object_node(member, field.selections, name), typename: tag) }
+  end
+
+  # A whole-union field spread as a named shared fragment points at the union
+  # hoisted into the shared types module, so the same union across queries is
+  # one Ruby type family (one exhaustive `case ... T.absurd`).
+  def hoisted_union_ref(field, frag)
+    @used_unions << frag unless @used_unions.include?(frag)
+    ref = UnionRefNode.new(camelize(frag))
+    type_ref(field.type) { ref }
   end
 
   # A generated class name is only ever a name; Ruby resolves it lexically. So
