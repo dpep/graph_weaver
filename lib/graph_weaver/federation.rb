@@ -341,15 +341,10 @@ module GraphWeaver
           *@skipped.sort.map { |name, what| "  #{name} (#{evidence(what)})" }]
       end
 
-      # how many coordinates the report names before it says "and N more"
-      SAMPLE = 5
-      private_constant :SAMPLE
-
       def evidence(coordinates)
         return "the supergraph attributes nothing to it alone" if coordinates.empty?
-        return coordinates.join(", ") if coordinates.size <= SAMPLE
 
-        "#{coordinates.first(SAMPLE).join(", ")} and #{coordinates.size - SAMPLE} more"
+        Internal::Util.sample(coordinates)
       end
 
       def faked_section

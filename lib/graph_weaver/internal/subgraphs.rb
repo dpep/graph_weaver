@@ -34,9 +34,6 @@ module GraphWeaver
     # goes through the same check *and refuses at construction* — a swapped
     # pair fails there rather than as a mystery three fetches later.
     module Subgraphs
-      # how many coordinates a message names before it says "and N more"
-      SAMPLE = 5
-
       # answer this subgraph with fabricated data rather than refusing
       FAKE = :fake
 
@@ -117,14 +114,8 @@ module GraphWeaver
           return schema if gaps.empty?
 
           raise GraphWeaver::ConfigurationError, "subgraphs[#{name.inspect}] is " \
-            "#{schema.name || schema.inspect}, which doesn't define #{sample(gaps)} — the supergraph " \
+            "#{schema.name || schema.inspect}, which doesn't define #{Util.sample(gaps)} — the supergraph " \
             "says #{name} resolves them. Did two entries get swapped?"
-        end
-
-        def sample(list)
-          return list.join(", ") if list.size <= SAMPLE
-
-          "#{list.first(SAMPLE).join(", ")} and #{list.size - SAMPLE} more"
         end
       end
     end

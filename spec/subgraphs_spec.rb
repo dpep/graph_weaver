@@ -71,7 +71,9 @@ describe GraphWeaver::Internal::Subgraphs do
   it "names an entry the caller got wrong rather than letting it run" do
     expect {
       described_class.resolve(table, RouterGraph::SUBGRAPHS.merge("reviews" => RouterGraph::Accounts::Schema))
-    }.to raise_error(GraphWeaver::ConfigurationError, /\Asubgraphs\["reviews"\] is RouterGraph::Accounts::Schema, which doesn't define Announcement/)
+    }.to raise_error(GraphWeaver::ConfigurationError, 'subgraphs["reviews"] is RouterGraph::Accounts::Schema, ' \
+      "which doesn't define Announcement, Dimensions, FeedItem, Listing, Listing.shelfCode and 15 more — " \
+      "the supergraph says reviews resolves them. Did two entries get swapped?")
   end
 
   # graphql-ruby builds anonymous schemas from SDL — the router's own view of

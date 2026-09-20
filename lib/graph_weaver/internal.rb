@@ -50,6 +50,18 @@ module GraphWeaver
         # "a" or "an" for a word an error message is about to name.
         def article(word) = word.downcase.start_with?(/[aeiou]/) ? "an" : "a"
 
+        # how many entries a message names before it says "and N more"
+        SAMPLE = 5
+        private_constant :SAMPLE
+
+        # A list a message names inline, held to a readable length — a wall
+        # of schema coordinates says less than the first few and a count.
+        def sample(list)
+          return list.join(", ") if list.size <= SAMPLE
+
+          "#{list.first(SAMPLE).join(", ")} and #{list.size - SAMPLE} more"
+        end
+
         # The module a .graphql file generates, and the basename of the file
         # it generates into: the camelized file name plus the operation's own
         # word. Every run of non-alphanumerics in the name is a word boundary,

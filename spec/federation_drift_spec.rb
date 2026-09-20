@@ -168,6 +168,15 @@ describe GraphWeaver::Federation::Drift do
     expect(result.report).to include "  depots (Depot, Query.depot, Depot.id, Depot.location)"
   end
 
+  # Every coordinate a subgraph resolves alone is a wall rather than a
+  # report, so the evidence stops at the first few and a count.
+  it "holds a long evidence list to its first few and a count" do
+    result = drift(source: RouterGraph::SUPERGRAPH)
+
+    expect(result.report)
+      .to include "  accounts (Query.directory, Query.me, Query.user, Query.users, User.email and 1 more)"
+  end
+
   # An entity two subgraphs extend says nothing about which of them a schema
   # is. Taking the shared type as evidence matched the absent subgraph to its
   # neighbour and reported the fields only the absent one resolves as stale —
