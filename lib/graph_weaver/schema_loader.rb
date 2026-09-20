@@ -887,9 +887,10 @@ module GraphWeaver::SchemaLoader
     return recompose_hint(path) if composed_dump?(path)
 
     missing = path ? "#{path} records no source url" : "no schema dump at #{GraphWeaver.schema_path}"
-    "#{missing} — pass one: rake graph_weaver:schema:refresh URL=https://api.example.com/graphql " \
-      "(if this app serves the schema itself, point GraphWeaver.client at the class and the dump is " \
-      "rebuilt from it — see docs/getting_started.md#your-apps-own-schema-in-process)"
+    "#{missing} — pass one: rake graph_weaver:schema:refresh " \
+      "URL=https://api.example.com/graphql, or point the graph's client at the server — an app " \
+      "that serves the schema itself points GraphWeaver.client at the class and the dump is built " \
+      "from that (docs/getting_started.md#your-apps-own-schema-in-process)"
   end
   private_class_method :refresh_hint
 
@@ -922,11 +923,9 @@ module GraphWeaver::SchemaLoader
   # ends up honoured in some places and not others.
   def self.source_transport(path)
     meta = provenance(path)
-    unless meta&.key?("url")
-      raise GraphWeaver::Error,
-        "#{path} records no source url — it wasn't introspected from one. Pass transport:, " \
-        "or rebuild it from the schema class that produced it."
-    end
+    # the same sentence refresh! gives: this is reached by typing a rake task
+    # (schema:diff), and `transport:` is not something a rake user can pass
+    raise GraphWeaver::Error, refresh_hint(path) unless meta&.key?("url")
 
     GraphWeaver.new(meta["url"], auth: ENV[auth_env(path)]).transport
   end

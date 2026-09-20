@@ -353,15 +353,38 @@ describe "graph_weaver rake tasks" do
     end
 
     # a dump with no recorded url can't be re-introspected — a clean abort,
-    # not a backtrace out of the transport
-    it "reports a dump it can't re-fetch as a message, not a crash" do
+    # not a backtrace out of the transport. The sentence is the one
+    # SchemaLoader.refresh! gives: this state is reached by typing a rake
+    # task, and `transport:` is not something a rake user can pass.
+    it "reports a dump it can't re-fetch in the words refresh uses" do
       write_schema
 
       result = invoke("schema:diff")
 
       expect(result.status).to eq 1
-      expect(result.err).to include "records no source url"
       expect(result.err.lines.size).to eq 1
+      expect(result.err).to eq "#{GraphWeaver.schema_path} records no source url — pass one: " \
+        "rake graph_weaver:schema:refresh URL=https://api.example.com/graphql, or point the " \
+        "graph's client at the server — an app that serves the schema itself points " \
+        "GraphWeaver.client at the class and the dump is built from that " \
+        "(docs/getting_started.md#your-apps-own-schema-in-process)\n"
+    end
+
+    # An inherited dump (graphql-client left no provenance) records nothing,
+    # but the graph still names the server its modules call — and that server
+    # is what this task is about.
+    it "compares against the graph's client when the dump records no url" do
+      write_schema("type Query { a: String }")
+      GraphWeaver.client = GraphWeaver.new("https://api.example.com/graphql")
+      allow(GraphWeaver::SchemaLoader).to receive(:introspect)
+        .and_return(GraphQL::Schema.from_definition("type Query { a: String b: Int }"))
+
+      result = invoke("schema:diff")
+
+      expect(result.status).to eq 1
+      expect(result.out).to include "vs https://api.example.com/graphql", "Query.b  added: Int"
+    ensure
+      GraphWeaver.client = nil
     end
 
     # An app that serves its own schema has a source behind its dump too —

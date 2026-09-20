@@ -218,6 +218,19 @@ module GraphWeaver
         "#{whose} generates from #{source_name(source)} directly — no dump to keep in step"
       end
 
+      # What `diff` re-introspects for one graph. A schema class answers
+      # introspection itself. A url the dump recorded is left to
+      # SchemaLoader.diff, which builds the transport and so honours the
+      # auth_env the dump named. A source that came from the graph's client
+      # instead is that client's own transport — headers, auth and all.
+      def self.diff_transport(graph, source)
+        return source if source.is_a?(Module)
+        return if graph.dump_source
+
+        client = graph.client || GraphWeaver.client
+        client.respond_to?(:transport) ? client.transport : client
+      end
+
       # How a dump's source reads in a report: a url as itself, a schema
       # class by name.
       def self.source_name(source) = source.is_a?(Module) ? GraphWeaver::SchemaLoader.endpoint(source) : source
@@ -366,9 +379,8 @@ namespace :graph_weaver do
         # dump between the code and the output, so nothing can be stale
         next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) unless path
 
-        # a schema class answers introspection itself; left nil, diff builds
-        # the dump's own transport, auth and all
-        diff = GraphWeaver::SchemaLoader.diff(path, transport: (source if source.is_a?(Module)))
+        diff = GraphWeaver::SchemaLoader.diff(path,
+          transport: GraphWeaver::Internal::Tasks.diff_transport(graph, source))
         dump = GraphWeaver::Internal::Util.relative(path)
         next puts "#{dump} matches #{GraphWeaver::Internal::Tasks.source_name(source)}" if diff.empty?
 

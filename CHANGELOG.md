@@ -48,6 +48,11 @@
   which names a client has its dump rewritten from that client even when the
   file was maintained by hand.
 
+- **One sentence for a dump that records no source url.** `schema:diff` said
+  "Pass `transport:`, or rebuild it from the schema class that produced it" —
+  a library keyword, to someone who had typed a rake task. Both tasks now give
+  `schema:refresh`'s sentence: the `URL=` form, and the graph's client.
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only

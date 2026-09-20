@@ -434,7 +434,7 @@ describe GraphWeaver::SchemaLoader do
         described_class.diff(path)
       }.to raise_error(
         GraphWeaver::Error,
-        /records no source url — it wasn't introspected from one\. Pass transport:, or rebuild it from the schema class/,
+        /records no source url — pass one: rake graph_weaver:schema:refresh URL=/,
       )
     end
 
