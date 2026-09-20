@@ -1,5 +1,10 @@
 ## Unreleased
 
+- **A coercion refusal's article reads the letter, not the case.** A schema
+  that spells its scalars lowercase — Hasura's `int8`, a
+  `register_scalar("uuid", …)` — got `expected a int8` here and `an int8`
+  everywhere else the gem names a type. One helper answers both now.
+
 - **`query_string` and `operation_name` on every generated module.** Code over
   any generated module — a persisted-query manifest, a transport of your own —
   had to read the constants off a `Module`, and `mod.const_get(:QUERY)` is

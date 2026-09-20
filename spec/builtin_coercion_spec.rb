@@ -198,6 +198,13 @@ describe "built-in scalar coercion" do
     end
   end
 
+  # a Hasura or Postgres-backed schema spells its scalars lowercase, and the
+  # article is the letter's business, not the case's
+  it "reads the article off a lowercase scalar name" do
+    expect(refused { GraphWeaver::Coerce.integer(2.5, "int8") }.message)
+      .to start_with "$v: expected an int8, got 2.5 — not a whole number"
+  end
+
   # the same rules called with no name to use: each one is named for the
   # GraphQL scalar it implements, which is the honest default
   it "names the scalar it is the rule for when the caller gives none" do

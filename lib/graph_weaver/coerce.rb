@@ -255,7 +255,7 @@ module GraphWeaver
 
       # the article by the initial, so a registered Ruby class ("an Integer")
       # reads as well as the scalars ("an Int", "an ID", "a Date")
-      def expected(scalar) = "expected #{scalar.start_with?(/[AEIOU]/) ? "an" : "a"} #{scalar}"
+      def expected(scalar) = "expected #{Internal::Util.article(scalar)} #{scalar}"
     end
   end
 end
