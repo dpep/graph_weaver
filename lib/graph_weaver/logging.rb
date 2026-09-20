@@ -219,36 +219,13 @@ module GraphWeaver
         end
 
         # What a Retry has already spent, read by the attempt it is about
-        # to make. A dynamic extent rather than a global: the count is only
-        # visible while the call it describes is on the stack, so a client
-        # that never reaches instrument can't leave a stale one behind.
-        def with_retries(count)
-          return yield unless GraphWeaver.instrumenter
-
-          previous = Thread.current[RETRIES]
-          Thread.current[RETRIES] = count
-          begin
-            yield
-          ensure
-            Thread.current[RETRIES] = previous
-          end
-        end
+        # to make.
+        def with_retries(count, &block) = during(RETRIES, count, &block)
 
         # The graph a generated module is dispatching, read by the request it
-        # is about to make. Same dynamic extent as with_retries, for the same
-        # reason — and instrument clears it for the duration of the request it
-        # labels, so exactly one request wears the label.
-        def with_graph(name)
-          return yield unless GraphWeaver.instrumenter
-
-          previous = Thread.current[GRAPH]
-          Thread.current[GRAPH] = name
-          begin
-            yield
-          ensure
-            Thread.current[GRAPH] = previous
-          end
-        end
+        # is about to make — and instrument clears it for the duration of the
+        # request it labels, so exactly one request wears the label.
+        def with_graph(name, &block) = during(GRAPH, name, &block)
 
         # The variables as one JSON line for a log: filtered, and unable to
         # raise. A value with no JSON form (NaN, binary) is the caller's bug
@@ -281,6 +258,22 @@ module GraphWeaver
         end
 
         private
+
+        # One fiber-local, set for the length of one call. A dynamic extent
+        # rather than a global: the value is only visible while the call it
+        # describes is on the stack, so a client that never reaches instrument
+        # can't leave a stale one behind.
+        def during(key, value)
+          return yield unless GraphWeaver.instrumenter
+
+          previous = Thread.current[key]
+          Thread.current[key] = value
+          begin
+            yield
+          ensure
+            Thread.current[key] = previous
+          end
+        end
 
         # The GraphQL errors a response carries, whatever answered it — a
         # Hash from a transport, a graphql-ruby Result in-process, a fake.
