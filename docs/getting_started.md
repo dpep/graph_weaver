@@ -680,6 +680,12 @@ GraphWeaver.client = GraphWeaver.new(
 GraphWeaver.load_generated!   # no Railtie to require the generated files
 ```
 
+**`load_generated!` goes before your own requires** when anything your app loads
+names a generated constant as it loads — a `STATUS_LABELS` table keyed on
+`GraphQLTypes::ShipmentStatus` raises `uninitialized constant` otherwise, and
+building it lazily to dodge that earns `Dynamic constant references are
+unsupported` from `srb tc`. One line of ordering settles both.
+
 ```sh
 mkdir -p app/graphql/queries app/graphql/generated
 rake graph_weaver:schema:refresh URL=https://api.example.com/graphql
