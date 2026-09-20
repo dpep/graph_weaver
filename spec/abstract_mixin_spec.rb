@@ -59,6 +59,33 @@ RSpec.describe "a mixin declaring a struct's member abstract" do
     expect(generate).to include("const :name, String, override: true")
   end
 
+  # The precondition the recommendation didn't state: the mixin goes into EVERY
+  # struct generated from the type, so a query selecting a subset of what it
+  # declares generated fine and failed in the app's own `srb tc`, two tools from
+  # the query that fell short.
+  describe "a selection that can't satisfy it" do
+    it "refuses at generation, naming the mixin, the members and both fixes" do
+      GraphWeaver.extend_type("Pet", AbstractMixin::PetFields)
+
+      expect { generate("query P { pet { name } }") }.to raise_error(GraphWeaver::Error, <<~MSG.chomp)
+        P::Result::Pet includes AbstractMixin::PetFields, which declares "tag" abstract — this selection does not provide it, and every struct generated from Pet includes the mixin, so `srb tc` fails on this one. Select it here, or select Pet through one shared fragment (`{ ...Frag }`), which hoists one struct for every query to share.
+      MSG
+    end
+
+    it "counts an alias: accessor as providing the member" do
+      GraphWeaver.extend_type("Pet", AbstractMixin::PetFields, alias: { tag: "meta.tag" })
+
+      expect { generate }.not_to raise_error
+    end
+
+    it "counts a member another registered mixin implements" do
+      stub_const("ImplementsTag", Module.new { def tag = "x" })
+      GraphWeaver.extend_type("Pet", AbstractMixin::PetFields, ImplementsTag)
+
+      expect { generate("query P { pet { name } }") }.not_to raise_error
+    end
+  end
+
   # sorbet-runtime validates `override: true` against the ancestors at prop
   # declaration, so a wrong answer here fails at load rather than in srb tc
   it "loads and runs, with the mixin reading both halves" do

@@ -189,7 +189,10 @@ class GraphWeaver::Codegen
     inputs.sort.each { |name| input_node(@schema.get_type(name)) }
     enums.uniq.sort.each { |name| variable_core(@schema.get_type(name)) }
     check_shared_collisions!(hoisted)
-    nodes.each { |node| check_shadowing!(node) }
+    nodes.each do |node|
+      check_shadowing!(node)
+      check_abstract_mixins!(node)
+    end
 
     emit_types_files(nodes).tap { report_untyped_scalars }
   end
@@ -410,6 +413,7 @@ class GraphWeaver::Codegen
     variables = build_variables(operation)
     root = object_node(root_type, operation.selections, "Result")
     check_shadowing!(root)
+    check_abstract_mixins!(root)
 
     # An anonymous operation takes the module's name — declared in the document
     # AND sent as operationName, which have to agree (a server rejects an
@@ -1535,6 +1539,49 @@ class GraphWeaver::Codegen
     }.uniq
   end
   private :abstract_mixin_members
+
+  # An `abstract!` mixin goes into EVERY struct generated from its type, but
+  # only a struct that selected the members it declares can satisfy them — so a
+  # query selecting a subset generated fine and failed in the app's own
+  # `srb tc`, two tools from the query that fell short. Walked from the root the
+  # way shadowing is, so the refusal can name the struct by its path.
+  def check_abstract_mixins!(node, path = [])
+    case node
+    when UnionNode
+      inner = path + [node.class_name]
+      (node.members.each_value.to_a + [node.catch_all]).each { |member| check_abstract_mixins!(member, inner) }
+    when ObjectNode
+      inner = path + [node.class_name]
+      refuse_unsatisfiable_mixin!(node, inner)
+      node.fields.each { |field| check_abstract_mixins!(field.node.nested, inner) if field.node.nested }
+    end
+  end
+
+  def refuse_unsatisfiable_mixin!(node, path)
+    return if node.overrides.empty?
+
+    mixins = @registry.type_registry.dig(node.graphql_type, :mixins) || []
+    provided = (node.fields.map(&:prop) + node.aliases.map(&:name)).to_set
+    # what is still abstract with every registered mixin included: a member one
+    # of them implements for another is already answered
+    probe = Module.new
+    mixins.each { |mixin| probe.include(mixin) }
+    missing = T::AbstractUtils.abstract_methods_for(probe)
+      .map { |method| method.name.to_s }.reject { |member| provided.include?(member) }.sort
+    return if missing.empty?
+
+    mixin = mixins.find { |m|
+      T::AbstractUtils.declared_abstract_methods_for(m).any? { |method| missing.include?(method.name.to_s) }
+    }
+    raise GraphWeaver::Error,
+      "#{[@name, *path].join("::")} includes #{mixin.name}, which declares " \
+      "#{GraphWeaver::Internal::Util.sample(missing.map(&:inspect))} abstract — this selection does " \
+      "not provide #{missing.one? ? "it" : "them"}, and every struct generated from " \
+      "#{node.graphql_type} includes the mixin, so `srb tc` fails on this one. Select " \
+      "#{missing.one? ? "it" : "them"} here, or select #{node.graphql_type} through one shared " \
+      "fragment (`{ ...Frag }`), which hoists one struct for every query to share."
+  end
+  private :check_abstract_mixins!, :refuse_unsatisfiable_mixin!
 
   # The MappedEnum node for a schema enum with a registered app-enum
   # mapping; nil when unregistered — or registered for alias: alone, which

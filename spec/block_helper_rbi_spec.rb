@@ -75,7 +75,8 @@ RSpec.describe "the .rbi declaring block-built type helpers" do
 
   # a named module has its own source file, which srb tc already reads
   it "says nothing for a mixin the app declares itself" do
-    GraphWeaver.extend_type("Pet", AbstractMixin::PetFields)
+    # alias: satisfies the mixin's other abstract member — see abstract_mixin_spec
+    GraphWeaver.extend_type("Pet", AbstractMixin::PetFields, alias: { tag: "name" })
     generate!
 
     expect(File.exist?(rbi)).to be false
