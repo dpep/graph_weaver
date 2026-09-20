@@ -82,7 +82,8 @@
   but not read through one, and says so.
   **Action: Regenerate** (`rake graph_weaver:generate`) — any query already
   written as `{ ...Frag }` emits differently, and app code naming the struct it
-  used to produce moves to the hoisted name.
+  used to produce moves to the hoisted name. `Codegen#used_union_names` is
+  `used_fragment_names`, since the set it reports is no longer only unions.
   ([hoisting](docs/generated_modules.md#a-shared-fragment-is-one-type))
 
 - **An `abstract!` type-helper mixin says so when a query can't satisfy it.**
