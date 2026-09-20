@@ -69,6 +69,31 @@
   sweeps any name under `bin/` or `exe/`, and a file with no extension whose
   first line is a ruby shebang anywhere else. The footer says so.
 
+- **A shared fragment on an object type is one Ruby type.** The hoisting rule
+  used to stop at unions; it now reads: a whole field selected as exactly one
+  named shared fragment — object or abstract — is one type in `GraphQLTypes`,
+  named for the fragment, which each query aliases. Two queries spreading
+  `PetFields` held two unrelated structs with identical props, so a presenter,
+  a serializer or a policy had no way to name "a pet"; they both hold
+  `GraphQLTypes::PetFields` now. Only that exact shape hoists — `{ ...F id }`,
+  `{ ...A ...B }`, a spread under `@skip`/`@include`, a query-local fragment,
+  and a fragment written on a type other than the field's all stay
+  position-named where they are. An `alias:` path may end on a hoisted struct
+  but not read through one, and says so.
+  **Action: Regenerate** (`rake graph_weaver:generate`) — any query already
+  written as `{ ...Frag }` emits differently, and app code naming the struct it
+  used to produce moves to the hoisted name.
+  ([hoisting](docs/generated_modules.md#a-shared-fragment-is-one-type))
+
+- **An `abstract!` type-helper mixin says so when a query can't satisfy it.**
+  `extend_type("Pet", PetHelpers)` mixes into *every* struct generated from
+  `Pet`, so a query selecting a subset of the members the mixin declares
+  generated silently and failed in the app's own `srb tc`, two tools from the
+  query that fell short. Generation refuses now, naming the struct, the mixin,
+  the missing members and the two fixes. A member one registered mixin
+  implements for another still counts as provided.
+  ([type helpers](docs/generated_modules.md#type-helpers))
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only

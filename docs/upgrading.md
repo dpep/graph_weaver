@@ -1,7 +1,8 @@
 # Upgrading
 
 [Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then read
-the one section that is yours: from [0.7.3](#upgrading-from-073), from
+the one section that is yours: from [0.7.4](#upgrading-from-074), from
+[0.7.3](#upgrading-from-073), from
 [0.7.1](#upgrading-from-071), from [0.7.0](#upgrading-from-070) or from
 [0.6.1](#upgrading-from-061). Coming from 0.6.0 or older, the path is that
 version's own upgrade notes — read them at the tag they shipped under
@@ -22,6 +23,23 @@ after an upgrade reports the tree as stale whether or not codegen actually moved
 That's the reminder working, not a false alarm. Generation is deterministic, so
 the diff is exactly what the new version emits differently and nothing else —
 worth reading rather than rubber-stamping.
+
+## Upgrading from 0.7.4
+
+Read the left column and skip what isn't yours; the
+[changelog](../CHANGELOG.md) says why each one moved.
+
+| applies if you… | what changed |
+|---|---|
+| spread a shared fragment as a whole field — `grep -rln '{ *\.\.\.[A-Za-z]* *}' app/graphql/queries` | on an object type it now [hoists](generated_modules.md#a-shared-fragment-is-one-type) into `GraphQLTypes` under the fragment's name, as it already did on a union. **App code naming the struct it used to produce (`PetQuery::Result::Pet`) moves to `GraphQLTypes::PetFields`** — one type instead of one per query, so a `T.type_alias { T.any(…) }` written to paper over that goes away. Regenerating and running `srb tc` finds every site |
+| register an `abstract!` mixin — `grep -rn 'extend_type' app config lib`, then check which of those modules call `abstract!` | **generation refuses** where a query doesn't select everything the mixin declares, instead of leaving it for your `srb tc`. The message names the struct, the members and the fixes: select them in that query, or select the type through one shared fragment so a single hoisted struct answers for every query |
+
+Then regenerate, and the gate:
+
+```sh
+rake graph_weaver:generate
+rake graph_weaver:verify
+```
 
 ## Upgrading from 0.7.3
 

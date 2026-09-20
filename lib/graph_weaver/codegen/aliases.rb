@@ -199,7 +199,7 @@ class GraphWeaver::Codegen
     # The leaf's Sorbet type as referenced from the aliased struct. Generated
     # nested constants (structs, enums, unions) must carry the container path,
     # since the delegator's `sig` is emitted in an outer struct where a bare
-    # `Sub` wouldn't resolve; scalars, mapped enums, and hoisted union refs are
+    # `Sub` wouldn't resolve; scalars, mapped enums, and hoisted refs are
     # already top-level. `containers` is the class-name chain to the leaf.
     def qualified_alias_type(node, containers)
       node = node.of if node.is_a?(NonNull)

@@ -179,10 +179,11 @@ query: `pet: pets { name }` generates `Pet` (and a `.pet` accessor).
 
 **Union and interface members** are the one name that doesn't come from a key:
 they take the type condition that produces them (`... on Book` → `Book`) inside
-the container named for the field, plus the catch-all `Other`; a union hoisted
-out of a shared fragment is named for the fragment; and several fields sharing
-one collapsed union type take the first of their keys alphabetically. Still
-position-determined, all of it.
+the container named for the field, plus the catch-all `Other`; a type
+[hoisted](#a-shared-fragment-is-one-type) out of a shared fragment is named for
+the fragment; and several fields sharing one collapsed union type take the first
+of their keys alphabetically. Still position-determined, all of it — a fragment
+name is a source fact like a result key.
 
 Two collisions are handled rather than left to surprise you. A name that would
 shadow the struct it nests in (`pet { pet { ... } }`) takes a numeric suffix
@@ -381,6 +382,46 @@ schema's spelling in both directions, so the query, the request, the response,
 and `#as_json`/`#to_json` are untouched and `render json: result` never leaks a
 trailing underscore.
 
+### A shared fragment is one type
+
+**A whole field selected as exactly one named shared fragment is one type in
+`GraphQLTypes`, named for the fragment, which each query aliases.** Object or
+abstract, same sentence:
+
+```graphql
+# app/graphql/fragments/pet_fields.graphql
+fragment PetFields on Pet { name species birthday }
+
+# two queries, one Ruby type
+query Roster  { pets           { ...PetFields } }
+query Shelter { shelter { pets { ...PetFields } } }
+```
+
+```ruby
+GraphQLTypes::PetFields                       # the struct, generated once
+RosterQuery::PetFields                        # the alias each query opens with
+sig { params(pet: GraphQLTypes::PetFields).returns(String) }  # nameable by your app
+```
+
+That is what makes the fragment the unit of reuse on *both* sides of the wire: a
+presenter, a serializer or a policy can name its argument's type, and a union
+spread this way gives one exhaustive `case … T.absurd` everywhere instead of a
+fresh dispatch module per query.
+
+It is opt-in by how you write the query, and only the exact shape hoists —
+`{ ...PetFields id }`, `{ ...PetFields ...Vaccinations }`, a spread carrying
+`@skip`/`@include`, a fragment the query file defines itself, and a fragment
+written on some other type than the field's all stay a position-named struct
+where they are. A spread *inside* a hoisted fragment is inlined into it rather
+than hoisted again. Like shared inputs, it's a `generate!`-directory concern;
+dynamic `parse` inlines everything.
+
+Registrations follow the type, not the position, so `extend_type("Pet", …)`
+mixins and `alias:` accessors land on the hoisted struct exactly as they would
+on a local one. An `alias:` path on the *parent* may end on the hoisted struct
+(`alias: { first_pet: "pets.first" }`) but not read through it — the struct
+belongs to another module — and says so at generation.
+
 ### Abstract types
 
 An abstract field emits **one struct per type condition the selection names**,
@@ -414,11 +455,10 @@ off `__typename` when the selection carries one unaliased and unguarded, and off
 narrowed fragment, or one whose `__typename` is itself guarded, is refused: a
 match would be indistinguishable from a miss.
 
-When a whole union field is selected as one named *shared* fragment
-(`{ ...FeedItemFields }`), that type is hoisted once into `GraphQLTypes` — named
-for the fragment — and each query aliases it, so the same union is one Ruby type
-family across queries, not a fresh dispatch module per query. Like shared inputs,
-it's a `generate!`-directory concern; dynamic `parse` inlines.
+A whole union field selected as one named *shared* fragment
+(`{ ...FeedItemFields }`) is [hoisted](#a-shared-fragment-is-one-type) into
+`GraphQLTypes` like any other, so the same union is one Ruby type family across
+queries rather than a fresh dispatch module per query.
 
 ### Consuming a union — dispatch on the class, not `__typename`
 
@@ -450,8 +490,9 @@ you handle it.** It is exhaustive over the members *this query asked about*, plu
 cover: two *differently-selected* occurrences of the same union are distinct type
 families (`Result::Item::Book` is not `Result::FeaturedItem::Book`), so a `case`
 written for one won't span the other. Select the union through a shared fragment
-to hold it as one type across queries ([above](#abstract-types)); if all you have
-is the bare tag, `__typename` is the common denominator, unchecked.
+to hold it as one type across queries
+([above](#a-shared-fragment-is-one-type)); if all you have is the bare tag,
+`__typename` is the common denominator, unchecked.
 
 ## Type helpers
 
@@ -515,6 +556,22 @@ the one thing you couldn't add by hand: a `const` has no sig to put it in.
 `T.unsafe(self).name` also silences it, at the cost of checking nothing. Either
 beats `# typed: false` for a helper you want checked.
 
+**An `abstract!` mixin has a precondition: every query must select what it
+declares.** The mixin goes into *every* struct generated from the type, so a
+query selecting a subset has nothing to satisfy the rest, and generation refuses
+— naming the struct, the mixin, the members, and the two ways out: select them
+in that query, or select the type through one
+[shared fragment](#a-shared-fragment-is-one-type), which hoists a single struct
+for every query to share. The second is usually the answer: a shape several
+queries lean on is a fragment.
+
+One sig a mixin cannot write is one over a *generated* type — `sig {
+abstract.returns(GraphQLTypes::Species) }` raises `NameError` at generation,
+because registrations load before the enum that generation is about to write.
+The field's sig has to be `T.untyped` there. The struct's own `const` still
+carries the real type, so a call site reading `pet.species` is checked; only the
+mixin's view of it isn't.
+
 ### Flat accessors with `alias:`
 
 The one derivation the generator can type for you is a plain projection — a
@@ -540,7 +597,8 @@ alias: { label: "name", tag: "meta.tag" }
 ```
 
 The path is the **Ruby** accessor chain, so its segments are snake_case props
-(`name_with_owner.tag`), not wire names. It's typed from the selection: any
+(`name_with_owner.tag`), not wire names. It may end on a
+[hoisted](#a-shared-fragment-is-one-type) struct but not read through one. It's typed from the selection: any
 nullable hop makes the accessor nilable and inserts `&.`; the leaf can be a
 scalar, enum, or nested struct. It's validated against each query at generation —
 an unselected or misspelled segment (`did you mean 'tag'?`), a selector on a
@@ -691,8 +749,8 @@ it goes. The schema dump is step 0: codegen reads it, never a live endpoint, and
 generating without one fails pointing at exactly that.
 
 **A type shared across query modules lives in `GraphQLTypes` and is aliased in.**
-Input types, schema enums, and unions hoisted from shared fragments are all one
-kind of thing — a type that would otherwise be copied into every query that
+Input types, schema enums, and the types hoisted from shared fragments are all
+one kind of thing — a type that would otherwise be copied into every query that
 touches it — so they live in one module, one file each, and a query module that
 uses any of them opens with `require_relative "types"`. Rename the constant
 (`GraphWeaver.types_module=`, or `generate!(types_module:)`) when one app

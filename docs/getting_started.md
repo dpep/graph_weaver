@@ -170,10 +170,11 @@ Fragment files hold only fragments (no operations), and names are unique across
 them. Point elsewhere with `GraphWeaver.fragments_paths` (an appendable list,
 default `app/graphql/fragments`).
 
-One payoff: when a shared fragment *is* the whole selection on a union field,
-its type is hoisted once into `GraphQLTypes` and every query that spreads it
-gets the same Ruby type — so one exhaustive `case … T.absurd` works everywhere.
-See [abstract types](generated_modules.md#abstract-types).
+One payoff: when a shared fragment *is* the whole selection on a field, its type
+is hoisted once into `GraphQLTypes` under the fragment's name and every query
+that spreads it gets the same Ruby type — so a presenter can take a
+`GraphQLTypes::PersonFields`, and a union's `case … T.absurd` works everywhere.
+See [hoisting](generated_modules.md#a-shared-fragment-is-one-type).
 
 ## 4. Test against fakes
 

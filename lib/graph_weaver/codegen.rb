@@ -725,7 +725,7 @@ class GraphWeaver::Codegen
   # The shared fragments a query spreads (transitively), excluding any it
   # shadows with a local definition of the same name — the names
   # inline_fragments appends, and the set the generate! workflow may hoist
-  # when they sit on a whole-union field.
+  # when they are a field's whole selection.
   def self.shared_fragment_spreads(query, shared, path = nil)
     # parsed even with nothing to spread: this is the first look at the document
     # on the generate! path, so it's where a syntax error gets branded and

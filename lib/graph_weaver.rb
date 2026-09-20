@@ -214,7 +214,7 @@ module GraphWeaver
     attr_accessor :skip_generated_load
 
     # The name of the shared module — the types that live once per schema
-    # (input types, enums, unions hoisted from shared fragments) and are
+    # (input types, enums, the types hoisted from shared fragments) and are
     # aliased into every query module that touches them. Constant, not derived
     # from where you put the files: set it globally, or pass types_module: per
     # generate!. A multi-schema layout names it in the same initializer that
