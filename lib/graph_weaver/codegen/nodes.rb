@@ -113,11 +113,11 @@ class GraphWeaver::Codegen
 
     def cast(expr, depth)
       var = "v#{depth}"
-      element = if @of.non_null? || @of.identity?
-        @of.identity? ? var : @of.cast(var, depth + 1)
-      else
-        "#{var}&.then { |v#{depth + 1}| #{@of.cast("v#{depth + 1}", depth + 2)} }"
-      end
+      element =
+        if @of.identity? then var
+        elsif @of.non_null? then @of.cast(var, depth + 1)
+        else "#{var}&.then { |v#{depth + 1}| #{@of.cast("v#{depth + 1}", depth + 2)} }"
+        end
 
       "#{expr}.map { |#{var}| #{element} }"
     end
@@ -127,11 +127,11 @@ class GraphWeaver::Codegen
 
     def serialize(expr, depth)
       var = "v#{depth}"
-      element = if @of.non_null? || @of.serialize_identity?
-        @of.serialize_identity? ? var : @of.serialize(var, depth + 1)
-      else
-        "#{var}&.then { |v#{depth + 1}| #{@of.serialize("v#{depth + 1}", depth + 2)} }"
-      end
+      element =
+        if @of.serialize_identity? then var
+        elsif @of.non_null? then @of.serialize(var, depth + 1)
+        else "#{var}&.then { |v#{depth + 1}| #{@of.serialize("v#{depth + 1}", depth + 2)} }"
+        end
 
       "#{expr}.map { |#{var}| #{element} }"
     end
@@ -153,11 +153,11 @@ class GraphWeaver::Codegen
 
     def hash_coerce(expr, depth)
       var = "v#{depth}"
-      inner = if @of.non_null? || @of.hash_coerce_identity?
-        @of.hash_coerce_identity? ? var : @of.hash_coerce(var, depth + 1)
-      else
-        "#{var}&.then { |v#{depth + 1}| #{@of.hash_coerce("v#{depth + 1}", depth + 2)} }"
-      end
+      inner =
+        if @of.hash_coerce_identity? then var
+        elsif @of.non_null? then @of.hash_coerce(var, depth + 1)
+        else "#{var}&.then { |v#{depth + 1}| #{@of.hash_coerce("v#{depth + 1}", depth + 2)} }"
+        end
       return "#{expr}.map { |#{var}| #{inner} }" if hash_coerce_identity?
 
       # the index is a path segment — `where._and.0._not.species` needs the 0
