@@ -467,7 +467,7 @@ than leaving you sorbet's words:
 | what came back | what the message adds |
 |---|---|
 | an `ID` the server sent unquoted | GraphQL serializes `ID` as a JSON string, so this is the server out of spec — plus how to take it anyway (`register_scalar("ID", "T.untyped")`) |
-| an enum value the generated enum doesn't hold | the values it does hold, and that drift is the likely cause: regenerate, or `register_enum(fallback:)` to absorb them |
+| an enum value the generated enum doesn't hold | the values it does hold, and that drift is the likely cause: regenerate, or `register_enum("Species", fallback: true)` to absorb them into `Other` |
 | a field the server nulled **with a reason** | the server's own explanation, rather than only sorbet's nil complaint |
 
 Simulate one in tests with
