@@ -224,9 +224,10 @@ Five questions, five tasks — the last only on a federated graph:
 Every one of them exits non-zero on a finding, so the gate is a chain.
 `verify` compares the committed generated files against what the current schema
 + queries + registrations would produce, so it belongs in every CI build.
-`schema:diff` asks whatever the dump came from — a recorded source url (with
-`GRAPHWEAVER_AUTH` for private APIs), or your own schema class when the app
-[serves the schema itself](#your-apps-own-schema-in-process) — and
+`schema:diff` asks whatever the dump came from — the source url the dump
+recorded (with `GRAPHWEAVER_AUTH` for private APIs), your own schema class when
+the app [serves the schema itself](#your-apps-own-schema-in-process), else the
+client this graph's modules already post to — and
 `rake graph_weaver:schema:refresh` is the repair either way. On an app with more
 than one schema, `rake graph_weaver:graphs` lists which graphs are configured,
 where each generates, and what each registers.
@@ -291,8 +292,8 @@ omits it. Any drift exits non-zero — whether a change matters is yours to judg
 (`#breaking`, `#compatible`, `#to_h`, `#empty?`).
 
 `queries:check` answers the question that matters when the schema *has* moved:
-**which of your queries no longer validate, and why.** It re-introspects the
-recorded url (without rewriting the dump) and validates every `.graphql` file
+**which of your queries no longer validate, and why.** It re-introspects the url
+the dump records (without rewriting the dump) and validates every `.graphql` file
 against the schema as it is right now, naming each error's line and column:
 
 ```
@@ -301,6 +302,12 @@ app/graphql/queries/person.graphql
 
 1 invalid query
 ```
+
+A dump that records no url has nothing to re-read, and so does a graph that
+names its own schema: both are checked as they stand on disk. That is `verify`'s
+question rather than this one's, so the passing verdict names the file instead of
+claiming a check against the server ([a dump you already
+have](#a-schema-dump-you-already-have)).
 
 `GraphWeaver.check_queries` returns the same findings as data — a hash of file
 to `message`/`line`/`column`, empty when everything validates — so you can wire
@@ -339,9 +346,11 @@ app/graphql/queries/products.graphql: Products.sku — selected, never read (Cat
 Each line names the query file, the selection to go and delete, and the
 generated prop behind it. It reads the generated structs for the props a query
 produced, then sweeps your `.rb`, `.rake`, `.builder`, `.erb`, `.slim`, `.haml`
-and `.jbuilder` for every name they could be read by — `.sku`, `sku:`, `:sku`,
-`"sku"`. `PATHS=app,lib` narrows the sweep (a `PATHS=` naming a directory that
-isn't there is refused rather than swept as nothing); anything under a directory
+and `.jbuilder` — plus Ruby carrying no extension, which is any name under
+`bin/` or `exe/` and a ruby shebang anywhere else — for every name they could be
+read by: `.sku`, `sku:`, `:sku`, `"sku"`. `PATHS=app,lib` narrows the sweep (a
+`PATHS=` naming a directory that isn't there is refused rather than swept as
+nothing); anything under a directory
 named `generated`, plus `vendor`, `node_modules`, `tmp` and `log`, is skipped,
 as is any file defining a graphql-ruby **type** — a `field :sku` there is your
 *server* offering a field, not this app reading one back. A module handed whole
@@ -424,6 +433,27 @@ Sets `GraphWeaver.schema_path` to that file rather than writing a second copy,
 and introspects nothing. A dump has no resolvers, so it can't execute — set
 `GraphWeaver.client` to whatever serves the API.
 
+**A dump you brought from elsewhere has no provenance**: it doesn't record the
+server it was introspected from, which is exactly what migrating off
+graphql-client leaves you ([migrating](migrating.md)). `rake
+graph_weaver:schema:refresh` adopts it — with no url on the file it introspects
+the client the graph names, rewrites the dump, and records the source, so every
+later refresh and `schema:diff` re-read the right server. `URL=` names the
+endpoint instead, if you'd rather say it once than configure the client first.
+
+Do it early. Until the dump records a source, `queries:check` has nothing to
+re-introspect, so it validates against the committed file — a real check, but
+`verify`'s question rather than this one's — and the verdict says which:
+
+```
+every query validates against db/schema.graphql as committed — not the server (rake graph_weaver:schema:diff asks whether the server moved)
+```
+
+A dump with no recorded url and no client behind it *is* the schema — a
+hand-maintained SDL nothing serves. `schema:refresh` leaves that one alone
+(`records no source url and the graph names no client — left as checked in`) and
+refreshes the rest, rather than taking the whole task down with it.
+
 ## More than one schema
 
 The five steps above describe one graph — a schema, its queries, its output. An
@@ -492,8 +522,9 @@ An app that is a pure client of someone else's GraphQL owns no schema class, so
 every graph's `schema` is a dump. Give each the file you want and a `client`
 that can fetch it: `rake graph_weaver:schema:refresh` introspects each graph's
 client into its own dump, recording the url so every later `schema:refresh` and
-`schema:diff` re-reads the right server. (`URL=` is for the app that has one
-dump and no graphs.)
+`schema:diff` re-reads the right server. A graph with neither a recorded url nor
+a client is left as checked in and the rest still refresh. (`URL=` is for the
+app that has one dump and no graphs.)
 
 In specs, `graph:` is how an example says which graph a helper stands in for —
 `graphql_fake(graph: :poke, "pokemon_v2_pokemon.name" => "pikachu")`. See
