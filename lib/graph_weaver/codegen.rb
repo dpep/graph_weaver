@@ -929,18 +929,7 @@ class GraphWeaver::Codegen
         @hoistable_unions.include?(frag)
       hoisted_union_ref(field, frag)
     else
-      members = union_members(field.core, field.selections)
-      catch_all = catch_all_member(field.core, field.selections, members)
-      # reuse an identical sibling union — the shared type takes the
-      # first of the sharing keys alphabetically, not in walk order
-      signature = union_signature(members, catch_all)
-      union = field.union_cache[signature]
-      if union
-        rename_union(union, field.key, field.taken) if camelize(field.key) < union.class_name
-      else
-        union = field.union_cache[signature] = UnionNode.new(pick_name(field.key, field.taken), members, catch_all)
-      end
-      type_ref(field.type) { union }
+      dispatch_union(field)
     end
   end
 
@@ -978,6 +967,23 @@ class GraphWeaver::Codegen
     @used_unions << frag unless @used_unions.include?(frag)
     ref = UnionRefNode.new(camelize(frag))
     type_ref(field.type) { ref }
+  end
+
+  # One member struct per type the selection names, chosen at runtime off
+  # __typename. Structurally identical sibling unions share one Ruby type,
+  # named for the first of the sharing keys alphabetically so that which one
+  # the walk reached first doesn't decide.
+  def dispatch_union(field)
+    members = union_members(field.core, field.selections)
+    catch_all = catch_all_member(field.core, field.selections, members)
+    signature = union_signature(members, catch_all)
+    union = field.union_cache[signature]
+    if union
+      rename_union(union, field.key, field.taken) if camelize(field.key) < union.class_name
+    else
+      union = field.union_cache[signature] = UnionNode.new(pick_name(field.key, field.taken), members, catch_all)
+    end
+    type_ref(field.type) { union }
   end
 
   # A generated class name is only ever a name; Ruby resolves it lexically. So
