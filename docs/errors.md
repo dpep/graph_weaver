@@ -172,7 +172,10 @@ A nested filter reports the innermost input type, so the error points at the inp
 that actually held the bad field; passing something that is neither — a bare
 `String` where the input goes — reports the same way. A call site that *spells* the
 wrong type is caught earlier and better, by `srb tc`
-([why](generated_modules.md#variables-become-typed-kwargs)).
+([why](generated_modules.md#variables-become-typed-kwargs)). And once a boundary
+of your own between that call site and `execute` carries a sig, sorbet-runtime
+checks the value there first: the caller sees a plain `TypeError`, and none of
+the structured, translatable detail below ever reaches it.
 
 The one-shot `GraphWeaver.run` / `run!` mirror `execute` / `execute!`.
 
