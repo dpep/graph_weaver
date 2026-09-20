@@ -358,20 +358,22 @@ class GraphWeaver::Codegen
     def nested = self
   end
 
-  # A reference to a union hoisted into the shared types module (a named
-  # shared fragment spread as a whole union field): the query references
-  # <Name>::Type and dispatches through <Name>.from_h, where <Name> is the
-  # alias the query module gives GraphQLTypes::<Name>. The type family lives
-  # once in the shared module, so the same union across queries is one Ruby
-  # type — nested is nil, nothing is emitted here.
-  class UnionRefNode < Node
-    attr_reader :class_name
+  # A reference to a type hoisted into the shared types module (a named shared
+  # fragment spread as a whole field): the query casts through <Name>.from_h,
+  # where <Name> is the alias the query module gives GraphQLTypes::<Name>. The
+  # type lives once in the shared module, so the same fragment across queries
+  # is one Ruby type — nested is nil, nothing is emitted here.
+  class HoistedRefNode < Node
+    # graphql_type is carried for refusals alone — an alias path that tries to
+    # read into the hoisted struct says which type to register itself on
+    attr_reader :class_name, :graphql_type
 
-    def initialize(class_name)
+    def initialize(class_name, graphql_type = nil)
       @class_name = class_name
+      @graphql_type = graphql_type
     end
 
-    def bare_type = "#{class_name}::Type"
+    def bare_type = class_name
 
     def cast(expr, _depth)
       "#{class_name}.from_h(#{expr})"
@@ -380,6 +382,12 @@ class GraphWeaver::Codegen
     def serialize(expr, _depth)
       "#{expr}.as_json"
     end
+  end
+
+  # The same, on an abstract type: the hoisted name is a dispatch module, so
+  # the Ruby type is its member union rather than the module itself.
+  class UnionRefNode < HoistedRefNode
+    def bare_type = "#{class_name}::Type"
   end
 
   # An input-object variable: emitted as a module-level T::Struct whose
@@ -454,6 +462,6 @@ class GraphWeaver::Codegen
   # The IR is codegen's own vocabulary — every node type is reachable only
   # from inside the walk.
   private_constant :Node, :Scalar, :NonNull, :List, :ObjectNode, :EnumNode,
-    :MappedEnum, :NarrowedNode, :UnionNode, :UnionRefNode, :InputNode,
-    :RepresentationNode
+    :MappedEnum, :NarrowedNode, :UnionNode, :HoistedRefNode, :UnionRefNode,
+    :InputNode, :RepresentationNode
 end

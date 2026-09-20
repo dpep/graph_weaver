@@ -795,7 +795,7 @@ module GraphWeaver
 
     # (filename, source) per artifact. Types a schema shares across queries —
     # input types, schema enums, and each named shared fragment spread as a
-    # whole-union field — are emitted once into the shared module, with query
+    # whole field — are emitted once into the shared module, with query
     # modules aliasing what they use. That's the difference between hundreds of
     # duplicated bool_exp structs (or one Ruby class per query for the same
     # schema enum) and one copy per schema. (Single-query parse inlines
@@ -814,7 +814,7 @@ module GraphWeaver
       @unmatched_registrations |= registry.unmatched_registrations(schema)
 
       used = { inputs: [], enums: [], mapped: [] }
-      used_unions = []
+      hoisted = []
       helpers = []
       shared = Codegen.load_fragments(fragments)
 
@@ -831,14 +831,14 @@ module GraphWeaver
           name:,
           graph_name: graph.name,
           types_namespace: graph.types_module,
-          hoistable_unions: Codegen.shared_fragment_spreads(source, shared, path),
+          hoistable_fragments: Codegen.shared_fragment_spreads(source, shared, path),
           path:,
           registry:,
         )
         out = codegen.generate
         codegen.variable_type_names.each { |kind, names| used[kind] |= names }
         found.concat(codegen.untyped_scalars).uniq!
-        used_unions |= codegen.used_union_names
+        hoisted |= codegen.used_fragment_names
         helpers |= codegen.block_helpers
         [filename, out]
       rescue GraphWeaver::Error => e
@@ -849,12 +849,12 @@ module GraphWeaver
       end
       refuse_all!(refusals, paths.size)
 
-      if used_unions.any? || used.values.any?(&:any?)
+      if hoisted.any? || used.values.any?(&:any?)
         refuse_duplicate_types!(seen, graph)
         codegen = Codegen.new(schema:, query: "", name: graph.types_module, registry:)
         types = codegen.generate_types(
           inputs: used[:inputs], enums: used[:enums] + used[:mapped],
-          unions: used_unions, fragments: shared,
+          hoisted:, fragments: shared,
         )
         found.concat(codegen.untyped_scalars).uniq!
         helpers |= codegen.block_helpers

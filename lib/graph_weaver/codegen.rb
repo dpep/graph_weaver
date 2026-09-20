@@ -66,15 +66,15 @@ class GraphWeaver::Codegen
   # defines, defaulting to the operation's own name; default_name: is
   # parse's container-scoped fallback (file generation stays strict — a
   # checked-in file deserves a deliberate name). types_namespace: is the shared-types workflow (see
-  # GraphWeaver.generate!): input types, schema enums, and unions hoisted from
-  # shared fragments live once in that module and the query module aliases what
-  # it uses. hoistable_unions: is the set of shared fragment names this query
-  # may hoist (spreads it inlined, minus any it shadows locally) — a
-  # whole-union field spread as one of them resolves to a canonical type in the
-  # shared module (see used_union_names). path: is the file the query was read
+  # GraphWeaver.generate!): input types, schema enums, and the types hoisted out
+  # of shared fragments live once in that module and the query module aliases
+  # what it uses. hoistable_fragments: is the set of shared fragment names this
+  # query may hoist (spreads it inlined, minus any it shadows locally) — a whole
+  # field spread as one of them resolves to a canonical type in the shared
+  # module (see used_fragment_names). path: is the file the query was read
   # from, named alongside line and column in validation errors.
   def initialize(schema:, query:, name: nil, default_name: nil,
-    types_namespace: nil, hoistable_unions: nil, path: nil, module_name: nil,
+    types_namespace: nil, hoistable_fragments: nil, path: nil, module_name: nil,
     graph_name: nil, registry: GraphWeaver::Codegen.registry)
     renamed!(module_name)
     @schema = schema
@@ -87,8 +87,8 @@ class GraphWeaver::Codegen
     @name = name
     @default_name = default_name
     @types_namespace = types_namespace
-    @hoistable_unions = hoistable_unions || []
-    @used_unions = []
+    @hoistable_fragments = hoistable_fragments || []
+    @used_fragments = []
     # scalars this generation had no registration for (see report_untyped_scalars)
     @untyped_scalars = []
     # the graph this module belongs to: its client and, under a test mode,
@@ -144,10 +144,10 @@ class GraphWeaver::Codegen
     { inputs: @variable_inputs.keys, enums: @enums.keys, mapped: @mapped_enums.keys }
   end
 
-  # The shared union fragments this query hoisted, by name — the generate!
-  # workflow unions these across queries to decide what the shared types module
-  # must contain.
-  def used_union_names = @used_unions.dup
+  # The shared fragments this query hoisted, by name — the generate! workflow
+  # unions these across queries to decide what the shared types module must
+  # contain.
+  def used_fragment_names = @used_fragments.dup
 
   # The custom scalars this walk found no registration for (see
   # report_untyped_scalars) — the generate! workflow unions these across
@@ -172,26 +172,26 @@ class GraphWeaver::Codegen
   #   T::Enum, or the wire tables for one mapped onto an app enum
   #   (register_enum) — so a value read out of one query's result hands
   #   straight back into another's variable;
-  # - unions: each named shared fragment a query spread as a whole union field,
-  #   so the same union across queries is one Ruby type family. `fragments` is
-  #   the loaded shared-fragment table (nested spreads resolve through it).
+  # - hoisted: each named shared fragment a query spread as a whole field, so
+  #   the same shape across queries is one Ruby type. `fragments` is the loaded
+  #   shared-fragment table (nested spreads resolve through it).
   #
-  # Unions are built first: a hoisted fragment's own selections are the one
-  # place a query walk never reaches, so the enums they touch are only known
-  # once the fragments are built.
-  def generate_types(inputs:, enums:, unions:, fragments:)
+  # Hoisted fragments are built first: their own selections are the one place a
+  # query walk never reaches, so the enums they touch are only known once the
+  # fragments are built.
+  def generate_types(inputs:, enums:, hoisted:, fragments:)
     validate_module_name!("types module name")
     reset_walk_state!
     # nested spreads inside a shared fragment resolve through the whole table
     @fragments = fragments
 
-    union_nodes = unions.uniq.sort.map { |name| hoisted_union(fragments, name) }
+    nodes = hoisted.uniq.sort.map { |name| hoisted_fragment(fragments, name) }
     inputs.sort.each { |name| input_node(@schema.get_type(name)) }
     enums.uniq.sort.each { |name| variable_core(@schema.get_type(name)) }
-    check_shared_collisions!(unions)
-    union_nodes.each { |union| check_shadowing!(union) }
+    check_shared_collisions!(hoisted)
+    nodes.each { |node| check_shadowing!(node) }
 
-    emit_types_files(union_nodes).tap { report_untyped_scalars }
+    emit_types_files(nodes).tap { report_untyped_scalars }
   end
 
   # module-level constants every generated query module defines — a shared
@@ -201,7 +201,7 @@ class GraphWeaver::Codegen
 
   # One hoisted shared fragment, built against the schema and named for the
   # fragment rather than the field that spread it.
-  def hoisted_union(fragments, name)
+  def hoisted_fragment(fragments, name)
     class_name = camelize(name)
     # the query module aliases <class_name> = <shared module>::<class_name>; a
     # name that camelizes to a generated module-level constant (the Result
@@ -213,13 +213,15 @@ class GraphWeaver::Codegen
 
     fragment = fragments.fetch(name)
     type = @schema.get_type(fragment.type.name)
+    return object_node(type, fragment.selections, class_name) if type.kind.object?
+
     members = union_members(type, fragment.selections)
     UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
   end
-  private :hoisted_union
+  private :hoisted_fragment
 
   # Schema type names are unique, so an input and an enum can never land on the
-  # same name — but a hoisted union is named for its FRAGMENT, which the schema
+  # same name — but a hoisted type is named for its FRAGMENT, which the schema
   # knows nothing about. One shared module means one namespace, so a fragment
   # named after a type it doesn't describe has to refuse rather than overwrite.
   def check_shared_collisions!(names)
@@ -250,7 +252,7 @@ class GraphWeaver::Codegen
     @input_list = false
     @input_hops = []
     @mapped_enums = {}
-    @used_unions = []
+    @used_fragments = []
     # block-built type helpers this walk included — see #block_helpers
     @block_helpers = []
     # requires the generated file needs (custom scalars, enum mappings,
@@ -872,8 +874,12 @@ class GraphWeaver::Codegen
 
         case (core = field_type.unwrap).kind.name
         when "OBJECT"
-          name = pick_name(key, taken)
-          type_ref(field_type) { object_node(core, sub_selections, name) }
+          if (frag = hoistable_spread(core, sub_selections))
+            hoisted_ref(field_type, frag)
+          else
+            name = pick_name(key, taken)
+            type_ref(field_type) { object_node(core, sub_selections, name) }
+          end
         when "UNION", "INTERFACE"
           abstract_field(AbstractField.new(
             type: field_type, selections: sub_selections, key:, taken:, union_cache:,
@@ -925,9 +931,8 @@ class GraphWeaver::Codegen
     elsif conditions.size == 1 && shared.empty? &&
         (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
       narrowed_struct(field, member)
-    elsif @types_namespace && (frag = lone_shared_spread(field.selections)) &&
-        @hoistable_unions.include?(frag)
-      hoisted_union_ref(field, frag)
+    elsif (frag = hoistable_spread(field.core, field.selections))
+      hoisted_ref(field.type, frag)
     else
       dispatch_union(field)
     end
@@ -960,13 +965,16 @@ class GraphWeaver::Codegen
     nilable_type_ref(field.type) { NarrowedNode.new(object_node(member, field.selections, name), typename: tag) }
   end
 
-  # A whole-union field spread as a named shared fragment points at the union
-  # hoisted into the shared types module, so the same union across queries is
-  # one Ruby type family (one exhaustive `case ... T.absurd`).
-  def hoisted_union_ref(field, frag)
-    @used_unions << frag unless @used_unions.include?(frag)
-    ref = UnionRefNode.new(camelize(frag))
-    type_ref(field.type) { ref }
+  # A whole field spread as one named shared fragment points at the type
+  # hoisted into the shared types module, so the same shape across queries is
+  # one Ruby type — for a union, one exhaustive `case ... T.absurd`.
+  def hoisted_ref(field_type, frag)
+    @used_fragments << frag unless @used_fragments.include?(frag)
+    # an abstract type hoists to a dispatch module, an object type to a struct
+    core = field_type.unwrap
+    node_class = core.kind.object? ? HoistedRefNode : UnionRefNode
+    ref = node_class.new(camelize(frag), core.graphql_name)
+    type_ref(field_type) { ref }
   end
 
   # One member struct per type the selection names, chosen at runtime off
@@ -1099,10 +1107,26 @@ class GraphWeaver::Codegen
     dispatchable_typename?(core, selections) ? keys - ["__typename"] : keys
   end
 
+  # The name a field's whole selection hoists under: exactly one bare spread of
+  # a fragment this query may hoist, written on the field's own type. Only the
+  # generate! workflow has a shared module to hoist into — dynamic `parse`
+  # inlines.
+  def hoistable_spread(core, selections)
+    return unless @types_namespace
+
+    frag = lone_shared_spread(selections)
+    return unless frag && @hoistable_fragments.include?(frag)
+
+    # the shared type is built from the fragment's own type condition, so it is
+    # this field's type only when the two agree — a fragment on a narrower (or
+    # wider) type stays a locally-emitted struct
+    frag if @fragments.fetch(frag).type.name == core.graphql_name
+  end
+
   # The fragment name when a selection is exactly one bare fragment spread
-  # (`{ ...F }`) — the shape a union field must have to hoist into the shared
-  # unions module. A spread carrying directives (@skip/@include), or mixed with
-  # other fields, stays a locally-emitted union.
+  # (`{ ...F }`) — the shape a field must have to hoist into the shared types
+  # module. A spread carrying directives (@skip/@include), or mixed with other
+  # fields, stays locally emitted.
   def lone_shared_spread(selections)
     return unless selections.size == 1
 
@@ -1290,7 +1314,7 @@ class GraphWeaver::Codegen
       inner = node.fields.map { |f| "#{f.prop}=#{signature(f.node)}" }.sort.join(",")
       "o:#{node.graphql_type}(#{inner})"
     when UnionNode then "u:(#{union_signature(node.members, node.catch_all)})"
-    when UnionRefNode then "ur:#{node.class_name}" # hoisted — identity is its shared name
+    when HoistedRefNode then "hr:#{node.class_name}" # hoisted — identity is its shared name
     else "x:#{node.object_id}" # unknown node kind — never collapse
     end
   end

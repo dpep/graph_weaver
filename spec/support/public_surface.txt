@@ -67,7 +67,7 @@ GraphWeaver::Codegen#generate
 GraphWeaver::Codegen#generate_types
 GraphWeaver::Codegen#name
 GraphWeaver::Codegen#untyped_scalars
-GraphWeaver::Codegen#used_union_names
+GraphWeaver::Codegen#used_fragment_names
 GraphWeaver::Codegen#variable_type_names
 GraphWeaver::Codegen.clear_scalars!
 GraphWeaver::Codegen.enum_registry

@@ -119,6 +119,7 @@ class GraphWeaver::Codegen
           nilable = true
         else
           obj = object_of(cur)
+          refuse_hoisted!(node, name, hoisted_of(cur), seg)
           unless obj
             hint = if list_of(cur)
               " — use .first or .last to pick an element"
@@ -153,6 +154,19 @@ class GraphWeaver::Codegen
       leaf = qualified_alias_type(cur, containers)
       type = nilable && leaf != "T.untyped" ? "T.nilable(#{leaf})" : leaf
       ObjectNode::Alias.new(name, expr, type)
+    end
+
+    # A hop landing on a hoisted shared fragment: the struct is another
+    # module's, so the path stops here. Which query hoists is a property of how
+    # that query spreads the fragment, so optional: still skips it.
+    def refuse_hoisted!(node, name, ref, seg)
+      return unless ref
+
+      raise GraphWeaver::Error,
+        "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is inside the shared fragment " \
+        "#{ref.class_name}, which hoists to #{@types_namespace}::#{ref.class_name} — a path can't " \
+        "read into it. Register the alias on #{ref.graphql_type}, or select a field beside the " \
+        "spread to keep the struct local"
     end
 
     # Separate "this query didn't select it" from "no query could": a segment
@@ -203,8 +217,15 @@ class GraphWeaver::Codegen
       # there from the shared enums module — either way, no container prefix
       when EnumNode then node.class_name
       when UnionNode then "#{prefix}#{node.bare_type}"
-      else node.bare_type # Scalar, MappedEnum, UnionRefNode — already top-level
+      else node.bare_type # Scalar, MappedEnum, a hoisted ref — already top-level
       end
+    end
+
+    # the hoisted-fragment reference a node resolves to (through NON_NULL), or nil
+    def hoisted_of(node)
+      node = T.let(node, T.untyped)
+      node = node.of while node.is_a?(NonNull)
+      node if node.is_a?(HoistedRefNode)
     end
 
     # the List a node wraps (through NON_NULL), or nil

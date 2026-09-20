@@ -87,7 +87,9 @@ RSpec.describe "shared fragments" do
 
       src = File.read("#{base}/generated/people_query.rb")
       expect(src).to include("fragment PersonFields on Person") # the sent QUERY is self-contained
-      expect(src).to include("const :name, String", "const :email, String")
+      # the struct itself is hoisted — see hoisted_fragments_spec.rb
+      expect(File.read("#{base}/generated/types/person_fields.rb"))
+        .to include("const :name, String", "const :email, String")
     ensure
       GraphWeaver.fragments_paths = nil
     end
