@@ -44,9 +44,10 @@
   having to work out `URL=`. A graph with neither is skipped by `refresh` with
   a line saying so, rather than aborting: one such graph used to take every
   other graph's refresh down with it, and the task now exits non-zero only when
-  a refresh it could attempt failed. The consequence to know is that a graph
-  which names a client has its dump rewritten from that client even when the
-  file was maintained by hand.
+  a refresh it could attempt failed. **Action:** a graph that names a client now
+  has its dump rewritten from that client by `schema:refresh`, even when the
+  file was maintained by hand — if a graph's dump is the source of truth rather
+  than a cache, don't run `refresh` for it, or drop the client from that graph.
 
 - **One sentence for a dump that records no source url.** `schema:diff` said
   "Pass `transport:`, or rebuild it from the schema class that produced it" —
