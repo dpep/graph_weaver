@@ -95,6 +95,17 @@
   implements for another still counts as provided.
   ([type helpers](docs/generated_modules.md#type-helpers))
 
+- **A generated enum can absorb the values a server adds.**
+  `GraphWeaver.register_enum("Species", fallback: true)` gives the generated
+  `Species` one extra member, `Other`, and every wire value the schema doesn't
+  declare casts to it — the leniency a union's catch-all already had, without
+  hand-writing a `T::Enum` to map onto. The value it swallowed is named in a
+  debug log line, since a `T::Enum` member is a singleton and can't carry it.
+  Inputs stay strict: a variable carrying `Other` is refused, because no wire
+  value means it. Combines with `alias:`; generation refuses a schema that
+  already declares a value spelled `OTHER`.
+  ([scalars](docs/scalars.md#enums-map-onto-your-own-tenum))
+
 ###  v0.7.4  (2026-09-16)
 
 **What you must do.** All three are 0.7.3 → 0.7.4, and a typical app does only

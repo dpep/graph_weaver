@@ -1051,6 +1051,12 @@ module GraphWeaver
     # mid-rename needs:
     #
     #      GraphWeaver.register_enum("Status", alias: { "legacy_mode" => "LEGACY_MODE" })
+    #
+    # fallback: true is the type-less form of forward-compat: the generated
+    # enum gains an Other member and casts every value the schema doesn't
+    # declare to it, so a server adding one doesn't take the client down.
+    #
+    #      GraphWeaver.register_enum("Species", fallback: true)
     def register_enum(graphql_name, type = nil, positional_map = nil, map: nil, fallback: nil, requires: nil,
       alias: nil)
       # `alias` is a Ruby keyword, so the parameter is only readable through binding

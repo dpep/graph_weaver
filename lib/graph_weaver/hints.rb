@@ -69,22 +69,36 @@ module GraphWeaver
     # neither that nor which values exist. Raised bare so the enclosing
     # Hints.field brands it with the field.
     # aliases (register_enum alias:) is wire spelling => the value it reads as.
-    def self.enum(type, value, aliases = nil)
+    # fallback is the Other member, when the registration asked for one.
+    def self.enum(type, value, aliases = nil, fallback: nil)
       value = aliases.fetch(value, value) if aliases
+      member = type.try_deserialize(value)
+      return member if member
+      return absorbed(type, value, fallback) if fallback
 
-      type.try_deserialize(value) || drifted!(type, value, type.values.map(&:serialize))
+      drifted!(type, value, type.values.map(&:serialize), "register_enum fallback: true")
     end
 
     # the same, for an enum mapped onto an app-owned T::Enum, where the wire
     # table rather than the type knows the accepted values
     def self.mapped_enum(type, table, value)
-      table.fetch(value) { drifted!(type, value, table.keys) }
+      table.fetch(value) { drifted!(type, value, table.keys, "register_enum fallback:") }
     end
 
-    def self.drifted!(type, value, values)
+    # A T::Enum member is a singleton, so Other can't carry the value it
+    # swallowed — this line is the only record that anything drifted.
+    def self.absorbed(type, value, fallback)
+      GraphWeaver::Internal::Log.log(:debug) do
+        "#{type} absorbed #{GraphWeaver::Internal::Redact.shown(value)} into #{GraphWeaver::Internal::ENUM_FALLBACK}"
+      end
+      fallback
+    end
+    private_class_method :absorbed
+
+    def self.drifted!(type, value, values, suggestion)
       raise KeyError, "#{GraphWeaver::Internal::Redact.shown(value)} is not a #{type} — expected one of: " \
         "#{values.sort.join(", ")}; a value the server added since you generated " \
-        "needs a regenerate, or register_enum fallback: to absorb them"
+        "needs a regenerate, or #{suggestion} to absorb them"
     end
     private_class_method :drifted!
 

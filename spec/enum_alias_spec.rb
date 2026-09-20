@@ -201,16 +201,17 @@ describe "register_enum alias:" do
         .to raise_error(
           ArgumentError,
           'register_enum("Status") says nothing about Status — pass the T::Enum to map it onto, ' \
-          'or alias: { "old" => "NEW" } to read two wire values as one',
+          'alias: { "old" => "NEW" } to read two wire values as one, or fallback: true to absorb ' \
+          "values the server adds",
         )
     end
 
-    it "refuses fallback: with no T::Enum to describe" do
-      expect { GraphWeaver.register_enum("Status", alias: { "active" => "ACTIVE" }, fallback: :x) }
+    it "refuses map: with no T::Enum to describe" do
+      expect { GraphWeaver.register_enum("Status", alias: { "active" => "ACTIVE" }, map: { "x" => :y }) }
         .to raise_error(
           ArgumentError,
-          'register_enum("Status", alias: {...}) takes no fallback: — that describes a T::Enum of ' \
-          'your own, so pass one: register_enum("Status", YourEnum, alias: {...})',
+          'register_enum("Status") takes no map: — that describes a T::Enum of your own, so pass one: ' \
+          'register_enum("Status", YourEnum, map: {...})',
         )
     end
   end

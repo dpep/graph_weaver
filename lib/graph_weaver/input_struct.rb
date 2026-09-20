@@ -31,12 +31,15 @@ module GraphWeaver
     # rather than T::Enum.deserialize / the wire table directly: both raise a
     # bare KeyError naming an anonymous module and none of the values they
     # would have taken.
-    def self.enum(type, value, aliases = nil)
-      return value if value.is_a?(type)
+    # fallback is the generated Other member (register_enum fallback: true).
+    # It is the one member input refuses: nothing on the wire means it, so a
+    # variable carrying it would send a value the server never declared.
+    def self.enum(type, value, aliases = nil, fallback: nil)
+      member = value.is_a?(type) ? value : type.try_deserialize(aliases ? aliases.fetch(value, value) : value)
+      return member if member && !member.equal?(fallback)
 
-      value = aliases.fetch(value, value) if aliases
-
-      type.try_deserialize(value) || invalid_enum!(type, value, type.values.map(&:serialize))
+      accepted = type.values.map(&:serialize) - [fallback&.serialize].compact
+      member ? unsendable_enum!(type, accepted) : invalid_enum!(type, value, accepted)
     end
 
     # A list element's index, prepended when something inside it refused —
@@ -109,6 +112,17 @@ module GraphWeaver
       )
     end
     private_class_method :invalid_enum!
+
+    # The fallback member is a landing pad for drift, not a value — so it is
+    # refused by name rather than listed among the ones you could have meant.
+    def self.unsendable_enum!(type, accepted)
+      raise GraphWeaver::Internal::Refusal.brand(
+        KeyError.new("#{type}::#{GraphWeaver::Internal::ENUM_FALLBACK} absorbs values the server added, so " \
+          "there is nothing to send for it — expected one of: #{accepted.sort.join(", ")}"),
+        :not_a_member, members: accepted.sort,
+      )
+    end
+    private_class_method :unsendable_enum!
 
     def self.included(base)
       base.extend(ClassMethods)

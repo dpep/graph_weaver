@@ -338,6 +338,10 @@ class GraphWeaver::Codegen
       node.values.each do |value|
         out << "#{pad}    #{camelize(value.downcase)} = new(#{value.inspect})"
       end
+      if node.fallback?
+        out << "#{pad}    # every other wire value casts here (register_enum fallback: true)"
+        out << "#{pad}    #{GraphWeaver::Internal::ENUM_FALLBACK} = new(#{GraphWeaver::Internal::ENUM_FALLBACK_WIRE.inspect})"
+      end
       out << "#{pad}  end"
       out << "#{pad}end"
       return unless node.aliased?

@@ -22,6 +22,10 @@ class GraphWeaver::Codegen
   # value — both spellings cast, the target is what serializes. It is the
   # whole registration when there is no T::Enum to map onto, and then the
   # generated enum gets one constant for the target and none for the alias.
+  #
+  # fallback: true is the same type-less form asking for leniency instead:
+  # the generated enum gains an Other member and absorbs undeclared wire
+  # values into it (see Codegen#enum_values).
   class EnumType
     attr_reader :graphql_name, :type, :fallback, :requires
 
@@ -54,6 +58,10 @@ class GraphWeaver::Codegen
         raise ArgumentError, "fallback: must be a #{type} member, got #{fallback.inspect}"
       end
     end
+
+    # register_enum("Species", fallback: true): the generated enum gains an
+    # Other member and casts every undeclared wire value to it.
+    def generated_fallback? = type.nil? && fallback == true
 
     # The wire tables for a mapped enum: [wire value => member, member => the
     # wire value that goes out]. Every spelling casts; an alias's target is the
@@ -115,19 +123,27 @@ class GraphWeaver::Codegen
 
     private
 
-    # Without a T::Enum there is nothing for map:/fallback:/requires: to
-    # describe, so alias: is the whole registration.
+    # Without a T::Enum there is nothing for map:/requires: to describe, so
+    # alias: and fallback: true are the whole registration.
     def alias_only!(map, fallback, requires)
-      if @aliases.empty?
-        raise ArgumentError, "register_enum(#{graphql_name.inspect}) says nothing about #{graphql_name} — " \
-          "pass the T::Enum to map it onto, or alias: { \"old\" => \"NEW\" } to read two wire values as one"
+      if fallback && fallback != true
+        raise ArgumentError, "register_enum(#{graphql_name.inspect}, fallback: #{fallback.inspect}): the " \
+          "generated enum generates its fallback member too, so say fallback: true. To fall back onto a " \
+          "member of your own, pass the T::Enum: " \
+          "register_enum(#{graphql_name.inspect}, YourEnum, fallback: YourEnum::Unknown)"
       end
 
-      extra = { map:, fallback:, requires: }.compact.keys.first
+      if @aliases.empty? && !fallback
+        raise ArgumentError, "register_enum(#{graphql_name.inspect}) says nothing about #{graphql_name} — " \
+          "pass the T::Enum to map it onto, alias: { \"old\" => \"NEW\" } to read two wire values as one, " \
+          "or fallback: true to absorb values the server adds"
+      end
+
+      extra = { map:, requires: }.compact.keys.first
       if extra
         raise ArgumentError,
-          "register_enum(#{graphql_name.inspect}, alias: {...}) takes no #{extra}: — that describes a T::Enum " \
-          "of your own, so pass one: register_enum(#{graphql_name.inspect}, YourEnum, alias: {...})"
+          "register_enum(#{graphql_name.inspect}) takes no #{extra}: — that describes a T::Enum of your own, " \
+          "so pass one: register_enum(#{graphql_name.inspect}, YourEnum, #{extra}: {...})"
       end
 
       @requires = []
@@ -189,8 +205,9 @@ class GraphWeaver::Codegen
 
   # The enum half of one graph's registrations — see Codegen::Registry.
   class Registry
-    # Map a GraphQL enum onto an app-owned T::Enum, or fold two of its wire
-    # spellings into one value (see EnumType). The one implementation —
+    # Map a GraphQL enum onto an app-owned T::Enum, fold two of its wire
+    # spellings into one value, or absorb the ones the server hasn't told you
+    # about yet (see EnumType). The one implementation —
     # GraphWeaver.register_enum is a delegate, so the same call reaches it
     # whichever door you came in by.
     #

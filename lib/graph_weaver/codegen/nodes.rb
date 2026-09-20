@@ -207,10 +207,11 @@ class GraphWeaver::Codegen
   class EnumNode < Node
     attr_reader :class_name, :values, :aliases
 
-    def initialize(class_name, values, aliases = {})
+    def initialize(class_name, values, aliases = {}, fallback: false)
       @class_name = class_name
       @values = values
       @aliases = aliases
+      @fallback = fallback
     end
 
     def bare_type = class_name
@@ -220,10 +221,18 @@ class GraphWeaver::Codegen
     def aliased? = !@aliases.empty?
     def alias_const = "#{GraphWeaver::Inflect.underscore(class_name).upcase}_ALIASES"
 
+    # register_enum fallback: true — the extra member every value the schema
+    # doesn't declare casts to, and the one member a variable can't send
+    def fallback? = @fallback
+    def fallback_const = "#{class_name}::#{GraphWeaver::Internal::ENUM_FALLBACK}"
+
     def cast(expr, _depth)
-      "GraphWeaver::Hints.enum(#{class_name}, #{expr}#{", #{alias_const}" if aliased?})"
+      "GraphWeaver::Hints.enum(#{class_name}, #{expr}#{runtime_args})"
     end
 
+    # Other serializes to ENUM_FALLBACK_WIRE, which casts back to Other — so a
+    # result carrying it still round-trips through #as_json, even though no
+    # server would accept that spelling.
     def serialize(expr, _depth)
       "#{expr}.serialize"
     end
@@ -235,7 +244,11 @@ class GraphWeaver::Codegen
     def coerce? = true
 
     def coerce(expr)
-      "GraphWeaver::InputStruct.enum(#{class_name}, #{expr}#{", #{alias_const}" if aliased?})"
+      "GraphWeaver::InputStruct.enum(#{class_name}, #{expr}#{runtime_args})"
+    end
+
+    def runtime_args
+      "#{", #{alias_const}" if aliased?}#{", fallback: #{fallback_const}" if fallback?}"
     end
 
     def input_type = "T.any(#{class_name}, String)"

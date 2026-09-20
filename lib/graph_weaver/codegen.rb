@@ -1312,7 +1312,7 @@ class GraphWeaver::Codegen
     when List then "[#{signature(node.of)}]"
     when NarrowedNode then "?#{signature(node.nested)}"
     when Scalar then "s:#{node.bare_type}"
-    when EnumNode then "e:#{node.values.sort.join("|")}"
+    when EnumNode then "e:#{node.values.sort.join("|")}#{"+" if node.fallback?}"
     when MappedEnum then "m:#{node.graphql_name}"
     when ObjectNode
       inner = node.fields.map { |f| "#{f.prop}=#{signature(f.node)}" }.sort.join(",")
@@ -1467,8 +1467,10 @@ class GraphWeaver::Codegen
         "constant — map it onto one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
     end
 
-    aliases = @registry.enum_registry[core.graphql_name]&.aliases_for(core.values.keys.sort) || {}
-    EnumNode.new(class_name, enum_values(core, aliases), aliases)
+    entry = @registry.enum_registry[core.graphql_name]
+    aliases = entry&.aliases_for(core.values.keys.sort) || {}
+    fallback = entry&.generated_fallback? || false
+    EnumNode.new(class_name, enum_values(core, aliases, fallback:), aliases, fallback:)
   end
 
   # A schema enum's constant-bearing wire values, sorted so output is
@@ -1477,7 +1479,7 @@ class GraphWeaver::Codegen
   # it gets no constant. Values that differ only in case name the same T::Enum
   # constant, which raises at LOAD time ("Enum values must be assigned to
   # constants") — catch it here instead.
-  def enum_values(core, aliases = {})
+  def enum_values(core, aliases = {}, fallback: false)
     values = core.values.keys.sort - aliases.keys
     # `_` and `__` are legal GraphQL enum values and camelize to nothing, so
     # the emitted `= new("_")` isn't even parseable — the file fails at load
@@ -1501,6 +1503,16 @@ class GraphWeaver::Codegen
         "value, say which spelling goes on the wire:\n  " \
         "#{EnumType.alias_suggestion(core.graphql_name, collisions.values)}\n" \
         "or map the enum onto one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
+    end
+
+    # A declared value on the fallback's constant would make the member the
+    # server sent indistinguishable from the one it didn't.
+    claimed = fallback && values.find { |value| camelize(value.downcase) == GraphWeaver::Internal::ENUM_FALLBACK }
+    if claimed
+      raise GraphWeaver::Error,
+        "enum #{core.graphql_name} declares #{claimed}, so a generated #{GraphWeaver::Internal::ENUM_FALLBACK} " \
+        "member couldn't be told apart from it — map the enum onto one of yours: " \
+        "register_enum(#{core.graphql_name.inspect}, YourEnum, fallback: YourEnum::Unknown)"
     end
 
     values
