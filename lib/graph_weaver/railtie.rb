@@ -35,7 +35,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     KEYS = %i[watch].freeze
 
     def method_missing(name, *args)
-      key = name.to_s.delete_suffix("=").delete_suffix("?").delete_suffix("!").to_sym
+      key = setting(name)
       return super if KEYS.include?(key)
 
       raise ArgumentError, refusal(key)
@@ -53,10 +53,15 @@ class GraphWeaver::Railtie < Rails::Railtie
     alias_method :store, :[]=
 
     def respond_to_missing?(name, _private = false)
-      KEYS.include?(name.to_s.delete_suffix("=").delete_suffix("?").delete_suffix("!").to_sym)
+      KEYS.include?(setting(name))
     end
 
     private
+
+    # the setting a reader, writer or predicate is about
+    def setting(name)
+      name.to_s.delete_suffix("=").delete_suffix("?").delete_suffix("!").to_sym
+    end
 
     def refusal(key)
       near = GraphWeaver::Internal::Util.did_you_mean(KEYS.map(&:to_s), key.to_s)
