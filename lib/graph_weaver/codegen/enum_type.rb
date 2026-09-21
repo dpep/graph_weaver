@@ -83,7 +83,31 @@ class GraphWeaver::Codegen
           "add them, pin with map:, or absorb with fallback:"
       end
 
-      [from_wire, to_wire(from_wire, aliases)]
+      wire = to_wire(from_wire, aliases)
+      warn_unsendable(wire)
+      [from_wire, wire]
+    end
+
+    # The other direction, which nothing said: a member no wire value maps back
+    # from. A warning, not a refusal — one app-wide T::Enum serving two APIs
+    # that each expose a subset is a real shape, and the call that carries such
+    # a member is refused by name at runtime (InputStruct.enum_wire), so no
+    # wrong answer gets through either way. Warned on the channel
+    # validate_registrations! already narrates a mismatched registration on.
+    # fallback: is exempt: standing for what the schema doesn't declare is
+    # exactly what it is for.
+    def warn_unsendable(wire)
+      unsendable = type.values - wire.keys - [fallback].compact
+      return if unsendable.empty?
+
+      # a T::Enum member inspects as #<Type::Name>
+      names = unsendable.map { |member| member.inspect[2..-2] }.join(", ")
+      them = unsendable.one? ? "it" : "them"
+      GraphWeaver::Internal::Log.log(:warn) do
+        "#{graphql_name} has no value for #{type} member(s) #{names} — a kwarg carrying " \
+          "#{them} is refused at the call; map onto a matching T::Enum, or name the drift " \
+          "member with fallback:"
+      end
     end
 
     # alias spelling => the value it is read as, checked against what the

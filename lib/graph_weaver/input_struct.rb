@@ -76,6 +76,25 @@ module GraphWeaver
       table.fetch(value) { invalid_enum!(type, value, table.keys) }
     end
 
+    # The way back out: a member => the wire value it sends as. Generation
+    # makes that table total, so a miss is a T::Enum that grew a member since
+    # — and Hash#fetch's KeyError named the anonymous table rather than the
+    # member or anything it could have sent. Also the result side's `as_json`,
+    # where nothing wraps a raised KeyError into a GraphWeaver error at all.
+    def self.enum_wire(graphql_name, table, member)
+      table.fetch(member) do
+        raise GraphWeaver::Internal::Refusal.brand(
+          GraphWeaver::Error.new(
+            # a T::Enum member inspects as #<Type::Name>
+            "#{member.inspect[2..-2]} maps onto no #{graphql_name} value, so there is nothing to " \
+            "send for it — expected one of: #{table.values.sort.join(", ")}; a member added since " \
+            "you generated needs a regenerate",
+          ),
+          :not_a_member, members: table.values.sort,
+        )
+      end
+    end
+
     # Names the input field a coercion refused — a scalar's coercer, an
     # enum's, or a nested input's — since the complaint underneath is about
     # the value alone. A nested error that already named a field keeps its

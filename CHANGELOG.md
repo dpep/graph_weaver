@@ -239,6 +239,19 @@
   skip the accessor, but no way of writing the fragment makes such a path fit,
   so it buys silence rather than an accessor. ([errors](docs/errors.md#the-classes))
 
+- **A mapped-enum member the schema has no value for says so, twice.**
+  `register_enum("Species", PetKind)` already refused a schema value no member
+  answers, but a *member* no schema value answers went unmentioned — and the
+  generated kwarg is typed as the enum itself, so `srb tc` called
+  `PetKind::Ferret` sendable and the wire table raised
+  `key not found: #<PetKind::Ferret>`, with a bare `KeyError` from `as_json`
+  that wasn't even a GraphWeaver error. Generation now *warns*, naming the
+  members — one app-wide `T::Enum` serving two APIs that each expose a subset is
+  a real shape, so it doesn't block the build — and the call that would send one
+  is refused by name, saying what it could have sent. `fallback:` is exempt:
+  standing for what the schema doesn't declare is what it is for.
+  ([scalars](docs/scalars.md#enums-map-onto-your-own-tenum))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

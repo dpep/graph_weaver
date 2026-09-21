@@ -506,7 +506,9 @@ Two safety properties do the real work:
   a member, or generation fails naming the gaps (`PetKind has no member for
   Species value(s) DOG — add them, pin with map:, or absorb with fallback:`), so
   your enum drifting from the server's is caught by `rake graph_weaver:generate`,
-  not in production.
+  not in production. The other direction only *warns* — one app-wide `T::Enum` can
+  serve two APIs that each expose a subset — and a kwarg carrying a member this
+  schema declares no value for is refused by name at the call.
 - **`fallback:` for forward-compat**: `fallback: PetKind::Unknown` makes *casting*
   absorb wire values the server added after you generated, so responses keep
   flowing instead of raising. Inputs stay strict either way: a typo'd input is your

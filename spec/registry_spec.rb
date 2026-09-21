@@ -7,7 +7,15 @@ class PetKind < T::Enum
   enums do
     Cat = new("cat")
     Dog = new("dog")
-    Unknown = new("unknown")
+  end
+end
+
+# the same, plus a member Species (DOG, CAT) declares no value for
+class PetKindPlus < T::Enum
+  enums do
+    Cat = new("cat")
+    Dog = new("dog")
+    Ferret = new("ferret")
   end
 end
 
@@ -86,6 +94,48 @@ describe "the registration registry" do
 
       expect { client.parse(query) }
         .to raise_error(GraphWeaver::Error, /CatsOnly has no member for Species value\(s\) DOG/)
+    end
+
+    # The other direction, where nothing was said at all. One app-wide T::Enum
+    # can serve two APIs that each expose a subset, so this warns rather than
+    # blocking the build — the call carrying such a member is refused by name.
+    describe "a member the schema declares no value for" do
+      let(:io) { StringIO.new }
+
+      around do |example|
+        GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
+        example.run
+      ensure
+        GraphWeaver.logger = nil
+      end
+
+      it "warns at generation, naming the members" do
+        GraphWeaver.register_enum("Species", PetKindPlus)
+
+        expect { client.parse(query) }.not_to raise_error
+        expect(io.string).to include(
+          "Species has no value for PetKindPlus member(s) PetKindPlus::Ferret — a kwarg carrying " \
+          "it is refused at the call; map onto a matching T::Enum, or name the drift member with fallback:",
+        )
+      end
+
+      it "says nothing for the fallback member, which is meant to have no wire value" do
+        GraphWeaver.register_enum("Species", PetKindPlus, fallback: PetKindPlus::Ferret)
+
+        expect { client.parse(query) }.not_to raise_error
+        expect(io.string).to eq ""
+      end
+    end
+
+    # what makes the warning enough: the member is refused by name where it
+    # would have gone out. Hash#fetch's KeyError named the anonymous table.
+    it "refuses the member at the call, naming it and what it could have sent" do
+      table = { PetKind::Cat => "CAT", PetKind::Dog => "DOG" }
+
+      expect { GraphWeaver::InputStruct.enum_wire("Species", table, PetKindPlus::Ferret) }
+        .to raise_error(GraphWeaver::Error, <<~MSG.chomp)
+          PetKindPlus::Ferret maps onto no Species value, so there is nothing to send for it — expected one of: CAT, DOG; a member added since you generated needs a regenerate
+        MSG
     end
 
     it "fallback: absorbs unknown wire values on cast; inputs stay strict" do

@@ -293,7 +293,9 @@ class GraphWeaver::Codegen
     # #as_json. Without a fallback the table is total and a miss is a real
     # mistake, so it still raises.
     def serialize(expr, _depth)
-      return "#{const_prefix}_TO_WIRE.fetch(#{expr})" unless @fallback
+      unless @fallback
+        return "GraphWeaver::InputStruct.enum_wire(#{@graphql_name.inspect}, #{const_prefix}_TO_WIRE, #{expr})"
+      end
 
       "#{const_prefix}_TO_WIRE.fetch(#{expr}) { |member| member.serialize }"
     end

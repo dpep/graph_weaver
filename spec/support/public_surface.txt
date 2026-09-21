@@ -219,6 +219,7 @@ GraphWeaver::InputStruct#supplied=
 GraphWeaver::InputStruct#to_h
 GraphWeaver::InputStruct.element
 GraphWeaver::InputStruct.enum
+GraphWeaver::InputStruct.enum_wire
 GraphWeaver::InputStruct.field
 GraphWeaver::InputStruct.included
 GraphWeaver::InputStruct.mapped_enum
