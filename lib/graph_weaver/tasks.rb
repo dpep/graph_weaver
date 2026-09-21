@@ -377,15 +377,22 @@ namespace :graph_weaver do
 
     desc "Fail when the schema behind the dump has drifted from it"
     task diff: :own_schema do
-      subjects = GraphWeaver::Internal::Tasks.dumps
-      abort GraphWeaver::Internal::Tasks.no_dump if subjects.none? { |_, path, _| path }
-
-      stale = subjects.filter_map do |graph, path, source|
+      # One rule per graph, and no graph's verdict depends on what the others
+      # have: the "no dump anywhere" abort used to run before the loop, so a
+      # lone live-class graph was refused naming a path it never mentions
+      # while the same graph passed as soon as a sibling had a dump.
+      ungated = []
+      stale = GraphWeaver::Internal::Tasks.dumps.filter_map do |graph, path, source|
         heading = GraphWeaver::Internal::Tasks.heading(graph)
         puts heading if heading
-        # a graph that names a live class generates straight from it: no
-        # dump between the code and the output, so nothing can be stale
-        next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) unless path
+        unless path
+          # a graph that names a live class generates straight from it: no
+          # dump between the code and the output, so nothing can be stale.
+          # One whose dump is merely missing has something this gate can't see.
+          puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source)
+          ungated << graph if graph.named_dump_path || !source
+          next
+        end
 
         diff = GraphWeaver::SchemaLoader.diff(path, transport: graph.source_transport)
         dump = GraphWeaver::Internal::Util.relative(path)
@@ -401,6 +408,12 @@ namespace :graph_weaver do
       unless stale.empty?
         abort "#{stale.join(", ")} is stale — the schema behind it has drifted " \
           "(rake graph_weaver:schema:refresh)"
+      end
+      # a gate that passes on having compared nothing is worse than one that
+      # admits it: the sentence above says which graph and why
+      unless ungated.empty?
+        abort "#{GraphWeaver::Internal::Tasks.whose(ungated)}nothing here could be compared — " \
+          "this run gated nothing"
       end
     rescue GraphWeaver::Error => e
       # e.g. a dump that is its own source — same clean exit as :refresh

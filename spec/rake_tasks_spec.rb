@@ -316,8 +316,24 @@ describe "graph_weaver rake tasks" do
       result = invoke("schema:diff")
 
       expect(result.status).to eq 1
-      expect(result.err).to include "no schema dump at #{GraphWeaver.schema_path}",
+      expect(result.out).to include "no schema dump at #{GraphWeaver.schema_path}",
         "rake graph_weaver:schema:refresh URL="
+      expect(result.err).to eq "nothing here could be compared — this run gated nothing\n"
+    end
+
+    # The verdict on one graph used to depend on which OTHER graphs the app
+    # had: the "no dump anywhere" abort ran before the loop, so the branch
+    # that says a live-class graph has nothing to keep in step was reachable
+    # only when a sibling graph happened to have a dump.
+    it "answers a lone live-class graph the same way it answers one with a sibling" do
+      GraphWeaver.graph(:live) { schema Demo::Schema }
+
+      expect(invoke("schema:diff")).to have_attributes(status: 0, out: <<~OUT)
+        graph :live
+        graph :live generates from Demo::Schema directly — no dump to keep in step
+      OUT
+    ensure
+      GraphWeaver.reset_graphs!
     end
 
     def diff_between(before, after)
