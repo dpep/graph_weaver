@@ -214,13 +214,15 @@ module GraphWeaver
         GraphWeaver.graphs.map { |graph| [graph, graph.dump_path, graph.source] }
       end
 
-      # A dump with no recorded url whose graph names no client: nothing
-      # behind the file to re-read, so the file is the schema. Said and
-      # stepped over rather than refused — the task's job is the graphs it
-      # CAN refresh.
+      # A dump with no recorded url whose graph names no server: nothing
+      # behind the file to re-read, so the file is the schema. One shape, one
+      # diagnosis — :refresh steps over it and :diff can't assert anything
+      # about it, and they used to describe it in two different sentences and
+      # disagree about whose whole run it ended.
       def self.no_source(path)
         "#{GraphWeaver::Internal::Util.relative(path)} records no source url and the graph names " \
-          "no client — left as checked in"
+          "no server behind it — no client posting to one, and no graphql-ruby schema class in " \
+          "this process — so the file is the schema and nothing here can re-read it"
       end
 
       # A graph that generates straight from a schema class has no dump
@@ -391,6 +393,13 @@ namespace :graph_weaver do
           # One whose dump is merely missing has something this gate can't see.
           puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source)
           ungated << graph if graph.named_dump_path || !source
+          next
+        end
+        unless source
+          # the shape :refresh steps over, in :refresh's own words — this task
+          # still fails on it, because a gate cannot assert nothing
+          puts GraphWeaver::Internal::Tasks.no_source(path)
+          ungated << graph
           next
         end
 

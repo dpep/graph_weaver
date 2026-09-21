@@ -356,7 +356,7 @@ describe "graph_weaver rake tasks" do
     # the whole point of the task: refreshing and diffing a 3 MB dump to
     # learn what moved is not a report
     it "prints what changed before naming the task that repairs it" do
-      write_schema
+      write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
       allow(GraphWeaver::SchemaLoader).to receive(:diff).and_return(
         diff_between("type Query { a: String b: Int }", "type Query { a: String c: Int }"),
       )
@@ -368,22 +368,23 @@ describe "graph_weaver rake tasks" do
       expect(result.err).to include "is stale", "rake graph_weaver:schema:refresh"
     end
 
-    # a dump with no recorded url can't be re-introspected — a clean abort,
-    # not a backtrace out of the transport. The sentence is the one
-    # SchemaLoader.refresh! gives: this state is reached by typing a rake
-    # task, and `transport:` is not something a rake user can pass.
-    it "reports a dump it can't re-fetch in the words refresh uses" do
+    # A dump with nothing behind it is one shape, and the two tasks used to
+    # describe it differently and disagree about it: :refresh said "left as
+    # checked in" and exited 0, :diff aborted the whole run with a "pass a
+    # url" hint out of SchemaLoader. One diagnosis; :diff still exits 1,
+    # because a gate cannot assert nothing.
+    it "describes a dump with nothing behind it the way refresh does" do
       write_schema
 
-      result = invoke("schema:diff")
+      diff = invoke("schema:diff")
+      refresh = invoke("schema:refresh")
 
-      expect(result.status).to eq 1
-      expect(result.err.lines.size).to eq 1
-      expect(result.err).to eq "#{GraphWeaver.schema_path} records no source url — pass one: " \
-        "rake graph_weaver:schema:refresh URL=https://api.example.com/graphql, or point the " \
-        "graph's client at the server — an app that serves the schema itself points " \
-        "GraphWeaver.client at the class and the dump is built from that " \
-        "(docs/getting_started.md#your-apps-own-schema-in-process)\n"
+      sentence = "#{GraphWeaver.schema_path} records no source url and the graph names no server " \
+        "behind it — no client posting to one, and no graphql-ruby schema class in this process " \
+        "— so the file is the schema and nothing here can re-read it\n"
+      expect(refresh).to have_attributes(status: 0, out: sentence)
+      expect(diff).to have_attributes(status: 1, out: sentence,
+        err: "nothing here could be compared — this run gated nothing\n")
     end
 
     # An inherited dump (graphql-client left no provenance) records nothing,
@@ -618,7 +619,7 @@ describe "graph_weaver rake tasks" do
         GraphWeaver.reset_graphs!
       end
 
-      it "skips a graph that names no client, refreshes the rest, and exits zero" do
+      it "skips a graph with nothing behind its dump, refreshes the rest, and exits zero" do
         manual = File.join(@root, "manual.graphql")
         File.write(manual, "type Query { a: String }")
         write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
@@ -632,7 +633,7 @@ describe "graph_weaver rake tasks" do
           graph :api
           refreshed #{api} from https://api.example.com/graphql
           graph :manual
-          #{manual} records no source url and the graph names no client — left as checked in
+          #{manual} records no source url and the graph names no server behind it — no client posting to one, and no graphql-ruby schema class in this process — so the file is the schema and nothing here can re-read it
         OUT
       ensure
         GraphWeaver.reset_graphs!
