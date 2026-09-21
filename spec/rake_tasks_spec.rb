@@ -595,6 +595,45 @@ describe "graph_weaver rake tasks" do
         GraphWeaver.reset_graphs!
       end
     end
+
+    # A client that runs a schema class in-process names a server as surely as
+    # one that posts to a url. Reading only the url made this graph sourceless
+    # to :refresh and :queries:check while :diff reached the class — three
+    # tasks, one graph, two answers.
+    context "when a graph's own client runs its schema in-process" do
+      before do
+        stub_const("DemoClient", GraphWeaver.new(Demo::Schema))
+        write_schema("type Query { gone: String }")
+        path = GraphWeaver.schema_path
+        GraphWeaver.graph(:api) do
+          schema path
+          client "DemoClient"
+        end
+      end
+
+      after { GraphWeaver.reset_graphs! }
+
+      it "rebuilds the dump from the class rather than calling the graph clientless" do
+        expect(invoke("schema:refresh")).to have_attributes(status: 0, out: <<~OUT)
+          graph :api
+          refreshed #{GraphWeaver.schema_path} from Demo::Schema
+        OUT
+        expect(File.read(GraphWeaver.schema_path)).to include "type Person"
+      end
+
+      # the dump is a snapshot of code in this repo, so "as committed" is the
+      # one verdict that cannot be right — and it was the green one
+      it "checks the queries against the class, not against the dump" do
+        write_query("gone.graphql", "query Gone { gone }")
+
+        result = invoke("queries:check")
+
+        expect(result.status).to eq 1
+        expect(result.out).to include "queries/gone.graphql",
+          "Field 'gone' doesn't exist on type 'Query'"
+        expect(result.out).not_to include "as committed"
+      end
+    end
   end
 
   describe "graph_weaver:queries:check" do

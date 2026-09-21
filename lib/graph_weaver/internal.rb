@@ -243,14 +243,14 @@ module GraphWeaver
             "or cache one: GraphWeaver.new(url, cache: true).schema"
         end
 
-        # The graphql-ruby schema class the app default executes against,
-        # when it runs in-process — a Client wrapping one, or the class in
-        # the slot bare. nil for every network client. Not memoized: in dev
-        # the class object is replaced on reload.
-        def live_schema
+        # The graphql-ruby schema class a client executes against, when it
+        # runs in-process — a Client wrapping one, or the class in the slot
+        # bare. nil for every network client. Defaults to the app's own, and
+        # a graph passes its client. Not memoized: in dev the class object is
+        # replaced on reload.
+        def live_schema(client = GraphWeaver.client)
           # through #transport, not #schema: a url client's #schema
           # introspects, so asking it would answer over the network
-          client = GraphWeaver.client
           target = client.is_a?(Client) ? client.transport : client
           target = target.schema if target.is_a?(InProcess)
           target if target.is_a?(Class) && target <= GraphQL::Schema
