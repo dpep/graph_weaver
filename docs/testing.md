@@ -158,7 +158,8 @@ snake_cased reader, puts the value on the wire the way its
 a `T::Enum` as its value), recurses into nested objects and arrays of them, and
 **fabricates any field the object doesn't answer**. Readers are field names, not
 aliases; `__typename` comes from the key, so at a union or interface pin the
-concrete type (`"Person"`, never `"Named"`). A FactoryBot sequence advances on
+concrete type — `"Person"` or `"Person.name"`, never `"Named"` or
+`"Named.name"`, and both spellings of the abstract one are refused. A FactoryBot sequence advances on
 its own counter, which is the one thing `--seed` can't reproduce.
 
 A **scalar type pin** is the one thing a scalar registered as *your own class*

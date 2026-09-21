@@ -442,6 +442,14 @@ describe GraphWeaver::Testing do
           .to raise_error(GraphWeaver::Error, /names no object type in this schema — did you mean 'Person'\?/)
       end
 
+      # the bare form was refused and the coordinate one sailed through and
+      # pinned nothing — the silent green every other key check exists to stop
+      it "rejects an abstract type in the coordinate form too" do
+        expect { fake_with("Named.name" => "Ada") }.to raise_error(GraphWeaver::Error,
+          "override key \"Named.name\" names interface Named, and a fake only ever holds a " \
+          "concrete type: name the concrete type — \"Person.name\", \"Pet.name\"")
+      end
+
       it "accepts both key forms, and introspection fields" do
         expect { fake_with("Person.name" => "a", "name" => "b", "__typename" => "c") }.not_to raise_error
       end
@@ -498,6 +506,11 @@ describe GraphWeaver::Testing do
           /list_size: key "Person.pest" is not a field of Person — did you mean 'pets'\?/)
         expect { pets_per_person("petz" => 1) }.to raise_error(GraphWeaver::Error,
           /list_size: key "petz" matches no field in this schema — did you mean 'pets'\?/)
+      end
+
+      it "rejects an abstract type in a coordinate key, as a pin does" do
+        expect { pets_per_person("Named.name" => 1) }.to raise_error(GraphWeaver::Error,
+          /list_size: key "Named.name" names interface Named.*"Person.name", "Pet.name"/)
       end
 
       it "rejects a size that isn't a length" do

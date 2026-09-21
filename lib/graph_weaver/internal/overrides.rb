@@ -165,9 +165,25 @@ module GraphWeaver
           unless type.respond_to?(:fields)
             bad!(label, key, "names no object type in this schema", schema.types.keys, type_name)
           end
-          return if type.fields.key?(field_name)
+          unless type.fields.key?(field_name)
+            bad!(label, key, "is not a field of #{type_name}", type.fields.keys, field_name)
+          end
 
-          bad!(label, key, "is not a field of #{type_name}", type.fields.keys, field_name)
+          concrete!(schema, label, key, type, field_name)
+        end
+
+        # The abstract-type refusal, in the coordinate form. An interface
+        # declares the field, so "Named.name" reads as a key that must work
+        # — and it matches nothing: the walk picks a member before it builds
+        # a coordinate, so every key it looks up is "Person.name".
+        def concrete!(schema, label, key, type, field_name)
+          return unless type.kind.abstract?
+
+          members = schema.possible_types(type)
+            .map { |member| "#{member.graphql_name}.#{field_name}".inspect }.sort
+          raise GraphWeaver::Error, "#{label} #{key.inspect} names #{type.kind.name.downcase} " \
+            "#{type.graphql_name}, and a fake only ever holds a concrete type: name the " \
+            "concrete type — #{members.join(", ")}"
         end
 
         # A type pin says what every value of that type is, and the fake only

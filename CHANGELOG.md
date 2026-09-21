@@ -110,6 +110,13 @@
   refused where you wrote it.
   ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
 
+- **An abstract type is refused in the coordinate form too.** `"Named"` was
+  refused naming the members to pin instead, while `"Named.name"` validated
+  clean and matched nothing — for a pin, `list_size:` and `null_chance:` alike:
+  the fake picks a member before it builds a coordinate, so every key it looks
+  up is `"Person.name"`. Both spellings now get the same refusal, and it names
+  the concrete coordinates. ([testing](docs/testing.md#pins))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a
