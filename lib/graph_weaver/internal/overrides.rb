@@ -10,9 +10,9 @@ module GraphWeaver
     # suite-wide ones while the block that set them is still on the stack,
     # and a fake built with its own checks them then.
     module Overrides
-      # The key a Hash `list_size:` says its fallback under — every list it
-      # doesn't name.
-      LIST_SIZE_DEFAULT = "default"
+      # The key a per-field Hash (`list_size:`, `null_chance:`) says its
+      # fallback under — everything it doesn't name.
+      DEFAULT_KEY = "default"
 
       class << self
         # A pin key names something in the schema: a type ("Money",
@@ -51,16 +51,18 @@ module GraphWeaver
         # minus the bare type name: a type says nothing about how long any one
         # of its fields is.
         def validate_list_size!(schema, list_size)
-          return unless list_size.is_a?(Hash)
+          validate_per_field!(schema, list_size, "list_size") do |value|
+            "an Integer or a Range — how long an unbounded list is" unless
+              value.is_a?(Integer) || value.is_a?(Range)
+          end
+        end
 
-          list_size.each do |key, value|
-            unless value.is_a?(Integer) || value.is_a?(Range)
-              raise GraphWeaver::Error, "list_size: #{key.to_s.inspect} must be an Integer or a " \
-                "Range — how long an unbounded list is — got #{value.inspect}"
-            end
-            next if key.to_s == LIST_SIZE_DEFAULT
-
-            validate_field_key!(schema, key.to_s, "list_size: key")
+        # A Hash `null_chance:` is keyed the same way, one nullable field at a
+        # time.
+        def validate_null_chance!(schema, null_chance)
+          validate_per_field!(schema, null_chance, "null_chance") do |value|
+            "a number from 0 to 1 — how often a nullable field comes back null" unless
+              value.is_a?(Numeric) && (0..1).cover?(value)
           end
         end
 
@@ -74,6 +76,24 @@ module GraphWeaver
         end
 
         private
+
+        # The shape both per-field options take: a Hash keyed by field —
+        # a "Type.field" coordinate or a bare field name — with DEFAULT_KEY
+        # for the rest. The block says what a value has to be, in the words
+        # the refusal uses.
+        def validate_per_field!(schema, option, name)
+          return unless option.is_a?(Hash)
+
+          option.each do |key, value|
+            if (wanted = yield(value))
+              raise GraphWeaver::Error, "#{name}: #{key.to_s.inspect} must be #{wanted} — " \
+                "got #{value.inspect}"
+            end
+            next if key.to_s == DEFAULT_KEY
+
+            validate_field_key!(schema, key.to_s, "#{name}: key")
+          end
+        end
 
         # A proc taking anything else can't be called at fabrication time,
         # and the ArgumentError it would raise there names no pin.

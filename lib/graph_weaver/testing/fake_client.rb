@@ -86,12 +86,14 @@ require_relative "../parsing"
 #
 #      FakeClient.new(schema:, corrupt: "Person.birthday")
 #
-# null_chance: how often a nullable field comes back null — 0 by default,
-# and per fake only: "does this render with no email" is one example's
-# question, and a suite-wide answer would sprinkle nils through every other
-# example instead.
+# null_chance: how often a nullable field comes back null — a number from 0
+# to 1 for all of them, or a Hash per field keyed the way list_size: is. 0
+# by default, and per fake only: "does this render with no email" is one
+# example's question, and a suite-wide answer would sprinkle nils through
+# every other example instead.
 #
 #      FakeClient.new(schema:, null_chance: 1.0)   # everything nullable, null
+#      FakeClient.new(schema:, null_chance: { "Person.nickname" => 1.0, default: 0 })
 #
 # list_size: how long an unbounded list is — an Integer exactly, a Range
 # randomized within it, and a Hash per list, keyed the way a pin is (a
@@ -167,10 +169,10 @@ class GraphWeaver::Testing::FakeClient
     @registry = options[:registry] || GraphWeaver::Internal::Util.registry_for(@schema)
     @values = GraphWeaver::Internal::Values.new(seed: options[:seed], values: options[:values],
       pins: @overrides, schema: @schema, registry: @registry)
-    @list_size = options[:list_size] || config.list_size
-    @list_size = @list_size.transform_keys(&:to_s) if @list_size.is_a?(Hash)
+    @list_size = stringify(options[:list_size] || config.list_size)
     GraphWeaver::Internal::Overrides.validate_list_size!(@schema, @list_size)
-    @null_chance = options[:null_chance] || 0.0
+    @null_chance = stringify(options[:null_chance] || 0.0)
+    GraphWeaver::Internal::Overrides.validate_null_chance!(@schema, @null_chance)
     # NOT Array(): it would explode a bare Hash into key/value pairs
     @extra_errors = wrap(options[:errors]).map { |error| normalize_error(error) }
     @fail_at = wrap(options[:fail_at]).map { |spec| normalize_fail_spec(spec) }
@@ -612,7 +614,7 @@ class GraphWeaver::Testing::FakeClient
     return [capped, 0].max if capped.is_a?(Integer)
     return 0 if errors_list?(node.name)
 
-    size = list_size_for(coordinate, node.name)
+    size = per_field(@list_size, coordinate, node.name, GraphWeaver::Testing::Config::DEFAULT_LIST_SIZE)
     # an Integer list_size means exactly that many; a Range randomizes within it
     size.is_a?(Range) ? rng.rand(size) : size
   end
@@ -624,20 +626,21 @@ class GraphWeaver::Testing::FakeClient
   # until it is pinned. Pin it to fabricate the failure path.
   def errors_list?(name) = name.downcase.end_with?("errors")
 
-  # How long an unbounded list is. A Hash says it per list, read most
-  # specific first like a pin — which is what keeps nested lists from
-  # multiplying: every list the walk reaches re-reads this, so one number
-  # for all of them is n rows x n tags.
-  def list_size_for(coordinate, name)
-    return @list_size unless @list_size.is_a?(Hash)
+  # What a per-field option (list_size:, null_chance:) says here. A Hash says
+  # it per field, read most specific first like a pin — which is what keeps
+  # nested lists from multiplying: every list the walk reaches re-reads
+  # list_size, so one number for all of them is n rows x n tags.
+  def per_field(option, coordinate, name, fallback)
+    return option unless option.is_a?(Hash)
 
-    @list_size.fetch(coordinate) do
-      @list_size.fetch(name) do
-        @list_size.fetch(GraphWeaver::Internal::Overrides::LIST_SIZE_DEFAULT,
-          GraphWeaver::Testing::Config::DEFAULT_LIST_SIZE)
-      end
+    option.fetch(coordinate) do
+      option.fetch(name) { option.fetch(GraphWeaver::Internal::Overrides::DEFAULT_KEY, fallback) }
     end
   end
+
+  # A per-field option's keys are GraphQL names, written as either a String
+  # or a Symbol (`default:` most of all).
+  def stringify(option) = option.is_a?(Hash) ? option.transform_keys(&:to_s) : option
 
   def type_value(type, node, selections, coordinate: nil, non_null: false)
     if type.kind.name == "NON_NULL"
@@ -645,7 +648,7 @@ class GraphWeaver::Testing::FakeClient
     end
     # every nullable position, a list included — null_chance is about the
     # nilable props codegen emitted, and it emits one for `[Thing!]` too
-    return if !non_null && rng.rand < @null_chance
+    return if !non_null && rng.rand < per_field(@null_chance, coordinate, node.name, 0.0)
 
     case type.kind.name
     when "LIST"

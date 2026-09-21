@@ -9,6 +9,14 @@
   own modules runs, naming it; an example where no graph posts anywhere is still
   refused outright. ([testing](docs/testing.md#over-the-wire--graphql-wire))
 
+- **`null_chance:` takes a Hash per field, like `list_size:`.**
+  `graphql_fake(null_chance: { "Person.nickname" => 1.0, default: 0 })` says the
+  example is about one missing value instead of nilling everything nullable
+  alongside it. Keyed and spellchecked the way `list_size:` and a pin are, and a
+  value that isn't a number from 0 to 1 is refused at the door rather than
+  failing inside the fabricator.
+  ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

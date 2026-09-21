@@ -633,7 +633,7 @@ one ahead of yours, so a `before` setting `config.schema`, `config.router` or
 **refused**, not ignored — a green example running against the wrong stand-in is
 the expensive outcome.
 
-### Fabricated list lengths
+### Fabricated list lengths and nulls
 
 `list_size` is how long an **unbounded** list is — an Integer exactly that many,
 a Range randomized within it, or a Hash saying it per list. A list with a
@@ -647,6 +647,13 @@ way a pin is (a `"Type.field"` coordinate or a bare field name), with `default:`
 for the rest — `config.list_size = { "Row.tags" => 3, default: 1000 }` holds the
 inner list at 3 however large the outer one grows. Or cap it in the query
 (`tags(first: 3)`), where the query is yours to change.
+
+`null_chance` takes the same two shapes, and the same keys: a number from 0 to 1
+for every nullable field, or a Hash saying it per field with `default:` for the
+rest. So the example about one missing value says only that —
+`graphql_fake(null_chance: { "Person.nickname" => 1.0 })` — instead of nilling
+everything else alongside it. A misspelled key is refused and spellchecked, the
+way a pin's is.
 
 **A list field whose name ends in `errors` fabricates empty** — `userErrors`,
 `errors`, `mutationErrors`. The Relay/Shopify payload

@@ -515,6 +515,43 @@ describe GraphWeaver::Testing do
       end
     end
 
+    describe "null_chance" do
+      def person(null_chance)
+        GraphWeaver::Testing::FakeClient.new(schema: Demo::Schema, seed: 1, null_chance:)
+          .execute('query { person(id: "1") { name email birthday } }')
+          .dig("data", "person")
+      end
+
+      it "nulls one field by coordinate, leaving the rest present" do
+        nulled = person("Person.email" => 1.0)
+
+        expect(nulled["email"]).to be_nil
+        expect(nulled["birthday"]).not_to be_nil
+      end
+
+      it "keeps a named field present however high default: goes" do
+        # Query.person is nullable too, so the default reaches it as well
+        kept = person("email" => 0.0, "Query.person" => 0.0, :default => 1.0)
+
+        expect(kept["email"]).to be_a String
+        expect(kept["birthday"]).to be_nil
+      end
+
+      it "rejects a key the schema doesn't know, spellchecked" do
+        expect { person("Person.emial" => 1.0) }.to raise_error(GraphWeaver::Error,
+          /null_chance: key "Person.emial" is not a field of Person — did you mean 'email'\?/)
+        expect { person("emial" => 1.0) }.to raise_error(GraphWeaver::Error,
+          /null_chance: key "emial" matches no field in this schema — did you mean 'email'\?/)
+      end
+
+      it "rejects a chance that isn't one" do
+        expect { person("email" => 2) }.to raise_error(GraphWeaver::Error,
+          /null_chance: "email" must be a number from 0 to 1/)
+        expect { person("email" => "always") }.to raise_error(GraphWeaver::Error,
+          /null_chance: "email" must be a number from 0 to 1/)
+      end
+    end
+
     # The Relay/Shopify payload — `placeOrder { order userErrors }` — is the
     # ecosystem's mutation shape, and a fabricated order beside a fabricated
     # failure is a response no server can send. So the natural happy-path

@@ -18,6 +18,7 @@ module DraftsDemo
 
     field :id, ID, null: false
     field :owner, String, null: false
+    field :title, String # nullable, so null_chance has something to reach
   end
 
   class QueryType < GraphQL::Schema::Object
@@ -37,6 +38,7 @@ module DraftsDemo
   # what an app's generated code looks like: no client baked in, so it runs
   # against whichever one the tag installed
   QUERY = GraphWeaver.parse(schema: Schema, query: "query { drafts { id owner } }", name: "DraftsQuery")
+  TITLED = GraphWeaver.parse(schema: Schema, query: "query { drafts { title } }", name: "TitledDrafts")
 end
 
 # The rspec integration end to end: real tags, real hooks, real metadata
@@ -149,6 +151,14 @@ describe "graph_weaver/rspec" do
 
         expect { graphql_fake(list_size: { "Query.draffts" => 2 }) }
           .to raise_error(GraphWeaver::Error, /list_size: key "Query.draffts".*did you mean 'drafts'\?/)
+      end
+
+      it "takes a null_chance Hash keyed the same way" do
+        graphql_fake(null_chance: { "Draft.title" => 1.0 })
+        expect(DraftsDemo::TITLED.execute!.drafts.map(&:title).uniq).to eq [nil]
+
+        expect { graphql_fake(null_chance: { "Draft.titel" => 1.0 }) }
+          .to raise_error(GraphWeaver::Error, /null_chance: key "Draft.titel".*did you mean 'title'\?/)
       end
 
       # rspec's --seed already drives the fake; a second seed is the one
