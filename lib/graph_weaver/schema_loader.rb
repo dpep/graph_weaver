@@ -720,12 +720,13 @@ module GraphWeaver::SchemaLoader
     schema = build_introspection(result)
 
     if cache
-      # the extension picks the format: .json is the verbatim wire
-      # artifact; .graphql/.gql is SDL — human-readable, PR-reviewable
-      # diffs (both generate byte-identical code)
+      # the extension picks the format: .json is the wire artifact, pretty-
+      # printed so a refresh diffs line by line (graphql-client's dump is
+      # too); .graphql/.gql is SDL — human-readable, PR-reviewable diffs
+      # (both generate byte-identical code)
       meta = stamp(transport, auth_env)
       content = if cache.end_with?(".json")
-        JSON.generate(meta ? result.merge("graph_weaver" => meta) : result)
+        JSON.pretty_generate(meta ? result.merge("graph_weaver" => meta) : result)
       else
         header = meta && "# graph_weaver: #{JSON.generate(meta)}\n\n"
         "#{header}#{schema.to_definition}"

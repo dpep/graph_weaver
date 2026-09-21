@@ -1,5 +1,10 @@
 ## Unreleased
 
+- **A `.json` schema dump is written pretty-printed.** `schema:refresh` wrote
+  one compact line, so a refresh of a dump inherited from graphql-client (which
+  writes it pretty) turned two thousand lines into one and the git diff into
+  noise. Same content, one key per line; SDL dumps are unchanged.
+
 - **`graphql: :wire` serves the graphs it can, per graph.** A graph whose
   `client` posts to no url has no endpoint to stub, so it runs above the wire —
   served in the client slot the way `graphql: :in_process` would serve it, and
