@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    graph_weaver (0.7.5)
+    graph_weaver (0.7.6)
       graphql (>= 2.6.7)
       sorbet-runtime
 
@@ -299,7 +299,7 @@ CHECKSUMS
   google-protobuf (4.35.1-arm64-darwin) sha256=d9c957df04fa89c749fa9a72a7b383eb4296efc9b2303dc6fd6fbe39c698ad6b
   google-protobuf (4.35.1-x86_64-darwin) sha256=66b62b4df00931018a692806df66393efa960d6d2b7da69735187249f950d3ee
   google-protobuf (4.35.1-x86_64-linux-gnu) sha256=c786439087512a3fbd199e9897d265b855f951d4027e218ea55e858d45969edd
-  graph_weaver (0.7.5)
+  graph_weaver (0.7.6)
   graphql (2.6.10) sha256=9b7c8633767f516ff9d48a8d6305b2a00a2101c82aa871b92e69086944f9f83e
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5
