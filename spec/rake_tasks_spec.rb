@@ -650,10 +650,31 @@ describe "graph_weaver rake tasks" do
       OUT
     end
 
-    # a graph that names its own schema is checked against exactly that,
-    # whatever the file records — so the verdict names it too
-    it "names a graph's own dump, which is never re-introspected" do
+    # the clean exit schema:diff and schema:refresh already give: a source the
+    # task can't reach is a condition to report, not a backtrace
+    it "exits on a source it could not reach, without a backtrace" do
+      allow(GraphWeaver).to receive(:check_queries)
+        .and_raise(GraphWeaver::TransportError.new("no route", url: "https://api.example.com/graphql"))
+
+      expect(invoke("queries:check"))
+        .to have_attributes(status: 1, err: "no route — POST https://api.example.com/graphql\n")
+    end
+
+    # one rule for every graph: a dump that records a url is re-introspected
+    # whether or not a graph names it, so the verdict says nothing extra
+    it "says nothing extra for a graph's own dump that records a source url" do
       write_schema("# graph_weaver: {\"url\":\"https://api.example.com/graphql\"}\n\ntype Query { a: String }")
+      path = GraphWeaver.schema_path
+      GraphWeaver.graph(:api) { schema path }
+      allow(GraphWeaver).to receive(:check_queries).and_return({})
+
+      expect(invoke("queries:check").out).to eq "every query validates against the schema\n"
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "names a graph's own dump when nothing behind it could be re-read" do
+      write_schema("type Query { a: String }")
       path = GraphWeaver.schema_path
       GraphWeaver.graph(:api) { schema path }
       allow(GraphWeaver).to receive(:check_queries).and_return({})

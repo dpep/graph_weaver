@@ -292,9 +292,11 @@ omits it. Any drift exits non-zero — whether a change matters is yours to judg
 (`#breaking`, `#compatible`, `#to_h`, `#empty?`).
 
 `queries:check` answers the question that matters when the schema *has* moved:
-**which of your queries no longer validate, and why.** It re-introspects the url
-the dump records (without rewriting the dump) and validates every `.graphql` file
-against the schema as it is right now, naming each error's line and column:
+**which of your queries no longer validate, and why.** It re-introspects
+whatever is behind each graph's dump (without rewriting the dump) — the same
+source `schema:refresh` rewrites from and `schema:diff` compares against — and
+validates every `.graphql` file against the schema as it is right now, naming
+each error's line and column:
 
 ```
 app/graphql/queries/person.graphql
@@ -441,9 +443,10 @@ the client the graph names, rewrites the dump, and records the source, so every
 later refresh and `schema:diff` re-read the right server. `URL=` names the
 endpoint instead, if you'd rather say it once than configure the client first.
 
-Do it early. Until the dump records a source, `queries:check` has nothing to
-re-introspect, so it validates against the committed file — a real check, but
-`verify`'s question rather than this one's — and the verdict says which:
+Until there is something behind the dump to re-read — the url it records, or the
+server the graph's client names — `queries:check` validates against the committed
+file: a real check, but `verify`'s question rather than this one's, and the
+verdict says which:
 
 ```
 every query validates against db/schema.graphql as committed — not the server (rake graph_weaver:schema:diff asks whether the server moved)

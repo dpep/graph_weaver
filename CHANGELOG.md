@@ -24,6 +24,18 @@
   inside an rspec example is nobody's spelling. Both now say
   `graphql_fake("Money" => …)` where that is the door, and the fake's names all
   three doors in one sentence. ([testing](docs/testing.md#pins))
+- **`queries:check` asks the same server `schema:refresh` and `schema:diff` do.**
+  One rule for every graph now: a dump that records a url is re-introspected, a
+  live graphql-ruby class is asked directly, a dump with neither but a client
+  naming a server is re-introspected through that client, and only a graph with
+  nothing behind its dump is checked as committed. A graph that named its own
+  schema used to be checked against the committed file whatever the file
+  recorded, so a named graph and the default graph answered different questions
+  under one task name.
+
+  **Action:** a named graph whose dump records a url, or whose client names a
+  server, now reaches the network in `queries:check` where it did not before —
+  so CI needs to reach that server, as it already did for a single-schema app.
 
 ###  v0.7.5  (2026-09-20)
 

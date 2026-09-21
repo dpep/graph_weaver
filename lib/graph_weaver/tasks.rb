@@ -170,9 +170,9 @@ module GraphWeaver
         }.filter_map { |kind, names| "  #{kind}: #{names.sort.join(", ")}" if names.any? }
       end
 
-      # What `queries:check` just answered. It re-introspects the url a dump
-      # records and asks a live class directly; anything else it checks as it
-      # stands on disk, which is `verify`'s question — and both exited 0
+      # What `queries:check` just answered. It re-introspects the source behind
+      # a dump and asks a live class directly; a graph with neither it checks
+      # as it stands on disk, which is `verify`'s question — and both exited 0
       # saying "against the schema".
       def self.validated
         dumps = GraphWeaver.graphs.filter_map { |graph| as_committed(graph) }
@@ -183,14 +183,11 @@ module GraphWeaver
       end
 
       # A graph whose queries were checked against the file rather than the
-      # server: a graph that names its own schema is checked against exactly
-      # that, and a dump with no recorded url has nothing to re-read.
+      # server: nothing behind the dump to re-read, which is what a nil
+      # Graph#source says.
       def self.as_committed(graph)
         path = graph.dump_path
-        return unless path && graph.live_schema.nil?
-        return if !graph.named_schema? && GraphWeaver::SchemaLoader.provenance(path)&.key?("url")
-
-        GraphWeaver::Internal::Util.relative(path)
+        GraphWeaver::Internal::Util.relative(path) if path && graph.source.nil?
       end
       private_class_method :as_committed
 
@@ -214,7 +211,7 @@ module GraphWeaver
       # schema kept by hand, still has a server behind it, and refusing one
       # took every other graph's refresh down with it.
       def self.dumps
-        GraphWeaver.graphs.map { |graph| [graph, graph.dump_path, graph.dump_source || graph.client_url] }
+        GraphWeaver.graphs.map { |graph| [graph, graph.dump_path, graph.source] }
       end
 
       # A dump with no recorded url whose graph names no client: nothing
@@ -240,19 +237,6 @@ module GraphWeaver
         return "#{whose}: #{no_dump}" unless source
 
         "#{whose} generates from #{source_name(source)} directly — no dump to keep in step"
-      end
-
-      # What `diff` re-introspects for one graph. A schema class answers
-      # introspection itself. A url the dump recorded is left to
-      # SchemaLoader.diff, which builds the transport and so honours the
-      # auth_env the dump named. A source that came from the graph's client
-      # instead is that client's own transport — headers, auth and all.
-      def self.diff_transport(graph, source)
-        return source if source.is_a?(Module)
-        return if graph.dump_source
-
-        client = graph.client || GraphWeaver.client
-        client.respond_to?(:transport) ? client.transport : client
       end
 
       # How a dump's source reads in a report: a url as itself, a schema
@@ -403,8 +387,7 @@ namespace :graph_weaver do
         # dump between the code and the output, so nothing can be stale
         next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) unless path
 
-        diff = GraphWeaver::SchemaLoader.diff(path,
-          transport: GraphWeaver::Internal::Tasks.diff_transport(graph, source))
+        diff = GraphWeaver::SchemaLoader.diff(path, transport: graph.source_transport)
         dump = GraphWeaver::Internal::Util.relative(path)
         next puts "#{dump} matches #{GraphWeaver::Internal::Tasks.source_name(source)}" if diff.empty?
 
@@ -481,6 +464,10 @@ namespace :graph_weaver do
       $stdout.flush
       abort "#{failures.size} invalid #{(failures.size == 1) ? "query" : "queries"}" if failures.any?
       puts GraphWeaver::Internal::Tasks.validated
+    rescue GraphWeaver::Error => e
+      # this task reaches a server now, so an unreachable one is a condition to
+      # report — the same clean exit :diff and :refresh give
+      abort e.message
     end
   end
 

@@ -2,14 +2,12 @@
 require "tmpdir"
 
 describe "GraphWeaver.check_queries" do
+  V1 = "type Media { id: ID! title: String }\n" \
+    "type Query { media(id: ID!): Media search(term: String!): [Media!]! }\n"
+
   # v2 drops Media.title and retypes search's argument — the two ways a
   # server breaks a query that used to compile
-  let(:v1) do
-    GraphWeaver::SchemaLoader.load(<<~SDL)
-      type Media { id: ID! title: String }
-      type Query { media(id: ID!): Media search(term: String!): [Media!]! }
-    SDL
-  end
+  let(:v1) { GraphWeaver::SchemaLoader.load(V1) }
 
   let(:v2) do
     GraphWeaver::SchemaLoader.load(<<~SDL)
@@ -151,6 +149,46 @@ describe "GraphWeaver.check_queries" do
   ensure
     GraphWeaver.schema_path = nil
     ENV.delete("MY_TOKEN")
+  end
+
+  # One rule for every graph, not one for the graph the settings describe and
+  # another for a graph that names its own schema: the dump says where it came
+  # from, so that is the server "as it is now" means.
+  it "re-introspects a named graph whose dump records a url" do
+    path = File.join(@dir, "dump", "schema.graphql")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "# graph_weaver: {\"url\": \"https://api.example.com/graphql\"}\n#{V1}")
+    here = @queries
+    GraphWeaver.graph(:media) do
+      schema path
+      queries here
+    end
+    allow(GraphWeaver::SchemaLoader).to receive(:introspect).and_return(v2)
+
+    expect(GraphWeaver.check_queries(fragments: []).keys.map { |f| File.basename(f) })
+      .to eq %w[search.graphql title.graphql]
+  ensure
+    GraphWeaver.reset_graphs!
+  end
+
+  # a hand-maintained dump records nothing, but the graph's modules already
+  # post somewhere — the source schema:refresh and schema:diff use
+  it "re-introspects a graph whose client names the server its dump doesn't" do
+    path = File.join(@dir, "dump", "schema.graphql")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, V1)
+    here = @queries
+    GraphWeaver.graph(:media) do
+      schema path
+      queries here
+      client GraphWeaver.new("https://api.example.com/graphql")
+    end
+    allow(GraphWeaver::SchemaLoader).to receive(:introspect).and_return(v2)
+
+    expect(GraphWeaver.check_queries(fragments: []).keys.map { |f| File.basename(f) })
+      .to eq %w[search.graphql title.graphql]
+  ensure
+    GraphWeaver.reset_graphs!
   end
 
   it "falls back to the local dump when it records no source url" do

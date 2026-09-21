@@ -164,6 +164,8 @@ GraphWeaver::Graph#output
 GraphWeaver::Graph#queries
 GraphWeaver::Graph#registry
 GraphWeaver::Graph#schema
+GraphWeaver::Graph#source
+GraphWeaver::Graph#source_transport
 GraphWeaver::Graph#supergraph
 GraphWeaver::Graph#types_module
 GraphWeaver::GraphQLError (Class)

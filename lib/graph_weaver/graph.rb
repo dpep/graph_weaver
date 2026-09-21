@@ -156,6 +156,29 @@ module GraphWeaver
       url || live_schema
     end
 
+    # The server behind this graph, however it is named: the url the dump
+    # recorded, else the graphql-ruby class this process runs, else the url
+    # this graph's modules already post to. nil when there is nothing to ask —
+    # a dump with no provenance, and no client naming a server.
+    #
+    # The one source rule the three schema tasks share: `schema:refresh`
+    # rewrites the dump from it, `schema:diff` says how far it has moved, and
+    # `queries:check` validates the queries against it.
+    def source = dump_source || client_url
+
+    # How to reach that source. A schema class answers introspection itself. A
+    # url the dump recorded goes through SchemaLoader, which authenticates from
+    # the auth_env the dump named. A url that came from the graph's client is
+    # that client's own transport — headers, auth and all.
+    def source_transport
+      found = source
+      return found if found.is_a?(Module)
+      return GraphWeaver::SchemaLoader.source_transport(dump_path) if dump_source
+
+      target = client || GraphWeaver.client
+      target.respond_to?(:transport) ? target.transport : target
+    end
+
     # The url this graph's modules post to, or nil — the graph's own client,
     # else the app default, which is where its modules go too. What
     # `schema:refresh` bootstraps a missing dump from, and what `rake

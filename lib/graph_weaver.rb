@@ -614,8 +614,8 @@ module GraphWeaver
     #      #         "line" => 4, "column" => 5 }] }
     #
     # Empty means every query validates. schema: defaults to the server as
-    # it is now — a FRESH introspection of the url the dump records, or the
-    # live schema class when the app default runs in-process — and the dump
+    # it is now — a FRESH introspection of the source behind each graph's
+    # dump, or the live schema class where that source IS one — and the dump
     # is left alone; pass schema: and nothing touches the network.
     #
     # When that dump is a composed supergraph, an error naming a type is
@@ -648,11 +648,22 @@ module GraphWeaver
       end
     end
 
-    # What this graph is checked against. A graph that names its schema is
-    # checked against exactly that, so nothing touches the network; the default
-    # graph names none, so its dump is re-introspected first (see
-    # refreshed_schema).
-    def checked_schema(graph) = graph.named_schema? ? graph.schema : refreshed_schema
+    # What this graph is checked against: Graph#source, the rule `schema:refresh`
+    # and `schema:diff` follow too. A live class is asked directly — for an app
+    # that IS the server, a dump is a snapshot of its own code, and checking
+    # against it reports phantom errors about a field just added. A url is
+    # re-introspected, so no refresh step (and no rewritten dump) is needed
+    # first. A graph with neither — hand-written SDL nothing serves, a composed
+    # supergraph — has nothing to re-read, so it is checked as committed.
+    def checked_schema(graph)
+      source = graph.source
+      return source if source.is_a?(Module)
+      # Internal::Util.locate_schema! raises the conventional "no schema dump"
+      # message when the default graph has no dump either
+      return graph.schema unless source
+
+      SchemaLoader.introspect(graph.source_transport)
+    end
     private :checked_schema
 
     # The routing table behind the schema check_queries is about to use, when
@@ -662,28 +673,6 @@ module GraphWeaver
       Internal::QueryCheck.routing_table_for(graph.dump_path) unless graph.live_schema
     end
     private :checked_routing_table
-
-    # The schema check_queries defaults to: the server as it is now. Over a
-    # socket that's a fresh introspection of the url the local dump recorded,
-    # so no refresh step (and no rewritten dump) is needed first. In-process
-    # it's the live schema class — for an app that IS the server, a dump is a
-    # snapshot of its own code, and checking against it reports phantom
-    # errors about a field you just added. Dumps with no url and no live
-    # class — hand-written SDL, a composed supergraph — have nothing to
-    # re-read, so they're checked as they are.
-    def refreshed_schema
-      live = Internal::Util.live_schema
-      return live if live
-
-      # Internal::Util.locate_schema! raises the conventional "no schema dump" message
-      path = SchemaLoader.locate_path or Internal::Util.locate_schema!
-      return SchemaLoader.load(path) unless SchemaLoader.provenance(path)&.key?("url")
-
-      # source_transport rather than one built here: it reads the auth ENV var
-      # the dump named, so `--auth MY_TOKEN` reaches this path too
-      SchemaLoader.introspect(SchemaLoader.source_transport(path))
-    end
-    private :refreshed_schema
 
     # Load the generated modules — one line in an initializer or spec
     # helper (loading happens only when you call this; skip it and
