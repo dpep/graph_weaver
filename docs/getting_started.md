@@ -694,6 +694,9 @@ GraphWeaver.client = GraphWeaver.new(
 GraphWeaver.load_generated!   # no Railtie to require the generated files
 ```
 
+**A public API needs no `auth:`** — leave the line out. It is in the example
+because most endpoints want a token, not because the constructor asks for one.
+
 **`load_generated!` goes before your own requires** when anything your app loads
 names a generated constant as it loads — a `STATUS_LABELS` table keyed on
 `GraphQLTypes::ShipmentStatus` raises `uninitialized constant` otherwise, and

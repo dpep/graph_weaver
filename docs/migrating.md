@@ -27,10 +27,17 @@ two side by side is the right shape anyway.
    `queries:check` have no server to ask. `rake graph_weaver:schema:refresh`
    rewrites it from the client the app points at (or `URL=<your endpoint>` once)
    and records the provenance. Do it now: until you do, `queries:check` is
-   re-reading the file it is meant to be checking against, and says so.
-3. **Register scalars and enums, and regenerate**, before porting any code.
-   Registrations are baked into generated source, so one added later reaches
-   nothing until the next `rake graph_weaver:generate` ([scalars](scalars.md)).
+   re-reading the file it is meant to be checking against, and says so. It
+   rewrites the file **in place, in graph_weaver's format** — pretty-printed
+   introspection JSON with a `graph_weaver:` provenance key beside `data`.
+   graphql-client goes on reading it, since `load_schema` hands the parsed hash
+   to graphql-ruby and graphql-ruby takes `data` and ignores its siblings; a dump
+   anything *else* reads is worth checking once.
+3. **Register scalars and enums, and regenerate** — if the API declares any.
+   Plenty don't: one whose leaves are all `String`, `Int`, `ID` and `Boolean` has
+   nothing to register and skips this step whole. Registrations are baked into
+   generated source, so one added later reaches nothing until the next
+   `rake graph_weaver:generate` ([scalars](scalars.md)).
 4. **Port one query end to end** — write the `.graphql` file, generate, rewrite
    its call site — and leave the specs alone. They pass untouched. That single
    commit is the proof for every one after it.
