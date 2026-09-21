@@ -505,6 +505,18 @@ describe GraphWeaver::Testing do
           .to raise_error(GraphWeaver::Error, /list_size: "pets" must be an Integer or a Range/)
       end
 
+      # the Hash form was checked and the plain one wasn't, so a size that
+      # can only crash reached the fabricator: "no implicit conversion of
+      # String into Integer", "negative array size"
+      it "rejects a plain size that isn't a length, in the same words" do
+        expect { pets_per_person("3") }.to raise_error(GraphWeaver::Error,
+          "list_size: must be an Integer or a Range of them, neither negative — how long an " \
+          "unbounded list is — got \"3\"")
+        expect { pets_per_person(-1) }.to raise_error(GraphWeaver::Error, /list_size: must be .* got -1/)
+        expect { pets_per_person(-1..3) }.to raise_error(GraphWeaver::Error, /list_size: must be .* got -1\.\.3/)
+        expect { pets_per_person("pets" => -1) }.to raise_error(GraphWeaver::Error, /list_size: "pets" must be/)
+      end
+
       it "validates a suite-wide list_size against the schema in play" do
         expect {
           GraphWeaver::Testing.configure do |config|
@@ -549,6 +561,18 @@ describe GraphWeaver::Testing do
           /null_chance: "email" must be a number from 0 to 1/)
         expect { person("email" => "always") }.to raise_error(GraphWeaver::Error,
           /null_chance: "email" must be a number from 0 to 1/)
+      end
+
+      # a plain 7 nulled every nullable field and a plain String died as
+      # "comparison of Float with String failed", naming neither the option
+      # nor the fake
+      it "rejects a plain chance that isn't one, in the same words" do
+        expect { person(7) }.to raise_error(GraphWeaver::Error,
+          "null_chance: must be a number from 0 to 1 — how often a nullable field comes back " \
+          "null — got 7")
+        expect { person(-1) }.to raise_error(GraphWeaver::Error, /null_chance: must be .* got -1/)
+        expect { person(Float::NAN) }.to raise_error(GraphWeaver::Error, /null_chance: must be .* got NaN/)
+        expect { person("always") }.to raise_error(GraphWeaver::Error, /null_chance: must be .* got "always"/)
       end
     end
 

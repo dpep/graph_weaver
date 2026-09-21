@@ -52,8 +52,8 @@ module GraphWeaver
         # of its fields is.
         def validate_list_size!(schema, list_size)
           validate_per_field!(schema, list_size, "list_size") do |value|
-            "an Integer or a Range — how long an unbounded list is" unless
-              value.is_a?(Integer) || value.is_a?(Range)
+            "an Integer or a Range of them, neither negative — how long an unbounded list is" unless
+              length?(value)
           end
         end
 
@@ -77,21 +77,42 @@ module GraphWeaver
 
         private
 
-        # The shape both per-field options take: a Hash keyed by field —
-        # a "Type.field" coordinate or a bare field name — with DEFAULT_KEY
-        # for the rest. The block says what a value has to be, in the words
-        # the refusal uses.
+        # The two shapes both per-field options take: one value for every
+        # field, or a Hash keyed by field — a "Type.field" coordinate or a
+        # bare field name — with DEFAULT_KEY for the rest. The block says
+        # what a value has to be, in the words the refusal uses, and says it
+        # of both shapes: a plain `null_chance: 7` used to sail through and
+        # null everything, a plain `list_size: "3"` to die inside the
+        # fabricator.
         def validate_per_field!(schema, option, name)
-          return unless option.is_a?(Hash)
+          unless option.is_a?(Hash)
+            refuse_value!(name, nil, option, yield(option))
+            return
+          end
 
           option.each do |key, value|
-            if (wanted = yield(value))
-              raise GraphWeaver::Error, "#{name}: #{key.to_s.inspect} must be #{wanted} — " \
-                "got #{value.inspect}"
-            end
+            refuse_value!(name, key, value, yield(value))
             next if key.to_s == DEFAULT_KEY
 
             validate_field_key!(schema, key.to_s, "#{name}: key")
+          end
+        end
+
+        def refuse_value!(name, key, value, wanted)
+          return unless wanted
+
+          raise GraphWeaver::Error, "#{name}:#{" #{key.to_s.inspect}" if key} must be #{wanted} — " \
+            "got #{value.inspect}"
+        end
+
+        # A length is a count the fabricator can build an Array of: Array.new(-1)
+        # is "negative array size" out of its guts, and a Range the seeded rng
+        # can't sample (endless, or beginless) is worse.
+        def length?(value)
+          case value
+          when Integer then !value.negative?
+          when Range then [value.begin, value.end].all? { |edge| edge.is_a?(Integer) && !edge.negative? }
+          else false
           end
         end
 

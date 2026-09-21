@@ -18,9 +18,9 @@
   `graphql_fake(null_chance: { "Person.nickname" => 1.0, default: 0 })` says the
   example is about one missing value instead of nilling everything nullable
   alongside it. Keyed and spellchecked the way `list_size:` and a pin are, and a
-  per-field value that isn't a number from 0 to 1 is refused where you wrote it
-  rather than failing inside the fabricator. A plain number still means every
-  nullable field.
+  value that isn't a number from 0 to 1 is refused where you wrote it rather
+  than failing inside the fabricator — in either shape. A plain number still
+  means every nullable field.
   ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
 
 - **"Pin this" refusals name the spelling you are holding.** The fake's refusal
@@ -101,6 +101,14 @@
   earned a second, redundant line. It now looks for a non-comment line whose
   pattern names that directory and whose attributes include the one it is
   about, so a mark you wrote yourself is left alone in any of git's spellings.
+- **`list_size:` and `null_chance:` check the plain form the way they check the
+  Hash.** Only the Hash was validated, so `null_chance: 7` nulled every nullable
+  field, `null_chance: ENV["X"]` failed as `comparison of Float with String`
+  from inside the fabricator, and `list_size: -1` as `negative array size`. Both
+  shapes now take one value rule and refuse in the same sentence, and a size is
+  a count: a negative Integer, or a Range the seeded rng can't sample, is
+  refused where you wrote it.
+  ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
 
 ###  v0.7.5  (2026-09-20)
 
