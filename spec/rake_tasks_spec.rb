@@ -458,12 +458,14 @@ describe "graph_weaver rake tasks" do
         write_schema(File.read(File.expand_path("support/federation/supergraph.graphql", __dir__)))
       end
 
+      # nothing serves a supergraph, so there is nothing here to refresh from
+      # — a graph to step over, like one whose dump records no source at all
       it "says recompose rather than pass URL=" do
         result = invoke("schema:refresh")
 
-        expect(result.status).to eq 1
-        expect(result.err).to include "is a composed supergraph", "rover supergraph compose"
-        expect(result.err).not_to include "URL="
+        expect(result.status).to eq 0
+        expect(result.out).to include "is a composed supergraph", "rover supergraph compose"
+        expect(result.out).not_to include "URL="
       end
 
       it "refuses to overwrite it with the API schema behind URL=" do
@@ -474,6 +476,30 @@ describe "graph_weaver rake tasks" do
         expect(result.status).to eq 1
         expect(result.err).to include "is a composed supergraph", "rover supergraph compose"
         expect(File.read(GraphWeaver.schema_path)).to include "@join__graph"
+      end
+
+      # A router introspects as the API schema: the merged shape with the
+      # @join__* directives still DECLARED and every application stripped. The
+      # overwrite guard tested the new content for "@join__", which those
+      # declarations satisfy — so the routing table was traded for a schema
+      # that cannot route, and the task said "refreshed" and exited 0.
+      it "leaves the file byte for byte when the graph's client is the router" do
+        gateway = GraphQL::Schema.from_definition(File.read(GraphWeaver.schema_path))
+        stub_const("RouterClient", GraphWeaver.new(gateway))
+        path = GraphWeaver.schema_path
+        GraphWeaver.graph(:api) do
+          schema path
+          client "RouterClient"
+        end
+        before_bytes = File.read(path)
+
+        result = invoke("schema:refresh")
+
+        expect(result.status).to eq 0
+        expect(result.out).to include "is a composed supergraph", "rover supergraph compose"
+        expect(File.read(path)).to eq before_bytes
+      ensure
+        GraphWeaver.reset_graphs!
       end
     end
 

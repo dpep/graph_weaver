@@ -308,6 +308,7 @@ GraphWeaver::SchemaLoader.load
 GraphWeaver::SchemaLoader.locate
 GraphWeaver::SchemaLoader.locate_path
 GraphWeaver::SchemaLoader.provenance
+GraphWeaver::SchemaLoader.recompose_hint
 GraphWeaver::SchemaLoader.refresh!
 GraphWeaver::SchemaLoader.routing_table
 GraphWeaver::SchemaLoader.routing_table?

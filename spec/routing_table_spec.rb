@@ -295,4 +295,18 @@ describe GraphWeaver::SchemaLoader::RoutingTable do
   ensure
     GraphWeaver.logger = nil
   end
+
+  # Introspect a router and graphql-ruby hands back the API schema with the
+  # @join__* directive DEFINITIONS still declared and every APPLICATION gone —
+  # so a substring test for "@join__" says "composed" about the one artifact
+  # that has had its routing table removed.
+  it "reads a router's own API schema as carrying no routing table" do
+    gateway = GraphQL::Schema.from_definition(File.read(RouterGraph::SUPERGRAPH))
+    api = GraphWeaver::SchemaLoader.introspect(GraphWeaver.new(gateway).transport).to_definition
+
+    expect(api).to include "directive @join__field"
+    expect(GraphWeaver::SchemaLoader.federation_sdl?(api)).to be false
+    expect(GraphWeaver::SchemaLoader.routing_table?(api)).to be false
+    expect(GraphWeaver::SchemaLoader.routing_table?(File.read(RouterGraph::SUPERGRAPH))).to be true
+  end
 end

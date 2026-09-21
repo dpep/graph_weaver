@@ -433,9 +433,11 @@ namespace :graph_weaver do
         # below and refresh! bootstraps its first dump (or says how).
         path ||= graph.named_dump_path
         next puts GraphWeaver::Internal::Tasks.no_dump_needed(graph, source) if !path && graph.named_schema?
-        # a supergraph has no source by construction — nothing serves one —
-        # and refresh! answers that with "recompose", which is not a skip
-        next puts GraphWeaver::Internal::Tasks.no_source(path) if path && !source && !graph.supergraph
+        # composition is the only thing that rebuilds a supergraph, so this
+        # graph is one to step over however good its client is — introspecting
+        # the router answers with the API schema, which routes nothing
+        next puts GraphWeaver::SchemaLoader.recompose_hint(path) if graph.supergraph
+        next puts GraphWeaver::Internal::Tasks.no_source(path) if path && !source
 
         written, from = GraphWeaver::SchemaLoader.refresh!(url: (source unless source.is_a?(Module)),
           schema: (source if source.is_a?(Module)), path:)

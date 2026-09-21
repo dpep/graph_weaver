@@ -199,10 +199,21 @@ module GraphWeaver::SchemaLoader
   COMPOSITION_SPEC = %r{@(?:link\s*\(\s*url|core\s*\(\s*feature):\s*"https://specs\.apollo\.dev/(?:join|core)/}
   private_constant :COMPOSITION_SPEC
 
-  # A composed Fed2 supergraph is marked by @join__* directives (every merged
-  # type carries them); a plain schema has none.
+  # A composed Fed2 supergraph is marked by @join__* directives APPLIED to
+  # its types (every merged type carries them); a plain schema applies none.
+  #
+  # Applied, not merely declared: introspect a router and graphql-ruby hands
+  # back the API schema with the @join__* directive DEFINITIONS still in it
+  # and every application gone — so a bare substring test answers "composed"
+  # about the one artifact whose routing table has been removed.
+  JOIN_DEFINITION = /\bdirective\s+@join__\w+/
+  private_constant :JOIN_DEFINITION
+
   def self.federation_sdl?(sdl)
-    sdl.match?(/@join__\w/) || sdl.match?(COMPOSITION_SPEC)
+    return true if sdl.match?(COMPOSITION_SPEC)
+    return false unless sdl.match?(/@join__\w/)
+
+    sdl.gsub(JOIN_DEFINITION, "").match?(/@join__\w/)
   end
 
   # The federation spec a fed-2 subgraph @links, and the directives a fed-1
@@ -910,13 +921,14 @@ module GraphWeaver::SchemaLoader
   # Composition is the only thing that rebuilds a supergraph: introspection
   # answers with the API schema, which is the merged shape minus the routing
   # table, so refreshing one from a url replaces the contract with a strictly
-  # smaller artifact and reports success.
+  # smaller artifact and reports success. Public so `schema:refresh` can step
+  # over such a graph in these words rather than reaching the overwrite and
+  # relying on the guard to catch it.
   def self.recompose_hint(path)
     "#{GraphWeaver::Internal::Util.relative(path)} is a composed supergraph; introspection returns " \
       "the API schema, not the @join__* routing table — recompose it (rover supergraph compose) " \
       "and check the result in, instead of refreshing it"
   end
-  private_class_method :recompose_hint
 
   # A transport to the dump's recorded url, authenticated from whichever ENV
   # var the dump named (else DEFAULT_AUTH_ENV). The single way to reach a
