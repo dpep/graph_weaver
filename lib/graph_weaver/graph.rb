@@ -281,6 +281,7 @@ module GraphWeaver
       def self.build(name, &block)
         builder = new(name)
         builder.instance_eval(&block)
+        refuse_callable_client!(name, builder.settings[:client])
         graph = GraphWeaver::Graph.new(name:, registrations: builder.registrations, **builder.settings)
         # the block's registrations are applied at generation; run them once
         # here so a bad one is a mistake in the block, said where it is written
@@ -297,6 +298,22 @@ module GraphWeaver
           "in it stands where a top-level one does. #{GraphWeaver::Codegen::AUTOLOAD_HINT} " \
           "Declare graph #{name.inspect} from one.", e.backtrace
       end
+
+      # `schema` takes a callable — that is how an initializer names a class
+      # Zeitwerk hasn't loaded — and the same page says so, which makes one
+      # here an easy mistake. It was accepted, and surfaced much later as
+      # `undefined method 'execute' for an instance of Proc` under a rake
+      # backtrace. A client needs no lambda: the string form names the
+      # constant and is resolved when a module calls it.
+      def self.refuse_callable_client!(name, client)
+        return unless client.respond_to?(:call) && !client.respond_to?(:execute)
+
+        raise ArgumentError, "client in graph #{name.inspect} takes the object your modules " \
+          "call, and a callable doesn't answer #execute — name the object (client " \
+          "GraphWeaver.new(\"https://api.example.com/graphql\")), or its constant (client " \
+          "\"Billing::Schema\"), which is resolved when a module calls it and so needs no lambda"
+      end
+      private_class_method :refuse_callable_client!
 
       def initialize(name)
         @name = name

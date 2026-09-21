@@ -160,6 +160,20 @@ describe "GraphWeaver.graph block" do
     expect(declared { client "::Billing::CLIENT" }.client).to eq Demo::Schema
   end
 
+  # The same page mandates a lambda for `schema`, so reaching for one here is
+  # an easy mistake — and it was accepted silently, then surfaced as
+  # `undefined method 'execute' for an instance of Proc` under eleven frames
+  # of rake. `client` needs no lambda: it resolves the name at call time.
+  it "refuses a client lambda where it is written, naming the two forms" do
+    expect { declared { client -> { Demo::Schema } } }.to raise_error(
+      ArgumentError,
+      "client in graph :billing takes the object your modules call, and a callable doesn't " \
+      "answer #execute — name the object (client GraphWeaver.new(\"https://api.example.com/" \
+      "graphql\")), or its constant (client \"Billing::Schema\"), which is resolved when a " \
+      "module calls it and so needs no lambda",
+    )
+  end
+
   # the lambda form is what a Rails initializer has to use, and a lambda
   # returns nil easily — a config value that wasn't set, a guarded `defined?`,
   # a safe_constantize. It used to reach codegen as nil.
