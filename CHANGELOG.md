@@ -44,12 +44,13 @@
   so CI needs to reach that server, as it already did for a single-schema app.
 
 - **`rake graph_weaver:unused` credits a serializer to the query in front of
-  it.** A local stands for the module it was assigned from only inside the
-  method that assigned it: `pet = PetQuery.execute!(…)` in one method used to
-  make a block param called `pet` in the next — an element of a different
+  it.** A *plain local* stands for the module it was assigned from only inside
+  the method that assigned it: `pet = PetQuery.execute!(…)` in one method used
+  to make a block param called `pet` in the next — an element of a different
   query's list — read as `PetQuery` being handed whole to a serializer, and
-  every prop `PetQuery` selected went unreported. Scoping it reports more, not
-  less, and silence stays the safe direction.
+  every prop `PetQuery` selected went unreported. An `@ivar` crosses that
+  boundary, because a `before_action` loading `@result` for the action to
+  render is how a controller is written. Silence stays the safe direction.
 
 - **An input refusal names the wire field beside the prop.** `weight_grams:
   expected an Int` named the prop you fix and not the word you grep the

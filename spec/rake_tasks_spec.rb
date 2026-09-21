@@ -1332,6 +1332,47 @@ describe "graph_weaver rake tasks" do
       expect(out).not_to include "every prop counted as read"
     end
 
+    # An ivar is how a controller crosses the boundary that reset draws:
+    # `before_action` loads `@result` in one method and the action renders it
+    # in the next. Scoping it to the method reported every rendered field as
+    # unread — a red build asking you to delete what you serve.
+    it "follows an ivar past the def a plain local's claim ends at" do
+      generate_query("unused_ivar", "name birthday")
+      write_app("app/controllers/ivar_controller.rb", <<~RUBY)
+        before_action :load_person
+
+        def load_person
+          @result = UnusedIvarQuery.execute!(id: params[:id])
+        end
+
+        def show
+          render json: @result
+        end
+      RUBY
+
+      out = invoke("unused").out
+
+      expect(out).to include "UnusedIvarQuery: every prop counted as read", "as `@result`"
+      expect(out).not_to include "never read"
+    end
+
+    # The sigil is part of the name in both directions: `@result` and `result`
+    # in one method are two values, and the local was assigned from the query.
+    it "doesn't credit a serializer reading an ivar to a local of the same name" do
+      generate_query("unused_sigil", "name birthday")
+      write_app("app/controllers/sigil_controller.rb", <<~RUBY)
+        def show
+          result = UnusedSigilQuery.execute!(id: params[:id])
+          render json: @result
+        end
+      RUBY
+
+      out = invoke("unused").out
+
+      expect(out).to include "Person.birthday — selected, never read"
+      expect(out).not_to include "every prop counted as read"
+    end
+
     # A Resolver or a Mutation is application logic — in a BFF it is exactly
     # where an upstream graph gets read. Only a TYPE definition names its
     # fields because the server offers them.

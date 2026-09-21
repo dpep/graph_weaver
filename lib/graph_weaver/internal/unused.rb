@@ -26,13 +26,16 @@ module GraphWeaver
       # call that names none of them. Caught where the sink line carries the
       # module's own name, or a local a line above assigned from it.
       SINKS = /\b(?:to_h|to_json|as_json|serialize|deconstruct_keys)\b|render\s+json:/
-      # `result = PersonQuery.execute!(...)` — the local a response lands in.
+      # `result = PersonQuery.execute!(...)` — the name a response lands in.
       # Following one is what lets the sink be on the NEXT line, which is how
-      # anyone actually writes a controller. Excludes == and =~.
-      ASSIGN = /\b([a-z_]\w*)\s*=[^=~]/
-      # Where a local stops standing for the module it was assigned from: the
-      # next method is a new scope, and a block param there that happens to
-      # share the name holds someone else's value.
+      # anyone actually writes a controller. The `@` is part of the capture:
+      # it is what says the name outlives the method. Excludes == and =~.
+      ASSIGN = /(@?\b[a-z_]\w*)\s*=[^=~]/
+      # Where a plain local stops standing for the module it was assigned
+      # from: the next method is a new scope, and a block param there that
+      # happens to share the name holds someone else's value. An ivar crosses
+      # it — `before_action` loading `@result` for the action to render is
+      # the shape every Rails controller has.
       SCOPE = /^[ \t]*def\s/
       # A graphql-ruby TYPE class NAMES every field the server offers, as
       # `field :sku` and as a resolver method — which is the server answering,
@@ -193,7 +196,7 @@ module GraphWeaver
             # `result = Q.execute!(...)`, then `render json: result.person`.
             locals = Hash.new { |hash, key| hash[key] = [] }
             body.each_line.with_index(1) do |line, number|
-              locals.clear if SCOPE.match?(line)
+              locals.each_value { |names| names.select! { |n| n.start_with?("@") } } if SCOPE.match?(line)
               candidates.each do |name, base|
                 locals[name] << Regexp.last_match(1) if line.include?(base) && ASSIGN.match(line)
               end
@@ -202,7 +205,7 @@ module GraphWeaver
               candidates.each do |name, base|
                 # the line naming the module is the better evidence; the local
                 # is what it falls back to
-                via = locals[name].find { |local| line.match?(/\b#{Regexp.escape(local)}\b/) } \
+                via = locals[name].find { |local| line.match?(/(?<![\w@])#{Regexp.escape(local)}\b/) } \
                   unless line.include?(base)
                 next unless via || line.include?(base)
 
