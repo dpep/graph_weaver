@@ -1,4 +1,19 @@
-## Unreleased
+###  v0.7.5  (2026-09-20)
+
+**What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a
+shared fragment as a whole field does neither.
+[upgrading](docs/upgrading.md#upgrading-from-074) has the same list with what
+each one applies to.
+
+- **Regenerate** (`rake graph_weaver:generate`) if any query selects a field as
+  exactly `{ ...SharedFragment }`: that struct now lives once in `GraphQLTypes`
+  under the fragment's name, and app code naming the per-query struct it used to
+  produce moves to the hoisted one — `srb tc` finds every site.
+
+- **Check `schema:refresh` against a hand-maintained dump** on a graph that
+  also names a client: the task now rewrites that dump from the client where it
+  used to refuse. If the file is the source of truth rather than a cache, don't
+  run `refresh` for that graph, or drop the client from it.
 
 - **A coercion refusal's article reads the letter, not the case.** A schema
   that spells its scalars lowercase — Hasura's `int8`, a

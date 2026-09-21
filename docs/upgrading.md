@@ -33,6 +33,8 @@ Read the left column and skip what isn't yours; the
 |---|---|
 | spread a shared fragment as a whole field — `grep -rln '{ *\.\.\.[A-Za-z]* *}' app/graphql/queries` | on an object type it now [hoists](generated_modules.md#a-shared-fragment-is-one-type) into `GraphQLTypes` under the fragment's name, as it already did on a union. **App code naming the struct it used to produce (`PetQuery::Result::Pet`) moves to `GraphQLTypes::PetFields`** — one type instead of one per query, so a `T.type_alias { T.any(…) }` written to paper over that goes away. Regenerating and running `srb tc` finds every site |
 | register an `abstract!` mixin — `grep -rn 'extend_type' app config lib`, then check which of those modules call `abstract!` | **generation refuses** where a query doesn't select everything the mixin declares, instead of leaving it for your `srb tc`. The message names the struct, the members and the fixes: select them in that query, or select the type through one shared fragment so a single hoisted struct answers for every query |
+| keep a hand-maintained schema dump on a graph that also names a `client` — `rake graph_weaver:graphs` lists both per graph | `rake graph_weaver:schema:refresh` **rewrites that dump from the client** where it used to refuse and exit 1. If the file is the source of truth, don't run `refresh` for that graph, or drop the client from it |
+| call `Codegen#used_union_names` | it is `used_fragment_names` — the set it reports now includes hoisted object fragments |
 
 Then regenerate, and the gate:
 
