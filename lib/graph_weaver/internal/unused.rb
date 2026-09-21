@@ -30,6 +30,10 @@ module GraphWeaver
       # Following one is what lets the sink be on the NEXT line, which is how
       # anyone actually writes a controller. Excludes == and =~.
       ASSIGN = /\b([a-z_]\w*)\s*=[^=~]/
+      # Where a local stops standing for the module it was assigned from: the
+      # next method is a new scope, and a block param there that happens to
+      # share the name holds someone else's value.
+      SCOPE = /^[ \t]*def\s/
       # A graphql-ruby TYPE class NAMES every field the server offers, as
       # `field :sku` and as a resolver method — which is the server answering,
       # not this app reading a prop back. Without this an app that serves the
@@ -189,6 +193,7 @@ module GraphWeaver
             # `result = Q.execute!(...)`, then `render json: result.person`.
             locals = Hash.new { |hash, key| hash[key] = [] }
             body.each_line.with_index(1) do |line, number|
+              locals.clear if SCOPE.match?(line)
               candidates.each do |name, base|
                 locals[name] << Regexp.last_match(1) if line.include?(base) && ASSIGN.match(line)
               end

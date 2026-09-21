@@ -1306,6 +1306,32 @@ describe "graph_weaver rake tasks" do
       expect(out).not_to include "never read"
     end
 
+    # A local carries the module only inside the method it was assigned in.
+    # `pet = PetQuery.execute!(…)` in one method made a block-local `pet` in
+    # the next — an element of a different query's list — read as PetQuery
+    # being serialized, and every prop PetQuery selected went unreported.
+    it "doesn't credit a serializer in another method to a local assigned here" do
+      generate_query("unused_scoped_pet", "name birthday")
+      generate_query("unused_scoped_roster", "name")
+      write_app("app/controllers/roster_controller.rb", <<~RUBY)
+        def pet
+          pet = UnusedScopedPetQuery.execute!(id: params[:id])
+          pet.person.name
+        end
+
+        def roster
+          UnusedScopedRosterQuery.execute!(id: params[:id]).person.each do |pet|
+            pet.to_h
+          end
+        end
+      RUBY
+
+      out = invoke("unused").out
+
+      expect(out).to include "Person.birthday — selected, never read"
+      expect(out).not_to include "every prop counted as read"
+    end
+
     # A Resolver or a Mutation is application logic — in a BFF it is exactly
     # where an upstream graph gets read. Only a TYPE definition names its
     # fields because the server offers them.

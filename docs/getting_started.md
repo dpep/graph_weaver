@@ -357,8 +357,10 @@ named `generated`, plus `vendor`, `node_modules`, `tmp` and `log`, is skipped,
 as is any file defining a graphql-ruby **type** — a `field :sku` there is your
 *server* offering a field, not this app reading one back. A module handed whole
 to a serializer (`render json:`, `to_h`, `as_json`, a local and all) counts every
-prop as read, and the report quotes the line it followed. Nothing is edited and
-the exit is 0; `STRICT=1` exits 1 when anything is unread.
+prop as read, and the report quotes the line it followed — a local stands for
+the module only inside the method it was assigned in, so a same-named block
+param in the next method credits nothing. Nothing is edited and the exit is 0;
+`STRICT=1` exits 1 when anything is unread.
 
 **It is a lint, not a proof**, and the task's own footer says so. It matches
 names as text, so a prop called `name` counts as read the moment anything says

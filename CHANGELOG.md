@@ -37,6 +37,14 @@
   server, now reaches the network in `queries:check` where it did not before —
   so CI needs to reach that server, as it already did for a single-schema app.
 
+- **`rake graph_weaver:unused` credits a serializer to the query in front of
+  it.** A local stands for the module it was assigned from only inside the
+  method that assigned it: `pet = PetQuery.execute!(…)` in one method used to
+  make a block param called `pet` in the next — an element of a different
+  query's list — read as `PetQuery` being handed whole to a serializer, and
+  every prop `PetQuery` selected went unreported. Scoping it reports more, not
+  less, and silence stays the safe direction.
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a
