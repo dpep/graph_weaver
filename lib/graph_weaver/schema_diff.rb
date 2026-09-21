@@ -122,6 +122,8 @@ module GraphWeaver
         return change(name, "#{kind(old)} -> #{kind(new)}", breaking: true)
       end
 
+      compare_description(name, old, new)
+
       case new.kind.name
       when "OBJECT", "INTERFACE"
         compare_fields(name, old, new)
@@ -151,6 +153,7 @@ module GraphWeaver
           breaking: breaks_output?(old.type, new.type))
       end
       compare_deprecation(coordinate, old, new)
+      compare_description(coordinate, old, new)
       compare_arguments(coordinate, old.arguments, new.arguments)
     end
 
@@ -192,6 +195,7 @@ module GraphWeaver
         change(coordinate, "#{prefix}#{signature(old)} -> #{signature(new)}", breaking:)
       end
       compare_deprecation(coordinate, old, new)
+      compare_description(coordinate, old, new)
     end
 
     def compare_enum(name, old, new)
@@ -200,7 +204,10 @@ module GraphWeaver
 
       (before.keys - after.keys).each { |value| change("#{name}.#{value}", "enum value removed", breaking: true) }
       (after.keys - before.keys).each { |value| change("#{name}.#{value}", "enum value added") }
-      (before.keys & after.keys).each { |value| compare_deprecation("#{name}.#{value}", before[value], after[value]) }
+      (before.keys & after.keys).each do |value|
+        compare_deprecation("#{name}.#{value}", before[value], after[value])
+        compare_description("#{name}.#{value}", before[value], after[value])
+      end
     end
 
     # A dropped member silently stops matching a `... on X` fragment, which
@@ -233,10 +240,22 @@ module GraphWeaver
       change(coordinate, now ? "deprecated: #{now}" : "no longer deprecated")
     end
 
-    # The walk names what a client breaks on. A description, a directive
-    # definition, an argument default moves the SDL without appearing
-    # above — still drift, and a gate that went green on it would be worse
-    # than one that admits it can't name it.
+    # A description breaks nothing and reaches no generated code, but it is
+    # the likeliest thing to differ between a hand-maintained dump and the
+    # server — and unnamed it fell through to note_unnamed_drift, which is a
+    # permanent red with nothing to act on. The text itself isn't printed: it
+    # can be paragraphs, and the coordinate is what you go and look at.
+    def compare_description(coordinate, old, new)
+      return unless old.respond_to?(:description)
+      return if old.description == new.description
+
+      change(coordinate, "description changed")
+    end
+
+    # The walk names what a client breaks on. A directive definition or an
+    # argument default moves the SDL without appearing above — still drift,
+    # and a gate that went green on it would be worse than one that admits
+    # it can't name it.
     def note_unnamed_drift(before, after)
       return unless @changes.empty?
       return if before.to_definition == after.to_definition

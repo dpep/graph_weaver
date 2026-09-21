@@ -175,6 +175,32 @@ describe GraphWeaver::SchemaDiff do
       .to eq ["User.score  added: Float"]
   end
 
+  # A description is the commonest thing to differ between a hand-maintained
+  # dump and the server, and it used to land in "changed in ways this summary
+  # doesn't name — compare the dumps": a permanent red with nothing to act on
+  # but a refresh that rewrites the file you were maintaining.
+  it "names a description that moved, wherever it sits" do
+    before = <<~SDL
+      type Query { me(as: Role): User }
+      "a person"
+      type User { "their name" name: String status: Status }
+      enum Status { "still here" ACTIVE }
+      input Role { "what they may do" scope: String }
+    SDL
+    after = <<~SDL
+      type Query { me("the role to read as" as: Role): User }
+      "a human being"
+      type User { name: String status: Status }
+      enum Status { ACTIVE }
+      input Role { "what they are allowed to do" scope: String }
+    SDL
+
+    expect(lines(before, after))
+      .to eq ["Query.me(as:)  description changed", "Role.scope  description changed",
+        "Status.ACTIVE  description changed", "User  description changed",
+        "User.name  description changed",]
+  end
+
   # the walk names what a client breaks on; a gate that went green on the
   # rest would be worse than one admitting it can't name the change
   it "still reports drift it can't name" do
