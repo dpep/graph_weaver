@@ -794,6 +794,19 @@ describe "graph_weaver/rspec" do
         .to raise_error(GraphWeaver::Error, /graphql_in_process\(MySchema\).*graphql: :router/m)
     end
 
+    # and names a fix reachable from the path that raised it: the tag builds
+    # this client in a before hook of its own, so graphql_in_process in the
+    # body is too late — it works INSTEAD of the tag, which the advice says
+    it "says the helper replaces the tag, since the tag has already run" do
+      app_client!(DraftsDemo::Schema)
+
+      # the helper in an untagged example is also the only way to ASSERT this
+      # refusal, since the tag raises it before the body (docs/testing.md)
+      expect { graphql_in_process }.to raise_error(GraphWeaver::Error,
+        /instead of the graphql: :in_process tag, which builds this client in a `before` hook/)
+      expect { graphql_in_process(DraftsDemo::Schema) }.not_to raise_error
+    end
+
     # config.context is the baseline the example's clients are built with, and
     # they are built before any group hook runs — so one set from inside an
     # example silently never arrived at a resolver. Every example has a mode,

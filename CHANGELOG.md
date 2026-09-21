@@ -134,6 +134,15 @@
   It moves to the `Parsing` mixin those four already include, beside `parse`.
   ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
 
+- **`:in_process`'s refusal names a fix the tagged example can still reach.** It
+  said "name it in the example — `graphql_in_process(MySchema)`", which the tag
+  has already run past: the tag builds this client in a `before` hook of its
+  own. The helper needs no tag, so the advice now says to write it *instead of*
+  the tag. Documented alongside it: a refusal the tag raises can't be caught by
+  `expect { }.to raise_error` at all (an `around` included) — call the helper in
+  an untagged example to assert one.
+  ([testing](docs/testing.md#nothing-to-configure))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

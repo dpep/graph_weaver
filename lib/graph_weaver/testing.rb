@@ -340,10 +340,14 @@ module GraphWeaver
             "Declare it with the class: GraphWeaver.graph(#{graph.name.inspect}) " \
             "{ schema -> { MySchema } }."
         else
+          # the helper needs no tag, which is what makes it reachable from
+          # BOTH paths into here: a tagged example is already past its own
+          # before hook, so "name it in the example" only works if the tag goes
           "GraphWeaver.client isn't running one in-process to borrow. Name it in the example — " \
-            "graphql_in_process(MySchema) — or set GraphWeaver::Testing.config.schema = MySchema " \
-            "for the whole suite. A federated app names the subgraph it means, per example; " \
-            "graphql: :router runs the graph stitched."
+            "graphql_in_process(MySchema) — instead of the graphql: :in_process tag, which " \
+            "builds this client in a `before` hook of its own and so is already past. Or set " \
+            "GraphWeaver::Testing.config.schema = MySchema for the whole suite. A federated app " \
+            "names the subgraph it means, per example; graphql: :router runs the graph stitched."
         end
       end
 

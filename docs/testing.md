@@ -634,6 +634,16 @@ one ahead of yours, so a `before` setting `config.schema`, `config.router` or
 **refused**, not ignored — a green example running against the wrong stand-in is
 the expensive outcome.
 
+That hook is also why **a refusal the tag itself raises can't be asserted with
+`expect { }.to raise_error`**: it happens before the example body, and rspec
+records it as the example's failure rather than letting anything catch it — an
+`around` hook included, since `example.run` returns normally there. To assert
+one, call the helper in an **untagged** example, where the same refusal is
+raised in the body: `expect { graphql_in_process }.to raise_error(...)`, and the
+same for `graphql_fake` and `graphql_router`. `:wire` has no helper, so its
+whole-example refusal can only be read off the failure — the per-graph one it
+raises when a module runs is in the body, and assertable.
+
 ### Fabricated list lengths and nulls
 
 `list_size` is how long an **unbounded** list is — an Integer exactly that many,
