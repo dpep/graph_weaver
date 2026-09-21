@@ -161,7 +161,9 @@ module GraphWeaver
       # suite's WebMock setup is touched.
       def self.serve!
         webmock!
-        wire_targets.map do |url, graph|
+        targets, above = wire_targets
+        above.each { |graph| disclose_above!(graph) }
+        targets.map do |url, graph|
           # built here, so a graph with nothing to serve refuses before the
           # example runs rather than from inside its first request
           disclose!(GraphWeaver::Internal::TestClients.standin(graph), url, graph)
@@ -210,6 +212,17 @@ module GraphWeaver
         end
       end
 
+      # Say which graph ran above the wire. Its stand-in is built when one of
+      # its modules first runs, not here — a graph the example never touches
+      # must not refuse it — so this names the graph rather than what is
+      # behind it.
+      def self.disclose_above!(graph)
+        GraphWeaver::Internal::Log.log(:info) do
+          ":wire has no endpoint for #{graph.name ? "graph #{graph.name.inspect}" : "this app"} — " \
+            "its client posts to none, so its modules run above the wire, as #{TAG}: :in_process would"
+        end
+      end
+
       # What the stand-in IS, read off the object rather than re-deciding —
       # one answer, and it can't drift from what was built. A fake of a dump
       # has no name to give: the dump loads as an anonymous class, and
@@ -254,21 +267,24 @@ module GraphWeaver
       # inside the cleanup.
       def self.unserve!(stub) = WebMock::StubRegistry.instance.request_stubs.delete(stub)
 
-      # Every endpoint an example's modules can post to, each with the graph
-      # whose resolvers belong behind it: the client each graph names, or
-      # GraphWeaver.client for a graph naming none. One graph per endpoint —
-      # an app whose graphs all name clients needs no app default at all.
+      # What :wire does with each graph, in two lists: the endpoints to stub,
+      # each with the graph whose resolvers belong behind it, and the graphs
+      # there is no endpoint for. One graph per endpoint — an app whose graphs
+      # all name clients needs no app default at all.
+      #
+      # A graph whose client posts to no url has no wire to be served at, so
+      # it runs above one instead of refusing the example — including the
+      # examples that never touch it. An example where NO graph posts anywhere
+      # is refused, since a :wire that serves nothing tests no transport.
       def self.wire_targets
-        targets = GraphWeaver.graphs.filter_map do |graph|
-          client = graph.client || GraphWeaver.client
-          [endpoint!(client, graph), graph] if client
-        end
+        targets, above = GraphWeaver.graphs.map { |graph| [graph.client_url, graph] }.partition(&:first)
         refuse_shared_endpoint!(targets)
-        return targets if targets.any?
+        return [targets, above.map(&:last)] if targets.any?
 
-        # nothing bakes a client and the app has none: the endpoint refusal
-        # names the empty slot, which is the thing to fix
-        endpoint!(GraphWeaver.client)
+        # the endpoint refusal names the client that posts to none, which is
+        # the thing to fix
+        graph = GraphWeaver.graphs.first
+        endpoint!(graph&.client || GraphWeaver.client, graph)
       end
 
       # One stub per url, so two graphs on one endpoint used to mean the
@@ -343,7 +359,8 @@ module GraphWeaver
       end
 
       private_class_method :wire_targets, :refuse_shared_endpoint!, :whose_client,
-        :webmock!, :webmock_enabled?, :disclose!, :served, :unnamed_schemas, :loaded_schemas
+        :webmock!, :webmock_enabled?, :disclose!, :disclose_above!, :served, :unnamed_schemas,
+        :loaded_schemas
 
       # Included into every example group, so graphql_context is there
       # whether or not this example took a client from the hook.

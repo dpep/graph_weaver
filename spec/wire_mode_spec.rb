@@ -252,6 +252,79 @@ describe "graphql: :wire" do
     end
   end
 
+  # An app that owns resolvers AND calls someone else's API has one graph
+  # posting nowhere, and reading every endpoint up front refused the whole
+  # example for it — so its remote graphs could not be tested over the wire
+  # at all.
+  describe "one graph on a wire and one posting nowhere" do
+    around do |example|
+      GraphWeaver.graph :orders do
+        schema WireDemo::Schema
+        client "WireDemo::IN_PROCESS"
+      end
+      GraphWeaver.graph :billing do
+        schema BillingWire::Schema
+        client "BillingWire::CLIENT"
+      end
+      GraphWeaver.client = BillingWire::CLIENT
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "serves the graph that posts somewhere and runs the other above the wire", graphql: :wire do
+      orders = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY)
+      invoices = GraphWeaver.parse(schema: BillingWire::Schema, query: BillingWire::QUERY)
+
+      expect(orders.execute!.order.buyer).to eq "nobody"       # WireDemo's resolver, in-process
+      expect(invoices.execute!.invoice.buyer).to eq "billing"  # over BillingWire's transport
+
+      expect(exchanges.map { |request, _| request.uri.host }).to eq ["billing.wire.test"]
+    end
+
+    # the client slot holding the app's own client is the whole point of the
+    # tag, and a graph served above the wire must not take it
+    it "still leaves the app's own client in the slot", graphql: :wire do
+      expect(GraphWeaver.client).to be BillingWire::CLIENT
+    end
+
+    it "runs it under graphql_context, as an endpoint's resolvers are", graphql: :wire do
+      graphql_context(current_user: "ada")
+      orders = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY)
+
+      expect(orders.execute!.order.buyer).to eq "ada"
+    end
+  end
+
+  # A graph :wire can serve nothing for used to refuse the whole example —
+  # including the graphs it could serve, and including examples that never
+  # touch it.
+  describe "a graph with neither an endpoint nor a schema" do
+    around do |example|
+      GraphWeaver.graph(:orders) { client "WireDemo::IN_PROCESS" }
+      GraphWeaver.graph :billing do
+        schema BillingWire::Schema
+        client "BillingWire::CLIENT"
+      end
+      GraphWeaver.client = BillingWire::CLIENT
+      example.run
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
+    it "serves the graph it can", graphql: :wire do
+      expect(BillingWire::CLIENT.execute(BillingWire::QUERY).dig("data", "invoice", "buyer"))
+        .to eq "billing"
+    end
+
+    it "refuses, naming the graph, only when that graph's module runs", graphql: :wire do
+      orders = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY, graph: :orders)
+
+      expect { orders.execute! }.to raise_error(GraphWeaver::Error,
+        /:wire serves your schema at the endpoint your client posts to, and graph :orders has none to serve/)
+    end
+  end
+
   # "router or live class" was decided once for the suite, so one federated
   # graph put its router behind EVERY endpoint — a plain graph's included.
   describe "one graph federated and one not" do
@@ -506,6 +579,32 @@ describe "graphql: :wire" do
         expect(io.string).to match(/WireDemo::Schema.*loaded and nothing named/)
         expect(io.string).to include("your resolvers did not run")
         expect(io.string).to match(/GraphWeaver::Testing\.config\.schema = \w/)
+      end
+    end
+
+    # a graph run above the wire is the other invisible pick: the example
+    # asked for its transport and that transport never ran
+    context "with a graph whose client posts nowhere" do
+      around do |example|
+        GraphWeaver.graph :orders do
+          schema WireDemo::Schema
+          client "WireDemo::IN_PROCESS"
+        end
+        GraphWeaver.graph :billing do
+          schema BillingWire::Schema
+          client "BillingWire::CLIENT"
+        end
+        GraphWeaver.client = BillingWire::CLIENT
+        example.run
+      ensure
+        GraphWeaver.reset_graphs!
+      end
+
+      it "names that graph, and still names what each endpoint got", graphql: :wire do
+        expect(io.string)
+          .to include(":wire has no endpoint for graph :orders — its client posts to none")
+        expect(io.string)
+          .to include(":wire serving BillingWire::Schema (in-process) at #{BillingWire::ENDPOINT}")
       end
     end
   end

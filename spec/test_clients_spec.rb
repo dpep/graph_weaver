@@ -77,12 +77,27 @@ describe GraphWeaver::Internal::TestClients do
 
   # :wire is the one mode that takes no client slot — the transport you ship
   # running unchanged is the whole point, so it stubs the endpoint instead
-  it "leaves every client where it is under :wire" do
+  it "leaves a client that posts to a url where it is under :wire" do
+    GraphWeaver.graph(:posting) do
+      schema Demo::Schema
+      client GraphWeaver.new("http://posting.test/graphql")
+    end
+    module_ = GraphWeaver::Codegen.parse(schema: Demo::Schema, query: BoundClient::QUERY,
+      graph_name: :posting)
+    described_class.install(:wire)
+
+    expect(described_class.for(module_)).to be_nil
+  end
+
+  # a client posting nowhere has no endpoint to be stubbed, so :wire serves
+  # that graph above the wire rather than refusing every other graph with it
+  it "serves a graph whose client posts nowhere above the wire" do
     GraphWeaver.client = fake
     described_class.install(:wire)
 
-    bound.execute!(id: "1")
-    expect(BoundClient::SPY.requests.size).to eq 1
+    expect(bound.execute!(id: "1").person.name).to be_a String
+    expect(BoundClient::SPY.requests).to be_empty
+    expect(described_class.for(bound)).to be_a GraphWeaver::InProcess
   end
 
   # a parsed module runs against whatever parsed it; the mode stands in for

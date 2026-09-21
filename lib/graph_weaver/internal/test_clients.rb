@@ -97,15 +97,20 @@ module GraphWeaver
           # :wire takes no client slot: it serves the resolvers at the
           # endpoint each client already posts to — the transport you ship,
           # running unchanged, is the whole point
-          return if @mode == :wire
+          return if @mode == :wire && GraphWeaver.graphs.all?(&:client_url)
           # :live is the app's own clients, untouched — so with nothing
           # standing in there is nothing to look up
           return if @mode == :live && !built?
 
+          graph = graph_for!(mod)
+          # a graph whose client posts to no url has no wire to be served at,
+          # so :wire serves it here instead — the same pick, one hop shorter
+          return if @mode == :wire && graph&.client_url
+
           # a helper's entry wins whatever the example's mode is, and :live
           # builds nothing of its own, so an untagged example's other graphs
           # still resolve their own clients
-          standin(graph_for!(mod))
+          standin(graph)
         end
 
         # The stand-in `graph`'s modules run against under the installed mode,

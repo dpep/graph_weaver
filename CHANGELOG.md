@@ -1,3 +1,14 @@
+## Unreleased
+
+- **`graphql: :wire` serves the graphs it can, per graph.** A graph whose
+  `client` posts to no url has no endpoint to stub, so it runs above the wire —
+  served in the client slot the way `graphql: :in_process` would serve it, and
+  said so on the logger — instead of refusing the whole example. An app that
+  owns resolvers *and* calls someone else's API can now test the remote half
+  over the wire. A graph with nothing to serve at all is refused when one of its
+  own modules runs, naming it; an example where no graph posts anywhere is still
+  refused outright. ([testing](docs/testing.md#over-the-wire--graphql-wire))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

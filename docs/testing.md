@@ -360,8 +360,17 @@ that is a pure *client* of someone else's API gets a schema-correct server
 without writing one. A graph with no schema at all is refused, **by `:wire`'s own
 name** — the one fallback the other tags have and this one can't use is your
 client's own schema, since reading it means introspecting the endpoint `:wire`
-has just stubbed. Commit a dump, or set `config.schema`. A graph whose `client`
-posts nowhere is refused by name too.
+has just stubbed. Commit a dump, or set `config.schema`. That refusal waits until
+one of *that graph's* modules runs, so a graph the example never touches never
+refuses it.
+
+**A graph whose `client` posts nowhere runs above the wire** — there is no
+endpoint to stub, so it is served in the client slot, exactly as
+`graphql: :in_process` would serve it. That is how an app that owns resolvers
+*and* calls someone else's API tests the remote half over the wire: its
+in-process graph runs in-process, and every graph posting to a url is still
+served at that url. An example where *no* graph posts anywhere is refused — a
+`:wire` that serves nothing tests no transport.
 
 **It says which, on the logger** — the choice is the one thing this tag makes for
 you, and it is invisible from inside the example. One line per endpoint, at
@@ -377,7 +386,12 @@ set `GraphWeaver::Testing.config.schema` — the case worth catching, because an
 app that owns real resolvers otherwise goes green against fabricated data with
 nothing said. A warning rather than a refusal, because a loaded class isn't proof
 you meant it *here* — a federated suite loads every subgraph's — and a fake
-behind the wire is a thing to want.
+behind the wire is a thing to want. A graph that ran above the wire gets a line
+of its own, since the transport the example asked for never ran for it:
+
+```
+graph_weaver: :wire has no endpoint for graph :orders — its client posts to none, so its modules run above the wire, as graphql: :in_process would
+```
 
 **A helper says what goes behind the wire.** Under the other tags a `graphql_*`
 helper takes the client slot; under `:wire` it is served instead — the client
