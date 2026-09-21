@@ -254,7 +254,11 @@ block to scope it for the example that needs two identities —
 `graphql_context(admin: true) { … }` — and call it with nothing to read the
 context back. Under `graphql: :fake` it refuses: there are no resolvers to
 receive a context, and silently ignoring one would leave an example asserting on
-data nothing scoped. Pin the data itself instead.
+data nothing scoped. Pin the data itself instead. Under `graphql: :live` it
+refuses too — including in an untagged example, which is `:live` by default, and
+including when your own client is an `InProcess` running your resolvers: that
+client carries the context it was *built* with, and `graphql_context` reaches
+only the stand-ins the mode built for this example.
 
 ## A federated graph — `graphql: :router`
 

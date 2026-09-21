@@ -152,6 +152,12 @@
   uncheckable rather than "round-trips lossily — sent x, got back x", which read
   as a library bug. ([scalars](docs/scalars.md#checking-the-half-no-schema-carries))
 
+- **`graphql_context`'s `:live` refusal says what is actually true.** It read
+  "needs an example running against your resolvers", which is false for an app
+  whose own client is an `InProcess` — it is running them. What `:live` can't do
+  is reach a client it didn't build: the app's own carries the context it was
+  built with. ([testing](docs/testing.md#the-context-your-resolvers-see))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

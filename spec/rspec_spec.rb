@@ -698,7 +698,19 @@ describe "graph_weaver/rspec" do
     it "leaves GraphWeaver.client alone by default" do
       expect(GraphWeaver.client).to be_nil
       expect { graphql_context(current_user: "alice") }
-        .to raise_error(GraphWeaver::Error, /tag it graphql: :in_process/)
+        .to raise_error(GraphWeaver::Error, /graphql: :live leaves your app's own client/)
+    end
+
+    # the refusal used to say graphql_context "needs an example running against
+    # your resolvers", which is false here: this app's own client IS running
+    # them. What it can't do is reach a client it didn't build.
+    it "refuses in terms of the mode when the app's own client runs resolvers" do
+      GraphWeaver.client = GraphWeaver::InProcess.new(DraftsDemo::Schema)
+
+      expect { graphql_context(current_user: "alice") }.to raise_error(GraphWeaver::Error) { |error|
+        expect(error.message).to include("carrying the context it was built with")
+        expect(error.message).not_to include("needs an example running against your resolvers")
+      }
     end
 
     # the beginner's first mistake is a forgotten tag, and "set

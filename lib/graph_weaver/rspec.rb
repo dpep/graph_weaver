@@ -589,8 +589,15 @@ module GraphWeaver
             "#{TAG}: :router (or pin the data itself: " \
             "graphql_fake(\"Person.name\" => \"Ada\"))"
         else
-          raise GraphWeaver::Error, "graphql_context needs an example running against your " \
-            "resolvers — tag it #{TAG}: :in_process or #{TAG}: :router"
+          # :live, which is what an untagged example is. The app's own client
+          # stays in the slot holding the context it was built with, so there
+          # is nothing here to merge onto — and saying "you need resolvers"
+          # reads as false to an app whose own client is an InProcess, which
+          # is running them
+          raise GraphWeaver::Error, "graphql_context says what THIS example's resolvers see, " \
+            "and #{TAG}: :live leaves your app's own client exactly as it is — carrying the " \
+            "context it was built with. Tag the example #{TAG}: :in_process or #{TAG}: :router, " \
+            "which build a client per example."
         end
       end
 
