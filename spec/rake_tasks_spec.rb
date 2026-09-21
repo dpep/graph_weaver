@@ -1406,6 +1406,25 @@ describe "graph_weaver rake tasks" do
         "(UnusedWireQuery::Result::Person#born_on)"
     end
 
+    # …and it can only be a word the query selects. Drawn from the file's text
+    # instead, a variable declaration named a field — `Person.ID` for
+    # `$id: ID!` — and so did a comment.
+    it "spells the coordinate from the selection set, not from every word in the file" do
+      write_schema
+      write_query("unused_coordinate.graphql", <<~GRAPHQL)
+        # Person lookup
+        query UnusedCoordinate($id: ID!) { person(id: $id) { id birthday } }
+      GRAPHQL
+      invoke("generate")
+      GraphWeaver.load_generated!
+
+      out = invoke("unused").out
+
+      expect(out).to include "Person.id — selected, never read (UnusedCoordinateQuery::Result::Person#id)",
+        "Result.person — selected, never read (UnusedCoordinateQuery::Result#person)"
+      expect(out).not_to include "Person.ID", "Result.Person "
+    end
+
     # the caveats are the task: a finding is a prompt to look, and a clean run
     # is not a proof of anything
     it "states its blind spots whether or not it found something" do

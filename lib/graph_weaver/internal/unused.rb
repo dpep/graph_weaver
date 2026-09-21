@@ -229,20 +229,31 @@ module GraphWeaver
             result = Object.const_get(name)
             next [] unless result.const_defined?(:Result, false)
 
-            words = source.scan(/[A-Za-z_]\w*/).uniq
+            keys = response_keys(GraphQL.parse(source).definitions)
             props(result.const_get(:Result, false))
-              .map { |struct, prop| Selection.new(path, name, struct, prop, wire_word(words, prop)) }
+              .map { |struct, prop| Selection.new(path, name, struct, prop, wire_word(keys, prop)) }
           end
         end
       end
 
       # How the query spells a prop, when that isn't the prop's own name — a
       # camelCase field, an alias, a reserved rename. Read back off the query
-      # text rather than derived from the prop, since no rule inverts an
-      # alias; nil when the query spells it the same way, which is most of
-      # the time.
-      def wire_word(words, prop)
-        words.find { |word| word != prop.to_s && GraphWeaver::Codegen.prop_name(word) == prop.to_s }
+      # rather than derived from the prop, since no rule inverts an alias; nil
+      # when the query spells it the same way, which is most of the time.
+      def wire_word(keys, prop)
+        keys.find { |key| key != prop.to_s && GraphWeaver::Codegen.prop_name(key) == prop.to_s }
+      end
+
+      # Every response key the document asks for. The coordinate is the
+      # selection to go and delete, so it can only be one of these: scanning
+      # the file's text let `$id: ID!` — or a comment — name a field the query
+      # never selected.
+      def response_keys(nodes, found = [])
+        nodes.each do |node|
+          found << (node.alias || node.name) if node.is_a?(GraphQL::Language::Nodes::Field)
+          response_keys(node.selections, found) if node.respond_to?(:selections)
+        end
+        found
       end
 
       # Nested structs are nested constants, so the props of a whole response

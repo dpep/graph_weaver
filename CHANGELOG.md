@@ -50,7 +50,10 @@
   query's list — read as `PetQuery` being handed whole to a serializer, and
   every prop `PetQuery` selected went unreported. An `@ivar` crosses that
   boundary, because a `before_action` loading `@result` for the action to
-  render is how a controller is written. Silence stays the safe direction.
+  render is how a controller is written. Silence stays the safe direction. The
+  coordinate each line names is a word the query actually selects, too: it was
+  drawn from every word in the file, so a `$id: ID!` declaration or a comment
+  could supply it and `Person.ID` named a field nothing had selected.
 
 - **An input refusal names the wire field beside the prop.** `weight_grams:
   expected an Int` named the prop you fix and not the word you grep the
