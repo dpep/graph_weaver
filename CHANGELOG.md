@@ -24,6 +24,7 @@
   inside an rspec example is nobody's spelling. Both now say
   `graphql_fake("Money" => …)` where that is the door, and the fake's names all
   three doors in one sentence. ([testing](docs/testing.md#pins))
+
 - **`queries:check` asks the same server `schema:refresh` and `schema:diff` do.**
   One rule for every graph now: a dump that records a url is re-introspected, a
   live graphql-ruby class is asked directly, a dump with neither but a client

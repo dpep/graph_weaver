@@ -1,0 +1,2 @@
+# every lane appends its own block; concatenating both sides is the right merge
+CHANGELOG.md merge=union
