@@ -39,7 +39,7 @@ module GraphWeaver
       return member if member && !member.equal?(fallback)
 
       accepted = type.values.map(&:serialize) - [fallback&.serialize].compact
-      member ? unsendable_enum!(type, accepted) : invalid_enum!(type, value, accepted)
+      member ? unsendable_enum!(member, accepted) : invalid_enum!(type, value, accepted)
     end
 
     # A list element's index, prepended when something inside it refused —
@@ -115,9 +115,10 @@ module GraphWeaver
 
     # The fallback member is a landing pad for drift, not a value — so it is
     # refused by name rather than listed among the ones you could have meant.
-    def self.unsendable_enum!(type, accepted)
+    def self.unsendable_enum!(member, accepted)
+      # a T::Enum member inspects as #<Type::Name>
       raise GraphWeaver::Internal::Refusal.brand(
-        KeyError.new("#{type}::#{GraphWeaver::Internal::ENUM_FALLBACK} absorbs values the server added, so " \
+        KeyError.new("#{member.inspect[2..-2]} absorbs values the server added, so " \
           "there is nothing to send for it — expected one of: #{accepted.sort.join(", ")}"),
         :not_a_member, members: accepted.sort,
       )

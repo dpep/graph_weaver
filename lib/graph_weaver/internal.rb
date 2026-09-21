@@ -18,10 +18,9 @@ module GraphWeaver
   # lexical scope, so a private constant would be unreachable from exactly
   # the files that need it. The name and the surface lock carry the rule.
   module Internal
-    # The member register_enum fallback: true adds to a generated enum, and
-    # the wire value it serializes to. The GraphQL spec reserves a leading
-    # `__`, so no schema can declare a value that collides with it.
-    ENUM_FALLBACK = "Other"
+    # The wire value the member register_enum fallback: true adds to a
+    # generated enum serializes to. The GraphQL spec reserves a leading `__`,
+    # so no schema can declare a value that collides with it.
     ENUM_FALLBACK_WIRE = "__other__"
 
     # Odds and ends several files share. Each is here because more than one

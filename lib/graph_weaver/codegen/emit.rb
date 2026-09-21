@@ -340,7 +340,7 @@ class GraphWeaver::Codegen
       end
       if node.fallback?
         out << "#{pad}    # every other wire value casts here (register_enum fallback: true)"
-        out << "#{pad}    #{GraphWeaver::Internal::ENUM_FALLBACK} = new(#{GraphWeaver::Internal::ENUM_FALLBACK_WIRE.inspect})"
+        out << "#{pad}    #{node.fallback} = new(#{GraphWeaver::Internal::ENUM_FALLBACK_WIRE.inspect})"
       end
       out << "#{pad}  end"
       out << "#{pad}end"

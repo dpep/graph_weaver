@@ -540,9 +540,9 @@ Three things follow from that, and they are the whole rule:
 - **Inputs stay strict.** No wire value means `Other`, so a variable carrying it
   is refused rather than sent. Everything else is unchanged: a typo'd input is
   your bug, not drift.
-- **Generation refuses a schema that already declares `OTHER`** — the member the
-  server sent and the one it didn't would be the same constant. Map that enum onto
-  one of yours and name the fallback there.
+- **A schema that already declares `OTHER` keeps it.** The declared value stays
+  `Other`, and the fallback member is `Other2` — the same rule a union's
+  catch-all struct follows when a member is already named `Other`.
 
 It rides along with `alias:` on the one registration, and like every registration
 it belongs to one graph.

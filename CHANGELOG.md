@@ -102,8 +102,9 @@
   hand-writing a `T::Enum` to map onto. The value it swallowed is named in a
   debug log line, since a `T::Enum` member is a singleton and can't carry it.
   Inputs stay strict: a variable carrying `Other` is refused, because no wire
-  value means it. Combines with `alias:`; generation refuses a schema that
-  already declares a value spelled `OTHER`.
+  value means it. Combines with `alias:`; a schema that already declares
+  `OTHER` keeps that constant and the fallback is `Other2`, as a union's
+  catch-all is named.
   ([scalars](docs/scalars.md#enums-map-onto-your-own-tenum))
 
 ###  v0.7.4  (2026-09-16)

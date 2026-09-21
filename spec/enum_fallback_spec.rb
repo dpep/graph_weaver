@@ -137,16 +137,15 @@ describe "register_enum fallback: true" do
   end
 
   describe "refusals" do
-    it "refuses a schema that already declares the constant Other" do
+    # the union rule: a real member keeps its name, the catch-all steps aside
+    it "names the member Other2 when the schema declares OTHER, as a union's catch-all does" do
       taken = GraphQL::Schema.from_definition("enum Species { CAT OTHER }\ntype Query { species: Species }")
       GraphWeaver.register_enum("Species", fallback: true)
 
-      expect { GraphWeaver::Codegen.generate(schema: taken, query: "query Q { species }", name: "Q") }
-        .to raise_error(
-          GraphWeaver::Error,
-          "enum Species declares OTHER, so a generated Other member couldn't be told apart from it — " \
-          'map the enum onto one of yours: register_enum("Species", YourEnum, fallback: YourEnum::Unknown)',
-        )
+      source = GraphWeaver::Codegen.generate(schema: taken, query: "query Q { species }", name: "Q")
+
+      expect(source).to include('Other = new("OTHER")', 'Other2 = new("__other__")')
+      expect(source).to include("fallback: Species::Other2")
     end
 
     it "refuses a member name where the generated enum generates its own" do

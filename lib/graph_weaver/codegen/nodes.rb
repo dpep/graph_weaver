@@ -207,7 +207,9 @@ class GraphWeaver::Codegen
   class EnumNode < Node
     attr_reader :class_name, :values, :aliases
 
-    def initialize(class_name, values, aliases = {}, fallback: false)
+    # fallback: the name of the member unknown wire values cast to (register_enum
+    # fallback: true), or nil for a strict enum
+    def initialize(class_name, values, aliases = {}, fallback: nil)
       @class_name = class_name
       @values = values
       @aliases = aliases
@@ -223,8 +225,9 @@ class GraphWeaver::Codegen
 
     # register_enum fallback: true — the extra member every value the schema
     # doesn't declare casts to, and the one member a variable can't send
-    def fallback? = @fallback
-    def fallback_const = "#{class_name}::#{GraphWeaver::Internal::ENUM_FALLBACK}"
+    attr_reader :fallback
+    def fallback? = !@fallback.nil?
+    def fallback_const = "#{class_name}::#{@fallback}"
 
     def cast(expr, _depth)
       "GraphWeaver::Hints.enum(#{class_name}, #{expr}#{runtime_args})"

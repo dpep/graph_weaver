@@ -89,7 +89,8 @@ module GraphWeaver
     # swallowed — this line is the only record that anything drifted.
     def self.absorbed(type, value, fallback)
       GraphWeaver::Internal::Log.log(:debug) do
-        "#{type} absorbed #{GraphWeaver::Internal::Redact.shown(value)} into #{GraphWeaver::Internal::ENUM_FALLBACK}"
+        # the member's bare constant name — a T::Enum member inspects as #<Type::Name>
+        "#{type} absorbed #{GraphWeaver::Internal::Redact.shown(value)} into #{fallback.inspect[/::(\w+)>\z/, 1]}"
       end
       fallback
     end

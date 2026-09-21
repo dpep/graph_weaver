@@ -1233,7 +1233,7 @@ class GraphWeaver::Codegen
   # it. It carries what the abstract type itself guarantees, plus anything a
   # `... on SomeInterface` asked for, since an unnamed member may implement it.
   def catch_all_member(type, selections, members)
-    node = object_node(type, selections, catch_all_name(members))
+    node = object_node(type, selections, catch_all_name(members.each_value.map(&:class_name)))
     taken = node.fields.map(&:key)
 
     # These are nilable whatever the schema promises: the member that arrives
@@ -1283,9 +1283,9 @@ class GraphWeaver::Codegen
     sibling_conditions(condition, selections, visiting, out)
   end
 
-  # "Other", unless a real member already claims that name.
-  def catch_all_name(members)
-    taken = members.each_value.map(&:class_name)
+  # "Other", unless a real member already claims that name — one rule for a
+  # union's catch-all struct and a generated enum's fallback member.
+  def catch_all_name(taken)
     name = "Other"
     suffix = 2
     while taken.include?(name)
@@ -1469,8 +1469,10 @@ class GraphWeaver::Codegen
 
     entry = @registry.enum_registry[core.graphql_name]
     aliases = entry&.aliases_for(core.values.keys.sort) || {}
-    fallback = entry&.generated_fallback? || false
-    EnumNode.new(class_name, enum_values(core, aliases, fallback:), aliases, fallback:)
+    values = enum_values(core, aliases)
+    # named the way a union's catch-all is: Other, or Other2 past a declared OTHER
+    fallback = catch_all_name(values.map { |value| camelize(value.downcase) }) if entry&.generated_fallback?
+    EnumNode.new(class_name, values, aliases, fallback:)
   end
 
   # A schema enum's constant-bearing wire values, sorted so output is
@@ -1479,7 +1481,7 @@ class GraphWeaver::Codegen
   # it gets no constant. Values that differ only in case name the same T::Enum
   # constant, which raises at LOAD time ("Enum values must be assigned to
   # constants") — catch it here instead.
-  def enum_values(core, aliases = {}, fallback: false)
+  def enum_values(core, aliases = {})
     values = core.values.keys.sort - aliases.keys
     # `_` and `__` are legal GraphQL enum values and camelize to nothing, so
     # the emitted `= new("_")` isn't even parseable — the file fails at load
@@ -1503,16 +1505,6 @@ class GraphWeaver::Codegen
         "value, say which spelling goes on the wire:\n  " \
         "#{EnumType.alias_suggestion(core.graphql_name, collisions.values)}\n" \
         "or map the enum onto one of yours: register_enum(#{core.graphql_name.inspect}, YourEnum)"
-    end
-
-    # A declared value on the fallback's constant would make the member the
-    # server sent indistinguishable from the one it didn't.
-    claimed = fallback && values.find { |value| camelize(value.downcase) == GraphWeaver::Internal::ENUM_FALLBACK }
-    if claimed
-      raise GraphWeaver::Error,
-        "enum #{core.graphql_name} declares #{claimed}, so a generated #{GraphWeaver::Internal::ENUM_FALLBACK} " \
-        "member couldn't be told apart from it — map the enum onto one of yours: " \
-        "register_enum(#{core.graphql_name.inspect}, YourEnum, fallback: YourEnum::Unknown)"
     end
 
     values
