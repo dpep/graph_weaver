@@ -130,9 +130,9 @@ module GraphWeaver
           end
         end
 
-        # Whether null_chance has a position in this type to reach. #non_null?
-        # sees through a list wrapper, so `[Pet]!` reads as non-null while its
-        # ELEMENTS are what the fabricator nulls.
+        # Whether null_chance has a position in this type to reach. The outer
+        # wrapper isn't the whole answer: `[Pet]!` is non-null and its ELEMENTS
+        # are nullable, which is where the fabricator puts the nulls.
         def nullable_anywhere?(type)
           return true unless type.non_null?
 

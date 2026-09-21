@@ -29,8 +29,10 @@
   for a scalar it can't fabricate, and `graphql_context`'s under `:fake`, wrote
   the pin as the constructor keyword (`overrides: { "Money" => … }`) — which
   inside an rspec example is nobody's spelling. Both now say
-  `graphql_fake("Money" => …)` where that is the door, and the fake's names all
-  three doors in one sentence. ([testing](docs/testing.md#pins))
+  `graphql_fake("Money" => …)` where that is the door; the fake's names all
+  three doors in one sentence, and where the caller knows which door you came in
+  by — `check_scalars!` — it names that one alone.
+  ([testing](docs/testing.md#pins))
 
 - **`queries:check` asks the same server `schema:refresh` and `schema:diff` do.**
   One rule for every graph now: a dump that records a url is re-introspected, a
