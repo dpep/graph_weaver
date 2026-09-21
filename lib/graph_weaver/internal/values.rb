@@ -88,7 +88,12 @@ class GraphWeaver::Internal::Values
   # for the next, and only a caller holding the graph can say which. Left
   # unsaid they are read back off the schema, which is the answer for every
   # app with one graph running a live class.
-  def initialize(seed: nil, values: nil, pins: nil, schema: nil, registry: nil)
+  # pin_advice: how to pin, in the words of the door the caller came in by —
+  # a callable taking the scalar's name. Left unsaid it is the three doors
+  # onto a fake, which is where this is reached from unless something says
+  # otherwise (check_scalars! runs outside all three).
+  def initialize(seed: nil, values: nil, pins: nil, schema: nil, registry: nil, pin_advice: nil)
+    @pin_advice = pin_advice
     @registry = registry || GraphWeaver::Internal::Util.registry_for(schema)
     @rng = Random.new(seed || GraphWeaver::Testing.config.seed || Random.new_seed)
     @pins = (pins || GraphWeaver::Testing.config.overrides).transform_keys(&:to_s)
@@ -204,15 +209,17 @@ class GraphWeaver::Internal::Values
   # from_h blaming the codec.
   #
   # Each door onto a fake spells a pin differently and this can't know which
-  # you came in by, so the advice names all three.
+  # you came in by, so the advice names all three — unless the caller said,
+  # in which case it is the one that works there.
   def unfakeable!(type_name, field_name, registered, coordinate, at)
     type = type_name.inspect
-    raise GraphWeaver::Error, "can't fabricate a #{type_name} #{at ? "at #{at}" : "for #{field_name.inspect}"}: " \
-      "it deserializes into #{registered.type}, and only you know what wire value that accepts. " \
+    advice = @pin_advice&.call(type_name) ||
       "Pin the type (#{type}) or just this field (#{(coordinate || field_name).inspect}), " \
       "wherever the fake is built — graphql_fake(#{type} => ...) in an rspec example, " \
       "FakeClient.new(#{type} => ...) outside one, or GraphWeaver::Testing.config.overrides " \
       "for the whole suite."
+    raise GraphWeaver::Error, "can't fabricate a #{type_name} #{at ? "at #{at}" : "for #{field_name.inspect}"}: " \
+      "it deserializes into #{registered.type}, and only you know what wire value that accepts. #{advice}"
   end
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto

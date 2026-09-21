@@ -78,11 +78,51 @@ describe "GraphWeaver::Testing.check_scalars!" do
     expect { check }.to raise_error(GraphWeaver::Error, /Date: serialize: is a Proc, which builds source/)
   end
 
-  # one unpinned scalar must not hide the verdict on the others
-  it "reports a scalar nothing can fabricate a value for" do
+  # one unpinned scalar must not hide the verdict on the others — and the
+  # advice is the one door that is a door here: check_scalars! takes the
+  # schema and nothing else, and runs outside every fake
+  it "reports a scalar nothing can fabricate a value for, pinnable where it runs" do
     GraphWeaver.register_scalar("Date", Class.new { def self.name = "Wallet" }, cast: :parse)
 
-    expect { check }.to raise_error(GraphWeaver::Error, /Date: can't fabricate a Date .*Pin the type/)
+    expect { check }.to raise_error(GraphWeaver::Error) { |error|
+      expect(error.message).to include("Date: can't fabricate a Date", "it deserializes into Wallet",
+        "Pin the form this server sends: GraphWeaver::Testing.config.overrides = { \"Date\" => ... }.")
+      expect(error.message).not_to include("graphql_fake", "FakeClient.new")
+    }
+  end
+
+  # the same one door, from the other branch that says to pin
+  it "names it the same way when cast: can't read the fabricated value" do
+    GraphWeaver.register_scalar("Metadata", Integer, cast: :Integer)
+
+    expect { check }.to raise_error(GraphWeaver::Error) { |error|
+      expect(error.message).to include("Metadata: cast: can't read",
+        "Pin the form this server sends: GraphWeaver::Testing.config.overrides = { \"Metadata\" => ... }.")
+    }
+  end
+
+  # `sent <x>, got back <x>` read as a library bug; the class just inherits
+  # Object#==, and the check has to say so rather than claim a loss
+  it "says a class with no == can't be round-trip checked, rather than calling it lossy" do
+    wallet = Class.new do
+      def self.parse(wire) = new(wire)
+      def initialize(amount) = @amount = amount
+      def to_s = @amount.to_s
+      def inspect = "#<Wallet #{@amount}>"
+    end
+    # the cast is evaluated at the top level, where the generated file's
+    # constants resolve from, so the class has to be reachable by name
+    stub_const("Wallet", wallet)
+    GraphWeaver.register_scalar("Metadata", wallet, cast: :parse, serialize: :to_s)
+    GraphWeaver::Testing.configure { |config| config.overrides = { "Metadata" => "12.50" } }
+
+    expect { check }.to raise_error(GraphWeaver::Error) { |error|
+      expect(error.message).to match(/Metadata: \S+ defines no ==, so a round trip can't be checked/)
+      expect(error.message).to include("and nothing here can tell those apart")
+      expect(error.message).not_to include("round-trips lossily")
+    }
+  ensure
+    GraphWeaver::Testing.reset!
   end
 
   # A wire-class registration casts through the library's own rule for that

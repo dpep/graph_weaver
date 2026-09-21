@@ -415,7 +415,7 @@ module GraphWeaver
       # the precision case gets exercised at all.
       def check_scalars!(schema)
         registry = Internal::Util.registry_for(schema)
-        values = Internal::Values.new(seed: 0, schema:, registry:)
+        values = Internal::Values.new(seed: 0, schema:, registry:, pin_advice: method(:pin_for_check))
         context = GraphQL::Query.new(schema, "{ __typename }").context
 
         disagreed = schema.types.values.sort_by(&:graphql_name).filter_map do |type|
@@ -435,6 +435,14 @@ module GraphWeaver
 
       private
 
+      # check_scalars! takes the schema and nothing else, and runs outside
+      # every fake — so of the doors onto a pin only the suite-wide one is a
+      # door here. graphql_fake is a no-op, and there is no second argument.
+      def pin_for_check(name)
+        "Pin the form this server sends: GraphWeaver::Testing.config.overrides = " \
+          "{ #{name.inspect} => ... }."
+      end
+
       # One scalar's verdict, or nil when the two halves agree. Each step is
       # a different mistake, so each says which.
       def disagreement(scalar, type, values, context)
@@ -452,8 +460,8 @@ module GraphWeaver
         begin
           sample = cast.call(wire)
         rescue StandardError => e
-          return "#{name}: cast: can't read #{wire.inspect}, the value fabricated for it (#{e.message}) " \
-            "— pin the form this server sends: overrides: { #{name.inspect} => ... }"
+          return "#{name}: cast: can't read #{wire.inspect}, the value fabricated for it " \
+            "(#{e.message}). #{pin_for_check(name)}"
         end
 
         if scalar.serialize? && !scalar.serialize_value?
@@ -479,7 +487,15 @@ module GraphWeaver
         end
         return if back == sample
 
-        "#{name}: round-trips lossily — sent #{Internal::Redact.spell(sample)}, got back #{Internal::Redact.spell(back)}"
+        sent = Internal::Redact.spell(sample)
+        got = Internal::Redact.spell(back)
+        return "#{name}: round-trips lossily — sent #{sent}, got back #{got}" unless sent == got
+
+        # two identical spellings for two unequal values: the class inherits
+        # Object#==, which is identity, so this can't tell a lossy round trip
+        # from a faithful one and must not claim either
+        "#{name}: #{sample.class} defines no ==, so a round trip can't be checked — sent " \
+          "#{sent} and got back #{got}, and nothing here can tell those apart"
       end
 
       # The registration's `cast:`, RUN rather than emitted. A cast builds

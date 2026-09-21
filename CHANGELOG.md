@@ -143,6 +143,15 @@
   an untagged example to assert one.
   ([testing](docs/testing.md#nothing-to-configure))
 
+- **`check_scalars!` says to pin the way `check_scalars!` is pinned.** Its cast
+  refusal still wrote the constructor keyword (`overrides: { "Money" => … }`),
+  which taken literally gives `wrong number of arguments (given 2, expected 1)`,
+  and the three-door message it reaches led with `graphql_fake` — a no-op
+  outside a fake. Both now name `GraphWeaver::Testing.config.overrides`, the one
+  door there is here. And a registered class that defines no `==` is reported as
+  uncheckable rather than "round-trips lossily — sent x, got back x", which read
+  as a library bug. ([scalars](docs/scalars.md#checking-the-half-no-schema-carries))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

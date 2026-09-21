@@ -433,7 +433,12 @@ It raises naming every scalar that disagreed and which way:
 
 The fabricated value is all it has to work with, so pin the one that matters:
 `config.overrides = { "Decimal" => "123456789.123456789" }` is how the precision
-case gets exercised at all — two decimal places always survive a Float. Pass the
+case gets exercised at all — two decimal places always survive a Float. That is
+the only door onto a pin here: `check_scalars!` takes the schema and nothing
+else, and runs outside every fake, so `graphql_fake` would be a no-op. The last
+leg compares with `==`, so a registered class that defines none is reported as
+uncheckable rather than lossy — two identical spellings mean identity, not a
+loss. Pass the
 schema **class**; a dump's scalars pass values through, so against one this checks
 only that a registration's `cast:` accepts what its own `serialize:` writes, which
 is a different question (see below).
