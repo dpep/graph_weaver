@@ -905,12 +905,14 @@ describe "GraphWeaver::Railtie" do
     # Subscriber#call dispatches on the half before the dot — so the event
     # name, the namespace, and the method name are one decision, and a
     # rename of any of them silently unsubscribes the log line.
-    it "attaches the log subscriber to the namespace EXECUTE_EVENT names" do
+    it "attaches the log subscriber to the namespace both events name" do
       boot
 
       expect(GraphWeaver::LogSubscriber.attached).to include :graph_weaver
       expect(GraphWeaver::EXECUTE_EVENT).to eq "execute.graph_weaver"
+      expect(GraphWeaver::OPERATION_EVENT).to eq "operation.graph_weaver"
       expect(GraphWeaver::LogSubscriber.public_method_defined?(:execute)).to be true
+      expect(GraphWeaver::LogSubscriber.public_method_defined?(:operation)).to be true
     end
 
     it "does nothing where ActiveSupport isn't" do

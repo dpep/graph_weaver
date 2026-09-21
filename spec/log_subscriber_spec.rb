@@ -24,6 +24,14 @@ describe GraphWeaver::LogSubscriber do
   # payload carries no duration_ms of its own
   def line(elapsed: 12.34, **payload)
     io.truncate(io.rewind) # one example asks twice; the second answer is its own
+    described_class.new.operation(LogSubscriberDemo::Event.new(payload, elapsed))
+    io.string
+  end
+
+  # the same shape one level down: what an attempt did, url and status and
+  # all, beneath the operation line it belongs to
+  def attempt_line(elapsed: 12.34, **payload)
+    io.truncate(io.rewind)
     described_class.new.execute(LogSubscriberDemo::Event.new(payload, elapsed))
     io.string
   end
@@ -58,24 +66,28 @@ describe GraphWeaver::LogSubscriber do
       .to include "GraphWeaver PersonQuery (8.1ms) errors [THROTTLED]"
   end
 
-  # the payload keeps :code for the GraphQL code alone; the human line still
-  # wants a number for a failure that never got one, and that is :http_status
-  it "names the error class, and the HTTP status, on a failure" do
-    expect(line(operation: "PersonQuery", status: :failed, error: "GraphWeaver::ServerError",
-      http_status: 502, duration_ms: 31.2))
-      .to include "GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::ServerError [502]"
-
-    expect(line(operation: "PersonQuery", status: :failed, error: "GraphWeaver::TransportError",
-      duration_ms: 31.2)).to include "failed GraphWeaver::TransportError"
+  it "names the error class on a failure" do
+    expect(line(operation: "PersonQuery", status: :failed, error: "GraphWeaver::CastError",
+      duration_ms: 31.2)).to include "GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::CastError"
   end
 
-  # a retried call is one line per attempt; without the count they read as
-  # three unrelated slow requests instead of one that took three goes
-  it "says which attempt it was when a Retry is in the stack" do
-    expect(line(operation: "PersonQuery", status: :ok, retries: 2, duration_ms: 5.0))
-      .to include "GraphWeaver PersonQuery (5.0ms) ok (retry 2)"
-    expect(line(operation: "PersonQuery", status: :ok, retries: 0, duration_ms: 5.0))
+  # the attempt facts — the url's status, which try this was — are a
+  # property of one request, and a call that took three goes has no one
+  # answer for either. So they stay on the debug line the request writes.
+  it "keeps the attempt facts on the attempt, at debug" do
+    GraphWeaver.logger = Logger.new(io, level: Logger::DEBUG)
+
+    expect(attempt_line(operation: "PersonQuery", status: :failed, error: "GraphWeaver::ServerError",
+      http_status: 502, retries: 2, duration_ms: 31.2))
+      .to include "GraphWeaver PersonQuery (31.2ms) failed GraphWeaver::ServerError [502] (retry 2)"
+    expect(attempt_line(operation: "PersonQuery", status: :ok, retries: 0, duration_ms: 5.0))
       .not_to include "retry"
+  end
+
+  # a request is the wire, and the wire is debug — an app at info gets one
+  # line per call, not one per attempt
+  it "writes nothing for an attempt at info" do
+    expect(attempt_line(operation: "PersonQuery", status: :ok, duration_ms: 5.0)).to eq ""
   end
 
   # a subscriber attached to someone else's instrumenter still gets a line
@@ -114,8 +126,8 @@ describe GraphWeaver::LogSubscriber do
     expect(described_class.new.logger).to be_nil
   end
 
-  # info is the whole rule: this line is the only one at info, so a
-  # production log gets one per operation and the wire stays at debug
+  # info is the whole rule: the operation line is the only one at info, so a
+  # production log gets one per call and the wire stays at debug
   it "is quiet below info" do
     GraphWeaver.logger = Logger.new(io, level: Logger::WARN)
 

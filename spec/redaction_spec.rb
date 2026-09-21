@@ -176,12 +176,12 @@ describe "the redaction boundary, channel by channel" do
     require "graph_weaver/log_subscriber"
     payload = { operation: "Login" }
     GraphWeaver.instrumenter = ->(_event, p, &block) { block.call.tap { payload = p } }
-    GraphWeaver::Internal::Log.instrument_request(payload) do
+    GraphWeaver::Internal::Log.instrument_operation(payload) do
       { "errors" => [{ "message" => "no", "extensions" => { "code" => Redaction::FORGED_CODE } }] }
     end
     line = StringIO.new
     GraphWeaver.logger = Logger.new(line, level: Logger::INFO)
-    GraphWeaver::LogSubscriber.new.execute(Struct.new(:payload, :duration).new(payload, 1.0))
+    GraphWeaver::LogSubscriber.new.operation(Struct.new(:payload, :duration).new(payload, 1.0))
     expect(line.string.lines.size).to eq 1
     line.string
   end
