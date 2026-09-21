@@ -5,8 +5,6 @@ Gem::Specification.new do |s|
   # the README tagline, verbatim — the two pitches drifted apart once already,
   # so spec/gemspec_spec.rb pins them together
   s.description = "Your .graphql files, compiled into Sorbet types — and the fakes to test them."
-  # ".yardopts" explicitly: `git ls-files *` skips dotfiles, and
-  # rubydoc.info needs it shipped to render docstrings as markdown
   # CLAUDE.md/PLAN.md/REVIEW.md/NOTES.md/DECISIONS.md are written for whoever
   # works on the gem, not whoever installs it — and REVIEW.md carries examples
   # from before the API it describes was rewritten
@@ -14,10 +12,21 @@ Gem::Specification.new do |s|
   # someone who only has the installed gem, not a checkout
   # CHANGELOG.md doesn't (259 KB, ~16% of the package) — changelog_uri below
   # points at the GitHub copy instead
-  s.files       = `git ls-files * ':!:spec' ':!:sorbet' ':!:bin' \
-                     ':!:CLAUDE.md' ':!:PLAN.md' ':!:REVIEW.md' ':!:NOTES.md' \
-                     ':!:DECISIONS.md' ':!:CHANGELOG.md' ':!:Makefile' ':!:design' \
-                     ':!:research'`.split("\n") + [".yardopts"]
+  unpackaged = %w[spec sorbet bin design research CLAUDE.md PLAN.md REVIEW.md
+    NOTES.md DECISIONS.md CHANGELOG.md Makefile]
+  # git knows what is tracked; a checkout that isn't a repo — an unpacked gem,
+  # a vendored copy, a shallow CI export — has no such answer, and git's
+  # "fatal:" on stderr lands in the output of every subprocess a spec captures.
+  # So ask quietly, and walk the tree rather than ship nothing.
+  files = `git ls-files * #{unpackaged.map { |path| "':!:#{path}'" }.join(" ")} 2>/dev/null`.split("\n")
+  if files.empty?
+    files = Dir.glob("**/*", base: __dir__).reject do |path|
+      unpackaged.include?(path.split("/").first) || File.directory?(File.join(__dir__, path))
+    end
+  end
+  # ".yardopts" explicitly: neither list carries a dotfile, and rubydoc.info
+  # needs it shipped to render docstrings as markdown
+  s.files       = files + [".yardopts"]
   s.homepage    = "https://github.com/dpep/graph_weaver"
   s.license     = "MIT"
   s.name        = "graph_weaver"
