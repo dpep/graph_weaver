@@ -125,6 +125,13 @@
   — a real key that nulls a different thing — where these options are keyed by
   field. ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
 
+- **`check_query` answers on every client that holds a schema.** It was defined
+  on `Client` alone, so the one place the docs put it — inside an example,
+  checking a query you just built — raised `NoMethodError` under every testing
+  mode, where `GraphWeaver.client` is a fake, an `InProcess` or the test router.
+  It moves to the `Parsing` mixin those four already include, beside `parse`.
+  ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

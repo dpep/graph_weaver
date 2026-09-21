@@ -381,4 +381,21 @@ RSpec.describe "#{GraphWeaver::Client}#check_query" do
       expect(client.check_query(source)).to eq(parsed.call(source)), source
     end
   end
+
+  # docs/testing.md builds a query in an example and checks it with
+  # `GraphWeaver.client.check_query(source)` — where GraphWeaver.client is
+  # whatever the mode installed, and only Client answered
+  it "answers on every client that holds a schema, as the testing doc asks" do
+    schema = GraphQL::Schema.from_definition("type Query { media: Media }\ntype Media { id: ID! }\n")
+    holders = [
+      GraphWeaver::Testing::FakeClient.new(schema:),
+      GraphWeaver::InProcess.new(schema),
+      GraphWeaver::Testing::Router.new(supergraph: RouterGraph::SUPERGRAPH),
+    ]
+
+    holders.each do |holder|
+      expect(holder.check_query("{ __typename }")).to eq([]), holder.class.to_s
+      expect(holder.check_query("{ nope }").first["message"]).to match(/'nope' doesn't exist/), holder.class.to_s
+    end
+  end
 end
