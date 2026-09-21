@@ -170,12 +170,29 @@ module GraphWeaver
           return :in_process if config.schema_class?(graph)
           return :fake if config.schema || graph&.named_schema?
 
-          raise GraphWeaver::Error, ":wire serves your schema at the endpoint your client posts " \
-            "to, and #{graph&.name ? "graph #{graph.name.inspect}" : "this app"} has none to " \
-            "serve — no live GraphQL::Schema class, no composed supergraph, and no type " \
+          raise GraphWeaver::Error, nothing_to_serve(graph)
+        end
+
+        # Two graphs are in different states here, and the served one's
+        # sentences are all false for the other: a graph whose client posts
+        # nowhere has no endpoint to stub, no stub of ours to introspect, and
+        # no url to refresh a dump from — what it is missing is a schema.
+        def nothing_to_serve(graph)
+          missing = "no live GraphQL::Schema class, no composed supergraph, and no type " \
             "information (nothing at #{GraphWeaver.schema_path}, and " \
-            "GraphWeaver::Testing.config.schema is unset). Your client's own schema can't stand " \
-            "in here: reading it introspects the endpoint :wire has stubbed. Commit a dump " \
+            "GraphWeaver::Testing.config.schema is unset)"
+          if graph&.name && !graph.client_url
+            return ":wire has no endpoint for graph #{graph.name.inspect} — its client posts to " \
+              "none, so its modules run above the wire, against the most faithful stand-in the " \
+              "graph has. It has #{missing}. Name one where the graph is declared: " \
+              "GraphWeaver.graph(#{graph.name.inspect}) { schema -> { MySchema } }, or a dump " \
+              "(schema \"schema.graphql\"). Or tag the example graphql: :live."
+          end
+
+          ":wire serves your schema at the endpoint your client posts to, and " \
+            "#{graph&.name ? "graph #{graph.name.inspect}" : "this app"} has none to serve — " \
+            "#{missing}. Your client's own schema can't stand in here: reading it introspects " \
+            "the endpoint :wire has stubbed. Commit a dump " \
             "(rake graph_weaver:schema:refresh URL=…), or tag the example graphql: :live."
         end
 

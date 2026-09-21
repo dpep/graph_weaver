@@ -11,7 +11,9 @@
   said so on the logger — instead of refusing the whole example. An app that
   owns resolvers *and* calls someone else's API can now test the remote half
   over the wire. A graph with nothing to serve at all is refused when one of its
-  own modules runs, naming it; an example where no graph posts anywhere is still
+  own modules runs, naming it — and in the words of the state it is in: a graph
+  that posts nowhere is told to give itself a schema, not to refresh a dump from
+  an endpoint it hasn't got. An example where no graph posts anywhere is still
   refused outright. ([testing](docs/testing.md#over-the-wire--graphql-wire))
 
 - **`null_chance:` takes a Hash per field, like `list_size:`.**

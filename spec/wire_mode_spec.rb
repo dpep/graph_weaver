@@ -317,11 +317,18 @@ describe "graphql: :wire" do
         .to eq "billing"
     end
 
+    # and in the words of the state it is in: this graph posts nowhere, so
+    # every sentence about an endpoint, a stub and a URL= refresh is false
+    # for it — what it is missing is a schema
     it "refuses, naming the graph, only when that graph's module runs", graphql: :wire do
       orders = GraphWeaver.parse(schema: WireDemo::Schema, query: WireDemo::QUERY, graph: :orders)
 
-      expect { orders.execute! }.to raise_error(GraphWeaver::Error,
-        /:wire serves your schema at the endpoint your client posts to, and graph :orders has none to serve/)
+      expect { orders.execute! }.to raise_error(GraphWeaver::Error) { |error|
+        expect(error.message).to include(":wire has no endpoint for graph :orders — its client " \
+          "posts to none, so its modules run above the wire")
+        expect(error.message).to include("GraphWeaver.graph(:orders) { schema -> { MySchema } }")
+        expect(error.message).not_to include("URL=", "the endpoint :wire has stubbed")
+      }
     end
   end
 
