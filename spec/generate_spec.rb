@@ -120,6 +120,20 @@ describe "GraphWeaver.generate!" do
     expect(Dir.children(@dir)).to eq ["queries"]
   end
 
+  # most codegen refusals are about the query in front of them and name no
+  # file, so the list they land in named nothing — which is all a list is for
+  it "names the file on every line of the list, not only where the refusal does" do
+    queries = File.join(@dir, "queries")
+    FileUtils.mkdir_p(queries)
+    clash = "query { person(id: 1) { name Name: name } }"
+    File.write(File.join(queries, "one.graphql"), clash)
+    File.write(File.join(queries, "two.graphql"), clash)
+
+    expect { GraphWeaver.generate!(schema: Demo::Schema, queries:, output: @dir) }
+      .to raise_error(GraphWeaver::Error,
+        %r{\A2 of 2 queries refused:\n.*queries/one\.graphql: result keys .*\n.*queries/two\.graphql: result keys }m)
+  end
+
   # a file that names its own kind and then holds another is a rename gone
   # half-done; either half could be the truth, so it says so instead of picking
   it "refuses a file whose kind extension disagrees with its operation" do

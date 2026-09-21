@@ -856,7 +856,7 @@ module GraphWeaver
       rescue GraphWeaver::Error => e
         # collected, not raised: nothing is written either way, and an adopter
         # aiming generate! at an existing query directory wants the list
-        refusals << e
+        refusals << name_query_file(e, path)
         nil
       end
       refuse_all!(refusals, paths.size)
@@ -919,6 +919,18 @@ module GraphWeaver
     # itself, so a single bad file reads exactly as it always has — class,
     # message and all; several become one list, because clearing them a file
     # per run is the slowest way there is to adopt this.
+    # Almost every codegen refusal is about the query in front of it and never
+    # says which file that was — so a list of them named nothing, which is the
+    # one thing a list is for. This rescue is the only place holding both.
+    # #exception keeps the class and its fields and swaps only the message.
+    def name_query_file(error, path)
+      reported = Internal::Util.relative(path)
+      return error if error.message.include?(reported)
+
+      error.exception("#{reported}: #{error.message}")
+    end
+    private :name_query_file
+
     def refuse_all!(refusals, considered)
       return if refusals.empty?
       raise refusals.first if refusals.one?

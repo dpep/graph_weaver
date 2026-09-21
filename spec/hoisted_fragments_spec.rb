@@ -135,9 +135,10 @@ RSpec.describe "hoisting a shared fragment on an object type" do
     it "refuses a path that reads through it, naming the fragment" do
       GraphWeaver.extend_type("Query", alias: { first_name: "people.first.name" })
 
-      expect { generate(queries: QUERIES.slice("people")) }.to raise_error(GraphWeaver::Error, <<~MSG.chomp)
-        PeopleQuery: alias "first_name" on Query: 'name' is inside the shared fragment PersonFields, which hoists to GraphQLTypes::PersonFields — a path can't read into it. Register the alias on Person, or select a field beside the spread to keep the struct local
-      MSG
+      expect { generate(queries: QUERIES.slice("people")) }
+        .to raise_error(GraphWeaver::Error, "#{@base}/queries/people.graphql: " + <<~MSG.chomp)
+          PeopleQuery: alias "first_name" on Query: 'name' is inside the shared fragment PersonFields, which hoists to GraphQLTypes::PersonFields — a path can't read into it. Register the alias on Person, or select a field beside the spread to keep the struct local
+        MSG
     end
 
     it "still lets optional: true drop the accessor, for the query that spreads it" do

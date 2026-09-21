@@ -252,6 +252,12 @@
   standing for what the schema doesn't declare is what it is for.
   ([scalars](docs/scalars.md#enums-map-onto-your-own-tenum))
 
+- **Every refusal from a `generate!` run names its query file.** Three of the
+  thirty-odd refusals codegen raises interpolated the path; the rest said only
+  what was wrong, so `3 of 3 queries refused:` listed anonymous entries and the
+  list couldn't be worked through in one pass. The generation rescue, which has
+  the path in hand, now adds it to any refusal that doesn't already carry it.
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a
