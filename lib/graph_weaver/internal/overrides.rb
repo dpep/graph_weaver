@@ -51,7 +51,9 @@ module GraphWeaver
         # minus the bare type name: a type says nothing about how long any one
         # of its fields is.
         def validate_list_size!(schema, list_size)
-          validate_per_field!(schema, list_size, "list_size") do |value|
+          reaches = ->(type) { type.list? }
+          validate_per_field!(schema, list_size, "list_size",
+            reaches:, unreached: "is not a list and has no length to set — name a list field") do |value|
             "an Integer or a Range of them, neither negative — how long an unbounded list is" unless
               length?(value)
           end
@@ -60,7 +62,9 @@ module GraphWeaver
         # A Hash `null_chance:` is keyed the same way, one nullable field at a
         # time.
         def validate_null_chance!(schema, null_chance)
-          validate_per_field!(schema, null_chance, "null_chance") do |value|
+          reaches = method(:nullable_anywhere?)
+          validate_per_field!(schema, null_chance, "null_chance",
+            reaches:, unreached: "can never come back null — name a nullable field") do |value|
             "a number from 0 to 1 — how often a nullable field comes back null" unless
               value.is_a?(Numeric) && (0..1).cover?(value)
           end
@@ -84,7 +88,7 @@ module GraphWeaver
         # of both shapes: a plain `null_chance: 7` used to sail through and
         # null everything, a plain `list_size: "3"` to die inside the
         # fabricator.
-        def validate_per_field!(schema, option, name)
+        def validate_per_field!(schema, option, name, reaches:, unreached:)
           unless option.is_a?(Hash)
             refuse_value!(name, nil, option, yield(option))
             return
@@ -94,8 +98,46 @@ module GraphWeaver
             refuse_value!(name, key, value, yield(value))
             next if key.to_s == DEFAULT_KEY
 
-            validate_field_key!(schema, key.to_s, "#{name}: key")
+            label = "#{name}: key"
+            validate_field_key!(schema, key.to_s, label)
+            reaches!(schema, key.to_s, label, reaches, unreached)
           end
+        end
+
+        # A key naming a field the option can never reach is inert, which is
+        # the silent green every other key check exists to stop: the
+        # fabricator asks `null_chance` at nullable positions only and
+        # `list_size` at lists only, so it never looks this key up.
+        def reaches!(schema, key, label, reaches, unreached)
+          types = field_types(schema, key)
+          return if types.empty? || types.any? { |type| reaches.call(type) }
+
+          spelled = types.map(&:to_type_signature).uniq.sort.join(", ")
+          raise GraphWeaver::Error, "#{label} #{key.inspect} (#{spelled}) #{unreached}, " \
+            "or drop the key"
+        end
+
+        # Every field a per-field key names: the one a coordinate points at,
+        # or every field of that name in the schema for a bare one.
+        def field_types(schema, key)
+          type_name, field_name = key.split(".", 2)
+          # introspection fields (__typename) are real but absent from #fields
+          return [] if (field_name || type_name).start_with?("__")
+          return [schema.get_type(type_name).fields.fetch(field_name).type] if field_name
+
+          schema.types.each_value.filter_map do |type|
+            type.fields[type_name]&.type if type.respond_to?(:fields)
+          end
+        end
+
+        # Whether null_chance has a position in this type to reach. #non_null?
+        # sees through a list wrapper, so `[Pet]!` reads as non-null while its
+        # ELEMENTS are what the fabricator nulls.
+        def nullable_anywhere?(type)
+          return true unless type.non_null?
+
+          inner = type.of_type
+          inner.list? && nullable_anywhere?(inner.of_type)
         end
 
         def refuse_value!(name, key, value, wanted)
@@ -154,10 +196,23 @@ module GraphWeaver
             known = field_names(schema)
             return if known.include?(type_name)
 
+            # a type name reads like a reasonable key here — `null_chance: {
+            # "Person" => 1.0 }` looks like "null the whole subtree" — and
+            # did_you_mean sent it to the nearest FIELD ('person') instead of
+            # saying these options are keyed by field
+            named = schema.get_type(type_name)
+            type_key!(label, key, named) if named
             bad!(label, key, "matches no field in this schema", known, type_name)
           end
 
           coordinate!(schema, label, key, type_name, field_name)
+        end
+
+        def type_key!(label, key, type)
+          reach = type.respond_to?(:fields) ? "#{type.graphql_name}.<field>".inspect : "a \"Type.field\" coordinate"
+          raise GraphWeaver::Error, "#{label} #{key.inspect} names " \
+            "#{type.kind.name.downcase.tr("_", " ")} #{type.graphql_name}, and a key here names " \
+            "one field — #{reach}, or a bare field name"
         end
 
         def coordinate!(schema, label, key, type_name, field_name)

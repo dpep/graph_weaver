@@ -117,6 +117,14 @@
   up is `"Person.name"`. Both spellings now get the same refusal, and it names
   the concrete coordinates. ([testing](docs/testing.md#pins))
 
+- **A `list_size:` or `null_chance:` key the option can't reach is refused.**
+  `null_chance: { "Person.id" => 1.0 }` on a non-null field, and
+  `list_size: { "Person.name" => 2 }` on a field that isn't a list, validated
+  clean and fabricated nothing. A type name is refused as one too:
+  `null_chance: { "Person" => 1.0 }` used to come back "did you mean 'person'?"
+  — a real key that nulls a different thing — where these options are keyed by
+  field. ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

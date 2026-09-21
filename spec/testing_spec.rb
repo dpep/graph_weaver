@@ -508,6 +508,17 @@ describe GraphWeaver::Testing do
           /list_size: key "petz" matches no field in this schema — did you mean 'pets'\?/)
       end
 
+      # inert either way, and the spellcheck sent a type name to the nearest
+      # FIELD ('person'), which is a real key that means something else
+      it "rejects a type key, and a field with no length to set" do
+        expect { pets_per_person("Person" => 2) }.to raise_error(GraphWeaver::Error,
+          "list_size: key \"Person\" names object Person, and a key here names one field — " \
+          "\"Person.<field>\", or a bare field name")
+        expect { pets_per_person("Person.name" => 2) }.to raise_error(GraphWeaver::Error,
+          "list_size: key \"Person.name\" (String!) is not a list and has no length to set — " \
+          "name a list field, or drop the key")
+      end
+
       it "rejects an abstract type in a coordinate key, as a pin does" do
         expect { pets_per_person("Named.name" => 1) }.to raise_error(GraphWeaver::Error,
           /list_size: key "Named.name" names interface Named.*"Person.name", "Pet.name"/)
@@ -567,6 +578,31 @@ describe GraphWeaver::Testing do
           /null_chance: key "Person.emial" is not a field of Person — did you mean 'email'\?/)
         expect { person("emial" => 1.0) }.to raise_error(GraphWeaver::Error,
           /null_chance: key "emial" matches no field in this schema — did you mean 'email'\?/)
+      end
+
+      # documented in testing.md, so the two never have to be reasoned about
+      # together: a pinned value is used as written
+      it "is beaten by a pin on the same field" do
+        pinned = GraphWeaver::Testing::FakeClient.new({ "Person.email" => "ada@example.com" },
+          schema: Demo::Schema, seed: 1, null_chance: { "Person.email" => 1.0 })
+
+        expect(pinned.execute('{ person(id: "1") { email } }').dig("data", "person", "email"))
+          .to eq "ada@example.com"
+      end
+
+      # `"Person" => 1.0` was refused as a typo for the FIELD 'person', which
+      # nulls a different thing; a non-null field was accepted and inert
+      it "rejects a type key, and a field that can never be null" do
+        expect { person("Person" => 1.0) }.to raise_error(GraphWeaver::Error,
+          "null_chance: key \"Person\" names object Person, and a key here names one field — " \
+          "\"Person.<field>\", or a bare field name")
+        expect { person("Person.id" => 1.0) }.to raise_error(GraphWeaver::Error,
+          "null_chance: key \"Person.id\" (ID!) can never come back null — name a nullable " \
+          "field, or drop the key")
+        # [Pet!]! nulls nowhere — neither the list nor an element; a bare key
+        # is judged across every field of that name the schema has
+        expect { person("Person.pets" => 1.0) }.to raise_error(GraphWeaver::Error, /"Person.pets" \(\[Pet!\]!\)/)
+        expect { person("species" => 1.0) }.to raise_error(GraphWeaver::Error, /"species" \(Species!\)/)
       end
 
       it "rejects a chance that isn't one" do

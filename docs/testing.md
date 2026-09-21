@@ -656,6 +656,16 @@ rest. So the example about one missing value says only that —
 everything else alongside it. A misspelled key is refused and spellchecked, the
 way a pin's is.
 
+**Both are keyed by field, and the key has to be one the option can reach**: a
+type name (`"Person"`) is refused rather than read as the nearest field, a
+`null_chance` key naming a non-null field is refused (nothing there ever comes
+back null), and a `list_size` key naming a field that isn't a list likewise —
+all three are keys that would validate clean, fabricate nothing and leave the
+example green. `"default"` is always the fallback, never a field, so a schema
+field actually called `default` is reachable only as `"Type.default"`. And a
+[pin](#pins) on the same field beats both: a pinned value is used as written,
+so it is neither nulled nor resized.
+
 **A list field whose name ends in `errors` fabricates empty** — `userErrors`,
 `errors`, `mutationErrors`. The Relay/Shopify payload
 (`placeOrder { order userErrors }`) is the ecosystem's mutation shape, and a
