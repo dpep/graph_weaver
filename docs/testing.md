@@ -136,6 +136,15 @@ leaving the example green against random data. **Schema vocabulary, not Ruby:** 
 spelled the way *that* schema spells it, so a Hasura table type is
 `"pokemon_v2_pokemon"` and not a Ruby-cased guess at it.
 
+**The key is checked; the value is yours.** `"Pet.species" => "RABBIT"` is
+accepted on an enum declaring no `RABBIT`, and the fake serves it as written — a
+pin is the escape hatch, so nothing second-guesses what you put through it. On an
+enum registered
+[`fallback: true`](scalars.md#values-the-server-hasnt-told-you-about-yet) that is
+how you rehearse drift, since the value lands in the catch-all member exactly as
+a real server's new one would; without a fallback the cast raises where a real
+response would.
+
 A pin **merges**, and pins a **subtree** as readily as a leaf: name the fields
 the example is about and everything else in the selection is still fabricated. A
 pinned list is exactly as long as you write it — `{}` means "another one, all
@@ -218,9 +227,12 @@ end
 ```
 
 The live schema *class* is found for you (a schema dump has no resolvers, so it
-won't do). If two loaded classes match, or none does, it says so and asks for
-`config.schema = MySchema` — and in Rails, remember that an autoloaded schema
-isn't loaded until something references it.
+won't do), from the three places one can be named: `config.schema` when you set
+it to a class, else the class [that graph](getting_started.md#more-than-one-schema)
+names, else the class your own `GraphWeaver.client` already runs in-process.
+Nothing is *scanned* for: with none of the three it refuses, and names the fix
+that fits — declare the class on the graph, write `graphql_in_process(MySchema)`
+in the example, or set `config.schema = MySchema` for the suite.
 
 A federated app has no one live class, so the example says which subgraph it
 means: `graphql_in_process(Reviews::Schema)`. Testing one subgraph's resolvers
@@ -567,10 +579,14 @@ rather than guessing**:
   the wire value that graph's generated cast expects. (Pins and `overrides:` stay
   suite-wide, keyed by scalar name — one `"Money"` override for the run.)
 - **`:in_process`** needs the live schema *class*, since only that has resolvers:
-  the one that graph names, else the one your client already runs in-process,
-  else the loaded class that defines everything the schema declares — the same
-  derive-verify-refuse rule that
-  [maps subgraphs](federation.md#which-schema-serves-which-subgraph).
+  `config.schema` when you set it to a class, else the one that graph names, else
+  the one your client already runs in-process. Nothing is scanned for — a loaded
+  class is no evidence the app meant it *here* — so past those three
+  `:in_process` refuses, while [`:wire`](#over-the-wire--graphql-wire) reads the
+  same list and serves a fake, **warning** and naming the class it saw.
+  (Deriving a schema from what *is* loaded is the
+  [subgraph rule](federation.md#which-schema-serves-which-subgraph), where the
+  routing table says what a match has to define.)
 - **`:router`** plans against the composed supergraph **that graph** names, else
   `config.router = { supergraph: … }`, else the committed dump when *that*
   carries `@join__*` markers, else the dump your own client was built from
