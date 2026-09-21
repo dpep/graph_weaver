@@ -422,7 +422,10 @@ namespace :graph_weaver do
         next puts "refreshed #{GraphWeaver::Internal::Util.relative(path)} from #{source}"
       end
 
-      GraphWeaver::Internal::Tasks.dumps.each do |graph, path, source|
+      # Every graph is its own job: one unreachable server used to end the run
+      # with the graphs after it never attempted, so an app learned about them
+      # one per run. The exit code is the only thing they share.
+      failed = GraphWeaver::Internal::Tasks.dumps.filter_map do |graph, path, source|
         heading = GraphWeaver::Internal::Tasks.heading(graph)
         puts heading if heading
         # a graph that names a live class generates straight from it — no
@@ -439,9 +442,22 @@ namespace :graph_weaver do
         next puts GraphWeaver::SchemaLoader.recompose_hint(path) if graph.supergraph
         next puts GraphWeaver::Internal::Tasks.no_source(path) if path && !source
 
-        written, from = GraphWeaver::SchemaLoader.refresh!(url: (source unless source.is_a?(Module)),
-          schema: (source if source.is_a?(Module)), path:)
-        puts "refreshed #{GraphWeaver::Internal::Util.relative(written)} from #{from}"
+        begin
+          written, from = GraphWeaver::SchemaLoader.refresh!(url: (source unless source.is_a?(Module)),
+            schema: (source if source.is_a?(Module)), path:)
+          puts "refreshed #{GraphWeaver::Internal::Util.relative(written)} from #{from}"
+          nil
+        rescue GraphWeaver::Error => e
+          puts e.message
+          graph
+        end
+      end
+
+      # abort writes to unbuffered stderr; the reports above went to
+      # block-buffered stdout, so a piped CI log shows them first
+      $stdout.flush
+      unless failed.empty?
+        abort "#{GraphWeaver::Internal::Tasks.whose(failed)}not refreshed — the dump on disk is unchanged"
       end
     rescue GraphWeaver::Error => e
       abort e.message

@@ -447,7 +447,8 @@ describe "graph_weaver rake tasks" do
       result = invoke("schema:refresh")
 
       expect(result.status).to eq 1
-      expect(result.err).to include "no schema dump at #{GraphWeaver.schema_path}", "URL=https://"
+      expect(result.out).to include "no schema dump at #{GraphWeaver.schema_path}", "URL=https://"
+      expect(result.err).to eq "not refreshed — the dump on disk is unchanged\n"
     end
 
     # the three steps an operator walks during drift: the runtime message says
@@ -620,6 +621,38 @@ describe "graph_weaver rake tasks" do
       ensure
         GraphWeaver.reset_graphs!
       end
+    end
+
+    # One unreachable server used to end the run: the graphs declared after it
+    # were never attempted, and the operator learned about them one failure per
+    # run. Every graph is its own job — the exit code is the only thing they
+    # share.
+    it "attempts every graph, and fails at the end for the ones that failed" do
+      %w[a b c].each do |name|
+        path = File.join(@root, "#{name}.graphql")
+        File.write(path, "# graph_weaver: {\"url\":\"https://#{name}.example/graphql\"}\n\ntype Query { a: String }")
+        GraphWeaver.graph(name.to_sym) { schema path }
+      end
+      allow(GraphWeaver::SchemaLoader).to receive(:refresh!) do |path:, **|
+        raise GraphWeaver::Error, "no route to https://b.example/graphql" if path.end_with?("b.graphql")
+
+        [path, "https://#{File.basename(path, ".graphql")}.example/graphql"]
+      end
+
+      result = invoke("schema:refresh")
+
+      expect(result.status).to eq 1
+      expect(result.out).to eq <<~OUT
+        graph :a
+        refreshed #{@root}/a.graphql from https://a.example/graphql
+        graph :b
+        no route to https://b.example/graphql
+        graph :c
+        refreshed #{@root}/c.graphql from https://c.example/graphql
+      OUT
+      expect(result.err).to eq "graph :b: not refreshed — the dump on disk is unchanged\n"
+    ensure
+      GraphWeaver.reset_graphs!
     end
 
     # A client that runs a schema class in-process names a server as surely as
