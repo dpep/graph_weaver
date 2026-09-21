@@ -543,7 +543,9 @@ Three things follow from that, and they are the whole rule:
   singleton, so there is nowhere to put it; the cast writes one debug line
   (`GraphQLTypes::Species absorbed "AXOLOTL" into Other`) and that is the record
   — so a presenter humanising the server's spelling can't, and falls back to a
-  label of its own.
+  label of its own. `as_json` writes the member's own wire value, `"__other__"`,
+  which `from_h` reads straight back — but `render json: result` hands that
+  sentinel to whoever is downstream, and no server declares it.
 - **Inputs stay strict.** No wire value means `Other`, so a variable carrying it
   is refused rather than sent. Everything else is unchanged: a typo'd input is
   your bug, not drift.
