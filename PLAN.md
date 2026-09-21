@@ -91,7 +91,12 @@ in the patch. Roughly by value.
 7. **Declined, recorded:** `stub_graphql(key).to_return(value)` (declined after a dogfood;
    `to_return` carries nothing `=>` doesn't and the
    name misleads under `:wire`); batching/async (user); an upgrade-guide drill
-   (no real users yet).
+   (no real users yet); a custom name for a generated enum's fallback member
+   (map onto your own `T::Enum` to name it); a `graphql_wire` helper so a
+   `:wire` whole-example refusal could be asserted (documented instead);
+   `graphql_context` under `:live` (it would mutate the app's own client);
+   description-only schema drift exempted from "stale" (a rule with an
+   exception). `research/logs/round7-follow-ups.md` has the round-7 list.
 
 ## Federation router: what it still refuses
 

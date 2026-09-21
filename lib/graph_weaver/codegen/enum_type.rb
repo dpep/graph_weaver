@@ -209,7 +209,7 @@ class GraphWeaver::Codegen
         groups = ambiguous.values.map { |pairs| pairs.map(&:first) }
         more = ambiguous.size - 1
         raise GraphWeaver::Error,
-          "enum #{graphql_name}: #{groups.first.join(" and ")} both map onto the #{type} member " \
+          "enum #{graphql_name}: #{groups.first.join(" and ")} all map onto the #{type} member " \
           "#{member.serialize.to_s.inspect}#{" (and #{more} more)" unless more.zero?} — say which spelling " \
           "goes on the wire:\n  #{EnumType.alias_suggestion(graphql_name, groups, type)}"
       end

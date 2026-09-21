@@ -115,7 +115,7 @@ describe "register_enum alias:" do
 
       expect { GraphWeaver::Codegen.generate(schema:, query:, name: "Q") }
         .to raise_error(GraphWeaver::Error, <<~MSG.chomp)
-          enum Mode: LEGACY and legacy both map onto the EnumAliasDemo::Mode member "legacy" — say which spelling goes on the wire:
+          enum Mode: LEGACY and legacy all map onto the EnumAliasDemo::Mode member "legacy" — say which spelling goes on the wire:
             GraphWeaver.register_enum("Mode", EnumAliasDemo::Mode, alias: { "legacy" => "LEGACY" })
         MSG
     end
