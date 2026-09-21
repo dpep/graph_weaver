@@ -631,9 +631,17 @@ module GraphWeaver
     # graph_weaver:queries:check` prints this and exits non-zero.
     def check_queries(schema: nil, queries: nil, fragments: fragments_paths)
       shared = Codegen.load_fragments(fragments)
+      # one graph's server being down is that graph's verdict: every graph is
+      # attempted, so a run names every server it couldn't reach rather than
+      # ending at the first
+      unreachable = []
 
-      graphs_for(schema:, queries:).each_with_object({}) do |graph, failures|
-        checked = checked_schema(graph)
+      failures = graphs_for(schema:, queries:).each_with_object({}) do |graph, failures|
+        begin
+          checked = checked_schema(graph)
+        rescue Error => e
+          next unreachable << unreachable_source(graph, e)
+        end
         table = checked_routing_table(graph)
         Internal::Util.query_files(graph.queries).each do |path|
           errors = Internal::QueryCheck.errors(checked, File.read(path), shared, table)
@@ -646,7 +654,22 @@ module GraphWeaver
           failures[key] = failures.key?(key) ? failures[key] | errors : errors
         end
       end
+
+      raise Error, unreachable.join("\n") unless unreachable.empty?
+
+      failures
     end
+
+    # Which graph couldn't be checked, and against what. The bare socket error
+    # named neither — in a multi-graph app it was the entire output, and the
+    # reader could not tell which of their servers was down.
+    def unreachable_source(graph, error)
+      whose = graph.name ? "graph #{graph.name.inspect}" : "this app"
+      dump = graph.dump_path || graph.named_dump_path
+      subject = dump ? Internal::Util.relative(dump) : "these queries"
+      "#{whose}: couldn't reach the schema behind #{subject} — #{error.message}"
+    end
+    private :unreachable_source
 
     # What this graph is checked against: Graph#source, the rule `schema:refresh`
     # and `schema:diff` follow too. A live class is asked directly — for an app

@@ -775,6 +775,28 @@ describe "graph_weaver rake tasks" do
         .to have_attributes(status: 1, err: "no route — POST https://api.example.com/graphql\n")
     end
 
+    # In a multi-graph app the bare socket error WAS the whole output: it named
+    # neither the graph nor the dump, and the graphs after it were never
+    # attempted, so an app with two unreachable servers heard about them one
+    # run at a time.
+    it "names the graph and the dump for every server it could not reach" do
+      %w[catalog billing].each do |name|
+        path = File.join(@root, "#{name}.graphql")
+        File.write(path, "# graph_weaver: {\"url\":\"https://#{name}.example/graphql\"}\n\ntype Query { a: String }")
+        GraphWeaver.graph(name.to_sym) { schema path }
+      end
+      allow(GraphWeaver::SchemaLoader).to receive(:introspect) do |transport|
+        raise GraphWeaver::TransportError.new("no route", url: transport.url)
+      end
+
+      expect(invoke("queries:check")).to have_attributes(status: 1, err: <<~ERR)
+        graph :catalog: couldn't reach the schema behind #{@root}/catalog.graphql — no route — POST https://catalog.example/graphql
+        graph :billing: couldn't reach the schema behind #{@root}/billing.graphql — no route — POST https://billing.example/graphql
+      ERR
+    ensure
+      GraphWeaver.reset_graphs!
+    end
+
     # one rule for every graph: a dump that records a url is re-introspected
     # whether or not a graph names it, so the verdict says nothing extra
     it "says nothing extra for a graph's own dump that records a source url" do
