@@ -203,6 +203,15 @@
   client needs no lambda, because `client "Billing::Schema"` resolves its
   constant when a module calls it.
   ([getting started](docs/getting_started.md#more-than-one-schema))
+- **Two shared fragments that hoist to one class are refused.** `petFields` and
+  `PetFields` both camelize to `GraphQLTypes::PetFields`: generation wrote that
+  file twice, kept one of them, and typed *every* field spreading either
+  fragment as the survivor — so a field selected through the other decoded into
+  the wrong struct and silently lost what the wire sent, with `srb tc` green.
+  The collision check already compared a hoisted name against the schema's enums
+  and input types; it compares hoisted names against each other now, naming both
+  fragments and the class they land on.
+  ([generated modules](docs/generated_modules.md#a-shared-fragment-is-one-type))
 
 ###  v0.7.5  (2026-09-20)
 

@@ -129,6 +129,19 @@ RSpec.describe "hoisting a shared fragment on an object type" do
     end
   end
 
+  # The hoisted type is named for its FRAGMENT, and the schema polices neither
+  # the name nor how many fragments camelize onto it.
+  it "refuses two shared fragments that hoist to one class" do
+    expect {
+      generate(
+        fragment: "fragment PersonFields on Person { name }\nfragment person_fields on Person { email }",
+        queries: { "people" => "query People { people { ...PersonFields } me { ...person_fields } }" },
+      )
+    }.to raise_error(GraphWeaver::Error, <<~MSG.chomp)
+      shared fragment "person_fields" hoists to GraphQLTypes::PersonFields, where the shared fragment "PersonFields" already generates — rename the fragment
+    MSG
+  end
+
   describe "what stays a position-named struct" do
     it "a spread mixed with another field" do
       generate(queries: { "people" => "query People { people { ...PersonFields email } }" })

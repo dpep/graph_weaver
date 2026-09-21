@@ -225,21 +225,25 @@ class GraphWeaver::Codegen
 
   # Schema type names are unique, so an input and an enum can never land on the
   # same name — but a hoisted type is named for its FRAGMENT, which the schema
-  # knows nothing about. One shared module means one namespace, so a fragment
-  # named after a type it doesn't describe has to refuse rather than overwrite.
+  # knows nothing about: two fragments camelize onto one name as readily as one
+  # lands on a type's. One shared module means one namespace, so either
+  # collision refuses rather than overwrites. Sorted, so which query file was
+  # walked first doesn't decide which fragment is named as the incumbent.
   def check_shared_collisions!(names)
     taken = {}
     @enums.each { |graphql_name, node| taken[node.class_name] = "the schema enum #{graphql_name}" }
     @mapped_enums.each_key { |graphql_name| taken[camelize(graphql_name)] = "the schema enum #{graphql_name}" }
     @variable_inputs.each { |graphql_name, node| taken[node.class_name] = "the input type #{graphql_name}" }
 
-    names.each do |name|
+    names.uniq.sort.each do |name|
       class_name = camelize(name)
-      claim = taken[class_name] or next
+      if (claim = taken[class_name])
+        raise GraphWeaver::Error,
+          "shared fragment #{name.inspect} hoists to #{@name}::#{class_name}, " \
+          "where #{claim} already generates — rename the fragment"
+      end
 
-      raise GraphWeaver::Error,
-        "shared fragment #{name.inspect} hoists to #{@name}::#{class_name}, " \
-        "where #{claim} already generates — rename the fragment"
+      taken[class_name] = "the shared fragment #{name.inspect}"
     end
   end
   private :check_shared_collisions!
