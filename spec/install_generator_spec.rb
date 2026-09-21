@@ -432,6 +432,22 @@ describe "GraphWeaver::Generators::InstallGenerator" do
       expect(written(run_generator)).to be_empty
     end
 
+    # `dir/**`, `dir/*`, `dir/` and `dir` are the same directory to git, so a
+    # mark added by hand in any of those spellings is already the mark
+    it "recognises the directory spelled without the glob" do
+      gitattributes("app/graphql/generated/ linguist-generated\n")
+
+      expect(written(run_generator)).to be_empty
+    end
+
+    # reading the body as one string meant any mention suppressed the mark —
+    # including the comment the generator writes above it in prose
+    it "doesn't take a comment that mentions the path as having marked it" do
+      gitattributes("# app/graphql/generated/** is machine-written, do not edit\n")
+
+      expect(written(run_generator).join).to include MARK
+    end
+
     it "marks every graph's output directory" do
       GraphWeaver.graph(:pets) { output "app/graphql/pets/generated" }
       GraphWeaver.graph(:billing) { output "app/graphql/billing/generated" }

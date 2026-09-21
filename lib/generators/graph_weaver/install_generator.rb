@@ -128,8 +128,7 @@ module GraphWeaver
       # .gitattributes turns no tooling on, so there is no app this surprises.
       def mark_generated_for_github
         body = File.read(gitattributes) if File.exist?(gitattributes)
-        # already marked — a re-run, or done by hand
-        globs = linguist_globs.reject { |glob| body&.include?(glob) }
+        globs = linguist_globs.reject { |glob| marked?(body, glob) }
         return if globs.empty?
 
         lines = globs.map { |glob| "#{glob} linguist-generated" }.join("\n")
@@ -245,6 +244,25 @@ module GraphWeaver
       # gitattributes patterns are gitignore-style, where `dir/**` is
       # everything beneath dir — spelled as git reads it, not as rubocop does.
       def linguist_globs = generated_outputs.map { |dir| File.join(dir, "**") }
+
+      # git's own spellings of the one attribute: set, unset (`-`), unspecified
+      # (`!`), or valued.
+      LINGUIST = /\A[-!]?linguist-generated(?:=|\z)/
+
+      # Already marked — a re-run, or done by hand. A .gitattributes line is
+      # `<pattern> <attribute>…`, with `#` opening a comment, and the same
+      # directory is `dir/**`, `dir/*`, `dir/` or `dir`. Searching the body as
+      # one string instead let a comment that mentions the path suppress the
+      # mark, and saw only the spelling this generator writes.
+      def marked?(body, glob)
+        dir = glob.delete_suffix("/**")
+        body.to_s.lines.any? do |line|
+          pattern, *attributes = line.split
+          next false if pattern.nil? || pattern.start_with?("#")
+
+          pattern.chomp("**").chomp("*").chomp("/") == dir && attributes.any? { |a| LINGUIST.match?(a) }
+        end
+      end
 
       # This install run is the one moment the user is guaranteed to be
       # reading, and a composed supergraph changes what the next steps are:

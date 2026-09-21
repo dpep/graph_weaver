@@ -93,6 +93,14 @@
   0.7.5 or earlier shows this seam only half the call, so it keeps working and
   emits the request event alone, with no operation event and no info line,
   until it is regenerated. ([logging](docs/logging.md#instrumentation))
+- **`rails g graph_weaver:install` reads a `.gitattributes` the way git does.**
+  Whether the generated directory was already marked `linguist-generated` was a
+  substring search over the whole file, so a comment that merely mentioned the
+  path suppressed the mark, and `app/graphql/generated/ linguist-generated` —
+  the same directory to git, spelled without the `**` — went unrecognised and
+  earned a second, redundant line. It now looks for a non-comment line whose
+  pattern names that directory and whose attributes include the one it is
+  about, so a mark you wrote yourself is left alone in any of git's spellings.
 
 ###  v0.7.5  (2026-09-20)
 
