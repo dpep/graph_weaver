@@ -219,9 +219,12 @@ a form keyed on `e.field` finds the same slot for a refusal raised before the
 request left and for one the server sent back.
 
 The **prop** (`issued_on`) is what you type in Ruby — `.new`, `.coerce`, the kwargs
-of `execute` — and it is `#message`, the developer's line, that names it. In a
-Rails form the field names are the props, so underscore on the way in — and give
-the nil case a home, because **`#field` is `nil` whenever nothing named a slot**:
+of `execute` — and it is `#message`, the developer's line, that names it, with the
+schema's spelling beside it where the two differ (`issued_on (issuedOn): expected
+a String`): the prop is what you fix, and the wire name is what you grep the
+`.graphql` for. In a Rails form the field names are the props, so underscore on
+the way in — and give the nil case a home, because **`#field` is `nil` whenever
+nothing named a slot**:
 
 ```ruby
 form.errors.add(e.field&.underscore || :base, render_input_error(e))

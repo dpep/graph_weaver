@@ -386,8 +386,10 @@ describe "input errors" do
       expect(error.path).to eq %w[input externalId]
       expect(error.field).to eq "externalId"
       expect(error.coordinate).to eq "InvoiceInput.externalId"
-      # the message is the developer's line, so it names the prop they typed
-      expect(error.message).to include "external_id:"
+      # the message is the developer's line, so it names the prop they typed —
+      # and beside it the schema's spelling, which is the word you go and grep
+      # for in the .graphql
+      expect(error.message).to include "external_id (externalId): expected an Int"
     end
 
     it "is the schema's for a missing field too, not the prop it generates" do

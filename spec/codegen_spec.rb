@@ -214,7 +214,9 @@ describe GraphWeaver::Codegen do
 
     # #path and #coordinate are both the schema's spelling — a server can
     # produce no other, so one rule covers both halves. The prop is what you
-    # type in Ruby, and it is the message that names it.
+    # type in Ruby, and it is the message that names it, with the schema's
+    # spelling beside it: a reserved rename is exactly where the word you'd
+    # grep the .graphql for appears nowhere in the prop.
     it "locates a refusal by the wire name, and names the schema coordinate" do
       mod = GraphWeaver.parse(schema: schema_with_input("class: Int"),
         query: "mutation Save($input: Tricky!) { save(input: $input) }",
@@ -229,7 +231,7 @@ describe GraphWeaver::Codegen do
       expect(error.path).to eq ["class"]
       expect(error.field).to eq "class"
       expect(error.coordinate).to eq "Tricky.class"
-      expect(error.message).to include "class_:"
+      expect(error.message).to start_with "class_ (class): "
     end
 
     def schema_with_page(fields)

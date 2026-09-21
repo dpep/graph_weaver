@@ -24,7 +24,13 @@ module GraphWeaver
     # is the schema's name for the slot ("PetFilter.species") and type its
     # spelling of what goes there ("[Float!]!"), so a refusal can say where
     # it happened, and in whose vocabulary, without reflecting at runtime.
-    Field = Data.define(:prop, :wire, :required, :serializer, :coercer, :coordinate, :type)
+    Field = Data.define(:prop, :wire, :required, :serializer, :coercer, :coordinate, :type) do
+      # How a message names this field. The prop is what you type in Ruby, so
+      # it leads; the wire name is what you grep the .graphql for, so it comes
+      # along where the two differ. Nothing structured reads this — #path,
+      # #field and #coordinate are the schema's spelling either way.
+      def label = (wire == prop.to_s) ? prop.to_s : "#{prop} (#{wire})"
+    end
 
     # An enum reaching the library as input — an execute kwarg or an input
     # field — as the member or its wire value. Generated code calls these
@@ -83,7 +89,7 @@ module GraphWeaver
       raise e.within(field.wire, prop:) if e.field && !redact.filtered?(prop)
 
       raise GraphWeaver::InputError.new(
-        "#{prop}: #{redact.detail(prop, e.message)}",
+        "#{field.label}: #{redact.detail(prop, e.message)}",
         kind: e.kind, path: [field.wire, *e.path], coordinate: e.coordinate || field.coordinate,
         # #value is the value AT #path: this layer owns it only when nothing
         # inner named a field (so a missing one stays valueless, as it is)
@@ -93,7 +99,7 @@ module GraphWeaver
     rescue StandardError => e
       redact = GraphWeaver::Internal::Redact
       raise GraphWeaver::InputError.new(
-        "#{prop}: #{redact.detail(prop, e.message)}",
+        "#{field.label}: #{redact.detail(prop, e.message)}",
         kind: GraphWeaver::Internal::Refusal.kind_of(e), path: [field.wire],
         coordinate: field.coordinate, value: redact.value(prop, raw),
         details: GraphWeaver::Internal::Refusal.details_of(e), struct:,
@@ -284,7 +290,7 @@ module GraphWeaver
           field = T.unsafe(self).const_get(:FIELDS).find { |f| f.prop == prop }
           type = field&.type || T::Utils.coerce(info[:type]).to_s
           return GraphWeaver::InputError.new(
-            "#{prop}: expected #{type}, got #{GraphWeaver::Internal::Redact.shown(value, prop)}",
+            "#{field&.label || prop}: expected #{type}, got #{GraphWeaver::Internal::Redact.shown(value, prop)}",
             kind: :type_mismatch, path: [prop.to_s], coordinate: field&.coordinate,
             value: GraphWeaver::Internal::Redact.value(prop, value),
             details: { type: }, struct: self,

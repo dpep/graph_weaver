@@ -45,6 +45,13 @@
   every prop `PetQuery` selected went unreported. Scoping it reports more, not
   less, and silence stays the safe direction.
 
+- **An input refusal names the wire field beside the prop.** `weight_grams:
+  expected an Int` named the prop you fix and not the word you grep the
+  `.graphql` for; where the two differ it now reads `weight_grams
+  (weightGrams): expected an Int`, and a reserved rename (`class_` for `class`)
+  stops being unsearchable. `#message` only — `#path`, `#field`, `#coordinate`
+  and `#details` are the schema's spelling as before.
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

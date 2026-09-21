@@ -228,6 +228,7 @@ GraphWeaver::InputStruct::ClassMethods#coerce
 GraphWeaver::InputStruct::Field (Class)
 GraphWeaver::InputStruct::Field#coercer
 GraphWeaver::InputStruct::Field#coordinate
+GraphWeaver::InputStruct::Field#label
 GraphWeaver::InputStruct::Field#prop
 GraphWeaver::InputStruct::Field#required
 GraphWeaver::InputStruct::Field#serializer
