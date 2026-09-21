@@ -149,13 +149,18 @@ describe GraphWeaver::Internal::Values do
 
       before { stub_const("Money", money) }
 
-      it "refuses, naming the field and both pins" do
+      # and in the spelling of every door onto a fake: the advice used to be
+      # written as the constructor keyword alone, which inside an rspec
+      # example is not how anyone pins anything
+      it "refuses, naming the field and every way to pin it" do
         GraphWeaver.register_scalar("Money", Money, cast: :parse, serialize: :to_s)
 
-        expect { values.scalar("Money", "price") }.to raise_error(GraphWeaver::Error) { |error|
-          expect(error.message).to include('overrides: { "Money" => ... }', 'overrides: { "price" => ... }',
-            "config.overrides")
-        }
+        expect { values.scalar("Money", "price") }.to raise_error(GraphWeaver::Error,
+          'can\'t fabricate a Money for "price": it deserializes into Money, and only you know ' \
+          'what wire value that accepts. Pin the type ("Money") or just this field ("price"), ' \
+          'wherever the fake is built — graphql_fake("Money" => ...) in an rspec example, ' \
+          'FakeClient.new("Money" => ...) outside one, or ' \
+          "GraphWeaver::Testing.config.overrides for the whole suite.")
       end
 
       # a bare "price" pins that field on every type; the coordinate the

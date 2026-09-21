@@ -587,7 +587,7 @@ module GraphWeaver
           raise GraphWeaver::Error, "graphql_context needs resolvers to receive it, and a " \
             "#{TAG}: :fake example runs against fabricated data — tag it #{TAG}: :in_process or " \
             "#{TAG}: :router (or pin the data itself: " \
-            "graphql_fake(overrides: { \"Person.name\" => \"Ada\" }))"
+            "graphql_fake(\"Person.name\" => \"Ada\"))"
         else
           raise GraphWeaver::Error, "graphql_context needs an example running against your " \
             "resolvers — tag it #{TAG}: :in_process or #{TAG}: :router"

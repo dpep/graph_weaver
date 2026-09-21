@@ -83,7 +83,12 @@ describe "graph_weaver/rspec" do
 
     it "runs no resolvers — graphql_context has nothing to receive it", graphql: :fake do
       expect { graphql_context(current_user: "alice") }
-        .to raise_error(GraphWeaver::Error, /needs resolvers.*:in_process.*graphql_fake\(overrides:/m)
+        # and in the pin spelling an example actually writes, not the
+        # constructor keyword it used to quote
+        .to raise_error(GraphWeaver::Error,
+          "graphql_context needs resolvers to receive it, and a graphql: :fake example runs " \
+          "against fabricated data — tag it graphql: :in_process or graphql: :router (or pin " \
+          'the data itself: graphql_fake("Person.name" => "Ada"))')
     end
 
     # the second test anyone writes: fabricated data is fine until the

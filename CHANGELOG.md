@@ -13,9 +13,17 @@
   `graphql_fake(null_chance: { "Person.nickname" => 1.0, default: 0 })` says the
   example is about one missing value instead of nilling everything nullable
   alongside it. Keyed and spellchecked the way `list_size:` and a pin are, and a
-  value that isn't a number from 0 to 1 is refused at the door rather than
-  failing inside the fabricator.
+  per-field value that isn't a number from 0 to 1 is refused where you wrote it
+  rather than failing inside the fabricator. A plain number still means every
+  nullable field.
   ([testing](docs/testing.md#fabricated-list-lengths-and-nulls))
+
+- **"Pin this" refusals name the spelling you are holding.** The fake's refusal
+  for a scalar it can't fabricate, and `graphql_context`'s under `:fake`, wrote
+  the pin as the constructor keyword (`overrides: { "Money" => … }`) — which
+  inside an rspec example is nobody's spelling. Both now say
+  `graphql_fake("Money" => …)` where that is the door, and the fake's names all
+  three doors in one sentence. ([testing](docs/testing.md#pins))
 
 ###  v0.7.5  (2026-09-20)
 

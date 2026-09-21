@@ -202,12 +202,17 @@ class GraphWeaver::Internal::Values
   # for — `Money.parse` accepts what its author decided it accepts — and
   # guessing hands the generated cast a placeholder, which fails deep inside
   # from_h blaming the codec.
+  #
+  # Each door onto a fake spells a pin differently and this can't know which
+  # you came in by, so the advice names all three.
   def unfakeable!(type_name, field_name, registered, coordinate, at)
+    type = type_name.inspect
     raise GraphWeaver::Error, "can't fabricate a #{type_name} #{at ? "at #{at}" : "for #{field_name.inspect}"}: " \
       "it deserializes into #{registered.type}, and only you know what wire value that accepts. " \
-      "Pin the type — overrides: { #{type_name.inspect} => ... } — or this one field: " \
-      "overrides: { #{(coordinate || field_name).inspect} => ... }. Suite-wide, that's " \
-      "GraphWeaver::Testing.config.overrides."
+      "Pin the type (#{type}) or just this field (#{(coordinate || field_name).inspect}), " \
+      "wherever the fake is built — graphql_fake(#{type} => ...) in an rspec example, " \
+      "FakeClient.new(#{type} => ...) outside one, or GraphWeaver::Testing.config.overrides " \
+      "for the whole suite."
   end
 
   # :faker is an explicit ask — fail loudly when the gem is missing; auto
