@@ -4,10 +4,16 @@ name: Integration
 # filters them out without INTEGRATION), so they rot silently — the gem has
 # shipped a broken integration suite twice while CI stayed green. This runs
 # the two that need nothing but network; the federation ones need node and
-# the GitHub one needs a token, so they stay manual (`make integration`).
+# the GitHub spec needs a token of your own, so they stay manual
+# (`make integration`).
 #
 # Scheduled only: a public endpoint being down must never block a PR. It is
 # deliberately NOT continue-on-error — a red nightly is the whole signal.
+#
+# It is also where examples/github/generated is re-derived. bin/generate
+# regenerates it only from a cached dump, so this is the one run holding
+# GitHub's live schema — and those files drifted two releases before a reader
+# noticed.
 #
 # The federation job needs no network, only node — it exists because
 # Testing::Router's refusal categories are a *claim* about how the local
@@ -20,11 +26,16 @@ on:
     - cron: "17 7 * * *"
   workflow_dispatch:
 
+# nothing here writes; the github example's step only needs a token valid
+# enough to introspect api.github.com/graphql
+permissions:
+  contents: read
+
 jobs:
   public-apis:
     runs-on: ubuntu-latest
 
-    name: countries + pokeapi
+    name: countries + pokeapi + the github example
 
     steps:
       - name: clone ${{ github.repository }}
@@ -38,6 +49,12 @@ jobs:
         env:
           INTEGRATION: "1"
         run: bundle exec rspec spec/integration/countries_spec.rb spec/integration/pokeapi_spec.rb
+      - name: regenerate the github example against the live schema
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bundle exec ruby examples/github/generate.rb
+      - name: the checked-in example is still what its queries generate
+        run: git diff --exit-code -- examples/github/generated
 
   federation:
     runs-on: ubuntu-latest
