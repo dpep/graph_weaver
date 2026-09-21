@@ -106,6 +106,7 @@ subclass says where it failed:
 | `InputError` | the variables wouldn't build into the generated input structs — unknown/typo'd key, missing required field, out-of-range enum, wrong-typed field, wrong number of @oneOf fields — `#kind`, `#path`, `#coordinate`, `#value`, `#details`, `#field`, `#struct` |
 | `QueryValidationError` | build time: the query didn't validate against the schema |
 | `Codegen::Aliases::UnknownSegment` | build time: an [`alias:`](generated_modules.md#flat-accessors-with-alias) path names a field no type here has — a typo, so `optional: true` won't skip it |
+| `Codegen::Aliases::HoistedSegment` | build time: an [`alias:`](generated_modules.md#flat-accessors-with-alias) path reads *into* a struct [hoisted](generated_modules.md#a-shared-fragment-is-one-type) from a shared fragment — `optional: true` skips it, but only at the cost of the accessor for every query that spreads the fragment |
 | `ConfigurationError` | setup judged against your schema — which Ruby schema serves which subgraph (`Testing::Router`, `federation:diff`) |
 | `Testing::Unplannable` | the local test router won't plan this operation — `#category`, `#detail` |
 | `Testing::MissingRecording` | a [cassette](cassettes.md) holds no entry for this request — the message prints the variables, and the ones it did record |

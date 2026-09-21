@@ -111,6 +111,16 @@ RSpec.describe "hoisting a shared fragment on an object type" do
     expect(hoisted).to include("sig { override.returns(T.nilable(String)) }", "def tag = address&.city")
   end
 
+  # the other half of the mixin refusal's advice is "hoist it", which this
+  # struct already is
+  it "tells a hoisted struct to select the abstract member in the fragment" do
+    GraphWeaver.extend_type("Person", AbstractMixin::PetFields)
+
+    expect { generate }.to raise_error(GraphWeaver::Error, <<~MSG.chomp)
+      GraphQLTypes::PersonFields includes AbstractMixin::PetFields, which declares "tag" abstract — this selection does not provide it, and every struct generated from Person includes the mixin, so `srb tc` fails on this one. Select it in the fragment.
+    MSG
+  end
+
   describe "an alias: path meeting the hoisted struct" do
     it "types a path that ends on it as the shared type" do
       GraphWeaver.extend_type("Query", alias: { first_person: "people.first" })
@@ -120,12 +130,23 @@ RSpec.describe "hoisting a shared fragment on an object type" do
         .to include("sig { returns(T.nilable(PersonFields)) }", "def first_person = people.first")
     end
 
+    # and doesn't offer optional: — the two fixes it names are the only ones
+    # that end with an accessor
     it "refuses a path that reads through it, naming the fragment" do
       GraphWeaver.extend_type("Query", alias: { first_name: "people.first.name" })
 
       expect { generate(queries: QUERIES.slice("people")) }.to raise_error(GraphWeaver::Error, <<~MSG.chomp)
-        PeopleQuery: alias "first_name" on Query: 'name' is inside the shared fragment PersonFields, which hoists to GraphQLTypes::PersonFields — a path can't read into it. Register the alias on Person, or select a field beside the spread to keep the struct local — pass optional: true to skip selections that don't fit
+        PeopleQuery: alias "first_name" on Query: 'name' is inside the shared fragment PersonFields, which hoists to GraphQLTypes::PersonFields — a path can't read into it. Register the alias on Person, or select a field beside the spread to keep the struct local
       MSG
+    end
+
+    it "still lets optional: true drop the accessor, for the query that spreads it" do
+      GraphWeaver.extend_type("Query", alias: { first_name: "people.first.name" }, optional: true)
+      generate(queries: QUERIES.slice("people")
+        .merge("staff" => "query Staff { people { name email } }"))
+
+      expect(generated("people_query.rb")).not_to include("first_name")
+      expect(generated("staff_query.rb")).to include("def first_name = people.first&.name")
     end
   end
 

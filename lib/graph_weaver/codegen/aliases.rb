@@ -35,6 +35,13 @@ class GraphWeaver::Codegen
           # names nothing in the schema, so no selection would fit — offering
           # optional: as the way out would just hide the typo
           raise e.class, qualify(node, e.message)
+        rescue HoistedSegment => e
+          # optional: still skips it, but the message doesn't offer it: the two
+          # fixes it names are the only ones that end with an accessor, and no
+          # change to the fragment would make the path fit
+          next nil if spec[:optional]
+
+          raise e.class, qualify(node, e.message)
         rescue GraphWeaver::Error => e
           # a path that doesn't fit THIS query's selection: optional simply
           # omits the accessor; strict breaks generation for every query on the
@@ -86,7 +93,10 @@ class GraphWeaver::Codegen
     # ever satisfy it, so it's a typo (or a wire-cased name), not a path that
     # doesn't fit this query. optional: skips the latter, never this.
     UnknownSegment = Class.new(GraphWeaver::Error)
-    private_constant :ALIAS_RESERVED, :LIST_SELECTORS, :UnknownSegment
+
+    # A segment inside a struct another module owns — see refuse_hoisted!.
+    HoistedSegment = Class.new(GraphWeaver::Error)
+    private_constant :ALIAS_RESERVED, :LIST_SELECTORS, :UnknownSegment, :HoistedSegment
 
     # Walk a dotted path through this struct's selected shape, building the
     # delegator expression (`meta&.tag`, `_entities.first&.name`) and its return
@@ -158,11 +168,13 @@ class GraphWeaver::Codegen
 
     # A hop landing on a hoisted shared fragment: the struct is another
     # module's, so the path stops here. Which query hoists is a property of how
-    # that query spreads the fragment, so optional: still skips it.
+    # that query spreads the fragment, so optional: still skips it — but
+    # selecting differently inside the fragment never makes the path fit, so
+    # the message names only the two fixes that do.
     def refuse_hoisted!(node, name, ref, seg)
       return unless ref
 
-      raise GraphWeaver::Error,
+      raise HoistedSegment,
         "alias #{name.inspect} on #{node.graphql_type}: '#{seg}' is inside the shared fragment " \
         "#{ref.class_name}, which hoists to #{@types_namespace}::#{ref.class_name} — a path can't " \
         "read into it. Register the alias on #{ref.graphql_type}, or select a field beside the " \

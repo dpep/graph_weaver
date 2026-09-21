@@ -230,6 +230,15 @@
   from `YourQuery::Result::Field` to `GraphQLTypes::<Fragment>`, and `srb tc`
   finds every site naming the old one.
 
+- **Two refusals about a hoisted struct stop naming a fix that isn't one.** The
+  abstract-mixin refusal told a struct in `GraphQLTypes` to "select the type
+  through one shared fragment, which hoists one struct for every query to
+  share" — which is what it already is; it now says to select the member in the
+  fragment. And an `alias:` path reading *into* a hoisted struct no longer
+  offers `optional: true` beside the two doors it names: `optional:` does still
+  skip the accessor, but no way of writing the fragment makes such a path fit,
+  so it buys silence rather than an accessor. ([errors](docs/errors.md#the-classes))
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

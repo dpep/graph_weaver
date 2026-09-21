@@ -191,7 +191,7 @@ class GraphWeaver::Codegen
     check_shared_collisions!(hoisted)
     nodes.each do |node|
       check_shadowing!(node)
-      check_abstract_mixins!(node)
+      check_abstract_mixins!(node, hoisted: true)
     end
 
     emit_types_files(nodes).tap { report_untyped_scalars }
@@ -1589,19 +1589,23 @@ class GraphWeaver::Codegen
   # query selecting a subset generated fine and failed in the app's own
   # `srb tc`, two tools from the query that fell short. Walked from the root the
   # way shadowing is, so the refusal can name the struct by its path.
-  def check_abstract_mixins!(node, path = [])
+  def check_abstract_mixins!(node, path = [], hoisted: false)
     case node
     when UnionNode
       inner = path + [node.class_name]
-      (node.members.each_value.to_a + [node.catch_all]).each { |member| check_abstract_mixins!(member, inner) }
+      (node.members.each_value.to_a + [node.catch_all]).each do |member|
+        check_abstract_mixins!(member, inner, hoisted:)
+      end
     when ObjectNode
       inner = path + [node.class_name]
-      refuse_unsatisfiable_mixin!(node, inner)
-      node.fields.each { |field| check_abstract_mixins!(field.node.nested, inner) if field.node.nested }
+      refuse_unsatisfiable_mixin!(node, inner, hoisted:)
+      node.fields.each do |field|
+        check_abstract_mixins!(field.node.nested, inner, hoisted:) if field.node.nested
+      end
     end
   end
 
-  def refuse_unsatisfiable_mixin!(node, path)
+  def refuse_unsatisfiable_mixin!(node, path, hoisted:)
     return if node.overrides.empty?
 
     mixins = @registry.type_registry.dig(node.graphql_type, :mixins) || []
@@ -1617,13 +1621,21 @@ class GraphWeaver::Codegen
     mixin = mixins.find { |m|
       T::AbstractUtils.declared_abstract_methods_for(m).any? { |method| missing.include?(method.name.to_s) }
     }
+    them = missing.one? ? "it" : "them"
+    # the second door is "hoist it", which a struct built inside the shared
+    # types module has already been through
+    fix = if hoisted
+      "Select #{them} in the fragment."
+    else
+      "Select #{them} here, or select #{node.graphql_type} through one shared " \
+        "fragment (`{ ...Frag }`), which hoists one struct for every query to share."
+    end
+
     raise GraphWeaver::Error,
       "#{[@name, *path].join("::")} includes #{mixin.name}, which declares " \
       "#{GraphWeaver::Internal::Util.sample(missing.map(&:inspect))} abstract — this selection does " \
-      "not provide #{missing.one? ? "it" : "them"}, and every struct generated from " \
-      "#{node.graphql_type} includes the mixin, so `srb tc` fails on this one. Select " \
-      "#{missing.one? ? "it" : "them"} here, or select #{node.graphql_type} through one shared " \
-      "fragment (`{ ...Frag }`), which hoists one struct for every query to share."
+      "not provide #{them}, and every struct generated from " \
+      "#{node.graphql_type} includes the mixin, so `srb tc` fails on this one. #{fix}"
   end
   private :check_abstract_mixins!, :refuse_unsatisfiable_mixin!
 
