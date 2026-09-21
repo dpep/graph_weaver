@@ -37,11 +37,11 @@
 - **`queries:check` asks the same server `schema:refresh` and `schema:diff` do.**
   One rule for every graph now: a dump that records a url is re-introspected, a
   live graphql-ruby class is asked directly, a dump with neither but a client
-  naming a server is re-introspected through that client, and only a graph with
-  nothing behind its dump is checked as committed. A graph that named its own
-  schema used to be checked against the committed file whatever the file
-  recorded, so a named graph and the default graph answered different questions
-  under one task name.
+  behind it is asked through that client — whether the client posts to a url or
+  runs a schema class in-process — and only a graph with nothing behind its dump
+  is checked as committed. A graph that named its own schema used to be checked
+  against the committed file whatever the file recorded, so a named graph and
+  the default graph answered different questions under one task name.
 
   **Action:** a named graph whose dump records a url, or whose client names a
   server, now reaches the network in `queries:check` where it did not before —
@@ -159,6 +159,50 @@
   whose own client is an `InProcess` — it is running them. What `:live` can't do
   is reach a client it didn't build: the app's own carries the context it was
   built with. ([testing](docs/testing.md#the-context-your-resolvers-see))
+
+- **`schema:refresh` can no longer trade a composed supergraph for the API
+  schema.** Introspect a router and you get the merged shape with the `@join__*`
+  directives still *declared* and every application stripped; the guard that
+  stops the overwrite tested that content for `@join__`, which the declarations
+  satisfy — so a graph whose `client` pointed at its gateway had its routing
+  table replaced by a schema that routes nothing, was told `refreshed`, and
+  exited 0. (`federation:subgraphs` then printed an empty table and exited 0
+  too.) "Composed" now means "carries a routing table", and `refresh` steps over
+  a supergraph graph by name rather than reaching the overwrite at all: nothing
+  serves a supergraph, so composition is the only thing that rebuilds one.
+
+- **Every graph is its own job in `schema:refresh` and `queries:check`.** One
+  unreachable server used to end the run, so the graphs declared after it were
+  never attempted and an app heard about them one per run. Each graph is
+  attempted, reported under its own heading, and the run fails at the end naming
+  the ones that failed. `queries:check` says which graph and which dump it
+  couldn't reach, where the bare socket error used to be the entire output.
+
+- **`schema:diff` answers per graph, and says what `schema:refresh` says.** Its
+  "no dump anywhere" check ran before the loop, so a single graph generating
+  from a live class was refused naming `app/graphql/schema.json` — a path it
+  never mentions — while the same graph passed as soon as an unrelated graph
+  happened to have a dump. And a dump with nothing behind it was described in
+  one sentence by `refresh` (exit 0) and a different one by `diff`, which ended
+  the whole run. One diagnosis now, one graph at a time; `diff` still exits 1
+  for a graph it could not compare, because a gate that passes on having
+  compared nothing is worse than one that says so.
+
+- **`schema:diff` names a description that moved.** A dump whose descriptions
+  differ from the server landed in `(schema) changed in ways this summary
+  doesn't name — compare the dumps`, which for a hand-maintained dump is a
+  permanent red with nothing to act on. It now reads `Pet  description changed`,
+  as a non-breaking change; the verdict is unchanged, since a dump that differs
+  from the server is behind it whatever the difference.
+
+- **A graph's `client` refuses a lambda where you wrote it.** `schema` takes one
+  — that is how an initializer names a class Zeitwerk hasn't loaded — so
+  reaching for one on `client` is an easy mistake, and it was accepted and then
+  surfaced as `undefined method 'execute' for an instance of Proc` eleven frames
+  into a rake task. The refusal names the graph and the two forms that work; a
+  client needs no lambda, because `client "Billing::Schema"` resolves its
+  constant when a module calls it.
+  ([getting started](docs/getting_started.md#more-than-one-schema))
 
 ###  v0.7.5  (2026-09-20)
 

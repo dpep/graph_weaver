@@ -446,19 +446,25 @@ the client the graph names, rewrites the dump, and records the source, so every
 later refresh and `schema:diff` re-read the right server. `URL=` names the
 endpoint instead, if you'd rather say it once than configure the client first.
 
-Until there is something behind the dump to re-read — the url it records, or the
-server the graph's client names — `queries:check` validates against the committed
-file: a real check, but `verify`'s question rather than this one's, and the
-verdict says which:
+Until there is something behind the dump to re-read — the url it records, the
+server the graph's client posts to, or the graphql-ruby class that client runs
+in-process — `queries:check` validates against the committed file: a real check,
+but `verify`'s question rather than this one's, and the verdict says which:
 
 ```
 every query validates against db/schema.graphql as committed — not the server (rake graph_weaver:schema:diff asks whether the server moved)
 ```
 
-A dump with no recorded url and no client behind it *is* the schema — a
-hand-maintained SDL nothing serves. `schema:refresh` leaves that one alone
-(`records no source url and the graph names no client — left as checked in`) and
-refreshes the rest, rather than taking the whole task down with it.
+A dump with none of those behind it *is* the schema — a hand-maintained SDL
+nothing serves. All three tasks say so in one sentence:
+
+```
+db/schema.graphql records no source url and the graph names no server behind it — no client posting to one, and no graphql-ruby schema class in this process — so the file is the schema and nothing here can re-read it
+```
+
+`schema:refresh` steps over that graph and refreshes the rest; `schema:diff`
+still exits 1, because a gate that passes on having compared nothing is worse
+than one that says so.
 
 ## More than one schema
 
@@ -512,9 +518,10 @@ they belong to and nothing about transport, so they read it when they execute.
 A graph with no `client` falls back to `GraphWeaver.client`, the app default.
 Name the object (`client GraphWeaver.new(url, auth: …)`) or, when the constant
 holding it is defined later than the graph block, its name (`client "GITHUB"`),
-which is resolved on first use. `schema "x"` sets and a bare `schema` reads
-back; there is no `schema = "x"` form, since the block is `instance_eval`'d and
-that would be a local variable that silently does nothing.
+which is resolved on first use — and not a lambda, which `schema` needs and this
+doesn't, since the name is resolved at call time already. `schema "x"` sets and
+a bare `schema` reads back; there is no `schema = "x"` form, since the block is
+`instance_eval`'d and that would be a local variable that silently does nothing.
 
 **`namespace` nests everything that graph generates** — `person.graphql` becomes
 `Billing::PersonQuery` ([naming](generated_modules.md#naming)). Constants are
@@ -528,8 +535,9 @@ An app that is a pure client of someone else's GraphQL owns no schema class, so
 every graph's `schema` is a dump. Give each the file you want and a `client`
 that can fetch it: `rake graph_weaver:schema:refresh` introspects each graph's
 client into its own dump, recording the url so every later `schema:refresh` and
-`schema:diff` re-reads the right server. A graph with neither a recorded url nor
-a client is left as checked in and the rest still refresh. (`URL=` is for the
+`schema:diff` re-reads the right server. Every graph is its own job — one with
+no server behind its dump is left as checked in, one whose server is down is
+reported under its own heading, and the rest still refresh. (`URL=` is for the
 app that has one dump and no graphs.)
 
 In specs, `graph:` is how an example says which graph a helper stands in for —
