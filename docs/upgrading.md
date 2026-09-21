@@ -227,7 +227,7 @@ only one here that shows up in production rather than in your code.
   Nothing raises: a subscriber comparing it to an Integer just stops matching. **A
   subscriber that branched on a 4xx/5xx reads `:http_status` now**, which is nil
   in-process. The whole payload is a documented contract —
-  [logging](logging.md#the-payload).
+  [logging](logging.md#the-request-payload).
 - **`respond_to?` on a result struct no longer answers true for a name that doesn't
   exist.** It used to say true for any near miss, which broke the standard
   duck-typing guard. **A branch that read the old answer now takes the other path**,

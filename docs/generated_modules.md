@@ -673,7 +673,7 @@ to replace it; what the *example* says still wins.
 generated module). A generated file says nothing about transport — only a private
 `GRAPH` naming its graph, which is also how `graphql: :fake` fabricates each
 module's own schema with two graphs in play, and the
-`:graph` on every [instrumentation event](logging.md#the-payload) the module's
+`:graph` on every [instrumentation event](logging.md#instrumentation) the module's
 `execute` produces.
 
 ## Deserializing a response from another client
