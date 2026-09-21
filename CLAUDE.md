@@ -84,7 +84,7 @@ where it pays off in developer experience; leave the rest at `# typed: true`.
 
 - **The client slot is duck-typed.** A transport, `Retry`, a live graphql-ruby
   schema class, or a test fake all satisfy one contract —
-  `execute(query, variables:) => {"data" => ..., "errors" => ...}` — with no
+  `execute(query, variables:, operation_name:) => {"data" => ..., "errors" => ...}` — with no
   shared base class. **Don't formalize it as a strict Sorbet interface**: a
   graphql-ruby `Schema` class fits the slot without inheriting anything, and a
   strict interface would exclude it. This is why the transport/client seams stay

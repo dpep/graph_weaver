@@ -135,7 +135,8 @@ module GraphWeaver
       # Kernel.raise: this module is extended into another, so sorbet can't
       # see that its host is an Object
       Kernel.raise GraphWeaver::Error,
-        "#{self}: client must respond to #execute(query, variables:), got #{target.class}"
+        "#{self}: client must respond to #execute(query, variables:, operation_name:), " \
+        "got #{target.class}"
     end
 
     # A module knows which graph it belongs to, and the graph knows how to

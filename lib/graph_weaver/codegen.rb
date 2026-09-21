@@ -1540,7 +1540,7 @@ class GraphWeaver::Codegen
       constant, group = collisions.first
       more = collisions.size - 1
       raise GraphWeaver::Error,
-        "enum #{core.graphql_name} values #{group.join(" and ")} both become the constant #{constant}" \
+        "enum #{core.graphql_name} values #{group.join(" and ")} all become the constant #{constant}" \
         "#{" (and #{more} more colliding pair#{"s" if more > 1})" unless more.zero?} — if each pair is one " \
         "value, say which spelling goes on the wire:\n  " \
         "#{EnumType.alias_suggestion(core.graphql_name, collisions.values)}\n" \

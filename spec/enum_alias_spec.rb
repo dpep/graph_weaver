@@ -134,17 +134,25 @@ describe "register_enum alias:" do
     it "names a pair, counts the rest, and prints the registration to paste" do
       expect { GraphWeaver::Codegen.generate(schema:, query:, name: "Q") }
         .to raise_error(GraphWeaver::Error, <<~MSG.chomp)
-          enum Status values ACTIVE and active both become the constant Active (and 1 more colliding pair) — if each pair is one value, say which spelling goes on the wire:
+          enum Status values ACTIVE and active all become the constant Active (and 1 more colliding pair) — if each pair is one value, say which spelling goes on the wire:
             GraphWeaver.register_enum("Status", alias: { "active" => "ACTIVE", "legacy_mode" => "LEGACY_MODE" })
           or map the enum onto one of yours: register_enum("Status", YourEnum)
         MSG
+    end
+
+    it "counts the values it names, past the two a rename usually has" do
+      three = GraphQL::Schema.from_definition("enum E { active ACTIVE Active }\ntype Query { e: E }")
+
+      expect { GraphWeaver::Codegen.generate(schema: three, query: "query Q { e }", name: "Q") }
+        .to raise_error(GraphWeaver::Error,
+          /ACTIVE and Active and active all become the constant Active/)
     end
 
     it "counts no further pairs when there is only the one" do
       one = GraphQL::Schema.from_definition("enum E { active ACTIVE }\ntype Query { e: E }")
 
       expect { GraphWeaver::Codegen.generate(schema: one, query: "query Q { e }", name: "Q") }
-        .to raise_error(GraphWeaver::Error, /both become the constant Active — if each pair/)
+        .to raise_error(GraphWeaver::Error, /all become the constant Active — if each pair/)
     end
   end
 

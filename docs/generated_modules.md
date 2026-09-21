@@ -850,8 +850,10 @@ you — a script that generates its own modules sets all four:
    other [client](#clients) to reach for.
 
 Miss (3) and the script gets a `NameError` for its own module; miss (4) and it
-gets `PersonQuery: client must respond to #execute(query, variables:), got
-NilClass` from a module that otherwise looks fine.
+gets `no client configured — set GraphWeaver.client= or pass a client` from a
+module that otherwise looks fine. Set the slot to something that can't execute
+and the module names the contract instead: `PersonQuery: client must respond to
+#execute(query, variables:, operation_name:), got Hash`.
 
 Every directory setting is a list — `queries_paths`, `generated_paths`,
 `fragments_paths` — and every entry is read (entries may be globs; the generated

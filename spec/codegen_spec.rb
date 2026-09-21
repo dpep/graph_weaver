@@ -562,7 +562,7 @@ describe GraphWeaver::Codegen do
     it "names the contract, and itself, when the client can't execute" do
       expect { PersonQuery.execute(client: {}, id: "1") }.to raise_error(
         GraphWeaver::Error,
-        "PersonQuery: client must respond to #execute(query, variables:), got Hash",
+        "PersonQuery: client must respond to #execute(query, variables:, operation_name:), got Hash",
       )
     end
 
@@ -875,7 +875,7 @@ describe GraphWeaver::Codegen do
 
       # T::Enum raises "Enum values must be assigned to constants" at LOAD time
       expect { GraphWeaver::Codegen.generate(schema:, query: "query Q { e }", name: "Q") }
-        .to raise_error(GraphWeaver::Error, /ACTIVE and active both become the constant Active/)
+        .to raise_error(GraphWeaver::Error, /ACTIVE and active all become the constant Active/)
     end
 
     it "refuses an enum value that spells no constant at all" do

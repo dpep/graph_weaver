@@ -258,6 +258,13 @@
   list couldn't be worked through in one pass. The generation rescue, which has
   the path in hand, now adds it to any refusal that doesn't already carry it.
 
+- **Two refusals name what they are about.** The client-slot check quoted half
+  the contract — `client must respond to #execute(query, variables:)` — so a
+  client written to that sentence passed the check and then failed on
+  `unknown keyword: :operation_name` one frame in. And an enum whose values
+  collide on one Ruby constant said `ACTIVE and Active and active both become`
+  when three of them did.
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a
