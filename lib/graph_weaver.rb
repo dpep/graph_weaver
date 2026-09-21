@@ -623,8 +623,8 @@ module GraphWeaver
     # (products, reviews)", plus a "subgraphs" key — since knowing whose
     # code to look at is half the answer. A plain schema is unaffected.
     #
-    # One query you have as a *string* is Client#check_query — the same
-    # entries, against that client's own schema.
+    # One query you have as a *string* is #check_query, which every client
+    # holding a schema answers — the same entries, against that schema.
     #
     # A different question from verify_generated!, which asks whether the
     # committed Ruby matches the committed schema. `rake
