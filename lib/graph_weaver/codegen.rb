@@ -216,10 +216,20 @@ class GraphWeaver::Codegen
 
     fragment = fragments.fetch(name)
     type = @schema.get_type(fragment.type.name)
-    return object_node(type, fragment.selections, class_name) if type.kind.object?
+    selections = fragment.selections
+    return object_node(type, selections, class_name) if type.kind.object?
 
-    members = union_members(type, fragment.selections)
-    UnionNode.new(class_name, members, catch_all_member(type, fragment.selections, members))
+    # the abstract shape is the fragment's own selections' to decide, exactly
+    # as it would be at a field spelling them inline — see abstract_shape
+    case (shape = abstract_shape(type, selections))
+    when :abstract_level then object_node(type, selections, class_name)
+    when :dispatch
+      members = union_members(type, selections)
+      UnionNode.new(class_name, members, catch_all_member(type, selections, members))
+    else
+      narrowing_tag!(shape, type, selections)
+      object_node(shape, selections, class_name)
+    end
   end
   private :hoisted_fragment
 
@@ -928,22 +938,35 @@ class GraphWeaver::Codegen
   end
   private_constant :AbstractField
 
-  # Which of four shapes an abstract-typed field generates. The selection
-  # decides, not the schema: what it narrows to, and how it was spread.
+  # An abstract-typed field. Hoisting is asked FIRST, as it is for an object
+  # field: a whole field spread as one shared fragment is one shared type
+  # whatever shape that fragment has, and which shape it has must not be what
+  # decides — adding a second `... on` to a fragment would otherwise move every
+  # consumer's constant.
   def abstract_field(field)
-    conditions = concrete_conditions(field.core, field.selections)
-    shared = abstract_level_fields(field.core, field.selections)
-
-    if conditions.empty?
-      abstract_level_struct(field)
-    elsif conditions.size == 1 && shared.empty? &&
-        (member = @schema.get_type(conditions.first)).kind.name == "OBJECT"
-      narrowed_struct(field, member)
-    elsif (frag = hoistable_spread(field.core, field.selections))
-      hoisted_ref(field.type, frag)
-    else
-      dispatch_union(field)
+    if (frag = hoistable_spread(field.core, field.selections))
+      return hoisted_ref(field.type, frag)
     end
+
+    case (shape = abstract_shape(field.core, field.selections))
+    when :abstract_level then abstract_level_struct(field)
+    when :dispatch then dispatch_union(field)
+    else narrowed_struct(field, shape)
+    end
+  end
+
+  # Which of three shapes an abstract selection generates, decided by the
+  # selection rather than the schema: :abstract_level when it names no concrete
+  # type, the one object member when it narrows to exactly that and nothing
+  # else, :dispatch otherwise. Both the hoisted type and every reference to it
+  # ask this, so the two can't disagree about what was built.
+  def abstract_shape(core, selections)
+    conditions = concrete_conditions(core, selections)
+    return :abstract_level if conditions.empty?
+    return :dispatch unless conditions.size == 1 && abstract_level_fields(core, selections).empty?
+
+    member = @schema.get_type(conditions.first)
+    member.kind.name == "OBJECT" ? member : :dispatch
   end
 
   # Every member carries the abstract-level fields, so one struct answers for
@@ -955,34 +978,47 @@ class GraphWeaver::Codegen
   end
 
   # Narrowing to the one member a `... on X` names filters: the field is nil
-  # whenever the runtime type doesn't match. With `__typename` selected the
-  # match is read off the tag; without one there is nothing to read but
-  # emptiness, and a fragment whose every field hides behind @skip/@include
-  # would make a real match indistinguishable from a miss ({} either way) —
-  # refuse rather than guess.
+  # whenever the runtime type doesn't match.
   def narrowed_struct(field, member)
-    tag = member.graphql_name if dispatchable_typename?(field.core, field.selections)
-    unless tag || unconditional_field?(member, field.selections)
-      raise GraphWeaver::Error,
-        "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
-        "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
-        "makes a match indistinguishable from nil"
-    end
-
+    tag = narrowing_tag!(member, field.core, field.selections)
     name = pick_name(field.key, field.taken)
     nilable_type_ref(field.type) { NarrowedNode.new(object_node(member, field.selections, name), typename: tag) }
   end
 
+  # What a narrowed selection matches on: the member's name when `__typename`
+  # is selected, else nil for "the object came back empty". A fragment whose
+  # every field hides behind @skip/@include leaves nothing to read either way
+  # ({} on a match and on a miss alike) — refuse rather than guess.
+  def narrowing_tag!(member, core, selections)
+    return member.graphql_name if dispatchable_typename?(core, selections)
+    return if unconditional_field?(member, selections)
+
+    raise GraphWeaver::Error,
+      "narrowed `... on #{member.graphql_name}` needs at least one field not under " \
+      "@skip/@include (or a `__typename` to match on) — an all-conditional selection " \
+      "makes a match indistinguishable from nil"
+  end
+
   # A whole field spread as one named shared fragment points at the type
   # hoisted into the shared types module, so the same shape across queries is
-  # one Ruby type — for a union, one exhaustive `case ... T.absurd`.
+  # one Ruby type. Which node stands in for it follows the shape hoisted_fragment
+  # built: a dispatch module for a union, a struct otherwise — and a narrowed
+  # one still filters, so the match is read here rather than inside a struct
+  # whose from_h cannot answer nil.
   def hoisted_ref(field_type, frag)
     @used_fragments << frag unless @used_fragments.include?(frag)
-    # an abstract type hoists to a dispatch module, an object type to a struct
     core = field_type.unwrap
-    node_class = core.kind.object? ? HoistedRefNode : UnionRefNode
-    ref = node_class.new(camelize(frag), core.graphql_name)
-    type_ref(field_type) { ref }
+    name = camelize(frag)
+    return type_ref(field_type) { HoistedRefNode.new(name, core.graphql_name) } if core.kind.object?
+
+    selections = @fragments.fetch(frag).selections
+    case (shape = abstract_shape(core, selections))
+    when :abstract_level then type_ref(field_type) { HoistedRefNode.new(name, core.graphql_name) }
+    when :dispatch then type_ref(field_type) { UnionRefNode.new(name, core.graphql_name) }
+    else
+      tag = narrowing_tag!(shape, core, selections)
+      nilable_type_ref(field_type) { NarrowedRefNode.new(name, core.graphql_name, typename: tag) }
+    end
   end
 
   # One member struct per type the selection names, chosen at runtime off

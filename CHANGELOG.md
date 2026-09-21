@@ -213,6 +213,23 @@
   fragments and the class they land on.
   ([generated modules](docs/generated_modules.md#a-shared-fragment-is-one-type))
 
+- **Every abstract shape hoists, including the two that skip the dispatch
+  module.** An interface fragment selecting only interface-level fields
+  (`fragment NodeFields on Node { id label }` — the commonest abstract fragment
+  there is) and one narrowing to exactly one member stayed position-named
+  structs, one per query, so two queries spreading the same fragment got two
+  unrelated Ruby types and no `GraphQLTypes` entry at all. Both hoist now: the
+  narrowed one to the member's struct, still nilable and still matched on
+  `__typename`. The shape of a fragment no longer decides whether its consumers
+  share a type — so adding a second `... on` to one doesn't silently move every
+  consuming query's constant.
+  ([generated modules](docs/generated_modules.md#abstract-types))
+
+  **Action: Regenerate** (`rake graph_weaver:generate`) if a shared fragment on
+  an interface or union selects no `... on`, or exactly one: the struct moves
+  from `YourQuery::Result::Field` to `GraphQLTypes::<Fragment>`, and `srb tc`
+  finds every site naming the old one.
+
 ###  v0.7.5  (2026-09-20)
 
 **What you must do.** Both are 0.7.4 → 0.7.5, and an app that never spreads a

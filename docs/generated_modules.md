@@ -461,10 +461,12 @@ off `__typename` when the selection carries one unaliased and unguarded, and off
 narrowed fragment, or one whose `__typename` is itself guarded, is refused: a
 match would be indistinguishable from a miss.
 
-A whole union field selected as one named *shared* fragment
+A whole abstract field selected as one named *shared* fragment
 (`{ ...FeedItemFields }`) is [hoisted](#a-shared-fragment-is-one-type) into
-`GraphQLTypes` like any other, so the same union is one Ruby type family across
-queries rather than a fresh dispatch module per query.
+`GraphQLTypes` like any other, in whichever of the three shapes above the
+fragment has — a dispatch module, one struct, or a nilable narrowed struct. So
+which shape it is never decides whether consuming queries share a type, and
+adding a second `... on` to a shared fragment doesn't move their constant.
 
 ### Consuming a union — dispatch on the class, not `__typename`
 

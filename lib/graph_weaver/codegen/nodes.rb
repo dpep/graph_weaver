@@ -406,6 +406,23 @@ class GraphWeaver::Codegen
     def bare_type = "#{class_name}::Type"
   end
 
+  # An abstract fragment narrowing to one member hoists to that member's
+  # struct, and narrowing filters — so the match is tested at the reference,
+  # the way NarrowedNode does it, rather than inside a T::Struct.from_h that
+  # has no way to answer nil. See NarrowedNode for what `typename` being
+  # absent means.
+  class NarrowedRefNode < HoistedRefNode
+    def initialize(class_name, graphql_type = nil, typename: nil)
+      super(class_name, graphql_type)
+      @typename = typename
+    end
+
+    def cast(expr, depth)
+      match = @typename ? "#{expr}[\"__typename\"] == #{@typename.inspect}" : "!#{expr}.empty?"
+      "(#{match} ? #{super} : nil)"
+    end
+  end
+
   # An input-object variable: emitted as a module-level T::Struct whose
   # serialize produces the wire hash. Inputs never cast FROM the wire.
   # Joins the coerce protocol so execute kwargs accept plain hashes,
@@ -479,5 +496,5 @@ class GraphWeaver::Codegen
   # from inside the walk.
   private_constant :Node, :Scalar, :NonNull, :List, :ObjectNode, :EnumNode,
     :MappedEnum, :NarrowedNode, :UnionNode, :HoistedRefNode, :UnionRefNode,
-    :InputNode, :RepresentationNode
+    :NarrowedRefNode, :InputNode, :RepresentationNode
 end

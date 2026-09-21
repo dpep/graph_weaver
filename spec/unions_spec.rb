@@ -269,4 +269,69 @@ RSpec.describe "shared unions (fragment-driven hoisting)" do
         .to raise_error(GraphWeaver::Error, /fragment "Rank" .* SharedTypes::Rank.*schema enum Rank/)
     end
   end
+
+  # An abstract selection with nothing to dispatch between becomes a struct
+  # rather than a dispatch module — and hoists on the same rule, so which of
+  # the three shapes the fragment happens to have never decides whether every
+  # consumer shares one type.
+  describe "the abstract shapes that skip the dispatch module" do
+    let(:schema) do
+      GraphQL::Schema.from_definition(<<~GRAPHQL)
+        type Query { node: Node other: Node }
+        interface Node { id: ID! label: String }
+        type Post implements Node { id: ID! label: String body: String }
+        type Photo implements Node { id: ID! label: String url: String }
+      GRAPHQL
+    end
+
+    def generate_pair(fragment)
+      write("#{@base}/fragments", "node.graphql", fragment)
+      write("#{@base}/queries", "home.graphql", "query Home { node { ...NodeFields } }")
+      write("#{@base}/queries", "archive.graphql", "query Archive { other { ...NodeFields } }")
+      FileUtils.mkdir_p("#{@base}/generated")
+      GraphWeaver.fragments_paths = ["#{@base}/fragments"]
+      GraphWeaver.generate!(schema:, queries: "#{@base}/queries", output: "#{@base}/generated")
+    end
+
+    it "hoists a fragment that selects only interface-level fields" do
+      generate_pair("fragment NodeFields on Node { id label }")
+
+      hoisted = File.read("#{@base}/generated/types/node_fields.rb")
+      expect(hoisted).to include("module SharedTypes", "class NodeFields < T::Struct")
+      expect(hoisted).to include("const :id, String", "const :label, T.nilable(String)")
+
+      expect(File.read("#{@base}/generated/home_query.rb"))
+        .to include("NodeFields = SharedTypes::NodeFields", "const :node, T.nilable(NodeFields)")
+      expect(File.read("#{@base}/generated/archive_query.rb"))
+        .to include("NodeFields = SharedTypes::NodeFields", "const :other, T.nilable(NodeFields)")
+
+      GraphWeaver.load_generated!("#{@base}/generated")
+      row = { "id" => "1", "label" => "hi" }
+      home = HomeQuery.from_response!("data" => { "node" => row }).node
+      archive = ArchiveQuery.from_response!("data" => { "other" => row }).other
+      expect(home.class).to equal(archive.class)
+      expect(home.class).to equal(SharedTypes::NodeFields)
+    end
+
+    it "hoists a fragment that narrows to exactly one member" do
+      generate_pair("fragment NodeFields on Node { __typename ... on Post { body } }")
+
+      hoisted = File.read("#{@base}/generated/types/node_fields.rb")
+      expect(hoisted).to include("class NodeFields < T::Struct", "const :body, T.nilable(String)")
+      expect(File.read("#{@base}/generated/home_query.rb"))
+        .to include("NodeFields = SharedTypes::NodeFields", "const :node, T.nilable(NodeFields)")
+    end
+
+    it "keeps a narrowed hoisted field nil when the runtime type doesn't match" do
+      generate_pair("fragment NodeFields on Node { __typename ... on Post { body } }")
+      GraphWeaver.load_generated!("#{@base}/generated")
+
+      matched = HomeQuery.from_response!(
+        "data" => { "node" => { "__typename" => "Post", "body" => "hi" } },
+      ).node
+      expect(matched).to be_a(SharedTypes::NodeFields)
+      expect(matched.body).to eq("hi")
+      expect(HomeQuery.from_response!("data" => { "node" => { "__typename" => "Photo" } }).node).to be_nil
+    end
+  end
 end
