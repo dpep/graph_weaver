@@ -521,10 +521,11 @@ class GraphWeaver::Codegen
           flag ? "#{var.kwarg}: (#{flag} = true; nil)" : "#{var.kwarg}: nil"
         } + ["client: nil"]
 
-      # QueryModule#dispatch reads QUERY/OPERATION_NAME/GRAPH off the module,
-      # so the gem gets to bracket every request without a line of it landing
-      # in every generated file
-      call = "dispatch(variables, client:)"
+      # QueryModule#dispatch reads QUERY/OPERATION_NAME/GRAPH off the module
+      # and closes the operation event over the cast the block does, so the
+      # gem brackets the whole call — request and cast — without a line of it
+      # landing in every generated file
+      call = "dispatch(variables, client:) { |raw| from_response(raw) }"
 
       # execute returns the full envelope; execute! is the strict shortcut for
       # the typed result, or a raised QueryError.
@@ -534,7 +535,7 @@ class GraphWeaver::Codegen
       out << "  def self.execute(#{kwargs.join(", ")})"
       emit_variables(out, required, optional, omitted)
       out << ""
-      out << "    from_response(#{call})"
+      out << "    #{call}"
       out << "  end"
       out << ""
       out << "  sig { params(#{sig_params.join(", ")}).returns(Result).checked(:never) }"
@@ -547,7 +548,7 @@ class GraphWeaver::Codegen
         # left out is exactly what a Ruby call can't forward
         emit_variables(out, required, optional, omitted)
         out << ""
-        out << "    from_response(#{call}).data!"
+        out << "    #{call}.data!"
       end
       out << "  end"
       out << ""

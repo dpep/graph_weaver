@@ -111,7 +111,7 @@ describe GraphWeaver::QueryModule do
       Class.new do
         define_method(:execute) do |_query, variables: {}, operation_name: nil|
           payload = { operation: operation_name, client: self.class }
-          GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+          GraphWeaver::Internal::Log.instrument_request(payload) do
             inside&.call
             { "data" => {} }
           end
@@ -160,6 +160,22 @@ describe GraphWeaver::QueryModule do
 
       query_module.send(:dispatch, {}, client: instrumented_client)
       expect(events.map { |p| p[:graph] }).to eq [nil]
+    end
+
+    # the operation event is fired inside the label, not beside it, so the
+    # two events a call produces can't disagree about which graph ran
+    it "puts the same label on the operation and on the request inside it" do
+      query_module(graph: :billing).send(:dispatch, {}, client: instrumented_client) { |raw| raw }
+
+      expect(events.map { |p| p[:graph] }).to eq %i[billing billing]
+    end
+
+    # an anonymous module has no name to report, and an address would be
+    # noise in an APM tag
+    it "names the module, or nothing where there is no name" do
+      query_module(graph: :billing).send(:dispatch, {}, client: instrumented_client) { |raw| raw }
+
+      expect(events.first).to include(module: nil, operation: "Q", kind: :query)
     end
   end
 end

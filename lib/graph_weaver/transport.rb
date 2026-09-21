@@ -99,7 +99,7 @@ class GraphWeaver::Transport
     payload = { url: safe_url, operation: operation_name, client: self.class,
                 kind: GraphWeaver::Internal::Wire.kind(query) }
 
-    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+    GraphWeaver::Internal::Log.instrument_request(payload) do
       perform(query, variables, operation_name, payload)
     end
   end

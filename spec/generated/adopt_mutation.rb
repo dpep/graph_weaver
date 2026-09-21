@@ -95,7 +95,7 @@ module AdoptMutation
       "input" => GraphWeaver::Coerce.variable("input", OPERATION_NAME, input) { |v| AdoptionInput.coerce(v).serialize },
     }
 
-    from_response(dispatch(variables, client:))
+    dispatch(variables, client:) { |raw| from_response(raw) }
   end
 
   sig { params(input: T.any(AdoptionInput, T::Hash[T.untyped, T.untyped]), client: T.untyped).returns(Result).checked(:never) }

@@ -378,15 +378,15 @@ describe GraphWeaver::Client do
 
     it "instruments it the way GraphWeaver.new(Schema) does, in every client slot" do
       per_call = events_for { expect(mod.execute!(client: Demo::Schema).person&.name).to eq "Daniel" }
-      expect(per_call.map(&:first)).to eq [GraphWeaver::EXECUTE_EVENT]
-      expect(per_call.first.last[:schema]).to eq "Demo::Schema"
+      expect(per_call.map(&:first)).to eq [GraphWeaver::OPERATION_EVENT, GraphWeaver::EXECUTE_EVENT]
+      expect(per_call.last.last[:schema]).to eq "Demo::Schema"
 
       bound = GraphWeaver.parse(schema: Demo::Schema, client: Demo::Schema,
         query: "query Who { person(id: 1) { name } }")
-      expect(events_for { bound.execute! }.size).to eq 1
+      expect(events_for { bound.execute! }.size).to eq 2
 
       GraphWeaver.client = Demo::Schema
-      expect(events_for { mod.execute! }.size).to eq 1
+      expect(events_for { mod.execute! }.size).to eq 2
     end
 
     it "logs it the way GraphWeaver.new(Schema) does" do

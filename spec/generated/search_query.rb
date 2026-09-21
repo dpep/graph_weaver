@@ -183,7 +183,7 @@ module SearchQuery
       "term" => GraphWeaver::Coerce.variable("term", OPERATION_NAME, term) { |v| GraphWeaver::Coerce.string(v, "String") },
     }
 
-    from_response(dispatch(variables, client:))
+    dispatch(variables, client:) { |raw| from_response(raw) }
   end
 
   sig { params(term: String, client: T.untyped).returns(Result).checked(:never) }

@@ -2,6 +2,9 @@ require "logger"
 require "stringio"
 require "tmpdir"
 
+require_relative "generated/find_pets_query"
+require_relative "generated/person_query"
+
 describe "GraphWeaver.logger" do
   include_context "graphql http server"
 
@@ -206,7 +209,7 @@ describe "GraphWeaver.instrumenter" do
   # lives — as a tag on an APM metric and inside the one line info writes
   it "strips control characters out of a server-chosen code" do
     forged = "OK\nI, [2026-01-01T00:00:00]  INFO -- graph_weaver: GraphWeaver AdminQuery (1.0ms) ok"
-    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, { operation: "Forged" }) do
+    GraphWeaver::Internal::Log.instrument_request({ operation: "Forged" }) do
       { "data" => nil, "errors" => [{ "message" => "no", "extensions" => { "code" => forged } }] }
     end
 
@@ -293,6 +296,138 @@ describe "GraphWeaver.instrumenter" do
   it "is a no-op when unset" do
     GraphWeaver.instrumenter = nil
 
-    expect(GraphWeaver::Internal::Log.instrument("x", {}) { 42 }).to eq 42
+    expect(GraphWeaver::Internal::Log.instrument_request({}) { 42 }).to eq 42
+  end
+end
+
+# The second event: one CALL of a generated module, which is what the caller
+# got. The request event can't say it — a CastError is raised after the
+# response is back, so the request had already closed :ok.
+describe "GraphWeaver::OPERATION_EVENT" do
+  include_context "graphql http server"
+
+  let(:events) { [] }
+
+  around do |example|
+    GraphWeaver.instrumenter = lambda do |event, payload, &block|
+      events << [event, payload]
+      block.call
+    end
+    example.run
+  ensure
+    GraphWeaver.instrumenter = nil
+  end
+
+  def operations = events.select { |name, _| name == GraphWeaver::OPERATION_EVENT }.map(&:last)
+
+  def requests = events.select { |name, _| name == GraphWeaver::EXECUTE_EVENT }.map(&:last)
+
+  # what a transport does — one instrumented request — answering whatever
+  # this example wants the cast to meet
+  def client_answering(response)
+    Class.new do
+      define_method(:execute) do |_query, variables: {}, operation_name: nil|
+        GraphWeaver::Internal::Log.instrument_request({ operation: operation_name, client: self.class }) { response }
+      end
+    end.new
+  end
+
+  it "closes over the whole call, with the request nested inside it" do
+    PersonQuery.execute(id: "1", client: GraphWeaver::Transport::HTTP.new(url))
+
+    expect(events.map(&:first)).to eq [GraphWeaver::OPERATION_EVENT, GraphWeaver::EXECUTE_EVENT]
+    expect(operations.first).to include(
+      operation: "PersonQuery", module: "PersonQuery", graph: nil, kind: :query,
+      client: GraphWeaver::Transport::HTTP, status: :ok,
+    )
+    expect(operations.first[:duration_ms]).to be_a(Float).and be >= 0
+  end
+
+  # the module seam is the one every client slot passes through, which is
+  # why the event lives there rather than beside the request
+  it "fires for a schema class in the client slot too" do
+    PersonQuery.execute(id: "1", client: Demo::Schema)
+
+    expect(operations.first).to include(client: GraphWeaver::InProcess, status: :ok)
+    expect(requests.first).to include(schema: "Demo::Schema")
+  end
+
+  # THE gap this event closes: the response arrived, so the request event was
+  # already :ok when the cast raised and the caller saw a failure
+  it "says :failed for a cast that raised after the request said :ok" do
+    nameless = { "data" => { "person" => { "id" => "1", "name" => nil, "birthday" => nil, "pets" => [] } } }
+
+    expect { PersonQuery.execute(id: "1", client: client_answering(nameless)) }
+      .to raise_error(GraphWeaver::CastError)
+
+    expect(requests.first).to include(status: :ok)
+    expect(operations.first).to include(status: :failed, error: "GraphWeaver::CastError")
+  end
+
+  # a response that arrived carrying errors is not a raise, whatever execute!
+  # then does with it — :errors is the status an alert groups by
+  it "says :errors for a response that carried them, even where execute! raises" do
+    throttled = { "data" => nil,
+                  "errors" => [{ "message" => "slow down", "extensions" => { "code" => "THROTTLED" } }] }
+
+    expect { PersonQuery.execute!(id: "1", client: client_answering(throttled)) }
+      .to raise_error(GraphWeaver::QueryError)
+
+    expect(operations.map { |p| p.values_at(:status, :code) }).to eq [[:errors, "THROTTLED"]]
+  end
+
+  # the code comes off the typed errors the cast built, not off a hash round
+  # trip — GraphQLError#to_h spells a GitHub-dialect code as "code", and
+  # reading that back as a wire error would lose it
+  it "reads a code the server put in a dialect of its own" do
+    missing = { "data" => { "person" => nil }, "errors" => [{ "message" => "no", "type" => "NOT_FOUND" }] }
+    PersonQuery.execute(id: "1", client: client_answering(missing))
+
+    expect(operations.first).to include(status: :errors, code: "NOT_FOUND")
+  end
+
+  # execute! with an omittable variable repeats the call rather than
+  # delegating, so it is the other emitted shape — still one event
+  it "covers execute! where it dispatches itself rather than delegating" do
+    FindPetsQuery.execute!(client: client_answering({ "data" => { "findPets" => [] } }))
+
+    expect(operations.map { |p| p[:operation] }).to eq ["FindPetsQuery"]
+  end
+
+  it "is one event over every attempt a Retry made, and the backoff between them" do
+    client = GraphWeaver::Retry.new(
+      GraphWeaver::Transport::HTTP.new(throttled_url), retries: 2, sleeper: ->(_) { sleep 0.02 }
+    )
+
+    expect { PersonQuery.execute(id: "1", client:) }.to raise_error(GraphWeaver::ServerError)
+
+    expect(operations.size).to eq 1
+    expect(requests.map { |p| p[:retries] }).to eq [0, 1, 2]
+    expect(operations.first).to include(status: :failed, error: "GraphWeaver::ServerError")
+    # the caller's wall clock: no request event covers the sleeps between them
+    expect(operations.first[:duration_ms]).to be > requests.sum { |p| p[:duration_ms] }
+  end
+
+  # the attempt facts stay on the attempt: a call that took three goes has no
+  # one url, no one http_status and no one retry count
+  it "carries the documented keys and nothing else" do
+    PersonQuery.execute(id: "1", client: GraphWeaver::Transport::HTTP.new(url))
+
+    expect(operations.first.keys).to match_array %i[operation module graph kind client status duration_ms]
+  end
+
+  it "reports nothing for from_response on its own — no call was made" do
+    PersonQuery.from_response({ "data" => { "person" => nil } })
+
+    expect(events).to be_empty
+  end
+
+  # a module generated before this event existed hands over no cast, so this
+  # seam sees half the call — and half a call reported :ok is the very lie
+  # the event exists to stop
+  it "reports nothing for a module generated before it existed" do
+    PersonQuery.send(:dispatch, { "id" => "1" }, client: client_answering({ "data" => {} }))
+
+    expect(events.map(&:first)).to eq [GraphWeaver::EXECUTE_EVENT]
   end
 end

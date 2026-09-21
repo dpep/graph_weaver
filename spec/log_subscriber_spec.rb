@@ -91,7 +91,7 @@ describe GraphWeaver::LogSubscriber do
     forged = "OK\nI, [2026-01-01T00:00:00]  INFO -- graph_weaver: GraphWeaver AdminQuery (1.0ms) ok"
     payload = { operation: "PersonQuery" }
     GraphWeaver.instrumenter = ->(_event, p, &block) { block.call.tap { payload = p } }
-    GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, payload) do
+    GraphWeaver::Internal::Log.instrument_request(payload) do
       { "data" => nil, "errors" => [{ "message" => "no", "extensions" => { "code" => forged } }] }
     end
 

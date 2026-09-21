@@ -92,7 +92,7 @@ module FindPetsQuery
     variables = {}
     variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v).serialize }) unless where_omitted
 
-    from_response(dispatch(variables, client:))
+    dispatch(variables, client:) { |raw| from_response(raw) }
   end
 
   sig { params(where: T.nilable(T.any(PetFilter, T::Hash[T.untyped, T.untyped])), client: T.untyped).returns(Result).checked(:never) }
@@ -100,7 +100,7 @@ module FindPetsQuery
     variables = {}
     variables["where"] = (where.nil? ? nil : GraphWeaver::Coerce.variable("where", OPERATION_NAME, where) { |v| PetFilter.coerce(v).serialize }) unless where_omitted
 
-    from_response(dispatch(variables, client:)).data!
+    dispatch(variables, client:) { |raw| from_response(raw) }.data!
   end
 
   # Deserialize a raw GraphQL response into the typed envelope — the

@@ -104,7 +104,7 @@ module PetShoutQuery
   def self.execute(client: nil)
     variables = {}
 
-    from_response(dispatch(variables, client:))
+    dispatch(variables, client:) { |raw| from_response(raw) }
   end
 
   sig { params(client: T.untyped).returns(Result).checked(:never) }

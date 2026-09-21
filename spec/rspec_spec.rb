@@ -835,4 +835,63 @@ describe "graph_weaver/rspec" do
       end
     end
   end
+
+  # A spec asserting on instrumentation used to be untaggable: a stand-in is
+  # not a transport, so nothing under a `graphql:` tag reported anything. The
+  # operation event fires at the module seam, which every mode passes.
+  describe "what a tagged example reports to an APM" do
+    let(:events) { [] }
+
+    around do |example|
+      GraphWeaver.instrumenter = lambda do |event, payload, &block|
+        events << [event, payload]
+        block.call
+      end
+      app_client!(DraftsDemo::Schema)
+      GraphWeaver::Testing.configure { |config| config.schema = DraftsDemo::Schema }
+      example.run
+    ensure
+      GraphWeaver.instrumenter = nil
+    end
+
+    def operation = events.select { |name, _| name == GraphWeaver::OPERATION_EVENT }.map(&:last).first
+
+    it "reports the fake that served it", graphql: :fake do
+      DraftsDemo::QUERY.execute!
+
+      expect(operation).to include(operation: "DraftsQuery", kind: :query, status: :ok,
+        client: GraphWeaver::Testing::FakeClient)
+    end
+
+    it "reports the in-process stand-in", graphql: :in_process do
+      DraftsDemo::QUERY.execute!
+
+      expect(operation).to include(status: :ok, client: GraphWeaver::InProcess)
+    end
+  end
+
+  describe "what a :router example reports to an APM" do
+    let(:events) { [] }
+
+    around do |example|
+      GraphWeaver.instrumenter = lambda do |event, payload, &block|
+        events << [event, payload]
+        block.call
+      end
+      require_relative "support/federation_router_graph"
+      GraphWeaver.schema_path = RouterGraph::SUPERGRAPH
+      example.run
+    ensure
+      GraphWeaver.instrumenter = nil
+    end
+
+    it "reports the router that stitched it", graphql: :router do
+      supergraph = GraphWeaver::Internal::Util.schema_for(RouterGraph::SUPERGRAPH)
+      module_for(nil, supergraph, "query { me { username } }", "RoutedDashboard").execute!
+
+      expect(events.map(&:first)).to include GraphWeaver::OPERATION_EVENT
+      expect(events.first.last).to include(operation: "RoutedDashboard", status: :ok,
+        client: GraphWeaver::Testing::Router)
+    end
+  end
 end

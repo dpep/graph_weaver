@@ -883,7 +883,7 @@ describe "GraphWeaver::Railtie" do
 
     it "wires the ActiveSupport::Notifications adapter" do
       boot
-      GraphWeaver::Internal::Log.instrument(GraphWeaver::EXECUTE_EVENT, { operation: "Q" }) { :done }
+      GraphWeaver::Internal::Log.instrument_request({ operation: "Q" }) { :done }
 
       expect(notifications.published.map(&:first)).to eq [GraphWeaver::EXECUTE_EVENT]
       expect(notifications.published.first.last).to include(operation: "Q", status: :ok)

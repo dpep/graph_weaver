@@ -139,7 +139,7 @@ module NamedQuery
       "name" => GraphWeaver::Coerce.variable("name", OPERATION_NAME, name) { |v| GraphWeaver::Coerce.string(v, "String") },
     }
 
-    from_response(dispatch(variables, client:))
+    dispatch(variables, client:) { |raw| from_response(raw) }
   end
 
   sig { params(name: String, client: T.untyped).returns(Result).checked(:never) }

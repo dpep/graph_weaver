@@ -236,6 +236,7 @@ GraphWeaver::InputStruct::Field#type
 GraphWeaver::InputStruct::Field#wire
 GraphWeaver::InputStruct::Field.[]
 GraphWeaver::InputStruct::Field.members
+GraphWeaver::OPERATION_EVENT = String
 GraphWeaver::Parsing (Module)
 GraphWeaver::Parsing#load_queries!
 GraphWeaver::Parsing#parse
