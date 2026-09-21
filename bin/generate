@@ -1,9 +1,11 @@
 #!/usr/bin/env ruby
-# regenerate spec/generated/ from spec/queries/, and spec/typecheck/
+# regenerate every checked-in generated file: spec/generated/, spec/typecheck/,
+# and examples/github/generated/
 
 require_relative "../lib/graph_weaver"
 require_relative "../spec/support/schema"
 require_relative "../spec/support/typecheck_fixture"
+require_relative "../examples/github/generate"
 
 root = File.expand_path("..", __dir__)
 # the inline door, not GraphWeaver.graph: the parity specs regenerate these
@@ -18,6 +20,15 @@ changed = GraphWeaver.changed_files
 # registry), so the pair with a block-form include is generated on its own
 TypecheckFixture.generate!
 changed += GraphWeaver.changed_files
+
+# The example's schema is GitHub's, so this door only reads the dump the
+# example's own first run cached — the gate has to work offline.
+if File.exist?(GithubExample::SCHEMA_CACHE)
+  changed += GithubExample.generate!(GithubExample::SCHEMA_CACHE)
+else
+  puts "skipped examples/github: no schema dump at examples/github/schema.json — " \
+    "run examples/github/generate.rb once (needs a GitHub token) to cache one"
+end
 
 changed.each { |path| puts "wrote #{path}" }
 puts "already up to date" if changed.empty?

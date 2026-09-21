@@ -34,5 +34,7 @@ looks like an app:
   fellow stargazers.
 
 Regeneration introspects GitHub's schema (a few seconds, cached to a gitignored
-`github/schema.json`); `run.rb` alone never introspects, because the generated
-modules already carry their types.
+`github/schema.json`); once that dump is there the repo's own `bin/generate`
+refreshes these modules along with every other generated file, offline. `run.rb`
+alone never introspects, because the generated modules already carry their
+types.

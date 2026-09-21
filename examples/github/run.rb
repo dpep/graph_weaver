@@ -7,6 +7,7 @@
 #
 #      examples/github/run.rb
 require_relative "setup"
+GithubExample.connect!
 
 # the checked-in typed modules (regenerate: examples/github/generate.rb)
 Dir[File.join(__dir__, "generated", "*.rb")].sort.each { |file| require file }
