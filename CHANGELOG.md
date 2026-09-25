@@ -1,3 +1,16 @@
+###  Unreleased
+
+**What you must do.**
+
+- **Regenerate** (`rake graph_weaver:generate`) if any graph sets `namespace:`:
+  its shared types module is now `<Namespace>::Types`, not
+  `<Namespace>::GraphQLTypes`. A bare `::Types` would collide with
+  graphql-ruby's own `Types::QueryType` convention, which is why the top-level
+  default is still `GraphQLTypes`; nested under a namespace it can't, and
+  `types.rb` is then a file Zeitwerk names correctly. App code naming
+  `<Namespace>::GraphQLTypes::X` moves to `<Namespace>::Types::X`, and `srb tc`
+  finds every site. `types_module` still overrides both.
+
 ###  v0.7.6  (2026-09-21)
 
 **What you must do.** All three are 0.7.5 → 0.7.6; a typical app does the

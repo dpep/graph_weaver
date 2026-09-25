@@ -53,6 +53,27 @@ describe "GraphWeaver.graph block" do
     expect(graph.types_module).to eq GraphWeaver.types_module
   end
 
+  # A bare ::Types would collide with graphql-ruby's own Types:: convention;
+  # nested under a namespace it can't — and Types is the name Zeitwerk reads
+  # off types.rb, which is what leaves a namespaced tree autoloadable.
+  it "names the shared types module Types inside a namespace" do
+    expect(declared { namespace "Billing" }.types_module).to eq "Billing::Types"
+
+    overridden = declared do
+      namespace "Billing"
+      types_module "Billing::GraphQLTypes"
+    end
+    expect(overridden.types_module).to eq "Billing::GraphQLTypes"
+  end
+
+  it "keeps a types_module the app set, inside a namespace too" do
+    GraphWeaver.types_module = "SharedTypes"
+
+    expect(declared { namespace "Billing" }.types_module).to eq "Billing::SharedTypes"
+  ensure
+    GraphWeaver.types_module = nil
+  end
+
   it "refuses a call it doesn't take, naming what it does" do
     expect { declared { schmea "billing.graphql" } }
       .to raise_error(ArgumentError,

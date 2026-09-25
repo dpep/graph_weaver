@@ -496,7 +496,7 @@ plus `register_scalar`, `register_enum` and `extend_type`).
 | `output` | one directory — where this graph's generated Ruby is written |
 | `client` | what this graph's modules execute against — a client, or the name of the constant holding one |
 | `namespace` | a constant, or its name — what every constant this graph generates nests under |
-| `types_module` | a constant name for the shared types module (default: `GraphQLTypes`, under `namespace`) |
+| `types_module` | a constant name for the shared types module (default: `Types` under a `namespace`, `GraphQLTypes` without one) |
 
 **Declaring graph two means declaring graph one.** A declared graph *replaces*
 the implicit one the top-level settings describe, so the moment any graph is

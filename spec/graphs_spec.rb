@@ -83,8 +83,9 @@ describe "GraphWeaver.graph" do
     expect(pets).to include("module Pets::PersonQuery")
     expect(billing).to include("module Billing::PersonQuery")
     # the namespace carries the shared types module too — two schemas both
-    # hoisting into ::GraphQLTypes is a guaranteed collision, not a chance one
-    expect(File.read(File.join(output(:pets), "types.rb"))).to include("module Pets::GraphQLTypes")
+    # hoisting into ::GraphQLTypes is a guaranteed collision, not a chance one —
+    # and inside one it is named Types, which is what types.rb spells
+    expect(File.read(File.join(output(:pets), "types.rb"))).to include("module Pets::Types")
   end
 
   it "keeps a graph's registrations out of every other graph" do

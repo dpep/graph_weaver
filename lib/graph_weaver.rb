@@ -219,9 +219,15 @@ module GraphWeaver
     # from where you put the files: set it globally, or pass types_module: per
     # generate!. A multi-schema layout names it in the same initializer that
     # sets its paths.
+    #
+    # Unset, the default is whichever name is free where the constants land:
+    # GraphQLTypes at the top level, where a bare ::Types would collide with
+    # graphql-ruby's own Types:: convention, and plain Types inside a graph's
+    # namespace, where it can't — which is what leaves types.rb a file Zeitwerk
+    # names correctly (see Graph#types_module).
     attr_writer :types_module
 
-    def types_module = @types_module || "GraphQLTypes"
+    def types_module(default = "GraphQLTypes") = @types_module || default
 
     # Declare a second schema — and a third, and the rest. Everything a graph
     # knows is said inside its block, in call style:

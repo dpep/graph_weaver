@@ -142,7 +142,9 @@ file, and `verify` fails until you regenerate.
 **A graph's `namespace:` nests what it generates**, and is the answer when two
 schemas in one app each have a `person.graphql`: `namespace: "Billing"` makes
 that one `Billing::PersonQuery` in the same `person_query.rb`, and its shared
-types module `Billing::GraphQLTypes`. Nothing else about the rule changes. See
+types module `Billing::Types` (plain `Types` inside a namespace, where nothing
+collides with graphql-ruby's own `Types::`; `GraphQLTypes` without one). Nothing
+else about the rule changes. See
 [getting started](getting_started.md#more-than-one-schema).
 
 Parsing a raw query *string* has no file to name it after, so it uses the

@@ -1,7 +1,8 @@
 # Upgrading
 
 [Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then read
-the one section that is yours: from [0.7.5](#upgrading-from-075), from
+the one section that is yours: from [0.7.6](#upgrading-from-076), from
+[0.7.5](#upgrading-from-075), from
 [0.7.4](#upgrading-from-074), from [0.7.3](#upgrading-from-073), from
 [0.7.1](#upgrading-from-071), from [0.7.0](#upgrading-from-070) or from
 [0.6.1](#upgrading-from-061). Coming from 0.6.0 or older, the path is that
@@ -23,6 +24,22 @@ after an upgrade reports the tree as stale whether or not codegen actually moved
 That's the reminder working, not a false alarm. Generation is deterministic, so
 the diff is exactly what the new version emits differently and nothing else —
 worth reading rather than rubber-stamping.
+
+## Upgrading from 0.7.6
+
+Read the left column and skip what isn't yours; the
+[changelog](../CHANGELOG.md) says why each one moved.
+
+| applies if you… | what changed |
+|---|---|
+| set `namespace:` on any graph — `rake graph_weaver:graphs` lists them | its shared types module is `<Namespace>::Types`, not `<Namespace>::GraphQLTypes`. **Regenerate**, then move app code naming `<Namespace>::GraphQLTypes::X` to `<Namespace>::Types::X` — `srb tc` finds every site. Keep the old name with `types_module "GraphQLTypes"` in that graph's block, at the cost of the [autoloadable layout](generated_modules.md#loading-what-it-wrote) below |
+
+Then regenerate, and the gate:
+
+```sh
+rake graph_weaver:generate
+rake graph_weaver:verify
+```
 
 ## Upgrading from 0.7.5
 

@@ -93,8 +93,19 @@ module GraphWeaver
     # constant; this is the one knob that settles both.
     def namespace = @namespace
 
+    # The shared types module. Inside a namespace the default is plain `Types`,
+    # so `namespace:` alone leaves a tree Zeitwerk names correctly — types.rb
+    # holds it, and Zeitwerk reads that file as `<Namespace>::Types`. At the top
+    # level it stays GraphQLTypes, where a bare ::Types would collide with
+    # graphql-ruby's own Types:: convention.
+    NESTED_TYPES_MODULE = "Types"
+    private_constant :NESTED_TYPES_MODULE
+
     def types_module
-      @types_module || (namespace ? "#{namespace}::#{GraphWeaver.types_module}" : GraphWeaver.types_module)
+      return @types_module if @types_module
+      return GraphWeaver.types_module unless namespace
+
+      "#{namespace}::#{GraphWeaver.types_module(NESTED_TYPES_MODULE)}"
     end
 
     # The graphql-ruby schema, however it was named: a class, a Client, a path
