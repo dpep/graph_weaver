@@ -11,6 +11,15 @@
   `<Namespace>::GraphQLTypes::X` moves to `<Namespace>::Types::X`, and `srb tc`
   finds every site. `types_module` still overrides both.
 
+- **Nothing, to keep today's loading.** A generated tree whose constants are
+  the ones Zeitwerk reads off its path is now left to Zeitwerk — it autoloads
+  on first reference and reloads with the app, instead of being hidden from the
+  autoloader and required at boot, so booting no longer defines its whole
+  parent namespace chain. That is a `namespace:` matching the output path and
+  nothing else; every other tree loads exactly as before. The Railtie says
+  which it chose per graph, one line at debug, naming the constant that
+  disagreed. See [loading](docs/generated_modules.md#the-rule-in-rails).
+
 ###  v0.7.6  (2026-09-21)
 
 **What you must do.** All three are 0.7.5 → 0.7.6; a typical app does the

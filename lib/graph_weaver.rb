@@ -709,12 +709,13 @@ module GraphWeaver
     #
     #      GraphWeaver.load_generated!
     #
-    # In Rails, prefer this over autoloading: Zeitwerk would expect
-    # Generated::PersonQuery from generated/person_query.rb, and
-    # generated code only changes on regeneration anyway (restart, like
-    # a schema migration).
+    # In Rails this is automatic, and a tree Zeitwerk already names correctly
+    # is skipped: it autoloads on first reference (see the Railtie). Everything
+    # else is required — Zeitwerk would expect Generated::PersonQuery from
+    # generated/person_query.rb, and generated code only changes on
+    # regeneration anyway (restart, like a schema migration).
     def load_generated!(path = nil)
-      paths = path ? [path] : Internal::Util.generated_dirs
+      paths = path ? [path] : Internal::Util.required_dirs
       files = paths.flat_map { |dir| Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].sort }.uniq
       files.each do |file|
         require file
@@ -767,7 +768,9 @@ module GraphWeaver
     # whose query was just deleted keeps its old constant until restart —
     # nothing on disk says what it was called any more.
     def reload_generated!
-      names = graphs.flat_map do |graph|
+      # a graph Zeitwerk owns unloads and reloads itself; undefining its
+      # constants here would only take them out from under it
+      names = graphs.reject { |graph| Internal::Util.left_to_zeitwerk?(graph.output) }.flat_map do |graph|
         modules = Internal::Util.query_files(graph.queries).map do |path|
           graph.generated_names(path, File.read(path)).first
         end
@@ -775,7 +778,7 @@ module GraphWeaver
       end
       names.each { |name| undefine(name) }
 
-      Internal::Util.generated_dirs.each do |dir|
+      Internal::Util.required_dirs.each do |dir|
         Dir[File.join(Internal::Util.resolve(dir), "**/*.rb")].each do |file|
           # require stores the realpath; the path load_generated! passed is
           # the other one under a symlinked checkout

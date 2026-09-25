@@ -1,5 +1,7 @@
 # typed: ignore — stubs Rails/Rake constants sorbet can't resolve
+require "logger"
 require "rake"
+require "stringio"
 require "tmpdir"
 
 
@@ -478,6 +480,218 @@ describe "GraphWeaver::Railtie" do
     expect { GraphWeaver::Railtie.prepare_generated! }.not_to raise_error
   ensure
     GraphWeaver.reset_graphs!
+  end
+
+  # ONE rule: a generated tree Zeitwerk would name correctly is left to
+  # Zeitwerk; any other is hidden from it and required at boot. The decision is
+  # a function of the files a graph generates and the constant Zeitwerk reads
+  # off each path, so it is driven here with a loader that answers the way
+  # Zeitwerk does and .graphql files really on disk. What it does to a booting
+  # Rails app is the scratch app's job; this pins the decision itself.
+  describe "a tree Zeitwerk would name correctly" do
+    # the layout a user reported: app/graphql is the autoload root, and the
+    # graph's namespace is the constant its output path spells
+    queries = "app/graphql/queries/reports"
+    output = "#{queries}/generated"
+    namespace = "Queries::Reports::Generated"
+
+    around do |example|
+      Dir.mktmpdir("graph-weaver-aligned") do |tmp|
+        @root = File.realpath(tmp)
+        @output = File.join(@root, output)
+        FileUtils.mkdir_p(@output)
+        File.write(File.join(@root, queries, "person.graphql"), "query { people { name } }\n")
+        File.write(File.join(@output, "person_query.rb"), "module #{namespace}::PersonQuery; end\n")
+        @log = StringIO.new
+        GraphWeaver.root = @root
+        GraphWeaver.logger = Logger.new(@log, level: Logger::DEBUG)
+        example.run
+      ensure
+        GraphWeaver.root = nil
+        GraphWeaver.logger = nil
+        GraphWeaver.reset_graphs!
+      end
+    end
+
+    # Rails.autoloaders.main, answering the two questions the decision asks it:
+    # how it inflects a basename, and — once Rails has pushed its roots, which
+    # is after the deadline for `ignore` — what constant it expects at a path.
+    # Its ignore list expands globs as it takes them, as Zeitwerk's does.
+    def zeitwerk(camelize: nil, cpath_expected_at: nil)
+      root = File.join(@root, "app/graphql")
+      @ignored, @excluded, @on_setup = [], [], []
+      ignored, excluded, on_setup = @ignored, @excluded, @on_setup
+      inflector = Object.new
+      inflector.define_singleton_method(:camelize) do |basename, _abspath|
+        camelize&.call(basename) || basename.split("_").map { |part| part[0].upcase + part[1..] }.join
+      end
+      main = Object.new
+      main.define_singleton_method(:ignore) { |path| ignored << path }
+      main.define_singleton_method(:do_not_eager_load) { |path| excluded << path }
+      main.define_singleton_method(:on_setup) { |&block| on_setup << block }
+      main.define_singleton_method(:dirs) { |namespaces: false| namespaces ? { root => Object } : [root] }
+      main.define_singleton_method(:inflector) { inflector }
+      main.define_singleton_method(:__ignores?) do |path|
+        ignored.any? { |hidden| File.fnmatch?(hidden, path, File::FNM_PATHNAME) }
+      end
+      main.define_singleton_method(:cpath_expected_at) do |path|
+        cpath_expected_at ? cpath_expected_at.call(path) : GraphWeaver::Railtie.expected_cpath(path)
+      end
+      loaders = [main]
+      loaders.define_singleton_method(:main) { main }
+      stub_const("Rails", Module.new)
+      Rails.define_singleton_method(:autoloaders) { loaders }
+      root_path = Pathname.new(@root)
+      Rails.define_singleton_method(:root) { root_path }
+      main
+    end
+
+    define_method(:declare) do |name = :reports, where: output, **settings|
+      reads = queries
+      GraphWeaver.graph name do
+        schema Demo::Schema
+        queries reads
+        output where
+        settings.each { |setting, value| public_send(setting, value) }
+      end
+    end
+
+    it "is left to Zeitwerk, and says so" do
+      declare(namespace:)
+      zeitwerk
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect(GraphWeaver::Railtie.autoloaded_dirs).to eq [@output]
+      expect(@ignored).not_to include @output
+      expect(@ignored).to include File.join(@root, "app/graphql/generated")
+      expect(@log.string).to include("is left to Zeitwerk")
+    end
+
+    # config/initializers is later than the sweep, so a graph declared there is
+    # first heard of when it hides its own output — which is also the moment
+    # the rule can be applied to it
+    it "is left to Zeitwerk when the graph is declared after the sweep" do
+      zeitwerk
+      GraphWeaver::Railtie.hide_generated!
+
+      declare(namespace:)
+
+      expect(GraphWeaver::Railtie.autoloaded_dirs).to eq [@output]
+      expect(@ignored).not_to include @output
+    end
+
+    # and once Zeitwerk has read the ignore list there is nothing left to hide
+    # with — but a tree it names correctly never needed hiding, so the refusal
+    # that catches a late declaration lets this one past
+    it "is not refused when it is declared after Zeitwerk is set up" do
+      zeitwerk
+      GraphWeaver::Railtie.hide_generated!
+      @on_setup.each(&:call)
+
+      declare(namespace:)
+
+      expect { GraphWeaver::Railtie.check_generated_ignored! }.not_to raise_error
+      expect(GraphWeaver::Railtie.autoloaded_dirs).to eq [@output]
+    end
+
+    # generated_paths' own default glob reaches a one-level-deep output, and a
+    # glob can't say "all but this one" — so it is expanded and the aligned
+    # directory left out of it
+    it "is not hidden by a generated_paths glob that reaches it" do
+      covered = "app/graphql/billing/generated"
+      FileUtils.mkdir_p(File.join(@root, covered))
+      declare(:billing, where: covered, namespace: "Billing::Generated")
+      zeitwerk
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect(GraphWeaver::Railtie.autoloaded_dirs).to eq [File.join(@root, covered)]
+      expect(@ignored).not_to include File.join(@root, covered)
+      expect(@ignored).not_to include File.join(@root, "app/graphql/*/generated")
+    end
+
+    # types.rb requires its own directory, so Zeitwerk never autoloads those
+    # files one at a time — only eager loading walks them, and it would want a
+    # constant name for each that the generator's inflection doesn't promise
+    it "keeps eager loading out of the types directory" do
+      declare(namespace:)
+      zeitwerk
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect(@excluded).to include File.join(@output, "types")
+    end
+
+    it "is not among the directories required at boot" do
+      declare(namespace:)
+      zeitwerk
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect(GraphWeaver::Internal::Util.required_dirs).to eq GraphWeaver.generated_paths
+      expect(GraphWeaver::Internal::Util.left_to_zeitwerk?(output)).to be true
+    end
+
+    # the ways a tree misses, each naming the constant that disagreed
+    {
+      "no namespace" => [{}, %(namespace "#{namespace}" makes them agree)],
+      "a types module named otherwise" => [
+        { namespace:, types_module: "#{namespace}::GraphQLTypes" },
+        "types.rb defines #{namespace}::GraphQLTypes, Zeitwerk expects #{namespace}::Types",
+      ],
+    }.each do |described, (settings, reason)|
+      it "is hidden and required at boot with #{described}, saying so" do
+        declare(**settings)
+        zeitwerk
+
+        GraphWeaver::Railtie.hide_generated!
+
+        expect(GraphWeaver::Railtie.autoloaded_dirs).to be_empty
+        expect(@ignored).to include @output
+        expect(@log.string).to include("is hidden from Zeitwerk and required at boot", reason)
+      end
+    end
+
+    # the app's own inflections are the loader's to know — asking it is the
+    # whole reason this can't be worked out from the path alone
+    it "is hidden when the app's inflector names a query module otherwise" do
+      declare(namespace:)
+      zeitwerk(camelize: ->(basename) { "Renamed" if basename == "person_query" })
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect(GraphWeaver::Railtie.autoloaded_dirs).to be_empty
+      expect(@log.string).to include(
+        "person_query.rb defines #{namespace}::PersonQuery, Zeitwerk expects #{namespace}::Renamed",
+      )
+    end
+
+    it "is hidden when the loader is older than cpath_expected_at" do
+      declare(namespace:)
+      main = zeitwerk
+      main.singleton_class.undef_method(:cpath_expected_at)
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect(GraphWeaver::Railtie.autoloaded_dirs).to be_empty
+      expect(@ignored).to include @output
+    end
+
+    # a `collapse`, or a root pushed under its own namespace, changes the name
+    # and neither is readable before setup — so the prediction is checked
+    # against Zeitwerk itself the moment Zeitwerk can answer
+    it "refuses at setup when Zeitwerk reads a file differently" do
+      declare(namespace:)
+      zeitwerk(cpath_expected_at: ->(_path) { "Collapsed::PersonQuery" })
+
+      GraphWeaver::Railtie.hide_generated!
+
+      expect { @on_setup.each(&:call) }.to raise_error(
+        GraphWeaver::Error,
+        a_string_including(":reports", "person_query.rb", "Collapsed::PersonQuery", "collapse"),
+      )
+    end
   end
 
   it "loads generated modules at boot when the directory exists" do
@@ -967,12 +1181,28 @@ describe "GraphWeaver::Railtie" do
         FileUtils.mkdir_p(File.join(root, "app/models"))
         File.write(File.join(root, "app/models/uses_generated.rb"),
           "class UsesGenerated; PROBE = BootGeneratedProbe; end\n")
+        # and a second graph whose namespace IS the constant its output path
+        # spells — the tree Zeitwerk names correctly, which boot must leave to it
+        aligned = File.join(root, "app/graphql/queries/reports/generated")
+        FileUtils.mkdir_p(aligned)
+        File.write(File.join(aligned, "report_query.rb"),
+          "module Queries::Reports::Generated::ReportQuery; end\n")
+        File.write(File.join(root, "app/graphql/queries/reports/report.graphql"), "query { x }\n")
         if gem
           File.write(File.join(root, "config/initializers/zzz_graph_weaver.rb"), <<~INIT)
             SAW = { logger: GraphWeaver.logger.class.to_s, instrumenter: !GraphWeaver.instrumenter.nil? }
             GraphWeaver.logger = nil
             GraphWeaver.instrumenter = nil
             GraphWeaver.generated_paths = "generated"
+            GraphWeaver.graph :plain do
+              queries "app/graphql/plain"
+              output  "generated"
+            end
+            GraphWeaver.graph :reports do
+              queries "app/graphql/queries/reports"
+              output  "app/graphql/queries/reports/generated"
+              namespace "Queries::Reports::Generated"
+            end
           INIT
         end
         script = File.join(root, "boot.rb")
@@ -1027,6 +1257,10 @@ describe "GraphWeaver::Railtie" do
           attached: ActiveSupport::LogSubscriber.log_subscribers.map { |sub| sub.class.to_s },
           listening: ActiveSupport::Notifications.notifier.listening?(GraphWeaver::EXECUTE_EVENT),
           eager_probe: UsesGenerated::PROBE.to_s,
+          # nil once Zeitwerk has loaded it; the file it will autoload from
+          # while nothing has referenced it
+          aligned_autoload: !Object.autoload?(:Queries).nil?,
+          aligned_reachable: Queries::Reports::Generated::ReportQuery.to_s,
         )
       end
       puts JSON.generate(payload)
@@ -1055,6 +1289,27 @@ describe "GraphWeaver::Railtie" do
     # earlier than after_initialize.
     it "loads the generated modules before the app is eager loaded" do
       expect(boot(eager: true)["eager_probe"]).to eq "BootGeneratedProbe"
+    end
+
+    # the two hook paths, in one boot. generated/probe_query.rb defines
+    # ::BootGeneratedProbe where Zeitwerk reads Generated::BootGeneratedProbe,
+    # so it is hidden and required — while the tree whose namespace its path
+    # spells is left where it is, and nothing has touched it by the end of boot.
+    it "requires the tree Zeitwerk would misname, and leaves the other to it" do
+      booted = boot
+
+      expect(booted["aligned_autoload"]).to be true
+      expect(booted["aligned_reachable"]).to eq "Queries::Reports::Generated::ReportQuery"
+      expect(booted["eager_probe"]).to eq "BootGeneratedProbe"
+    end
+
+    # and eager loading, which is where a tree Zeitwerk misnames used to raise,
+    # loads both
+    it "eager loads both trees" do
+      booted = boot(eager: true)
+
+      expect(booted["aligned_autoload"]).to be false
+      expect(booted["aligned_reachable"]).to eq "Queries::Reports::Generated::ReportQuery"
     end
 
     it "auto-wires before config/initializers, so the documented opt-out wins" do

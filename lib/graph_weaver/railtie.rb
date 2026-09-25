@@ -85,6 +85,12 @@ class GraphWeaver::Railtie < Rails::Railtie
     # calling ignore again — check_generated_ignored! refuses instead.
     attr_accessor :ignored_dirs
 
+    # The outputs left to Zeitwerk, resolved — the trees whose every module is
+    # the constant Zeitwerk infers from its path, so hiding them would be
+    # hiding code that already works. Decided beside the sweep, because it is
+    # what the sweep must not hide.
+    attr_accessor :autoloaded_dirs
+
     # Whether hiding an output right now would actually hide it: false until
     # the initializer below has swept (it picks up anything declared so far),
     # and false again from the moment Zeitwerk sets the main autoloader up.
@@ -108,14 +114,24 @@ class GraphWeaver::Railtie < Rails::Railtie
     GraphWeaver::Railtie.hide_generated!
   end
 
+  # ONE rule: a generated tree Zeitwerk would name correctly is left to
+  # Zeitwerk; any other is hidden from it and required at boot.
+  #
   # generated/person_query.rb defines ::PersonQuery, but Zeitwerk infers
   # Generated::PersonQuery from the path — and app/graphql/generated is inside
   # an autoload root by default, so eager loading raised "uninitialized
   # constant Generated::PersonQuery" in production while development (lazy) was
-  # fine. prepare_generated! requires them instead.
+  # fine. prepare_generated! requires those instead. A graph whose `namespace:`
+  # is the constant its output path spells has no such mismatch, and requiring
+  # it at boot would define its whole parent chain before a query is ever used.
   def self.hide_generated!
     self.ignored_dirs = []
+    self.autoloaded_dirs = []
     self.hiding_outputs = true
+    # the aligned trees first: they are what the sweep must NOT hide, and
+    # generated_paths' own globs cover a graph's output (app/graphql/*/generated
+    # matches app/graphql/billing/generated)
+    GraphWeaver.graphs.each { |graph| consider_output!(graph) }
     GraphWeaver::Internal::Util.generated_dirs.each { |path| ignore_output!(path) }
 
     # Zeitwerk reads its ignore list once, at setup, and nothing in Rails
@@ -124,10 +140,187 @@ class GraphWeaver::Railtie < Rails::Railtie
     # check_generated_ignored! has to be the one to say so.
     main = Rails.autoloaders.main if Rails.autoloaders.respond_to?(:main)
     if main.respond_to?(:on_setup)
-      main.on_setup { GraphWeaver::Railtie.hiding_outputs = false }
+      main.on_setup do
+        GraphWeaver::Railtie.hiding_outputs = false
+        GraphWeaver::Railtie.check_alignment!
+      end
     else
       self.hiding_outputs = false
     end
+  end
+
+  # Which side of the rule one graph's output falls, and say so in a line at
+  # debug: a user who set `namespace:` and expected laziness learns here why
+  # they didn't get it. True when the tree is Zeitwerk's to load.
+  def self.consider_output!(graph)
+    dir = autoload_path(graph.output)
+    return true if autoloaded_dirs.include?(dir)
+    # already hidden by an earlier pass, and an ignore can't be taken back
+    return false if ignored_dirs.include?(dir)
+
+    reason = misalignment(graph, dir)
+    subject, = describe_output(dir)
+    if reason
+      GraphWeaver::Internal::Log.log(:debug) do
+        "#{subject} is hidden from Zeitwerk and required at boot — #{reason}"
+      end
+      # here rather than back in ignore_output!, so the decision is recorded
+      # the moment it is made and the sweep doesn't reach it a second time
+      hide!(dir)
+      return false
+    end
+
+    autoloaded_dirs << dir
+    # types.rb requires its own directory — one file per type, in the order the
+    # runtime needs — so Zeitwerk never autoloads those files one at a time.
+    # Only eager loading walks them, and it would want a constant name for each
+    # that the generator's own inflection doesn't promise: HTTPHeaderInput
+    # writes httpheader_input.rb, which Zeitwerk reads as HttpheaderInput.
+    # Loading types.rb is what loads them, and types.rb is eager loaded.
+    Rails.autoloaders.each { |loader| loader.do_not_eager_load(File.join(dir, "types")) }
+    GraphWeaver::Internal::Log.log(:debug) do
+      "#{subject} is left to Zeitwerk — every module it generates is the constant Zeitwerk reads " \
+        "off the path, so it autoloads on first reference and reloads with the app"
+    end
+    true
+  end
+
+  # Why Zeitwerk would NOT name what this graph generates the way its files do
+  # — nil when it would, which is the aligned case. The first disagreement is
+  # the whole answer: one namespace settles every file, so the fix for one is
+  # the fix for all of them.
+  def self.misalignment(graph, dir)
+    main = Rails.autoloaders.main if Rails.respond_to?(:autoloaders) && Rails.autoloaders.respond_to?(:main)
+    # 2.6.2 is where cpath_expected_at arrives, and with it the only answer
+    # that can confirm this one at setup — without it nothing is left to
+    # Zeitwerk, which is what every app got before.
+    unless main.respond_to?(:cpath_expected_at)
+      return "no autoloader here answers cpath_expected_at (Zeitwerk 2.6.2 and up does)"
+    end
+
+    if ignored_by_app?(dir)
+      return "it is already hidden from autoloading — a GraphWeaver.generated_paths pattern reaches " \
+        "it, or the app ignored it itself"
+    end
+
+    namespace = expected_cpath(dir)
+    return "it is not under an autoload path, so nothing but this would load it" unless namespace
+    unless namespace == graph.namespace
+      return "Zeitwerk reads that directory as #{namespace}, and this graph's constants are " \
+        "#{graph.namespace || "top-level"} (namespace #{namespace.inspect} makes them agree)"
+    end
+
+    types = expected_cpath(File.join(dir, "types.rb"))
+    return "types.rb defines #{graph.types_module}, Zeitwerk expects #{types}" unless types == graph.types_module
+
+    first_mismatch(graph, dir)
+  end
+
+  # The first query module whose name isn't the one Zeitwerk reads off its
+  # file. Only reached once the namespace agrees, so what is left is a file
+  # name the app's inflector camelizes differently from the generator.
+  def self.first_mismatch(graph, dir)
+    GraphWeaver::Internal::Util.query_files(graph.queries).each do |query|
+      name, filename = graph.generated_names(query, File.read(query))
+      expected = expected_cpath(File.join(dir, filename))
+      next if expected == name
+
+      return "#{filename} defines #{name}, Zeitwerk expects #{expected}"
+    end
+    nil
+  end
+
+  # The constant Zeitwerk will expect at an absolute path, or nil when nothing
+  # will autoload it.
+  #
+  # Zeitwerk answers this itself, with cpath_expected_at — but only once Rails
+  # has pushed the main loader's roots, and Rails does that INSIDE
+  # :setup_main_autoloader, whose start is the deadline for `ignore`. So the
+  # roots here are the list Rails is about to push, and every constant name
+  # comes from the loader's own inflector, which an app's `inflect`/`acronym`
+  # is already on. check_alignment! re-asks Zeitwerk the moment it can answer.
+  def self.expected_cpath(path)
+    main = Rails.autoloaders.main
+    roots = autoload_roots
+    cnames = []
+    dir = path
+    if path.end_with?(".rb")
+      cnames << main.inflector.camelize(File.basename(path, ".rb"), path)
+      dir = File.dirname(path)
+    end
+    until roots.key?(dir)
+      parent = File.dirname(dir)
+      return if parent == dir || ignored_by_app?(dir)
+
+      cnames << main.inflector.camelize(File.basename(dir), dir)
+      dir = parent
+    end
+    return if ignored_by_app?(dir)
+
+    [roots[dir], *cnames.reverse].compact.join("::")
+  end
+
+  # Every directory the main autoloader will have as a root, and the name of
+  # the namespace each sits under (nil for Object): the paths Rails is about to
+  # push, plus any the app pushed itself — which is the only way a root gets a
+  # namespace, and the one thing Rails leaves alone when it pushes the rest.
+  def self.autoload_roots
+    roots = {}
+    if defined?(ActiveSupport::Dependencies) && ActiveSupport::Dependencies.respond_to?(:autoload_paths)
+      once = Rails.autoloaders.respond_to?(:once) ? Rails.autoloaders.once.dirs : []
+      ActiveSupport::Dependencies.autoload_paths.each do |path|
+        path = path.to_s
+        # through autoload_path, so a root and an output under it are spelled
+        # the same way — a symlinked checkout (Capistrano's current/) otherwise
+        # has the root as Rails wrote it and the output as realpath saw it
+        roots[autoload_path(path)] = nil unless once.include?(path)
+      end
+    end
+    Rails.autoloaders.main.dirs(namespaces: true).each do |dir, namespace|
+      roots[autoload_path(dir)] = (namespace == Object) ? nil : namespace.name
+    end
+    roots
+  end
+
+  # An app that hid the directory itself has a tree Zeitwerk will not load
+  # however it is named — so it is one to require at boot, exactly as before.
+  def self.ignored_by_app?(dir)
+    asked = IGNORES.find { |name| Rails.autoloaders.main.respond_to?(name) }
+    asked && Rails.autoloaders.main.public_send(asked, dir)
+  end
+
+  # The prediction above, against the one answer that is authoritative. A
+  # `collapse` between the autoload root and the output, or a root pushed under
+  # its own namespace after this railtie looked, changes the name — and neither
+  # is readable before setup. Left unsaid, that surfaces as Zeitwerk's own
+  # error on the first eager load in production.
+  def self.check_alignment!
+    main = Rails.autoloaders.main
+    Array(autoloaded_dirs).each do |dir|
+      # the top level only: types/ is excluded from eager loading, so what
+      # Zeitwerk reads off those files never comes up
+      Dir[File.join(dir, "*.rb")].sort.each do |file|
+        expected = main.cpath_expected_at(file)
+        # nil is "I don't see that file" — which is what Zeitwerk answers for a
+        # path spelled through a symlink its own roots aren't, so it is not an
+        # answer to compare against
+        next if expected.nil? || expected == expected_cpath(file)
+
+        subject, short = describe_output(dir)
+        raise GraphWeaver::Error,
+          "#{subject} was left to Zeitwerk because the constants it generates are the ones its path " \
+          "spells — but Zeitwerk reads #{GraphWeaver::Internal::Util.relative(file)} as " \
+          "#{expected.inspect}, not #{expected_cpath(file).inspect}. A `collapse`, or an autoload root " \
+          "pushed under its own namespace, over #{short} changes that name: move the output out from " \
+          "under it, or set namespace: to what Zeitwerk reads."
+      end
+    end
+  end
+
+  # Whether this generated directory is one Zeitwerk is loading — what
+  # Internal::Util.required_dirs asks, so the boot-time require skips it.
+  def self.left_to_zeitwerk?(path)
+    Array(autoloaded_dirs).include?(autoload_path(path))
   end
 
   # Hide one output from Zeitwerk, the moment it is named — a graph declared in
@@ -141,14 +334,41 @@ class GraphWeaver::Railtie < Rails::Railtie
   def self.ignore_output!(path)
     return unless hiding_outputs
 
-    # patterns, not paths — generated_paths may be globs, and Zeitwerk expands
-    # its own at setup, which is what the window stays open until
-    dir = autoload_path(path)
+    # a graph saying where it writes is also the moment the rule can be applied
+    # to it: config/initializers is later than the sweep above, so this is
+    # where an app's second graph is first heard of
+    graph = GraphWeaver.graphs.find { |candidate| autoload_path(candidate.output) == autoload_path(path) }
+    return if graph && consider_output!(graph)
+
+    hidden_for(path).each { |dir| hide!(dir) }
+  end
+
+  # Hide one resolved directory, once.
+  def self.hide!(dir)
     return if ignored_dirs.include?(dir)
 
     check_autoload_once!([dir])
     ignored_dirs << dir
     Rails.autoloaders.each { |loader| loader.ignore(dir) }
+  end
+
+  # What hiding one generated path means. Normally the pattern itself —
+  # generated_paths may be globs, and Zeitwerk expands its own at setup, so a
+  # directory a pattern will match is hidden however late it appears; that is
+  # what the window stays open until. The exception is a pattern that also
+  # covers a tree Zeitwerk is keeping (app/graphql/*/generated matches a
+  # namespaced graph's own output), since a glob can't say "all but this one":
+  # then it is expanded here and the aligned directories left out.
+  def self.hidden_for(path)
+    dir = autoload_path(path)
+    kept = Array(autoloaded_dirs)
+    return [dir] if kept.empty?
+
+    expanded = Dir[GraphWeaver::Internal::Util.resolve(path)]
+      .select { |found| File.directory?(found) }.map { |found| autoload_path(found) }
+    return [dir] if (expanded & kept).empty?
+
+    expanded - kept
   end
 
   # The `once` autoloader is set up in bootstrap, before any of this — and
@@ -211,7 +431,9 @@ class GraphWeaver::Railtie < Rails::Railtie
   def self.describe_output(dir)
     graph = GraphWeaver.graphs.find { autoload_path(_1.output) == dir }
     short = GraphWeaver::Internal::Util.relative(GraphWeaver::Internal::Util.resolve(graph&.output || dir))
-    ["#{graph ? "graph :#{graph.name}'s output" : "generated path"} #{short}", short]
+    # the default graph has no name to say, and "graph :'s output" is worse
+    # than the path on its own
+    ["#{graph&.name ? "graph #{graph.name.inspect}'s output" : "generated path"} #{short}", short]
   end
 
   # A graph declared from to_prepare — what the docs say to do when its block
@@ -219,16 +441,20 @@ class GraphWeaver::Railtie < Rails::Railtie
   # Zeitwerk reads its ignore list only then. So an output that arrives that
   # late can't be hidden: its files load as ordinary autoloads and raise on the
   # constant they don't define, in a Zeitwerk error that blames a dropped
-  # extend_type. Refuse, and name what actually happened.
+  # extend_type. Refuse, and name what actually happened — unless the tree is
+  # one Zeitwerk names correctly, which needed no hiding at any point and is as
+  # true declared late as declared early.
   def self.check_generated_ignored!
     # no autoloaders, no Zeitwerk, nothing to refuse
     return unless Rails.respond_to?(:autoloaders)
 
-    late = GraphWeaver::Internal::Util.generated_dirs.map { autoload_path(_1) } - Array(ignored_dirs)
+    late = GraphWeaver::Internal::Util.generated_dirs.map { autoload_path(_1) } -
+      Array(ignored_dirs) - Array(autoloaded_dirs)
     return if late.empty?
 
     late.each do |dir|
       next unless Rails.autoloaders.any? { |loader| autoloaded?(loader, dir) }
+      next if aligned_late?(dir)
 
       subject, short = describe_output(dir)
       raise GraphWeaver::Error,
@@ -237,6 +463,17 @@ class GraphWeaver::Railtie < Rails::Railtie
         "the graph in config/initializers (schema -> { MyApp::Schema } resolves an autoloaded class when " \
         "generation asks), or name #{short.inspect} in GraphWeaver.generated_paths there."
     end
+  end
+
+  # A graph declared after setup, whose tree Zeitwerk already names correctly:
+  # nothing had to be hidden, so nothing was missed. Recorded on the way past,
+  # so the boot-time require skips it too.
+  def self.aligned_late?(dir)
+    graph = GraphWeaver.graphs.find { autoload_path(_1.output) == dir }
+    return false unless graph && misalignment(graph, dir).nil?
+
+    self.autoloaded_dirs = Array(autoloaded_dirs) | [dir]
+    true
   end
 
   # The two auto-wires an app gets for free, and the only two it can turn off
@@ -408,8 +645,10 @@ class GraphWeaver::Railtie < Rails::Railtie
     # reloaded what it wrote.
     return if watcher&.execute_if_updated
 
-    # entries may be globs, so Dir[] rather than Dir.exist?
-    generated = GraphWeaver::Internal::Util.generated_dirs.any? do |dir|
+    # entries may be globs, so Dir[] rather than Dir.exist?. required_dirs, not
+    # generated_dirs: a tree left to Zeitwerk loads on first reference, and not
+    # requiring its whole parent chain here is the point of leaving it there.
+    generated = GraphWeaver::Internal::Util.required_dirs.any? do |dir|
       Dir[GraphWeaver::Internal::Util.resolve(dir)].any?
     end
     return unless generated
@@ -422,7 +661,7 @@ class GraphWeaver::Railtie < Rails::Railtie
     # request 500s on "uninitialized constant Accounts::PersonQuery" until a
     # .graphql edit happens to trigger the watcher. An un-namespaced module
     # defines a top-level constant Zeitwerk never manages, so it survives.
-    if GraphWeaver.graphs.any?(&:namespace)
+    if GraphWeaver.graphs.any? { |graph| graph.namespace && !left_to_zeitwerk?(graph.output) }
       GraphWeaver.reload_generated!
     else
       GraphWeaver.load_generated!

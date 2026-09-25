@@ -192,6 +192,23 @@ module GraphWeaver
           GraphWeaver.generated_paths | extra
         end
 
+        # The generated directories this process has to require ITSELF:
+        # generated_dirs, less any tree the Railtie left to Zeitwerk. Those
+        # load on first reference and reload with the app, and requiring them
+        # is the one thing an autoloadable layout exists to avoid.
+        def required_dirs
+          generated_dirs.reject { |dir| left_to_zeitwerk?(dir) }
+        end
+
+        # by name, not spelled: the railtie is Rails-only and `typed: ignore`,
+        # so sorbet has no constant to resolve. Outside Rails there is no
+        # autoloader and the answer is always no.
+        def left_to_zeitwerk?(path)
+          return false unless GraphWeaver.const_defined?(:Railtie, false)
+
+          GraphWeaver.const_get(:Railtie, false).left_to_zeitwerk?(path)
+        end
+
         # Every query document under these directories, sorted — the files
         # generate!, verify_generated!, check_queries and load_queries! read.
         def query_files(paths = GraphWeaver.queries_paths)

@@ -835,10 +835,8 @@ has the other attributes it reads.
 
 ### Loading what it wrote
 
-In Rails, loading is automatic — the Railtie requires every generated file at
-the end of boot, after your initializers and after any registrations of your own
-in a `to_prepare` block, and again after each development reload. Elsewhere it's
-explicit, factory_bot-style:
+In Rails, loading is automatic — [one rule](#the-rule-in-rails) decides whether
+Zeitwerk does it or the Railtie does. Elsewhere it's explicit, factory_bot-style:
 `GraphWeaver.load_generated!` requires every file under `generated_paths`.
 
 **Outside Rails, four things have to agree**, and nothing wires them together for
@@ -867,11 +865,57 @@ list would name a dump nothing ever opens. A relative path resolves against
 `GraphWeaver.root` — `Rails.root` in a Rails app, the working directory otherwise
 — so where you started the process doesn't change which files it reads.
 
-Plain requires, not Zeitwerk: Zeitwerk would expect `Generated::PersonQuery` from
-`generated/person_query.rb`. In development a query edit regenerates and reloads
-before the next request; everywhere else generated code changes only on
-regeneration — restart, like a schema migration, or call
-`GraphWeaver.reload_generated!` after regenerating in another terminal.
+#### The rule in Rails
+
+**A generated tree Zeitwerk would name correctly is left to Zeitwerk; any other
+is hidden from it and required at boot.**
+
+The conventional layout is the second one: `generated/person_query.rb` defines
+`::PersonQuery` where Zeitwerk reads `Generated::PersonQuery` off the path. So
+the Railtie hides that directory from the autoloader and requires every file at
+the end of boot — after your initializers and after any `to_prepare`
+registrations of your own, and again after each development reload.
+
+A tree is named correctly when the graph's [`namespace`](getting_started.md#more-than-one-schema)
+is the constant its output path spells:
+
+```ruby
+GraphWeaver.graph :reports do
+  output    "app/graphql/queries/reports/generated"
+  namespace "Queries::Reports::Generated"
+end
+```
+
+`report_query.rb` then defines `Queries::Reports::Generated::ReportQuery`, which
+is exactly what Zeitwerk expects there — your own `inflect`/`acronym` rules
+included, since graph_weaver asks the loader rather than guessing. Nothing is
+hidden and nothing is required: the modules autoload on first reference and
+reload with the rest of the app, and **no part of the parent namespace chain is
+defined until a query is used**. Leave `types_module` unset for it — the shared
+manifest is `types.rb`, which Zeitwerk reads as `<Namespace>::Types`, and `Types`
+is what a namespaced graph already calls it.
+
+The Railtie says which side each graph fell on, one line apiece at debug, naming
+the constant that disagreed:
+
+```
+graph :reports's output app/graphql/queries/reports/generated is hidden from
+Zeitwerk and required at boot — types.rb defines …::GraphQLTypes, Zeitwerk
+expects …::Types
+```
+
+**The settings have two lifetimes.** `schema`, `queries`, `output` and
+`namespace` matter only when `generate`/`verify` runs. `extend_type`,
+`register_scalar` and `register_enum` are needed wherever generated code *loads*
+— which under autoloading is the first request that uses a query, long after
+boot. So generation settings can live wherever generation happens, and
+registrations belong in `config/initializers` or a `to_prepare` block, where
+every boot runs them.
+
+In development a query edit regenerates and reloads before the next request;
+everywhere else generated code changes only on regeneration — restart, like a
+schema migration, or call `GraphWeaver.reload_generated!` after regenerating in
+another terminal.
 
 ## Dynamic mode
 

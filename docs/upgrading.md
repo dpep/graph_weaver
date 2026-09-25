@@ -32,7 +32,8 @@ Read the left column and skip what isn't yours; the
 
 | applies if you… | what changed |
 |---|---|
-| set `namespace:` on any graph — `rake graph_weaver:graphs` lists them | its shared types module is `<Namespace>::Types`, not `<Namespace>::GraphQLTypes`. **Regenerate**, then move app code naming `<Namespace>::GraphQLTypes::X` to `<Namespace>::Types::X` — `srb tc` finds every site. Keep the old name with `types_module "GraphQLTypes"` in that graph's block, at the cost of the [autoloadable layout](generated_modules.md#loading-what-it-wrote) below |
+| set `namespace:` on any graph — `rake graph_weaver:graphs` lists them | its shared types module is `<Namespace>::Types`, not `<Namespace>::GraphQLTypes`. **Regenerate**, then move app code naming `<Namespace>::GraphQLTypes::X` to `<Namespace>::Types::X` — `srb tc` finds every site. Keep the old name with `types_module "GraphQLTypes"` in that graph's block, at the cost of the autoloadable layout below |
+| run Rails, and have a graph whose `namespace:` is the constant its output path spells | that tree is [left to Zeitwerk](generated_modules.md#the-rule-in-rails) — autoloaded on first reference, reloaded with the app, and no longer required at boot, so booting stops defining its parent namespace chain. Nothing to do; the Railtie says which side each graph fell on at debug. Every other tree is hidden and required exactly as before |
 
 Then regenerate, and the gate:
 

@@ -527,7 +527,10 @@ a bare `schema` reads back; there is no `schema = "x"` form, since the block is
 `Billing::PersonQuery` ([naming](generated_modules.md#naming)). Constants are
 global, so two schemas that both have a `person.graphql` would otherwise fight
 over one name; without a namespace the collision is refused at generation,
-naming both files. **The block's registrations reach that graph alone**, laid
+naming both files. **A namespace that is the constant the output path spells is
+also what makes the tree autoloadable** — graph_weaver then leaves it to Zeitwerk
+instead of hiding it and requiring it at boot
+([loading](generated_modules.md#the-rule-in-rails)). **The block's registrations reach that graph alone**, laid
 over the top-level ones — so `Money` is checked against the schema it was
 registered for, and against no other.
 
