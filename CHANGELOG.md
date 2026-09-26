@@ -1,4 +1,4 @@
-## Unreleased
+###  v0.7.7  (2026-09-25)
 
 **What you must do.**
 
