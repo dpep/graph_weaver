@@ -1,3 +1,14 @@
+###  Unreleased
+
+**What you must do.**
+
+- **Nothing — loading a composed supergraph skips a round trip through text.**
+  Stripping the composition machinery already parses the SDL and filters the
+  AST; that document now goes to graphql-ruby's builder directly, instead of
+  being printed back to SDL for `from_definition` to parse a second time. Same
+  schema, field for field, and most of the saving lands on the big supergraphs
+  where it was worth having.
+
 ###  v0.7.7  (2026-09-25)
 
 **What you must do.**

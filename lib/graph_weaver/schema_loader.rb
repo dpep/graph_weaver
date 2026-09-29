@@ -123,9 +123,22 @@ module GraphWeaver::SchemaLoader
     else sdl
     end
 
-    build(kind) { GraphQL::Schema.from_definition(prepared) }
+    build(kind) { build_schema(prepared) }
   end
   private_class_method :build_sdl
+
+  # A supergraph arrives here as the AST strip_federation filtered, anything
+  # else as SDL text. `from_definition` is parse-then-build, so an AST takes
+  # the build half directly — printing it back and parsing it again is a
+  # round trip through text that can only cost. spec/schema_loader_spec.rb
+  # pins the entry point, so a graphql-ruby that moves it fails there rather
+  # than as a NoMethodError inside someone's load.
+  def self.build_schema(prepared)
+    return GraphQL::Schema.from_definition(prepared) if prepared.is_a?(String)
+
+    GraphQL::Schema::BuildFromDefinition.from_document(GraphQL::Schema, prepared, default_resolve: nil)
+  end
+  private_class_method :build_schema
 
   def self.build_introspection(result)
     build(:introspection) { GraphQL::Schema.from_introspection(result) }.tap do |schema|
@@ -519,9 +532,9 @@ module GraphWeaver::SchemaLoader
   # join__*/link__* type and directive definitions, and every @join__*/@link
   # application on the types that remain. What's left is the merged graph's
   # ordinary type shapes — exactly what codegen reads. Parsing is lenient (it's
-  # schema *building* that rejects the join directives), so we parse, filter the
-  # AST, and reprint clean SDL for from_definition — no graphql-ruby monkeypatch
-  # and no join__* leaking into schema.types.
+  # schema *building* that rejects the join directives), so we parse and filter
+  # the AST, and hand that document to the builder — no graphql-ruby
+  # monkeypatch and no join__* leaking into schema.types.
   def self.strip_federation(sdl)
     doc = GraphQL.parse(sdl)
     ns = link_namespaces(doc)
@@ -535,7 +548,7 @@ module GraphWeaver::SchemaLoader
         "is the whole schema behind @inaccessible?"
     end
 
-    GraphQL::Language::Nodes::Document.new(definitions: defs).to_query_string
+    GraphQL::Language::Nodes::Document.new(definitions: defs)
   end
   private_class_method :strip_federation
 

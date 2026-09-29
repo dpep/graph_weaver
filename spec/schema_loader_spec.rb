@@ -660,6 +660,16 @@ describe GraphWeaver::SchemaLoader do
       )).to be(false)
     end
 
+    # A supergraph is filtered as an AST, so it goes to the build half of
+    # from_definition directly rather than being printed and parsed again.
+    # That is a call into graphql-ruby, not a monkeypatch — but it is the
+    # half from_definition keeps to itself, so pin it: a release that moves
+    # it must fail here, not as a NoMethodError inside someone's load.
+    it "builds a supergraph through graphql-ruby's own document entry point" do
+      expect(GraphQL::Schema::BuildFromDefinition)
+        .to respond_to(:from_document).with(2).arguments.and_keywords(:default_resolve)
+    end
+
     it "strips the composition machinery, keeping the merged type shapes" do
       schema = described_class.load(supergraph)
 
