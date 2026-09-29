@@ -466,6 +466,21 @@ db/schema.graphql records no source url and the graph names no server behind it 
 still exits 1, because a gate that passes on having compared nothing is worse
 than one that says so.
 
+**A large dump costs nothing until something asks for it.** A client built from
+a file stats the path at construction — a typo fails at boot, naming it — and
+parses the file the first time anything wants the schema: codegen, a test mode,
+`check_query`. Executing a generated module never does, so a production boot
+never parses. Where the parse does run, it is graphql-ruby's, and graphql-ruby
+ships a C parser that every load here picks up automatically:
+
+```ruby
+gem "graphql-c_parser"   # ~3× faster parsing; a 2000-type supergraph loads in
+                         # three quarters of the time and its routing table in half
+```
+
+Keep one client per server rather than building one per call — a client parses
+its dump once and keeps the schema.
+
 ## More than one schema
 
 The five steps above describe one graph — a schema, its queries, its output. An
