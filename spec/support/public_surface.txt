@@ -300,6 +300,8 @@ GraphWeaver::SchemaDiff::Change#to_s
 GraphWeaver::SchemaDiff::Change.[]
 GraphWeaver::SchemaDiff::Change.members
 GraphWeaver::SchemaLoader (Module)
+GraphWeaver::SchemaLoader.check_path!
+GraphWeaver::SchemaLoader.content?
 GraphWeaver::SchemaLoader.diff
 GraphWeaver::SchemaLoader.dump_path?
 GraphWeaver::SchemaLoader.endpoint

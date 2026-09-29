@@ -82,6 +82,9 @@ class GraphWeaver::Client
       if source.is_a?(Module)
         @schema = source
       else
+        # a path is checked now — a stat, not a parse — so a wrong one
+        # refuses where it was written rather than at the first request
+        GraphWeaver::SchemaLoader.check_path!(source) unless GraphWeaver::SchemaLoader.content?(source)
         @dump = source
       end
       # A supergraph's routing table lives in the file, not in the loaded

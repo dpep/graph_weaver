@@ -271,9 +271,29 @@ describe GraphWeaver::Client do
         # unread at construction, so there is nothing left to build from —
         # and the refusal still names the path, where it was always going to
         expect { client.schema }.to raise_error(GraphWeaver::Error, %r{can't read the schema at .*/schema.graphql})
-        # a client built from a file that isn't there is still a client that
-        # names it: nothing is read until something asks for the schema
-        expect(GraphWeaver.new(path).schema_source).to eq path
+      end
+    end
+
+    # the parse waits for first use; the wrong path doesn't — a stat at
+    # construction is what keeps a typo failing at boot
+    it "refuses a dump that isn't there at construction, naming the path" do
+      Dir.mktmpdir do |dir|
+        missing = File.join(dir, "nope.graphql")
+
+        expect { GraphWeaver.new(missing) }
+          .to raise_error(GraphWeaver::Error, %r{can't read the schema at .*/nope.graphql: No such file})
+        expect { GraphWeaver.new(File.join(dir, "schema.txt")) }
+          .to raise_error(GraphWeaver::Error, /unsupported schema format: .*schema\.txt/)
+      end
+    end
+
+    it "refuses a dump that exists but isn't a schema at first use" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "schema.json")
+        File.write(path, "<html>login</html>")
+
+        client = GraphWeaver.new(path)
+        expect { client.schema }.to raise_error(GraphWeaver::Error, /schema\.json/)
       end
     end
 

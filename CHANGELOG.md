@@ -9,10 +9,13 @@
   only to name its supergraph, the dump `graphql: :router` plans against,
   never parses it at all.
 
-  **Action:** a dump that can't be read, or can't be built into a schema, now
-  refuses at the first `schema`, `parse` or `check_query` instead of at the
-  line that built the client. The message is unchanged and still names the
-  path, so a typo reads the same — it just arrives a moment later.
+  A wrong path still fails where it was written: construction stats the file
+  and checks its extension, so a path that isn't there, isn't readable, or
+  isn't `.json`/`.graphql`/`.gql` refuses at boot, naming the path, without
+  reading a byte. **Action:** only a dump that exists but can't be built into
+  a schema — truncated, not a schema at all — moves to the first `schema`,
+  `parse` or `check_query`; `rake graph_weaver:verify` in CI catches that one
+  before a boot does.
 
 - **Nothing — loading a composed supergraph skips a round trip through text.**
   Stripping the composition machinery already parses the SDL and filters the

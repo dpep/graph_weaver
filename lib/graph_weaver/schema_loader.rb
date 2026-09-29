@@ -49,6 +49,14 @@ module GraphWeaver::SchemaLoader
     source.match?(SDL_CONTENT)
   end
 
+  # Schema content rather than a path: introspection JSON, SDL, or anything
+  # spanning lines (which `load` refuses as content it doesn't recognize).
+  def self.content?(source)
+    source = source.to_path if source.respond_to?(:to_path)
+    source = source.to_s
+    source.lstrip.start_with?("{") || sdl_content?(source) || source.include?("\n")
+  end
+
   def self.load_path(path)
     case File.extname(path)
     when ".json"
@@ -56,12 +64,32 @@ module GraphWeaver::SchemaLoader
     when ".graphql", ".gql"
       build_sdl(read_schema(path))
     else
-      raise GraphWeaver::Error, url_error(path) ||
-        "unsupported schema format: #{truncate(path)} — expected a .json (introspection) or " \
-        ".graphql/.gql (SDL) path, or the content itself"
+      unsupported_path!(path)
     end
   end
   private_class_method :load_path
+
+  # Fail fast on a path `load` would refuse later — the extension and a
+  # stat, no read and no parse. A client defers building the schema to first
+  # use, so this is what still refuses at the line that named the file: a
+  # wrong path is known at boot, a malformed file at first use.
+  def self.check_path!(path)
+    path = path.to_path if path.respond_to?(:to_path)
+    unsupported_path!(path) unless dump_path?(path)
+
+    resolved = GraphWeaver::Internal::Util.resolve(path)
+    File.stat(resolved)
+    raise GraphWeaver::Error, "can't read the schema at #{path}: permission denied" unless File.readable?(resolved)
+  rescue SystemCallError => e
+    raise GraphWeaver::Error, "can't read the schema at #{path}: #{e.message}"
+  end
+
+  def self.unsupported_path!(path)
+    raise GraphWeaver::Error, url_error(path) ||
+      "unsupported schema format: #{truncate(path)} — expected a .json (introspection) or " \
+      ".graphql/.gql (SDL) path, or the content itself"
+  end
+  private_class_method :unsupported_path!
 
   def self.read_schema(path)
     File.read(GraphWeaver::Internal::Util.resolve(path))
