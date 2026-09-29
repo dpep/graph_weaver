@@ -470,13 +470,7 @@ than one that says so.
 a file stats the path at construction — a typo fails at boot, naming it — and
 parses the file the first time anything wants the schema: codegen, a test mode,
 `check_query`. Executing a generated module never does, so a production boot
-never parses. Where the parse does run, it is graphql-ruby's, and graphql-ruby
-ships a C parser that every load here picks up automatically:
-
-```ruby
-gem "graphql-c_parser"   # ~3× faster parsing; a 2000-type supergraph loads in
-                         # three quarters of the time and its routing table in half
-```
+never parses.
 
 Keep one client per server rather than building one per call — a client parses
 its dump once and keeps the schema.

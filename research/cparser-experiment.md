@@ -1,7 +1,11 @@
 # graphql-c_parser under graph_weaver — an experiment
 
 Run 2026-09-29 against `ddad21d`, graphql 2.6.10, graphql-c_parser 1.1.4,
-Ruby 3.4.9, macOS. Nothing here is merged; the branch carries this memo only.
+Ruby 3.4.9, macOS.
+
+**Since written:** F1 is fixed — `operation_offset` lexes rather than reading a
+reported column — and the docs recommendation this memo argues against is gone.
+F2 through F8 are upstream and stand as found.
 
 **Recommendation: (d) — don't recommend it, and delete the recommendation the
 docs already make.** `docs/getting_started.md:474` currently tells apps to add
