@@ -1,0 +1,288 @@
+#!/usr/bin/env ruby
+# Where does loading a supergraph spend its time?
+#
+#   bin/bench-load                       # synthesized graphs at 500/2000/8000 types
+#   bin/bench-load -t 8000               # one size
+#   bin/bench-load ~/supergraph.graphql  # a real composed graph
+#   bin/bench-load -t 2000 --profile     # stackprof over SchemaLoader.load
+#
+# The stages are SchemaLoader's own, timed in the order `load` runs them, so
+# they sum to it — what is left over is printed as `unattributed`, because a
+# stage nobody named is exactly where a surprise hides. `routing_table` is
+# timed separately: it reads and parses the same file a second time.
+#
+# The repo's fixture supergraph is 6 KB, which times as noise; the synthesizer
+# exists so there is something big enough to read a slope off.
+
+require "optparse"
+
+require_relative "../lib/graph_weaver"
+
+options = { sizes: [], reps: 5 }
+OptionParser.new do |opts|
+  opts.banner = "usage: bin/bench-load [SUPERGRAPH ...] [options]"
+  opts.on("-t", "--types N", Integer, "synthesize a supergraph with N object types (repeatable)") do |v|
+    options[:sizes] << v
+  end
+  opts.on("-r", "--reps N", Integer, "timed runs per stage (default 5)") { |v| options[:reps] = v }
+  opts.on("--profile", "stackprof over SchemaLoader.load, top frames") { options[:profile] = true }
+end.parse!
+
+# A composed supergraph, shaped like one rover would print: a @link header,
+# the join spec's directive definitions, three subgraphs, @join__type on every
+# type and @join__field on about half the fields, and a scattering of
+# @inaccessible for the API-schema subtraction to chew on.
+module Synth
+  SUBGRAPHS = { "ACCOUNTS" => "accounts", "PRODUCTS" => "products", "REVIEWS" => "reviews" }.freeze
+  FIELDS_PER_TYPE = 8
+  # every Nth type / field is hidden from the public API
+  INACCESSIBLE_TYPE = 97
+  INACCESSIBLE_FIELD = 53
+
+  def self.supergraph(types)
+    [header, *(0...types).map { |i| object_type(i, types) }, query_type(types)].join("\n\n") + "\n"
+  end
+
+  def self.header
+    <<~SDL.chomp
+      schema
+        @link(url: "https://specs.apollo.dev/link/v1.0")
+        @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION)
+        @link(url: "https://specs.apollo.dev/inaccessible/v0.2", for: SECURITY)
+      {
+        query: Query
+      }
+
+      directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
+
+      directive @join__enumValue(graph: join__Graph!) repeatable on ENUM_VALUE
+
+      directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+
+      directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+      directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
+
+      directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+
+      directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
+
+      directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+      scalar join__FieldSet
+
+      enum join__Graph {
+      #{SUBGRAPHS.map { |e, n| %(  #{e} @join__graph(name: "#{n}", url: "http://localhost/#{n}")) }.join("\n")}
+      }
+
+      scalar link__Import
+
+      enum link__Purpose {
+        SECURITY
+        EXECUTION
+      }
+
+      enum Status
+        @join__type(graph: ACCOUNTS)
+        @join__type(graph: PRODUCTS)
+      {
+        DRAFT @join__enumValue(graph: ACCOUNTS) @join__enumValue(graph: PRODUCTS)
+        LIVE @join__enumValue(graph: ACCOUNTS) @join__enumValue(graph: PRODUCTS)
+        RETIRED @join__enumValue(graph: ACCOUNTS) @join__enumValue(graph: PRODUCTS)
+      }
+    SDL
+  end
+
+  def self.object_type(index, total)
+    enums = SUBGRAPHS.keys
+    owner = enums[index % enums.size]
+    shared = enums[(index + 1) % enums.size]
+    hidden = (index % INACCESSIBLE_TYPE).zero? && index.positive?
+
+    joins = [%(  @join__type(graph: #{owner}, key: "id"))]
+    joins << %(  @join__type(graph: #{shared}, key: "id")) if index.even?
+    joins << "  @inaccessible" if hidden
+
+    <<~SDL.chomp
+      type Type#{index}
+      #{joins.join("\n")}
+      {
+        id: ID!
+      #{fields(index, total, owner, shared).join("\n")}
+      }
+    SDL
+  end
+
+  def self.fields(index, total, owner, shared)
+    (0...FIELDS_PER_TYPE).map do |f|
+      seq = (index * FIELDS_PER_TYPE) + f
+      type = case f % 4
+      when 0 then "String"
+      when 1 then "Int!"
+      when 2 then "Status"
+      else "[Type#{(index + f + 1) % total}!]"
+      end
+
+      directives = []
+      directives << if f.odd?
+        %(@join__field(graph: #{owner}))
+      elsif f == 2
+        %(@join__field(graph: #{shared}, requires: "id", external: true))
+      end
+      directives << "@inaccessible" if (seq % INACCESSIBLE_FIELD).zero?
+
+      "  field#{f}: #{type}#{directives.compact.map { |d| " #{d}" }.join}"
+    end
+  end
+
+  # Query reaches a slice of the graph — enough entry points to be realistic
+  # without making the root itself the biggest type in the file.
+  def self.query_type(total)
+    roots = (0...total).step([total / 50, 1].max).map do |i|
+      "  type#{i}(id: ID!): Type#{i} @join__field(graph: ACCOUNTS)"
+    end
+
+    <<~SDL.chomp
+      type Query
+        @join__type(graph: ACCOUNTS)
+        @join__type(graph: PRODUCTS)
+        @join__type(graph: REVIEWS)
+      {
+      #{roots.join("\n")}
+      }
+    SDL
+  end
+end
+
+Loader = GraphWeaver::SchemaLoader
+
+def time
+  started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  result = yield
+  [(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000, result]
+end
+
+# One pass of the pipeline `load` runs for supergraph SDL, timed stage by
+# stage. Returns { stage => ms }.
+def pipeline(path)
+  timings = {}
+  timings["File.read"], sdl = time { File.read(path) }
+  timings["federation_sdl?"], = time { Loader.federation_sdl?(sdl) }
+  timings["GraphQL.parse"], doc = time { GraphQL.parse(sdl) }
+  timings["link_namespaces"], ns = time { Loader.send(:link_namespaces, doc) }
+  timings["remove_inaccessible"], kept = time { Loader.send(:remove_inaccessible, doc.definitions, ns) }
+  timings["strip directives"], defs = time do
+    kept.reject { |d| Loader.send(:federation_definition?, d, ns) }
+      .map { |d| Loader.send(:strip_federation_directives, d, ns) }
+  end
+  timings["to_query_string"], clean = time do
+    GraphQL::Language::Nodes::Document.new(definitions: defs).to_query_string
+  end
+  # from_definition = parse again + build; split, because the reprint above
+  # and this re-parse are the round trip through text that building from the
+  # filtered AST would skip
+  timings["re-parse (in build)"], reparsed = time { GraphQL.parse(clean) }
+  timings["build schema"], = time do
+    GraphQL::Schema::BuildFromDefinition.from_document(Class.new(GraphQL::Schema), reparsed, default_resolve: nil)
+  end
+  timings
+end
+
+def stats(samples)
+  sorted = samples.sort
+  { median: sorted[sorted.size / 2], min: sorted.first, max: sorted.last }
+end
+
+# A handful of runs supports two significant figures at best; printing more
+# turns scheduler noise into apparent signal.
+def ms(value)
+  return format("%.2f", value) if value < 10
+  return format("%.1f", value) if value < 100
+
+  value.round.to_s
+end
+
+TOTALS = ["SchemaLoader.load", "SchemaLoader.routing_table"].freeze
+
+def report(label, path, reps)
+  bytes = File.size(path)
+  # warm every stage, not just the parser: a first pass reads a cold page
+  # cache and grows the heap
+  pipeline(path)
+  Loader.load(path)
+  Loader.routing_table(path)
+
+  # interleaved, so the stages and the whole they belong to see the same heap
+  # — timing all the stages first and all the totals after reads the drift
+  # between the two loops as a gap that isn't there
+  runs = Array.new(reps) do
+    # from a settled heap, which is the condition a boot-time load starts in:
+    # every rep leaves behind a whole schema's worth of anonymous classes, and
+    # letting five of them pile up measures the benchmark, not the loader
+    GC.start
+    rep = pipeline(path)
+    gc = GC.total_time
+    rep["SchemaLoader.load"], = time { Loader.load(path) }
+    rep["GC (within load)"] = (GC.total_time - gc) / 1_000_000.0
+    rep["SchemaLoader.routing_table"], = time { Loader.routing_table(path) }
+    rep
+  end
+  measured = runs.first.keys.to_h { |stage| [stage, stats(runs.map { |r| r[stage] })] }
+  stages = measured.except(*TOTALS, "GC (within load)")
+
+  named = stages.sum { |_, s| s[:median] }
+  gap = measured["SchemaLoader.load"][:median] - named
+
+  row = ->(name, s) { puts format("  %-28s %9s %9s %9s", name, ms(s[:median]), ms(s[:min]), ms(s[:max])) }
+
+  puts
+  puts "#{label} — #{bytes / 1024} KB, #{reps} runs"
+  puts format("  %-28s %9s %9s %9s", "stage", "median", "min", "max")
+  stages.each { |name, s| row.call(name, s) }
+  puts format("  %-28s %9s", "(named stages)", ms(named))
+  puts format("  %-28s %9s", "unattributed", ms(gap))
+  puts
+  TOTALS.each { |name| row.call(name, measured[name]) }
+  row.call("GC (within load)", measured["GC (within load)"])
+end
+
+# stackprof stays out of the Gemfile: CI would build a native gem on three
+# rubies to run a profiler it never runs. `gem install stackprof` once, and
+# this finds it beside the bundle.
+def load_stackprof!
+  require "stackprof"
+rescue LoadError
+  spec = begin
+    Gem::Specification.find_by_name("stackprof")
+  rescue Gem::MissingSpecError
+    abort "--profile needs stackprof: gem install stackprof"
+  end
+  $LOAD_PATH.unshift(*spec.require_paths.map { |dir| File.join(spec.gem_dir, dir) })
+  require "stackprof"
+end
+
+def profile(path)
+  load_stackprof!
+  Loader.load(path) # warm
+  result = StackProf.run(mode: :wall, interval: 200) { 5.times { Loader.load(path) } }
+  puts
+  puts "top frames (wall, 5 loads)"
+  StackProf::Report.new(result).print_text(false, 25, $stdout)
+end
+
+sources = ARGV.map { |path| [File.basename(path), path] }
+sizes = options[:sizes].empty? && sources.empty? ? [500, 2000, 8000] : options[:sizes]
+
+require "tmpdir"
+Dir.mktmpdir("bench-load") do |dir|
+  synthesized = sizes.map do |types|
+    path = File.join(dir, "supergraph-#{types}.graphql")
+    File.write(path, Synth.supergraph(types))
+    ["synthesized #{types} types", path]
+  end
+
+  (synthesized + sources).each do |label, path|
+    report(label, path, options[:reps])
+    profile(path) if options[:profile]
+  end
+end
