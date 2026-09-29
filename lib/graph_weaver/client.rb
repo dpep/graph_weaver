@@ -75,8 +75,15 @@ class GraphWeaver::Client
       end
 
       # a live schema class doubles as an in-process transport; a loaded
-      # dump has no resolvers, so it is type information only
-      @schema = source.is_a?(Module) ? source : GraphWeaver::SchemaLoader.load(source)
+      # dump has no resolvers, so it is type information only — and it is
+      # read on first use, the rule a url client already follows. An app
+      # that builds one only to name its supergraph (what `graphql: :router`
+      # plans against) then never parses the file at all.
+      if source.is_a?(Module)
+        @schema = source
+      else
+        @dump = source
+      end
       # A supergraph's routing table lives in the file, not in the loaded
       # schema, so the path is the only thing that can name one later. Told
       # from SDL by its extension, as SchemaLoader tells it.
@@ -147,8 +154,9 @@ class GraphWeaver::Client
   FAILURE_TTL = 1.0
   private_constant :FAILURE_TTL
 
-  # The schema, introspecting through the transport on first use (cached
-  # per the client's cache:/ttl:) unless one was given up front.
+  # The schema, on first use: a dump is read and built, a url is
+  # introspected through the transport (cached per the client's cache:/ttl:).
+  # A schema class is the schema, and was there all along.
   #
   # Locked because a cold Puma process serves its first requests
   # concurrently: a bare ||= there is one full introspection round trip per
@@ -156,6 +164,7 @@ class GraphWeaver::Client
   def schema
     @schema_lock.synchronize do
       next @schema if @schema
+      next @schema = GraphWeaver::SchemaLoader.load(@dump) if @dump
       raise @schema_error if @schema_error && Process.clock_gettime(Process::CLOCK_MONOTONIC) < @schema_error_until
 
       begin

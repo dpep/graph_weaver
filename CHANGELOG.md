@@ -2,6 +2,18 @@
 
 **What you must do.**
 
+- **A client built from a schema dump reads it on first use.**
+  `GraphWeaver.new("supergraph.graphql")` no longer reads and parses the file
+  at construction — the schema arrives the first time something asks for it,
+  which is the rule a url client has always followed. An app that builds one
+  only to name its supergraph, the dump `graphql: :router` plans against,
+  never parses it at all.
+
+  **Action:** a dump that can't be read, or can't be built into a schema, now
+  refuses at the first `schema`, `parse` or `check_query` instead of at the
+  line that built the client. The message is unchanged and still names the
+  path, so a typo reads the same — it just arrives a moment later.
+
 - **Nothing — loading a composed supergraph skips a round trip through text.**
   Stripping the composition machinery already parses the SDL and filters the
   AST; that document now goes to graphql-ruby's builder directly, instead of

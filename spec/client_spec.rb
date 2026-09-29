@@ -258,6 +258,25 @@ describe GraphWeaver::Client do
       end
     end
 
+    # An app often builds one only to name its file — the supergraph
+    # `graphql: :router` plans against — and parsing a big dump at boot is
+    # seconds nobody asked for. Same rule a url client has always followed.
+    it "reads the dump on first use, not at construction" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "schema.graphql")
+        File.write(path, Demo::Schema.to_definition)
+        client = GraphWeaver.new(path)
+        File.delete(path)
+
+        # unread at construction, so there is nothing left to build from —
+        # and the refusal still names the path, where it was always going to
+        expect { client.schema }.to raise_error(GraphWeaver::Error, %r{can't read the schema at .*/schema.graphql})
+        # a client built from a file that isn't there is still a client that
+        # names it: nothing is read until something asks for the schema
+        expect(GraphWeaver.new(path).schema_source).to eq path
+      end
+    end
+
     # a supergraph's routing table lives in the file, not in the loaded
     # schema — so the path is the only thing that can name one afterwards
     it "remembers the dump it was built from, and only then" do
