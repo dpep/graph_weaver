@@ -184,8 +184,10 @@ increments `meta->line`, so `\r\n` matches twice. The Ruby lexer counts
 
 ### F6 — every parse-error message is reworded; positions are identical
 
-Seventeen broken inputs, both parsers: **every line and column matched**, every
-message differed. A representative slice, as `check_query` returns them:
+Seventeen inputs through both parsers, sixteen rejected by both: **every line
+and column matched, in all sixteen**, and every message differed. A
+representative slice (raw `GraphQL.parse`; `check_query` and the rake task
+surface these strings verbatim):
 
 | input | ruby | c |
 |---|---|---|
@@ -378,8 +380,8 @@ What decides it, in order:
 3. **F3/F4/F5.** Spec-legal input rejected, invalid input accepted, and wrong
    line numbers on CRLF. Three upstream defects in the thing being recommended,
    two of them (F3, F5) unreported.
-4. The gain does not buy them off. It is a parse-stage 2.2×, which is 15–50% of
-   `SchemaLoader.load`, on a path that a production boot never takes at all —
+4. The gain does not buy them off. A 2.2× on the parse stage comes out as
+   15–50% off `SchemaLoader.load`, on a path a production boot never takes —
    "a large dump costs nothing until something asks for it", as the same docs
    page says two paragraphs earlier. Generation-time and boot-time seconds, for
    +17% resident memory and the four defects above.
