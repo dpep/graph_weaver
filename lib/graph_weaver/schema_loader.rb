@@ -1300,9 +1300,17 @@ module GraphWeaver::SchemaLoader
 
     # A @key/@requires/@provides field set is a selection set. Flattened to
     # dotted paths, so a nested one is recognizable as nested by its shape.
+    # Memoized on the text: a supergraph repeats the same few spellings
+    # thousands of times ("id" on every entity), and each was a parse.
     def self.parse_field_set(text)
-      flatten(GraphQL.parse("{ #{text} }").definitions.first.selections, [])
+      FIELD_SETS.synchronize do
+        FIELD_SETS_BY_TEXT[text] ||= flatten(GraphQL.parse("{ #{text} }").definitions.first.selections, []).freeze
+      end
     end
+
+    FIELD_SETS = Mutex.new
+    FIELD_SETS_BY_TEXT = {}
+    private_constant :FIELD_SETS, :FIELD_SETS_BY_TEXT
 
     def self.flatten(selections, prefix)
       selections.flat_map do |node|

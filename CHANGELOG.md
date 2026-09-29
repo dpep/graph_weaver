@@ -24,6 +24,14 @@
   schema, field for field, and most of the saving lands on the big supergraphs
   where it was worth having.
 
+- **`check_query` builds a supergraph's routing table once per file version.**
+  It was rebuilt on every call — a parse of the whole supergraph each time,
+  about 200 ms at 2000 types against a fraction of a millisecond to stat the
+  file — so a spec calling it per query paid for the file as many times. Keyed
+  on the path, its mtime and its size, so a `schema:refresh` rewrite is seen.
+  The field sets inside `@key`/`@requires`/`@provides` are parsed once per
+  spelling as well; a supergraph says `"id"` on every entity.
+
 ###  v0.7.7  (2026-09-25)
 
 **What you must do.**

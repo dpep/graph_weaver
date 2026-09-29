@@ -863,3 +863,24 @@ RSpec.describe "#{GraphWeaver::SchemaLoader} auth provenance" do
     end
   end
 end
+
+# A supergraph spells the same field set on thousands of entities — "id" on
+# every @key — and each spelling was a parse of its own.
+describe "GraphWeaver::SchemaLoader::RoutingTable.parse_field_set" do
+  it "parses one spelling once, however many keys carry it" do
+    sdl = <<~SDL
+      schema @link(url: "https://specs.apollo.dev/link/v1.0") @link(url: "https://specs.apollo.dev/join/v0.3", for: EXECUTION) { query: Query }
+      enum join__Graph { ACCOUNTS @join__graph(name: "accounts", url: "http://a") }
+      type Query @join__type(graph: ACCOUNTS) { user: User product: Product }
+      type User @join__type(graph: ACCOUNTS, key: "zz_memo_key") { zz_memo_key: ID! }
+      type Product @join__type(graph: ACCOUNTS, key: "zz_memo_key") { zz_memo_key: ID! }
+    SDL
+    allow(GraphQL).to receive(:parse).and_call_original
+
+    table = GraphWeaver::SchemaLoader.routing_table(sdl)
+
+    expect(table.keys("User", "accounts")).to eq [["zz_memo_key"]]
+    expect(table.keys("Product", "accounts")).to eq [["zz_memo_key"]]
+    expect(GraphQL).to have_received(:parse).with("{ zz_memo_key }").once
+  end
+end

@@ -67,6 +67,7 @@ highest-severity or first-ranked item, in its own words, condensed.
 | Junior (published gem) | Follows `docs/migrating.md` step by step against graph_weaver 0.7.5 from RubyGems | `schema:refresh` rewrote a dump graphql-client still reads from 2,000 pretty lines to one compact line; parsed by luck. |
 | Junior (fragments, enums) | Builds an in-process Pet API from the docs alone across hoisted fragments, `fallback: true`, and the three testing tags | A `:wire` refusal fires in the tag's before-hook, so it can't be asserted inside the example. 16 minutes to green, never opened `lib/`. |
 | Hunt 7 | The skeptic over everything 0.7.5 and Unreleased changed; `object_node` byte-identity checked over 4,057 generated files | `schema:refresh` gutted a composed supergraph and exited 0 — the overwrite guard was a `@join__` substring test a gateway's declared directives satisfy. |
+| Join scanner | A performance engineer prototypes a routing-table reader with no GraphQL.parse, proves it equal (35 supergraphs, the whole suite, 20k fuzzed documents), and measures it (`join-scanner-experiment.md`; branch `experiment/join-scanner`) | 1.8–2.1× over the pure-Ruby parser and 0.97–1.18× over the C parser, for 602 lines and a second lexer; the real finding was `check_query` rebuilding the table on every call. Not shipped. |
 
 A few notes on the shape of this table:
 

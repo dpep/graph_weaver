@@ -375,9 +375,23 @@ module GraphWeaver
           path = path.to_path if path.respond_to?(:to_path)
           return unless path&.end_with?(".graphql", ".gql")
 
-          sdl = File.read(path)
-          SchemaLoader.routing_table(sdl) if SchemaLoader.federation_sdl?(sdl)
+          # once per file version: check_query is called per query, and the
+          # table behind a 2000-type supergraph costs ~200 ms to read against
+          # a fraction of a millisecond to stat — mtime and size in the key
+          # are what let schema:refresh's rewrite be seen without a reload
+          stat = File.stat(path)
+          key = [File.expand_path(path), stat.mtime, stat.size]
+          TABLES.synchronize do
+            return TABLES_BY_FILE[key] if TABLES_BY_FILE.key?(key)
+
+            sdl = File.read(path)
+            TABLES_BY_FILE[key] = SchemaLoader.routing_table(sdl) if SchemaLoader.federation_sdl?(sdl)
+          end
         end
+
+        TABLES = Mutex.new
+        TABLES_BY_FILE = {}
+        private_constant :TABLES, :TABLES_BY_FILE
 
         private
 

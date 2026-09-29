@@ -323,6 +323,25 @@ RSpec.describe "#{GraphWeaver::Client}#check_query" do
       }]
   end
 
+  # check_query runs per query; the table behind a large supergraph is a
+  # parse per build, and the file only changes when schema:refresh writes it
+  it "builds a supergraph's routing table once per file version" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "supergraph.graphql")
+      FileUtils.cp(RouterGraph::SUPERGRAPH, path)
+      federated = GraphWeaver.new(path)
+      allow(GraphWeaver::SchemaLoader).to receive(:routing_table).and_call_original
+
+      2.times { federated.check_query(%({ product(upc: "1") { colour } })) }
+      expect(GraphWeaver::SchemaLoader).to have_received(:routing_table).once
+
+      # a rewrite is a new version, seen by its size and mtime
+      File.write(path, File.read(path) + "\n# recomposed\n")
+      federated.check_query(%({ product(upc: "1") { colour } }))
+      expect(GraphWeaver::SchemaLoader).to have_received(:routing_table).twice
+    end
+  end
+
   # the routing table lives in the file, not in the loaded schema — so the same
   # supergraph handed over as SDL content has nothing to attribute with
   it "brands nothing when the client names no dump" do
