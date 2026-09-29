@@ -507,9 +507,11 @@ describe GraphWeaver::Codegen do
       expect(mod::QUERY).to eq "#{query.strip}\n"
     end
 
-    # graphql-ruby reports a byte offset rather than a column for a token with
-    # no newline after it (Parser#column_at), which .strip guarantees for the
-    # last line — so the splice can't take col on trust.
+    # The splice needs the operation's offset in the source, and no parser
+    # reports one portably: graphql-ruby's own parser gives a column that is a
+    # byte position minus a character line start, its C parser gives a true
+    # column and counts \r\n as two lines. So operation_offset lexes instead,
+    # and these are the shapes where the two conventions disagree.
     describe "naming an anonymous operation" do
       {
         "one line" => "{ people { name } }",
@@ -522,8 +524,11 @@ describe GraphWeaver::Codegen do
         "indented, after a comment" => "# who\n   { people { name } }",
         "after a fragment definition" => "fragment F on Person { name }\n# who\n{ people { ...F } }",
         "after a comment with an em dash" => "# who — everyone\n{ people { name } }",
+        "after a comment with an accent" => "# naïve\n{ people { name } }",
         "after a multibyte block-string argument" => %({ search(term: """naïve — x""") { __typename } }),
         "variables, after a comment" => "# who\nquery($id: ID!) { person(id: $id) { name } }",
+        "CRLF line endings" => "# who\r\n{ people { name } }\r\n",
+        "CRLF line endings, `query` keyword" => "# who\r\nquery { people { name } }\r\n",
       }.each do |shape, query|
         it "declares the name in the document it emits (#{shape})" do
           source = described_class.generate(schema: Demo::Schema, name: "PeopleQuery", query:)
@@ -534,6 +539,37 @@ describe GraphWeaver::Codegen do
             .grep(GraphQL::Language::Nodes::OperationDefinition).map(&:name)
           expect(declared).to eq [query.include?("Existing") ? "Existing" : "PeopleQuery"]
         end
+      end
+
+      # Without graphql-c_parser installed nothing above exercises the other
+      # column convention, so these stand in for it: each stubs the operation
+      # node with the position that parser really reports for that source
+      # (measured, not invented). They fail the moment the offset goes back to
+      # arithmetic over line and col.
+      {
+        "a true character column" =>
+          ["# who — everyone\n{ people { name } }", { line: 2, col: 1 }],
+        "\\r\\n as two line breaks" =>
+          ["# who\r\n{ people { name } }", { line: 3, col: 1 }],
+      }.each do |convention, (query, reported)|
+        it "names the operation against a parser reporting #{convention}" do
+          codegen = described_class.new(schema: Demo::Schema, name: "PeopleQuery", query:)
+          allow_any_instance_of(GraphQL::Language::Nodes::OperationDefinition)
+            .to receive(:line).and_return(reported[:line])
+          allow_any_instance_of(GraphQL::Language::Nodes::OperationDefinition)
+            .to receive(:col).and_return(reported[:col])
+
+          expect(codegen.generate).to include('OPERATION_NAME = T.let("PeopleQuery"')
+        end
+      end
+
+      # braces inside a directive's arguments are not the fragment's body, so
+      # the operation after it is still what the offset has to find
+      it "reads past a fragment whose directive argument is an object" do
+        query = "fragment F on Person @tag(m: { k: 1 }) { name }\n{ people { ...F } }"
+        codegen = described_class.new(schema: Demo::Schema, name: "PeopleQuery", query:)
+
+        expect(codegen.send(:operation_offset)).to eq query.index("{ people")
       end
 
       # the safety net for the splice above: a wrong offset used to emit a

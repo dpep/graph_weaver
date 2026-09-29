@@ -458,19 +458,51 @@ class GraphWeaver::Codegen
     declares!(named, name)
   end
 
-  # Where the operation starts in @query, in characters. graphql-ruby subtracts
-  # a CHARACTER line start from the lexer's BYTE position
-  # (Language::Parser#column_at over Lexer's @scanner.pos), so line start plus
-  # col is a byte offset — and col falls back to a whole-document offset for a
-  # token with no newline after it, which .strip guarantees for the last line,
-  # hence the copy that ends in one.
+  # What an operation definition opens with.
+  OPERATION_START = %i[QUERY MUTATION SUBSCRIPTION LCURLY].to_set.freeze
+  private_constant :OPERATION_START
+
+  # Where the operation starts in @query, in characters — lexed, not derived
+  # from a reported position, because no two parsers report the same one:
+  # graphql-ruby's own gives a BYTE position minus a CHARACTER line start
+  # (Language::Parser#column_at), its C parser gives a true column and counts
+  # \r\n as two lines. Language::Lexer is the same implementation whichever
+  # parser is default, and its #pos is an exact byte offset, so nothing here is
+  # left to interpret.
+  #
+  # The operation is the first one of those tokens outside every fragment
+  # definition, selection set and argument list — an argument's braces are
+  # not a body, and a fragment's body is not the operation's.
   def operation_offset
-    operation = sole_operation("#{@query}\n")
-    bytes = @query.lines.first(operation.line - 1).sum(&:length) + operation.col - 1
-    @query.byteslice(0, bytes).length
+    lexer = GraphQL::Language::Lexer.new(@query)
+    depth = 0
+    parens = 0
+    fragment = T.let(false, T::Boolean)
+
+    while (kind = lexer.advance)
+      parens += 1 if kind == :LPAREN
+      parens -= 1 if kind == :RPAREN
+      next unless parens.zero?
+
+      if depth.zero? && !fragment && OPERATION_START.include?(kind)
+        return @query.byteslice(0, lexer.pos).length
+      end
+
+      case kind
+      when :LCURLY
+        depth += 1
+        fragment = false
+      when :RCURLY then depth -= 1
+      when :FRAGMENT then fragment = true if depth.zero?
+      end
+    end
+
+    # The lexer and the parser disagree about what this document holds. Splice
+    # past the end, which declares! can only refuse.
+    @query.length
   end
 
-  # The splice above is arithmetic over a position graphql-ruby reports, so it
+  # The splice above lands on an offset this file worked out for itself, so it
   # can land wrong and still emit a module that looks fine — and OPERATION_NAME
   # would then be an operationName the document doesn't declare, which every
   # server rejects. Nothing else re-reads the query, so this is the only place

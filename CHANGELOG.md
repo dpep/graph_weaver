@@ -17,6 +17,14 @@
   `parse` or `check_query`; `rake graph_weaver:verify` in CI catches that one
   before a boot does.
 
+- **Nothing — naming an anonymous operation no longer depends on which parser
+  is loaded.** The name generated code declares is spliced at an offset found
+  by lexing the query, rather than by arithmetic over the line and column
+  graphql-ruby reports. With `graphql-c_parser` in the bundle — it reports a
+  true character column, and counts `\r\n` as two lines — generation used to
+  refuse for any query file carrying a non-ASCII byte before the operation, or
+  CRLF endings.
+
 - **Nothing — loading a composed supergraph skips a round trip through text.**
   Stripping the composition machinery already parses the SDL and filters the
   AST; that document now goes to graphql-ruby's builder directly, instead of
