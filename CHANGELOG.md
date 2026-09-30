@@ -1,4 +1,15 @@
-## Unreleased
+###  v0.7.8  (2026-09-29)
+
+**What you must do.** Nothing, for almost every app: a load got cheaper and a
+boot stopped paying for one. One edge moved, and [upgrading](docs/upgrading.md#upgrading-from-077)
+has it.
+
+- **Expect a malformed dump to refuse at first use, not at boot.** A client
+  built from a file stats it at construction — a missing or unreadable path
+  still fails where it is written — and parses it the first time something
+  asks. A file that exists but isn't a schema now refuses at that first
+  `schema`, `parse` or `check_query`; `rake graph_weaver:verify` in CI catches
+  it before a boot does.
 
 **What you must do.**
 

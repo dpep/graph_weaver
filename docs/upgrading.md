@@ -1,7 +1,8 @@
 # Upgrading
 
 [Regenerate](#regenerate-on-every-upgrade) whichever version you're on, then read
-the one section that is yours: from [0.7.6](#upgrading-from-076), from
+the one section that is yours: from [0.7.7](#upgrading-from-077), from
+[0.7.6](#upgrading-from-076), from
 [0.7.5](#upgrading-from-075), from
 [0.7.4](#upgrading-from-074), from [0.7.3](#upgrading-from-073), from
 [0.7.1](#upgrading-from-071), from [0.7.0](#upgrading-from-070) or from
@@ -24,6 +25,25 @@ after an upgrade reports the tree as stale whether or not codegen actually moved
 That's the reminder working, not a false alarm. Generation is deterministic, so
 the diff is exactly what the new version emits differently and nothing else —
 worth reading rather than rubber-stamping.
+
+## Upgrading from 0.7.7
+
+A patch release about load time. Nothing in it reaches an app that reads its
+dump and generates; one edge moved, below. Read the left column and skip what
+isn't yours; the [changelog](../CHANGELOG.md) says why each one moved.
+
+| applies if you… | what changed |
+|---|---|
+| build a client from a schema dump — `GraphWeaver.new("schema.graphql")`, or a graph naming one | it is parsed on first use, not at construction, so a production boot never parses it. A missing or unreadable path still refuses at construction, naming it; a file that exists but isn't a schema refuses at the first `schema`, `parse` or `check_query`. `rake graph_weaver:verify` catches that one in CI |
+| call `client.check_query` per query against a supergraph client | the routing table is built once per file version rather than per call — nothing to change, ~200 ms back per call on a 2000-type supergraph |
+| generate anonymous operations whose comments carry non-ASCII text, or check out with CRLF | they generate under any parser graphql-ruby is configured with; nothing to change unless you had named an operation to dodge a "could not name the anonymous operation" refusal |
+
+Then regenerate, and the gate:
+
+```sh
+rake graph_weaver:generate
+rake graph_weaver:verify
+```
 
 ## Upgrading from 0.7.6
 
