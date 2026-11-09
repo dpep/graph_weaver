@@ -268,7 +268,7 @@ DEPENDENCIES
   rake
   redcarpet
   rspec
-  simplecov
+  simplecov (>= 1)
   sorbet
   tapioca
   webmock
