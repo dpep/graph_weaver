@@ -1,5 +1,4 @@
 *.gem
-.byebug_history
 coverage
 .mutant/
 .yardoc
