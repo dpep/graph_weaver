@@ -67,7 +67,7 @@ Gem::Specification.new do |s|
   s.add_development_dependency "railties"
   s.add_development_dependency "redcarpet" # yard --markup markdown
   s.add_development_dependency "rspec"
-  s.add_development_dependency "simplecov"
+  s.add_development_dependency "simplecov", ">= 1"
   s.add_development_dependency "sorbet"
   s.add_development_dependency "tapioca"
   s.add_development_dependency "webmock" # graphql: :wire serves its Rack app through it
